@@ -3,6 +3,6 @@
 from . import config
 from .options import ConfigPath, ConfigPathType
 
-__all__ = ["__version__", "ConfigPath", "ConfigPathType", "config"]
+__all__ = ["ConfigPath", "ConfigPathType", "__version__", "config"]
 
 __version__ = "0.0.1"
