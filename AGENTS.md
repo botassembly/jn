@@ -1,5 +1,26 @@
 # Agents & Outside‑In Testing — How We Build JN
 
+## What We're Building
+
+**JN (Junction)** is a streaming pipeline orchestrator that composes `Source → Converter(s) → Target` with NDJSON and jq transforms. It's designed to minimize agent/LLM context usage by turning tools into code on disk.
+
+**Architecture:**
+- **Sources** emit bytes via drivers: exec (argv, safe), shell (requires --unsafe-shell), curl (HTTP), file (read), mcp (external tools)
+- **Converters** transform streaming JSON/NDJSON via engines: jq (primary), jc (parses CLI output & CSV to JSON), jiter (partial JSON recovery), delimited (CSV/TSV fallback)
+- **Targets** consume bytes (same drivers as sources: exec, shell, curl, file, mcp)
+- **Pipelines** chain them linearly with OS pipes for O(1) memory, binary-safe streaming
+
+**Key insight about `jc`**: CLI tool that converts output of popular command-line tools (dig, ps, arp, netstat, etc.), file-types (CSV, TSV, etc.), and common strings to JSON. In JN, it's a *converter engine* that turns non-JSON output into JSON/NDJSON before jq transforms.
+
+**Layers** (enforced by Import Linter):
+```
+CLI (thin, ≤3 imports) → Service (orchestration) → Drivers (I/O adapters)
+                      ↘  Config (jn.json loading) → Home (path resolution)
+                      ↘  Models (Pydantic, bedrock)
+```
+
+## Outside-In Development Process
+
 This is the house style for building **jn**. We always work **outside‑in**:
 
 1. **Write the CLI test first** using Typer’s `CliRunner`.
