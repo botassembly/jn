@@ -1,6 +1,5 @@
 """Pydantic models for jn.json configuration."""
 
-from dataclasses import dataclass
 from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
@@ -12,16 +11,6 @@ class Completed(BaseModel):
     returncode: int
     stdout: bytes
     stderr: bytes
-
-
-@dataclass
-class JnError(Exception):
-    """JN pipeline execution error."""
-
-    step: str
-    name: str
-    exit_code: int
-    stderr: Optional[str] = None
 
 
 class ExecSpec(BaseModel):

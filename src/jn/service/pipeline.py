@@ -4,7 +4,8 @@ import json
 from typing import Any, Dict, List, TypeVar
 
 from ..drivers import spawn_exec
-from ..models import Completed, Converter, JnError, Project, Source, Target
+from ..exceptions import JnError
+from ..models import Completed, Converter, Project, Source, Target
 
 T = TypeVar("T")
 
