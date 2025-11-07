@@ -33,6 +33,7 @@ def add_source(
     path: Optional[str] = None,
     env: Optional[Dict[str, str]] = None,
     cwd: Optional[str] = None,
+    allow_outside_config: bool = False,
 ) -> Source | Error:
     """Add a new source to the cached config and persist it."""
 
@@ -61,7 +62,11 @@ def add_source(
         source = Source(
             name=name,
             driver="file",
-            file=FileSpec(path=path or "", mode="read"),
+            file=FileSpec(
+                path=path or "",
+                mode="read",
+                allow_outside_config=allow_outside_config,
+            ),
         )
     else:
         return Error(message=f"Unknown driver: {driver}")
@@ -81,6 +86,9 @@ def add_target(
     path: Optional[str] = None,
     env: Optional[Dict[str, str]] = None,
     cwd: Optional[str] = None,
+    append: bool = False,
+    create_parents: bool = False,
+    allow_outside_config: bool = False,
 ) -> Target | Error:
     """Add a new target to the cached config and persist it."""
 
@@ -109,7 +117,13 @@ def add_target(
         target = Target(
             name=name,
             driver="file",
-            file=FileSpec(path=path or "", mode="write"),
+            file=FileSpec(
+                path=path or "",
+                mode="write",
+                append=append,
+                create_parents=create_parents,
+                allow_outside_config=allow_outside_config,
+            ),
         )
     else:
         return Error(message=f"Unknown driver: {driver}")
