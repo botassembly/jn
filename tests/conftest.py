@@ -80,7 +80,9 @@ def pass_converter():
 @pytest.fixture
 def double_converter():
     """Converter that doubles the 'n' field."""
-    return Converter(name="double", engine="jq", jq=JqConfig(expr="{n: (.n * 2)}"))
+    return Converter(
+        name="double", engine="jq", jq=JqConfig(expr="{n: (.n * 2)}")
+    )
 
 
 @pytest.fixture
