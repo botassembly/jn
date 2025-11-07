@@ -3,44 +3,21 @@
 import json
 
 from jn.cli import app
-from jn.models.project import (
-    Converter,
-    ExecSpec,
-    JqConfig,
-    Pipeline,
-    Project,
-    Source,
-    Step,
-    Target,
-)
+from jn.models.project import Pipeline, Project, Step
 
 
-def test_run_echo_pipeline(runner, tmp_path):
+def test_run_echo_pipeline(
+    runner, tmp_path, echo_source, pass_converter, cat_target
+):
     """Test running a simple echo pipeline."""
     jn_path = tmp_path / "jn.json"
 
     project = Project(
         version="0.1",
         name="test",
-        sources=[
-            Source(
-                name="echo",
-                driver="exec",
-                exec=ExecSpec(
-                    argv=[
-                        "python",
-                        "-c",
-                        "import json; print(json.dumps({'x': 1})); print(json.dumps({'x': 2}))",
-                    ]
-                ),
-            )
-        ],
-        converters=[
-            Converter(name="pass", engine="jq", jq=JqConfig(expr="."))
-        ],
-        targets=[
-            Target(name="cat", driver="exec", exec=ExecSpec(argv=["cat"]))
-        ],
+        sources=[echo_source],
+        converters=[pass_converter],
+        targets=[cat_target],
         pipelines=[
             Pipeline(
                 name="echo_to_cat",
@@ -66,41 +43,25 @@ def test_run_echo_pipeline(runner, tmp_path):
     assert json.loads(lines[1]) == {"x": 2}
 
 
-def test_run_pipeline_with_jq_transform(runner, tmp_path):
+def test_run_pipeline_with_jq_transform(
+    runner, tmp_path, numbers_source, double_converter, cat_target
+):
     """Test running a pipeline with jq transformation."""
     jn_path = tmp_path / "jn.json"
 
     project = Project(
         version="0.1",
         name="test",
-        sources=[
-            Source(
-                name="numbers",
-                driver="exec",
-                exec=ExecSpec(
-                    argv=[
-                        "python",
-                        "-c",
-                        "import json; print(json.dumps({'n': 1})); print(json.dumps({'n': 2}))",
-                    ]
-                ),
-            )
-        ],
-        converters=[
-            Converter(
-                name="double", engine="jq", jq=JqConfig(expr="{n: (.n * 2)}")
-            )
-        ],
-        targets=[
-            Target(name="stdout", driver="exec", exec=ExecSpec(argv=["cat"]))
-        ],
+        sources=[numbers_source],
+        converters=[double_converter],
+        targets=[cat_target],
         pipelines=[
             Pipeline(
                 name="double_numbers",
                 steps=[
                     Step(type="source", ref="numbers"),
                     Step(type="converter", ref="double"),
-                    Step(type="target", ref="stdout"),
+                    Step(type="target", ref="cat"),
                 ],
             )
         ],
@@ -132,31 +93,25 @@ def test_run_nonexistent_pipeline(runner, tmp_path):
     assert "Error" in result.output
 
 
-def test_run_pipeline_with_failing_source(runner, tmp_path):
+def test_run_pipeline_with_failing_source(
+    runner, tmp_path, failing_source, pass_converter, cat_target
+):
     """Test error handling when source fails."""
     jn_path = tmp_path / "jn.json"
 
     project = Project(
         version="0.1",
         name="test",
-        sources=[
-            Source(
-                name="failing", driver="exec", exec=ExecSpec(argv=["false"])
-            )
-        ],
-        converters=[
-            Converter(name="pass", engine="jq", jq=JqConfig(expr="."))
-        ],
-        targets=[
-            Target(name="stdout", driver="exec", exec=ExecSpec(argv=["cat"]))
-        ],
+        sources=[failing_source],
+        converters=[pass_converter],
+        targets=[cat_target],
         pipelines=[
             Pipeline(
                 name="fail_pipeline",
                 steps=[
                     Step(type="source", ref="failing"),
                     Step(type="converter", ref="pass"),
-                    Step(type="target", ref="stdout"),
+                    Step(type="target", ref="cat"),
                 ],
             )
         ],

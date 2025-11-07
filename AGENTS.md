@@ -115,6 +115,26 @@ def register(app: typer.Typer) -> None:
 
 ---
 
+## UV & Make: The Only Way
+
+**CRITICAL**: This project uses **UV** for package management and **Make** for task running. Do NOT use pip or run commands directly.
+
+**Always use these commands:**
+* `make install` - Install all dependencies (runs `uv sync --all-extras`)
+* `make check` - Run all checks (format, lint, type check, import linter)
+* `make test` - Run tests (runs `uv run pytest -q`)
+* `make coverage` - Generate coverage report (must stay ≥70%)
+
+**Never run pytest directly** - it doesn't work. The Makefile handles UV properly.
+
+**UV commands** (if you must run manually):
+* `uv sync --all-extras` - Sync dependencies
+* `uv run pytest` - Run tests through UV
+
+**When in doubt: use the Makefile.**
+
+---
+
 ## Coverage & linting
 
 * `make coverage` must stay ≥70%.
