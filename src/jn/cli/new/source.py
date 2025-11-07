@@ -102,13 +102,20 @@ def file(
     path: str = typer.Option(
         ...,
         "--path",
-        help="File path",
+        help="File path to read",
+    ),
+    allow_outside_config: bool = typer.Option(
+        False,
+        "--allow-outside-config",
+        help="Allow reading files outside config root",
     ),
 ) -> None:
     """Create a new file source."""
     config.set_config_path(jn)
 
-    result = config.add_source(name, "file", path=path)
+    result = config.add_source(
+        name, "file", path=path, allow_outside_config=allow_outside_config
+    )
 
     if isinstance(result, config.Error):
         typer.echo(str(result), err=True)

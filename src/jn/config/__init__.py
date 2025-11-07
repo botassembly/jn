@@ -25,7 +25,7 @@ from .core import config_path, ensure, require, reset, use
 from .mutate import add_converter, add_pipeline, add_source, add_target
 from .pipeline import explain_pipeline, run_pipeline
 from .types import CollectionName
-from .utils import parse_key_value_pairs
+from .utils import parse_key_value_pairs, substitute_template
 
 set_config_path = use
 
@@ -61,5 +61,6 @@ __all__ = [
     "run_pipeline",
     "set_config_path",
     "source_names",
+    "substitute_template",
     "target_names",
 ]

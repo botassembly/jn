@@ -102,13 +102,35 @@ def file(
     path: str = typer.Option(
         ...,
         "--path",
-        help="File path",
+        help="File path to write",
+    ),
+    append: bool = typer.Option(
+        False,
+        "--append",
+        help="Append to file instead of overwriting",
+    ),
+    create_parents: bool = typer.Option(
+        False,
+        "--create-parents",
+        help="Create parent directories if they don't exist",
+    ),
+    allow_outside_config: bool = typer.Option(
+        False,
+        "--allow-outside-config",
+        help="Allow writing files outside config root",
     ),
 ) -> None:
     """Create a new file target."""
     config.set_config_path(jn)
 
-    result = config.add_target(name, "file", path=path)
+    result = config.add_target(
+        name,
+        "file",
+        path=path,
+        append=append,
+        create_parents=create_parents,
+        allow_outside_config=allow_outside_config,
+    )
 
     if isinstance(result, config.Error):
         typer.echo(str(result), err=True)
