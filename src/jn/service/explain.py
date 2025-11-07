@@ -8,7 +8,6 @@ from ..models.project import PipelinePlan, Project
 def explain_pipeline(
     config: Project,
     pipeline_name: str,
-    params: Dict[str, Any] | None = None,
     show_commands: bool = False,
     show_env: bool = False,
 ) -> PipelinePlan:
@@ -18,7 +17,6 @@ def explain_pipeline(
     Args:
         config: The project configuration
         pipeline_name: Name of the pipeline to explain
-        params: Optional parameter overrides
         show_commands: Include command details (argv/cmd)
         show_env: Include environment variables
 
@@ -32,9 +30,6 @@ def explain_pipeline(
     pipeline = config.get_pipeline(pipeline_name)
     if not pipeline:
         raise ValueError(f"Pipeline '{pipeline_name}' not found")
-
-    # Merge params (pipeline defaults + overrides)
-    resolved_params = {**(pipeline.params or {}), **(params or {})}
 
     # Build step details
     steps = []
@@ -98,5 +93,4 @@ def explain_pipeline(
     return PipelinePlan(
         pipeline=pipeline_name,
         steps=steps,
-        params=resolved_params,
     )

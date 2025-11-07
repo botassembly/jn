@@ -1,7 +1,7 @@
 """Pipeline execution service."""
 
 import json
-from typing import Any, Dict, List, TypeVar
+from typing import List, TypeVar
 
 from ..drivers import spawn_exec
 from ..exceptions import JnError
@@ -29,7 +29,7 @@ def _lookup(items: List[T], name: str, item_type: str) -> T:
     return item
 
 
-def _run_source(source: Source, params: Dict[str, Any]) -> bytes:
+def _run_source(source: Source) -> bytes:
     """Execute a source and return its output bytes."""
     if source.driver == "exec" and source.exec:
         result = spawn_exec(
@@ -82,9 +82,7 @@ def _run_target(target: Target, stdin: bytes) -> bytes:
     raise NotImplementedError(f"Driver {target.driver} not implemented")
 
 
-def run_pipeline(
-    project: Project, pipeline_name: str, params: Dict[str, Any]
-) -> bytes:
+def run_pipeline(project: Project, pipeline_name: str) -> bytes:
     """Execute a pipeline: source → converters → target."""
     pipeline = _lookup(project.pipelines, pipeline_name, "pipeline")
     if not pipeline.steps:
@@ -97,7 +95,7 @@ def run_pipeline(
             f"Pipeline {pipeline_name}: first step must be a source"
         )
     source = _lookup(project.sources, source_step.ref, "source")
-    data = _run_source(source, source_step.args or {})
+    data = _run_source(source)
 
     # Converters (middle steps)
     for step in pipeline.steps[1:-1]:

@@ -139,7 +139,6 @@ class Pipeline(BaseModel):
     """Pipeline definition (source → converters → target)."""
 
     name: str
-    params: Dict[str, Any] = Field(default_factory=dict)
     steps: List[Step]
 
 
@@ -148,7 +147,6 @@ class PipelinePlan(BaseModel):
 
     pipeline: str
     steps: List[Dict[str, Any]]
-    params: Dict[str, Any] = Field(default_factory=dict)
 
 
 class Project(BaseModel):

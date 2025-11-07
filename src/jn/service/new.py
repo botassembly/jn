@@ -267,7 +267,6 @@ def add_pipeline(
     jn_path: Optional[Path],
     name: str,
     steps: List[str],
-    params: Optional[Dict[str, any]] = None,
 ) -> Project:
     """
     Add a new pipeline to the project.
@@ -277,7 +276,6 @@ def add_pipeline(
         jn_path: Path to jn.json (optional, resolved if None)
         name: Pipeline name
         steps: List of step specifications in format "type:ref" (e.g., "source:echo")
-        params: Optional pipeline parameters
 
     Returns:
         Updated Project instance
@@ -316,7 +314,6 @@ def add_pipeline(
     pipeline = Pipeline(
         name=name,
         steps=parsed_steps,
-        params=params or {},
     )
 
     # Add pipeline to config
