@@ -6,6 +6,7 @@ from typing import List, Optional
 import typer
 
 from ...config import get_config
+from ...models import Error
 from ...service.new import add_pipeline
 from . import new_app
 
@@ -26,11 +27,10 @@ def pipeline(
     """Create a new pipeline."""
     config = get_config(jn)
 
-    add_pipeline(
-        config=config,
-        jn_path=jn,
-        name=name,
-        steps=steps,
-    )
+    result = add_pipeline(config, name, steps)
 
-    typer.echo(f"Created pipeline '{name}' with {len(steps)} steps")
+    if isinstance(result, Error):
+        typer.echo(str(result), err=True)
+        raise typer.Exit(1)
+
+    typer.echo(f"Created pipeline '{result.name}' with {len(result.steps)} steps")

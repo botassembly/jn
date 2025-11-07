@@ -1,8 +1,18 @@
 """Pydantic models for jn.json configuration."""
 
-from typing import Any, Dict, List, Literal, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Literal
 
 from pydantic import BaseModel, Field, field_validator
+
+
+class Error(BaseModel):
+    """Error result from operations."""
+
+    message: str
+
+    def __str__(self) -> str:
+        return self.message
 
 
 class Completed(BaseModel):
@@ -17,7 +27,7 @@ class ExecSpec(BaseModel):
     """Exec driver specification (argv-based, safe)."""
 
     argv: List[str]
-    cwd: Optional[str] = None
+    cwd: str | None = None
     env: Dict[str, str] = Field(default_factory=dict)
 
 
@@ -33,7 +43,7 @@ class CurlSpec(BaseModel):
     method: str = "GET"
     url: str
     headers: Dict[str, str] = Field(default_factory=dict)
-    body: Optional[Any] = None
+    body: Any | None = None
 
 
 class FileSpec(BaseModel):
@@ -61,11 +71,11 @@ class Source(BaseModel):
     name: str
     driver: Literal["exec", "shell", "curl", "file", "mcp"]
     mode: Literal["batch", "stream"] = "stream"
-    exec: Optional[ExecSpec] = None
-    shell: Optional[ShellSpec] = None
-    curl: Optional[CurlSpec] = None
-    file: Optional[FileSpec] = None
-    mcp: Optional[McpSpec] = None
+    exec: ExecSpec | None = None
+    shell: ShellSpec | None = None
+    curl: CurlSpec | None = None
+    file: FileSpec | None = None
+    mcp: McpSpec | None = None
 
 
 class Target(BaseModel):
@@ -74,19 +84,19 @@ class Target(BaseModel):
     name: str
     driver: Literal["exec", "shell", "curl", "file", "mcp"]
     mode: Literal["batch", "stream"] = "stream"
-    exec: Optional[ExecSpec] = None
-    shell: Optional[ShellSpec] = None
-    curl: Optional[CurlSpec] = None
-    file: Optional[FileSpec] = None
-    mcp: Optional[McpSpec] = None
+    exec: ExecSpec | None = None
+    shell: ShellSpec | None = None
+    curl: CurlSpec | None = None
+    file: FileSpec | None = None
+    mcp: McpSpec | None = None
 
 
 class JqConfig(BaseModel):
     """jq converter configuration."""
 
-    expr: Optional[str] = None
-    file: Optional[str] = None
-    modules: Optional[str] = None
+    expr: str | None = None
+    file: str | None = None
+    modules: str | None = None
     raw: bool = False
     args: Dict[str, Any] = Field(default_factory=dict)
 
@@ -113,7 +123,7 @@ class DelimitedConfig(BaseModel):
     delimiter: str = ","
     has_header: bool = True
     quotechar: str = '"'
-    fields: Optional[List[str]] = None
+    fields: List[str] | None = None
 
 
 class Converter(BaseModel):
@@ -121,10 +131,10 @@ class Converter(BaseModel):
 
     name: str
     engine: Literal["jq", "jc", "jiter", "delimited"]
-    jq: Optional[JqConfig] = None
-    jc: Optional[JcConfig] = None
-    jiter: Optional[JiterConfig] = None
-    delimited: Optional[DelimitedConfig] = None
+    jq: JqConfig | None = None
+    jc: JcConfig | None = None
+    jiter: JiterConfig | None = None
+    delimited: DelimitedConfig | None = None
 
 
 class Step(BaseModel):
@@ -158,6 +168,7 @@ class Project(BaseModel):
     targets: List[Target] = Field(default_factory=list)
     converters: List[Converter] = Field(default_factory=list)
     pipelines: List[Pipeline] = Field(default_factory=list)
+    config_path: Path | None = Field(default=None, exclude=True)
 
     @field_validator("sources", "targets", "converters", "pipelines")
     @classmethod
@@ -168,19 +179,19 @@ class Project(BaseModel):
             raise ValueError("Duplicate names are not allowed")
         return v
 
-    def get_source(self, name: str) -> Optional[Source]:
+    def get_source(self, name: str) -> Source | None:
         """Get source by name, or None if not found."""
         return next((s for s in self.sources if s.name == name), None)
 
-    def get_target(self, name: str) -> Optional[Target]:
+    def get_target(self, name: str) -> Target | None:
         """Get target by name, or None if not found."""
         return next((t for t in self.targets if t.name == name), None)
 
-    def get_converter(self, name: str) -> Optional[Converter]:
+    def get_converter(self, name: str) -> Converter | None:
         """Get converter by name, or None if not found."""
         return next((c for c in self.converters if c.name == name), None)
 
-    def get_pipeline(self, name: str) -> Optional[Pipeline]:
+    def get_pipeline(self, name: str) -> Pipeline | None:
         """Get pipeline by name, or None if not found."""
         return next((p for p in self.pipelines if p.name == name), None)
 

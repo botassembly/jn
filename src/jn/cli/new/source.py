@@ -6,6 +6,7 @@ from typing import List, Optional
 import typer
 
 from ...config import get_config, parse_key_value_pairs
+from ...models import Error
 from ...service.new import add_source
 
 app = typer.Typer(help="Create a new source")
@@ -38,17 +39,20 @@ def exec(
     config = get_config(jn)
     env_dict = parse_key_value_pairs(env) if env else None
 
-    add_source(
-        config=config,
-        jn_path=jn,
-        name=name,
-        driver="exec",
+    result = add_source(
+        config,
+        name,
+        "exec",
         argv=argv,
         env=env_dict,
         cwd=cwd,
     )
 
-    typer.echo(f"Created source '{name}' with driver 'exec'")
+    if isinstance(result, Error):
+        typer.echo(str(result), err=True)
+        raise typer.Exit(1)
+
+    typer.echo(f"Created source '{result.name}' with driver '{result.driver}'")
 
 
 @app.command()
@@ -67,15 +71,13 @@ def shell(
     """Create a new shell source."""
     config = get_config(jn)
 
-    add_source(
-        config=config,
-        jn_path=jn,
-        name=name,
-        driver="shell",
-        cmd=cmd,
-    )
+    result = add_source(config, name, "shell", cmd=cmd)
 
-    typer.echo(f"Created source '{name}' with driver 'shell'")
+    if isinstance(result, Error):
+        typer.echo(str(result), err=True)
+        raise typer.Exit(1)
+
+    typer.echo(f"Created source '{result.name}' with driver '{result.driver}'")
 
 
 @app.command()
@@ -99,16 +101,13 @@ def curl(
     """Create a new curl source."""
     config = get_config(jn)
 
-    add_source(
-        config=config,
-        jn_path=jn,
-        name=name,
-        driver="curl",
-        url=url,
-        method=method,
-    )
+    result = add_source(config, name, "curl", url=url, method=method)
 
-    typer.echo(f"Created source '{name}' with driver 'curl'")
+    if isinstance(result, Error):
+        typer.echo(str(result), err=True)
+        raise typer.Exit(1)
+
+    typer.echo(f"Created source '{result.name}' with driver '{result.driver}'")
 
 
 @app.command()
@@ -127,12 +126,10 @@ def file(
     """Create a new file source."""
     config = get_config(jn)
 
-    add_source(
-        config=config,
-        jn_path=jn,
-        name=name,
-        driver="file",
-        path=path,
-    )
+    result = add_source(config, name, "file", path=path)
 
-    typer.echo(f"Created source '{name}' with driver 'file'")
+    if isinstance(result, Error):
+        typer.echo(str(result), err=True)
+        raise typer.Exit(1)
+
+    typer.echo(f"Created source '{result.name}' with driver '{result.driver}'")

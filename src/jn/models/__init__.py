@@ -3,6 +3,7 @@
 from .project import (
     Completed,
     Converter,
+    Error,
     ExecSpec,
     Pipeline,
     PipelinePlan,
@@ -16,6 +17,7 @@ from .project import (
 __all__ = [
     "Completed",
     "Converter",
+    "Error",
     "ExecSpec",
     "Pipeline",
     "PipelinePlan",

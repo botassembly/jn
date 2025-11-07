@@ -56,11 +56,13 @@ def get_config(path: Optional[str | Path] = None) -> Project:
         resolved = Path(path) if isinstance(path, str) else path
         data = load_json(resolved)
         _CONFIG = Project.model_validate(data)
+        _CONFIG.config_path = resolved
         return _CONFIG
     if _CONFIG is None:
         p = resolve_config_path()
         data = load_json(p)
         _CONFIG = Project.model_validate(data)
+        _CONFIG.config_path = p
     return _CONFIG
 
 

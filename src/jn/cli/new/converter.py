@@ -6,6 +6,7 @@ from typing import Optional
 import typer
 
 from ...config import get_config
+from ...models import Error
 from ...service.new import add_converter
 from . import new_app
 
@@ -41,14 +42,17 @@ def converter(
     """Create a new jq converter."""
     config = get_config(jn)
 
-    add_converter(
-        config=config,
-        jn_path=jn,
-        name=name,
+    result = add_converter(
+        config,
+        name,
         expr=expr,
         file=file,
         raw=raw,
         modules=modules,
     )
 
-    typer.echo(f"Created converter '{name}'")
+    if isinstance(result, Error):
+        typer.echo(str(result), err=True)
+        raise typer.Exit(1)
+
+    typer.echo(f"Created converter '{result.name}'")
