@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Optional
 
-from ..models import Completed
+from jn.models import Completed
 
 
 def run_file_read(
