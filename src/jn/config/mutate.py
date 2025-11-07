@@ -34,6 +34,7 @@ def add_source(
     env: Optional[Dict[str, str]] = None,
     cwd: Optional[str] = None,
     allow_outside_config: bool = False,
+    adapter: Optional[str] = None,
 ) -> Source | Error:
     """Add a new source to the cached config and persist it."""
 
@@ -46,22 +47,28 @@ def add_source(
         source = Source(
             name=name,
             driver="exec",
+            adapter=adapter,
             exec=ExecSpec(argv=argv or [], cwd=cwd, env=env or {}),
         )
     elif driver == "shell":
         source = Source(
-            name=name, driver="shell", shell=ShellSpec(cmd=cmd or "")
+            name=name,
+            driver="shell",
+            adapter=adapter,
+            shell=ShellSpec(cmd=cmd or ""),
         )
     elif driver == "curl":
         source = Source(
             name=name,
             driver="curl",
+            adapter=adapter,
             curl=CurlSpec(method=method, url=url or ""),
         )
     elif driver == "file":
         source = Source(
             name=name,
             driver="file",
+            adapter=adapter,
             file=FileSpec(
                 path=path or "",
                 mode="read",

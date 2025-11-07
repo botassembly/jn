@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TypeVar
 
-from jn.drivers import run_file_read, run_file_write, spawn_exec
+from jn.drivers import run_file_read, run_file_write, spawn_exec, spawn_shell
 from jn.exceptions import JnError
 from jn.models import Completed, Converter, PipelinePlan, Source, Target
 
@@ -52,6 +52,7 @@ def _run_source(
     source: Source,
     params: Optional[Dict[str, str]] = None,
     env: Optional[Dict[str, str]] = None,
+    unsafe_shell: bool = False,
 ) -> bytes:
     """Execute a source and return its output bytes."""
 
@@ -61,6 +62,9 @@ def _run_source(
             substitute_template(arg, params=params, env=env)
             for arg in source.exec.argv
         ]
+        # Apply jc adapter if specified (prepend 'jc' to leverage magic mode)
+        if source.adapter == "jc":
+            argv = ["jc", *argv]
         # Apply templating to cwd if present
         cwd = (
             substitute_template(source.exec.cwd, params=params, env=env)
@@ -80,6 +84,15 @@ def _run_source(
         result = spawn_exec(argv, env=final_env or None, cwd=cwd)
         _check_result("source", source.name, result)
         return result.stdout
+    elif source.driver == "shell" and source.shell:
+        # Apply templating to shell command
+        cmd = substitute_template(source.shell.cmd, params=params, env=env)
+        # Apply jc adapter if specified (prepend 'jc' to leverage magic mode)
+        if source.adapter == "jc":
+            cmd = f"jc {cmd}"
+        result = spawn_shell(cmd, env=env, unsafe=unsafe_shell)
+        _check_result("source", source.name, result)
+        return result.stdout
     elif source.driver == "file" and source.file:
         # Apply templating to path
         path = substitute_template(source.file.path, params=params, env=env)
@@ -94,9 +107,13 @@ def _run_source(
 
 
 def _run_converter(converter: Converter, stdin: bytes) -> bytes:
-    """Execute a converter and return transformed bytes."""
+    """Execute a converter and return transformed bytes.
 
-    if converter.engine == "jq" and converter.jq:
+    Note: Converter.engine is always "jq" (Literal["jq"]), so we only
+    need to check that converter.jq is configured.
+    """
+
+    if converter.jq:
         argv = ["jq", "-c"]
         if converter.jq.raw:
             argv.append("-r")
@@ -127,6 +144,7 @@ def _run_target(
     stdin: bytes,
     params: Optional[Dict[str, str]] = None,
     env: Optional[Dict[str, str]] = None,
+    unsafe_shell: bool = False,
 ) -> bytes:
     """Execute a target and return its output bytes."""
 
@@ -155,6 +173,12 @@ def _run_target(
         result = spawn_exec(argv, stdin=stdin, env=final_env or None, cwd=cwd)
         _check_result("target", target.name, result)
         return result.stdout
+    elif target.driver == "shell" and target.shell:
+        # Apply templating to shell command
+        cmd = substitute_template(target.shell.cmd, params=params, env=env)
+        result = spawn_shell(cmd, stdin=stdin, env=env, unsafe=unsafe_shell)
+        _check_result("target", target.name, result)
+        return result.stdout
     elif target.driver == "file" and target.file:
         # Apply templating to path
         path = substitute_template(target.file.path, params=params, env=env)
@@ -176,6 +200,7 @@ def run_pipeline(
     path: Optional[Path | str] = None,
     params: Optional[Dict[str, str]] = None,
     env: Optional[Dict[str, str]] = None,
+    unsafe_shell: bool = False,
 ) -> bytes:
     """Execute a pipeline: source → converters → target."""
 
@@ -195,7 +220,9 @@ def run_pipeline(
             f"Pipeline {pipeline_name}: first step must be a source"
         )
     source = _lookup(config_obj.sources, source_step.ref, "source")
-    data = _run_source(source, params=params, env=merged_env)
+    data = _run_source(
+        source, params=params, env=merged_env, unsafe_shell=unsafe_shell
+    )
 
     for step in pipeline.steps[1:-1]:
         if step.type != "converter":
@@ -212,7 +239,9 @@ def run_pipeline(
         )
     target = _lookup(config_obj.targets, target_step.ref, "target")
 
-    return _run_target(target, data, params=params, env=merged_env)
+    return _run_target(
+        target, data, params=params, env=merged_env, unsafe_shell=unsafe_shell
+    )
 
 
 def explain_pipeline(
@@ -255,7 +284,8 @@ def explain_pipeline(
             converter = config_obj.get_converter(step.ref)
             if converter:
                 step_info["engine"] = converter.engine
-                if show_commands and converter.engine == "jq" and converter.jq:
+                # Note: engine is always "jq" (Literal["jq"])
+                if show_commands and converter.jq:
                     step_info["expr"] = converter.jq.expr
                     step_info["raw"] = converter.jq.raw
                     if converter.jq.file:

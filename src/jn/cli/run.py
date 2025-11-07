@@ -20,6 +20,11 @@ def run(
     env: Optional[List[str]] = typer.Option(
         None, "--env", help="Environment variable overrides (K=V format)"
     ),
+    unsafe_shell: bool = typer.Option(
+        False,
+        "--unsafe-shell",
+        help="Allow shell driver execution (security risk)",
+    ),
 ) -> None:
     """Execute a pipeline (source → converters → target)."""
     try:
@@ -27,7 +32,10 @@ def run(
         params = config.parse_key_value_pairs(param or [])
         env_overrides = config.parse_key_value_pairs(env or [])
         output = config.run_pipeline(
-            pipeline, params=params, env=env_overrides
+            pipeline,
+            params=params,
+            env=env_overrides,
+            unsafe_shell=unsafe_shell,
         )
         sys.stdout.buffer.write(output)
         sys.stdout.buffer.flush()

@@ -26,6 +26,11 @@ def exec(
         "--cwd",
         help="Working directory",
     ),
+    adapter: str | None = typer.Option(
+        None,
+        "--adapter",
+        help="Adapter for non-JSON output (e.g., 'jc')",
+    ),
 ) -> None:
     """Create a new exec source."""
     config.set_config_path(jn)
@@ -37,6 +42,7 @@ def exec(
         argv=argv,
         env=env_dict,
         cwd=cwd,
+        adapter=adapter,
     )
 
     if isinstance(result, config.Error):
@@ -55,11 +61,16 @@ def shell(
         "--cmd",
         help="Shell command",
     ),
+    adapter: str | None = typer.Option(
+        None,
+        "--adapter",
+        help="Adapter for non-JSON output (e.g., 'jc')",
+    ),
 ) -> None:
     """Create a new shell source."""
     config.set_config_path(jn)
 
-    result = config.add_source(name, "shell", cmd=cmd)
+    result = config.add_source(name, "shell", cmd=cmd, adapter=adapter)
 
     if isinstance(result, config.Error):
         typer.echo(str(result), err=True)

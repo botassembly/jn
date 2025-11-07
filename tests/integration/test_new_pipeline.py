@@ -17,8 +17,8 @@ def test_new_pipeline_basic(runner, tmp_path):
             [
                 "new",
                 "source",
-                "test.echo",
                 "exec",
+                "test.echo",
                 "--argv",
                 "echo",
                 "--argv",
@@ -44,8 +44,8 @@ def test_new_pipeline_basic(runner, tmp_path):
             [
                 "new",
                 "target",
-                "test.cat",
                 "exec",
+                "test.cat",
                 "--argv",
                 "cat",
                 "--jn",
@@ -53,19 +53,19 @@ def test_new_pipeline_basic(runner, tmp_path):
             ],
         )
 
-        # Create pipeline
+        # Create pipeline with new simplified syntax
         result = runner.invoke(
             app,
             [
                 "new",
                 "pipeline",
                 "test_pipe",
-                "--steps",
-                "source:test.echo",
-                "--steps",
-                "converter:test.pass",
-                "--steps",
-                "target:test.cat",
+                "--source",
+                "test.echo",
+                "--converter",
+                "test.pass",
+                "--target",
+                "test.cat",
                 "--jn",
                 str(jn_path),
             ],
@@ -96,8 +96,8 @@ def test_new_pipeline_with_multiple_converters(runner, tmp_path):
             [
                 "new",
                 "source",
-                "src",
                 "exec",
+                "src",
                 "--argv",
                 "echo",
                 "--jn",
@@ -117,8 +117,8 @@ def test_new_pipeline_with_multiple_converters(runner, tmp_path):
             [
                 "new",
                 "target",
-                "tgt",
                 "exec",
+                "tgt",
                 "--argv",
                 "cat",
                 "--jn",
@@ -126,20 +126,21 @@ def test_new_pipeline_with_multiple_converters(runner, tmp_path):
             ],
         )
 
+        # Create pipeline with multiple converters
         result = runner.invoke(
             app,
             [
                 "new",
                 "pipeline",
                 "multi",
-                "--steps",
-                "source:src",
-                "--steps",
-                "converter:c1",
-                "--steps",
-                "converter:c2",
-                "--steps",
-                "target:tgt",
+                "--source",
+                "src",
+                "--converter",
+                "c1",
+                "--converter",
+                "c2",
+                "--target",
+                "tgt",
                 "--jn",
                 str(jn_path),
             ],
@@ -160,8 +161,8 @@ def test_new_pipeline_duplicate_name(runner, tmp_path):
             [
                 "new",
                 "source",
-                "src",
                 "exec",
+                "src",
                 "--argv",
                 "echo",
                 "--jn",
@@ -176,8 +177,8 @@ def test_new_pipeline_duplicate_name(runner, tmp_path):
             [
                 "new",
                 "target",
-                "tgt",
                 "exec",
+                "tgt",
                 "--argv",
                 "cat",
                 "--jn",
@@ -192,12 +193,12 @@ def test_new_pipeline_duplicate_name(runner, tmp_path):
                 "new",
                 "pipeline",
                 "dup",
-                "--steps",
-                "source:src",
-                "--steps",
-                "converter:c",
-                "--steps",
-                "target:tgt",
+                "--source",
+                "src",
+                "--converter",
+                "c",
+                "--target",
+                "tgt",
                 "--jn",
                 str(jn_path),
             ],
@@ -210,10 +211,10 @@ def test_new_pipeline_duplicate_name(runner, tmp_path):
                 "new",
                 "pipeline",
                 "dup",
-                "--steps",
-                "source:src",
-                "--steps",
-                "target:tgt",
+                "--source",
+                "src",
+                "--target",
+                "tgt",
                 "--jn",
                 str(jn_path),
             ],
@@ -224,42 +225,21 @@ def test_new_pipeline_duplicate_name(runner, tmp_path):
     assert "already exists" in (result.stderr or result.output)
 
 
-def test_new_pipeline_invalid_step_format(runner, tmp_path):
-    """Test error handling for invalid step format."""
+def test_new_pipeline_requires_source_and_target(runner, tmp_path):
+    """Test that pipeline requires source and target."""
     jn_path = tmp_path / "jn.json"
     with runner.isolated_filesystem(temp_dir=tmp_path):
         runner.invoke(app, ["init", "--jn", str(jn_path)])
 
+        # Try to create pipeline without source
         result = runner.invoke(
             app,
             [
                 "new",
                 "pipeline",
-                "bad",
-                "--steps",
-                "invalid_format",
-                "--jn",
-                str(jn_path),
-            ],
-        )
-
-    assert result.exit_code == 1
-    assert result.exception is not None
-    assert "format" in (result.stderr or result.output).lower()
-
-
-def test_new_pipeline_requires_steps(runner, tmp_path):
-    """Test that pipeline requires at least one step."""
-    jn_path = tmp_path / "jn.json"
-    with runner.isolated_filesystem(temp_dir=tmp_path):
-        runner.invoke(app, ["init", "--jn", str(jn_path)])
-
-        result = runner.invoke(
-            app,
-            [
-                "new",
-                "pipeline",
-                "empty",
+                "no_source",
+                "--target",
+                "tgt",
                 "--jn",
                 str(jn_path),
             ],
@@ -267,4 +247,57 @@ def test_new_pipeline_requires_steps(runner, tmp_path):
 
     # Typer returns exit code 2 for missing required arguments
     assert result.exit_code == 2
-    assert "steps" in result.output.lower()
+    assert "source" in result.output.lower()
+
+
+def test_new_pipeline_without_converters(runner, tmp_path):
+    """Test that pipeline can be created without converters."""
+    jn_path = tmp_path / "jn.json"
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        runner.invoke(app, ["init", "--jn", str(jn_path)])
+        runner.invoke(
+            app,
+            [
+                "new",
+                "source",
+                "exec",
+                "src",
+                "--argv",
+                "echo",
+                "--jn",
+                str(jn_path),
+            ],
+        )
+        runner.invoke(
+            app,
+            [
+                "new",
+                "target",
+                "exec",
+                "tgt",
+                "--argv",
+                "cat",
+                "--jn",
+                str(jn_path),
+            ],
+        )
+
+        # Create pipeline without converters (direct source -> target)
+        result = runner.invoke(
+            app,
+            [
+                "new",
+                "pipeline",
+                "simple",
+                "--source",
+                "src",
+                "--target",
+                "tgt",
+                "--jn",
+                str(jn_path),
+            ],
+        )
+
+    assert result.exit_code == 0
+    data = json.loads(jn_path.read_text())
+    assert len(data["pipelines"][0]["steps"]) == 2  # Just source and target
