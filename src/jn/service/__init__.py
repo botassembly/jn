@@ -1,14 +1,9 @@
 """Service layer: pipeline orchestration and business logic."""
 
-from dataclasses import dataclass
-from typing import Optional
+from ..models import JnError
+from .pipeline import run_pipeline
 
-
-@dataclass
-class JnError(Exception):
-    """JN pipeline execution error."""
-
-    step: str
-    name: str
-    exit_code: int
-    stderr: Optional[str] = None
+__all__ = [
+    "JnError",
+    "run_pipeline",
+]

@@ -6,7 +6,7 @@ from typing import Optional
 import typer
 
 from ..config import get_config
-from ..service.pipeline import run_pipeline
+from ..service import run_pipeline
 from . import app
 
 

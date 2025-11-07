@@ -1,8 +1,10 @@
 """Pydantic models for jn.json project configuration."""
 
 from .project import (
+    Completed,
     Converter,
     ExecSpec,
+    JnError,
     Pipeline,
     Project,
     ShellSpec,
@@ -12,8 +14,10 @@ from .project import (
 )
 
 __all__ = [
+    "Completed",
     "Converter",
     "ExecSpec",
+    "JnError",
     "Pipeline",
     "Project",
     "ShellSpec",

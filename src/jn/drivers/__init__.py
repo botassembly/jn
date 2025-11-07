@@ -1,12 +1,9 @@
 """Drivers: I/O adapters for sources and targets."""
 
-from dataclasses import dataclass
+from ..models import Completed
+from .exec import spawn_exec
 
-
-@dataclass
-class Completed:
-    """Result of a driver execution."""
-
-    returncode: int
-    stdout: bytes
-    stderr: bytes
+__all__ = [
+    "Completed",
+    "spawn_exec",
+]

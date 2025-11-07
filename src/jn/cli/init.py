@@ -6,7 +6,7 @@ from typing import Optional
 import typer
 
 from ..home import save_json
-from ..models.project import Project
+from ..models import Project
 from . import app
 
 

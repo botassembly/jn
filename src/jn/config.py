@@ -4,7 +4,13 @@ from pathlib import Path
 from typing import Optional
 
 from .home import load_json, resolve_config_path
-from .models.project import Project
+from .models import Project
+
+__all__ = [
+    "get_config",
+    "reset_config",
+    "set_config",
+]
 
 _CONFIG: Optional[Project] = None
 

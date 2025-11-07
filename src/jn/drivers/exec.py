@@ -3,7 +3,7 @@
 import subprocess
 from typing import Dict, Optional
 
-from . import Completed
+from ..models import Completed
 
 
 def spawn_exec(
