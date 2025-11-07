@@ -2,16 +2,15 @@
 
 import typer
 
-from jn import config
+from jn import ConfigPath, ConfigPathType, config
 
-from .. import ConfigPath
 from . import show_app
 
 
 @show_app.command()
 def converter(
     name: str,
-    jn: ConfigPath = None,
+    jn: ConfigPathType = ConfigPath,
 ) -> None:
     """Show a converter's JSON definition."""
     config.set_config_path(jn)

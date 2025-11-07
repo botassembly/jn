@@ -2,15 +2,15 @@
 
 import typer
 
-from jn import config
+from jn import ConfigPath, ConfigPathType, config
 
-from .. import ConfigPath
 from . import new_app
 
 
 @new_app.command()
 def converter(
     name: str,
+    jn: ConfigPathType = ConfigPath,
     expr: str | None = typer.Option(
         None,
         "--expr",
@@ -31,7 +31,6 @@ def converter(
         "--modules",
         help="Path to jq modules directory",
     ),
-    jn: ConfigPath = None,
 ) -> None:
     """Create a new jq converter."""
     config.set_config_path(jn)

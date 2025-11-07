@@ -4,15 +4,16 @@ from pathlib import Path
 
 import typer
 
+from jn import ConfigPath, ConfigPathType
 from jn.home import save_json
 from jn.models import Config
 
-from . import ConfigPath, app
+from . import app
 
 
 @app.command()
 def init(
-    jn: ConfigPath = None,
+    jn: ConfigPathType = ConfigPath,
     force: bool = typer.Option(
         False,
         "--force",

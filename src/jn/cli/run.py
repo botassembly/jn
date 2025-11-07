@@ -4,15 +4,15 @@ import sys
 
 import typer
 
-from jn import config
+from jn import ConfigPath, ConfigPathType, config
 
-from . import ConfigPath, app
+from . import app
 
 
 @app.command()
 def run(
     pipeline: str,
-    jn: ConfigPath = None,
+    jn: ConfigPathType = ConfigPath,
 ) -> None:
     """Execute a pipeline (source → converters → target)."""
     try:

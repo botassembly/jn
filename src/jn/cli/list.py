@@ -2,15 +2,15 @@
 
 import typer
 
-from jn import config
+from jn import ConfigPath, ConfigPathType, config
 
-from . import ConfigPath, app
+from . import app
 
 
 @app.command()
 def list(
     kind: config.CollectionName,
-    jn: ConfigPath = None,
+    jn: ConfigPathType = ConfigPath,
 ) -> None:
     """List items by kind (sources, targets, converters, pipelines)."""
     config.set_config_path(jn)

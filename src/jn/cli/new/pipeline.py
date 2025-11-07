@@ -2,21 +2,20 @@
 
 import typer
 
-from jn import config
+from jn import ConfigPath, ConfigPathType, config
 
-from .. import ConfigPath
 from . import new_app
 
 
 @new_app.command()
 def pipeline(
     name: str,
+    jn: ConfigPathType = ConfigPath,
     steps: list[str] = typer.Option(
         ...,
         "--steps",
         help="Pipeline steps in format 'type:ref' (e.g., 'source:echo')",
     ),
-    jn: ConfigPath = None,
 ) -> None:
     """Create a new pipeline."""
     config.set_config_path(jn)

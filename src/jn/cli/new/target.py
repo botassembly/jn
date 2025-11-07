@@ -2,9 +2,7 @@
 
 import typer
 
-from jn import config
-
-from .. import ConfigPath
+from jn import ConfigPath, ConfigPathType, config
 
 app = typer.Typer(help="Create a new target")
 
@@ -12,6 +10,7 @@ app = typer.Typer(help="Create a new target")
 @app.command()
 def exec(
     name: str,
+    jn: ConfigPathType = ConfigPath,
     argv: list[str] = typer.Option(
         ...,
         "--argv",
@@ -27,7 +26,6 @@ def exec(
         "--cwd",
         help="Working directory",
     ),
-    jn: ConfigPath = None,
 ) -> None:
     """Create a new exec target."""
     config.set_config_path(jn)
@@ -51,12 +49,12 @@ def exec(
 @app.command()
 def shell(
     name: str,
+    jn: ConfigPathType = ConfigPath,
     cmd: str = typer.Option(
         ...,
         "--cmd",
         help="Shell command",
     ),
-    jn: ConfigPath = None,
 ) -> None:
     """Create a new shell target."""
     config.set_config_path(jn)
@@ -73,6 +71,7 @@ def shell(
 @app.command()
 def curl(
     name: str,
+    jn: ConfigPathType = ConfigPath,
     url: str = typer.Option(
         ...,
         "--url",
@@ -83,7 +82,6 @@ def curl(
         "--method",
         help="HTTP method",
     ),
-    jn: ConfigPath = None,
 ) -> None:
     """Create a new curl target."""
     config.set_config_path(jn)
@@ -100,12 +98,12 @@ def curl(
 @app.command()
 def file(
     name: str,
+    jn: ConfigPathType = ConfigPath,
     path: str = typer.Option(
         ...,
         "--path",
         help="File path",
     ),
-    jn: ConfigPath = None,
 ) -> None:
     """Create a new file target."""
     config.set_config_path(jn)

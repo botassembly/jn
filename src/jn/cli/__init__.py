@@ -1,17 +1,8 @@
 """CLI layer: Typer command registration and app wiring."""
 
-from pathlib import Path
-from typing import Annotated
-
 import typer
 
-ConfigPath = Annotated[
-    Path | None,
-    typer.Option(
-        "--jn",
-        help="Path to jn.json config file",
-    ),
-]
+from jn.options import ConfigPath
 
 app = typer.Typer(
     name="jn",
