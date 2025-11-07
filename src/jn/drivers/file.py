@@ -15,9 +15,9 @@ def run_file_read(
     """Read a file and return its contents as bytes.
 
     Args:
-        path: File path to read
+        path: File path to read (absolute or relative to config_root)
         allow_outside_config: If False, restrict reads to config root
-        config_root: Root directory for confinement (default: cwd)
+        config_root: Root directory for path resolution and confinement
 
     Returns:
         Completed with file contents in stdout
@@ -26,7 +26,12 @@ def run_file_read(
         ValueError: If path escapes config_root when not allowed
         FileNotFoundError: If file doesn't exist
     """
-    file_path = Path(path).resolve()
+    # Resolve path relative to config_root if it's relative
+    path_obj = Path(path)
+    if config_root and not path_obj.is_absolute():
+        file_path = (Path(config_root) / path_obj).resolve()
+    else:
+        file_path = path_obj.resolve()
 
     # Path confinement check
     if not allow_outside_config and config_root:
@@ -64,12 +69,12 @@ def run_file_write(
     """Write bytes to a file.
 
     Args:
-        path: File path to write
+        path: File path to write (absolute or relative to config_root)
         data: Bytes to write
         append: If True, append to file; otherwise overwrite
         create_parents: If True, create parent directories
         allow_outside_config: If False, restrict writes to config root
-        config_root: Root directory for confinement (default: cwd)
+        config_root: Root directory for path resolution and confinement
 
     Returns:
         Completed with success/failure status
@@ -77,7 +82,12 @@ def run_file_write(
     Raises:
         ValueError: If path escapes config_root when not allowed
     """
-    file_path = Path(path).resolve()
+    # Resolve path relative to config_root if it's relative
+    path_obj = Path(path)
+    if config_root and not path_obj.is_absolute():
+        file_path = (Path(config_root) / path_obj).resolve()
+    else:
+        file_path = path_obj.resolve()
 
     # Path confinement check
     if not allow_outside_config and config_root:

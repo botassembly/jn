@@ -10,12 +10,20 @@ from jn.drivers import run_file_read, run_file_write, spawn_exec
 from jn.exceptions import JnError
 from jn.models import Completed, Converter, PipelinePlan, Source, Target
 
-from .core import ensure
+from .core import config_path, ensure
 from .utils import substitute_template
 
 T = TypeVar("T")
 
 __all__ = ["explain_pipeline", "run_pipeline"]
+
+
+def _get_config_root() -> str:
+    """Get the directory containing the active config file."""
+    path = config_path()
+    if path is None:
+        raise ValueError("No config path set")
+    return str(Path(path).parent)
 
 
 def _check_result(item_type: str, name: str, result: Completed) -> None:
@@ -64,7 +72,7 @@ def _run_source(
         result = run_file_read(
             path,
             allow_outside_config=source.file.allow_outside_config,
-            config_root=str(Path.cwd()),
+            config_root=_get_config_root(),
         )
         _check_result("source", source.name, result)
         return result.stdout
@@ -128,7 +136,7 @@ def _run_target(
             append=target.file.append,
             create_parents=target.file.create_parents,
             allow_outside_config=target.file.allow_outside_config,
-            config_root=str(Path.cwd()),
+            config_root=_get_config_root(),
         )
         _check_result("target", target.name, result)
         return result.stdout

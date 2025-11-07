@@ -244,3 +244,75 @@ def test_run_pipeline_with_file_driver(runner, tmp_path, pass_converter):
     assert len(lines) == 2
     assert json.loads(lines[0]) == {"x": 1}
     assert json.loads(lines[1]) == {"x": 2}
+
+
+def test_file_driver_paths_relative_to_config(
+    runner, tmp_path, pass_converter
+):
+    """Test that file paths resolve relative to config directory, not cwd."""
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        # Create config in a subdirectory
+        config_dir = tmp_path / "project"
+        config_dir.mkdir()
+        jn_path = config_dir / "jn.json"
+        init_config(runner, jn_path)
+
+        # Create input file relative to config directory
+        input_file = config_dir / "data.ndjson"
+        input_file.write_text('{"test": "relative"}\n')
+
+        # Create output directory relative to config
+        output_file = config_dir / "output.ndjson"
+
+        # Use relative paths in config (relative to config dir)
+        result = runner.invoke(
+            app,
+            [
+                "new",
+                "source",
+                "file",
+                "read_data",
+                "--path",
+                "data.ndjson",  # Relative path
+                "--jn",
+                str(jn_path),
+            ],
+        )
+        assert result.exit_code == 0
+
+        add_converter(runner, jn_path, "pass", pass_converter.jq.expr or ".")
+
+        result = runner.invoke(
+            app,
+            [
+                "new",
+                "target",
+                "file",
+                "write_data",
+                "--path",
+                "output.ndjson",  # Relative path
+                "--jn",
+                str(jn_path),
+            ],
+        )
+        assert result.exit_code == 0
+
+        add_pipeline(
+            runner,
+            jn_path,
+            "relative_pipeline",
+            ["source:read_data", "converter:pass", "target:write_data"],
+        )
+
+        # Run from a different directory (tmp_path, not config_dir)
+        # This should still work because paths resolve relative to config
+        result = runner.invoke(
+            app, ["run", "relative_pipeline", "--jn", str(jn_path)]
+        )
+
+    assert result.exit_code == 0, f"Pipeline failed: {result.output}"
+    # Verify output was written relative to config dir, not cwd
+    assert output_file.exists()
+    content = output_file.read_text()
+    assert json.loads(content.strip()) == {"test": "relative"}
