@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TypeVar
 
@@ -48,27 +49,40 @@ def _lookup(items: List[T], name: str, item_type: str) -> T:
 
 
 def _run_source(
-    source: Source, params: Optional[Dict[str, str]] = None
+    source: Source,
+    params: Optional[Dict[str, str]] = None,
+    env: Optional[Dict[str, str]] = None,
 ) -> bytes:
     """Execute a source and return its output bytes."""
 
     if source.driver == "exec" and source.exec:
         # Apply templating to argv
         argv = [
-            substitute_template(arg, params=params) for arg in source.exec.argv
+            substitute_template(arg, params=params, env=env)
+            for arg in source.exec.argv
         ]
         # Apply templating to cwd if present
         cwd = (
-            substitute_template(source.exec.cwd, params=params)
+            substitute_template(source.exec.cwd, params=params, env=env)
             if source.exec.cwd
             else None
         )
-        result = spawn_exec(argv, env=source.exec.env, cwd=cwd)
+        # Build final env: start with merged env (os.environ + CLI overrides),
+        # then overlay config's env dict (with templating applied)
+        # Precedence: config.exec.env > CLI --env > os.environ
+        final_env = env.copy() if env else {}
+        if source.exec.env:
+            templated_config_env = {
+                key: substitute_template(value, params=params, env=env)
+                for key, value in source.exec.env.items()
+            }
+            final_env.update(templated_config_env)
+        result = spawn_exec(argv, env=final_env or None, cwd=cwd)
         _check_result("source", source.name, result)
         return result.stdout
     elif source.driver == "file" and source.file:
         # Apply templating to path
-        path = substitute_template(source.file.path, params=params)
+        path = substitute_template(source.file.path, params=params, env=env)
         result = run_file_read(
             path,
             allow_outside_config=source.file.allow_outside_config,
@@ -109,27 +123,41 @@ def _run_converter(converter: Converter, stdin: bytes) -> bytes:
 
 
 def _run_target(
-    target: Target, stdin: bytes, params: Optional[Dict[str, str]] = None
+    target: Target,
+    stdin: bytes,
+    params: Optional[Dict[str, str]] = None,
+    env: Optional[Dict[str, str]] = None,
 ) -> bytes:
     """Execute a target and return its output bytes."""
 
     if target.driver == "exec" and target.exec:
         # Apply templating to argv
         argv = [
-            substitute_template(arg, params=params) for arg in target.exec.argv
+            substitute_template(arg, params=params, env=env)
+            for arg in target.exec.argv
         ]
         # Apply templating to cwd if present
         cwd = (
-            substitute_template(target.exec.cwd, params=params)
+            substitute_template(target.exec.cwd, params=params, env=env)
             if target.exec.cwd
             else None
         )
-        result = spawn_exec(argv, stdin=stdin, env=target.exec.env, cwd=cwd)
+        # Build final env: start with merged env (os.environ + CLI overrides),
+        # then overlay config's env dict (with templating applied)
+        # Precedence: config.exec.env > CLI --env > os.environ
+        final_env = env.copy() if env else {}
+        if target.exec.env:
+            templated_config_env = {
+                key: substitute_template(value, params=params, env=env)
+                for key, value in target.exec.env.items()
+            }
+            final_env.update(templated_config_env)
+        result = spawn_exec(argv, stdin=stdin, env=final_env or None, cwd=cwd)
         _check_result("target", target.name, result)
         return result.stdout
     elif target.driver == "file" and target.file:
         # Apply templating to path
-        path = substitute_template(target.file.path, params=params)
+        path = substitute_template(target.file.path, params=params, env=env)
         result = run_file_write(
             path,
             stdin,
@@ -147,6 +175,7 @@ def run_pipeline(
     pipeline_name: str,
     path: Optional[Path | str] = None,
     params: Optional[Dict[str, str]] = None,
+    env: Optional[Dict[str, str]] = None,
 ) -> bytes:
     """Execute a pipeline: source → converters → target."""
 
@@ -155,13 +184,18 @@ def run_pipeline(
     if not pipeline.steps:
         raise ValueError(f"Pipeline {pipeline_name} has no steps")
 
+    # Merge env overrides with os.environ (CLI overrides take precedence)
+    merged_env = dict(os.environ)
+    if env:
+        merged_env.update(env)
+
     source_step = pipeline.steps[0]
     if source_step.type != "source":
         raise ValueError(
             f"Pipeline {pipeline_name}: first step must be a source"
         )
     source = _lookup(config_obj.sources, source_step.ref, "source")
-    data = _run_source(source, params=params)
+    data = _run_source(source, params=params, env=merged_env)
 
     for step in pipeline.steps[1:-1]:
         if step.type != "converter":
@@ -178,7 +212,7 @@ def run_pipeline(
         )
     target = _lookup(config_obj.targets, target_step.ref, "target")
 
-    return _run_target(target, data, params=params)
+    return _run_target(target, data, params=params, env=merged_env)
 
 
 def explain_pipeline(

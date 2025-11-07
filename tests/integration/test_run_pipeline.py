@@ -316,3 +316,250 @@ def test_file_driver_paths_relative_to_config(
     assert output_file.exists()
     content = output_file.read_text()
     assert json.loads(content.strip()) == {"test": "relative"}
+
+
+def test_run_pipeline_with_env_flag(
+    runner, tmp_path, pass_converter, cat_target
+):
+    """Test running a pipeline with --env flag."""
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        jn_path = tmp_path / "jn.json"
+        init_config(runner, jn_path)
+
+        # Source that echoes an env var value using ${env.TOKEN}
+        add_exec_source(
+            runner,
+            jn_path,
+            "echo_env",
+            [
+                "python",
+                "-c",
+                "import json; print(json.dumps({'token': '${env.TOKEN}'}))",
+            ],
+        )
+        add_converter(runner, jn_path, "pass", pass_converter.jq.expr or ".")
+        add_exec_target(runner, jn_path, "cat", cat_target.exec.argv)
+        add_pipeline(
+            runner,
+            jn_path,
+            "env_pipeline",
+            ["source:echo_env", "converter:pass", "target:cat"],
+        )
+
+        result = runner.invoke(
+            app,
+            [
+                "run",
+                "env_pipeline",
+                "--env",
+                "TOKEN=secret123",
+                "--jn",
+                str(jn_path),
+            ],
+        )
+
+    assert result.exit_code == 0, f"Pipeline failed: {result.output}"
+    lines = [line for line in result.output.strip().split("\n") if line]
+    assert len(lines) == 1
+    assert json.loads(lines[0]) == {"token": "secret123"}
+
+
+def test_run_pipeline_with_env_from_os_environ(
+    runner, tmp_path, pass_converter, cat_target, monkeypatch
+):
+    """Test that ${env.KEY} inherits from os.environ when --env not provided."""
+
+    # Set an env var in the test environment
+    monkeypatch.setenv("TEST_VAR", "from_environment")
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        jn_path = tmp_path / "jn.json"
+        init_config(runner, jn_path)
+
+        # Source that echoes env var from os.environ
+        add_exec_source(
+            runner,
+            jn_path,
+            "echo_env",
+            [
+                "python",
+                "-c",
+                "import json; print(json.dumps({'var': '${env.TEST_VAR}'}))",
+            ],
+        )
+        add_converter(runner, jn_path, "pass", pass_converter.jq.expr or ".")
+        add_exec_target(runner, jn_path, "cat", cat_target.exec.argv)
+        add_pipeline(
+            runner,
+            jn_path,
+            "env_pipeline",
+            ["source:echo_env", "converter:pass", "target:cat"],
+        )
+
+        result = runner.invoke(
+            app,
+            ["run", "env_pipeline", "--jn", str(jn_path)],
+        )
+
+    assert result.exit_code == 0, f"Pipeline failed: {result.output}"
+    lines = [line for line in result.output.strip().split("\n") if line]
+    assert len(lines) == 1
+    assert json.loads(lines[0]) == {"var": "from_environment"}
+
+
+def test_run_pipeline_with_env_in_exec_driver_env(
+    runner, tmp_path, pass_converter, cat_target
+):
+    """Test that ${env.KEY} substitution works in exec driver env dict values."""
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        jn_path = tmp_path / "jn.json"
+        init_config(runner, jn_path)
+
+        # Source with env dict that uses ${env.SECRET} templating
+        result = runner.invoke(
+            app,
+            [
+                "new",
+                "source",
+                "exec",
+                "env_source",
+                "--argv",
+                "python",
+                "--argv",
+                "-c",
+                "--argv",
+                "import json,os; print(json.dumps({'token': os.getenv('API_TOKEN')}))",
+                "--env",
+                "API_TOKEN=${env.SECRET}",
+                "--jn",
+                str(jn_path),
+            ],
+        )
+        assert result.exit_code == 0
+
+        add_converter(runner, jn_path, "pass", pass_converter.jq.expr or ".")
+        add_exec_target(runner, jn_path, "cat", cat_target.exec.argv)
+        add_pipeline(
+            runner,
+            jn_path,
+            "env_pipeline",
+            ["source:env_source", "converter:pass", "target:cat"],
+        )
+
+        # Run with --env SECRET=mytoken
+        result = runner.invoke(
+            app,
+            [
+                "run",
+                "env_pipeline",
+                "--env",
+                "SECRET=mytoken",
+                "--jn",
+                str(jn_path),
+            ],
+        )
+
+    assert result.exit_code == 0, f"Pipeline failed: {result.output}"
+    lines = [line for line in result.output.strip().split("\n") if line]
+    assert len(lines) == 1
+    assert json.loads(lines[0]) == {"token": "mytoken"}
+
+
+def test_run_pipeline_with_params_and_env_combined(
+    runner, tmp_path, pass_converter, cat_target
+):
+    """Test mixing --param and --env in same pipeline."""
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        jn_path = tmp_path / "jn.json"
+        init_config(runner, jn_path)
+
+        # Source that uses both params and env
+        add_exec_source(
+            runner,
+            jn_path,
+            "combined",
+            [
+                "python",
+                "-c",
+                "import json; print(json.dumps({'name': '${params.name}', 'token': '${env.TOKEN}'}))",
+            ],
+        )
+        add_converter(runner, jn_path, "pass", pass_converter.jq.expr or ".")
+        add_exec_target(runner, jn_path, "cat", cat_target.exec.argv)
+        add_pipeline(
+            runner,
+            jn_path,
+            "combined_pipeline",
+            ["source:combined", "converter:pass", "target:cat"],
+        )
+
+        result = runner.invoke(
+            app,
+            [
+                "run",
+                "combined_pipeline",
+                "--param",
+                "name=Alice",
+                "--env",
+                "TOKEN=xyz789",
+                "--jn",
+                str(jn_path),
+            ],
+        )
+
+    assert result.exit_code == 0, f"Pipeline failed: {result.output}"
+    lines = [line for line in result.output.strip().split("\n") if line]
+    assert len(lines) == 1
+    assert json.loads(lines[0]) == {"name": "Alice", "token": "xyz789"}
+
+
+def test_run_pipeline_env_available_in_subprocess(
+    runner, tmp_path, pass_converter, cat_target
+):
+    """Test that --env variables are passed to subprocess environment (not just templating)."""
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        jn_path = tmp_path / "jn.json"
+        init_config(runner, jn_path)
+
+        # Source that reads env var directly via os.getenv (no ${env.X} templating)
+        add_exec_source(
+            runner,
+            jn_path,
+            "read_env",
+            [
+                "python",
+                "-c",
+                "import json,os; print(json.dumps({'api_key': os.getenv('API_KEY', 'not_found')}))",
+            ],
+        )
+        add_converter(runner, jn_path, "pass", pass_converter.jq.expr or ".")
+        add_exec_target(runner, jn_path, "cat", cat_target.exec.argv)
+        add_pipeline(
+            runner,
+            jn_path,
+            "env_subprocess",
+            ["source:read_env", "converter:pass", "target:cat"],
+        )
+
+        # Run with --env API_KEY=secret_value
+        result = runner.invoke(
+            app,
+            [
+                "run",
+                "env_subprocess",
+                "--env",
+                "API_KEY=secret_value",
+                "--jn",
+                str(jn_path),
+            ],
+        )
+
+    assert result.exit_code == 0, f"Pipeline failed: {result.output}"
+    lines = [line for line in result.output.strip().split("\n") if line]
+    assert len(lines) == 1
+    # Verify subprocess received the env var (not "not_found")
+    assert json.loads(lines[0]) == {"api_key": "secret_value"}
