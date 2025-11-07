@@ -7,12 +7,11 @@ import typer
 
 from ...config import get_config
 from ...service.new import add_converter
+from . import new_app
 
-app = typer.Typer(help="Create a new converter")
 
-
-@app.command(name="converter")
-def create_converter(
+@new_app.command()
+def converter(
     name: str,
     expr: Optional[str] = typer.Option(
         None,

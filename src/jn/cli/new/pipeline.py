@@ -7,12 +7,11 @@ import typer
 
 from ...config import get_config
 from ...service.new import add_pipeline
+from . import new_app
 
-app = typer.Typer(help="Create a new pipeline")
 
-
-@app.command(name="pipeline")
-def create_pipeline(
+@new_app.command()
+def pipeline(
     name: str,
     steps: List[str] = typer.Option(
         ...,
