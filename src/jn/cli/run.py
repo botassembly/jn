@@ -19,7 +19,7 @@ def run(
     project = get_config(jn)
 
     try:
-        output = run_pipeline(project, pipeline, {})
+        output = run_pipeline(project, pipeline)
         sys.stdout.buffer.write(output)
         sys.stdout.buffer.flush()
     except Exception as e:
