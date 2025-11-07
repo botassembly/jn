@@ -79,6 +79,9 @@ ignore = [
 "tests/**" = ["S603","S607","E501","F401"]
 "src/jn/util.py" = ["S602","S603","S607","S110","SIM105"]
 "src/jn/service.py" = ["S603"]
+"src/jn/service/pipeline.py" = ["S603"]
+"src/jn/drivers/exec.py" = ["S603"]
+"src/jn/cli/__init__.py" = ["E402"]
 
 [tool.mypy]
 python_version = "3.10"
