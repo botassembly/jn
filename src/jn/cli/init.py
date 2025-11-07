@@ -13,14 +13,21 @@ def register(app: typer.Typer) -> None:
 
     @app.command()
     def init(
-        jn: Optional[str] = typer.Option(None, "--jn", help="Path to jn.json file"),
-        force: bool = typer.Option(False, "--force", help="Overwrite existing file"),
+        jn: Optional[str] = typer.Option(
+            None, "--jn", help="Path to jn.json file"
+        ),
+        force: bool = typer.Option(
+            False, "--force", help="Overwrite existing file"
+        ),
     ) -> None:
         """Create a starter jn.json configuration file."""
         path = Path(jn) if jn else Path.cwd() / "jn.json"
 
         if path.exists() and not force:
-            typer.echo(f"Error: {path} already exists. Use --force to overwrite.", err=True)
+            typer.echo(
+                f"Error: {path} already exists. Use --force to overwrite.",
+                err=True,
+            )
             raise typer.Exit(code=1)
 
         starter_project = {
@@ -39,13 +46,19 @@ def register(app: typer.Typer) -> None:
                     },
                 }
             ],
-            "converters": [{"name": "pass", "engine": "jq", "jq": {"expr": "."}}],
+            "converters": [
+                {"name": "pass", "engine": "jq", "jq": {"expr": "."}}
+            ],
             "targets": [
                 {
                     "name": "cat",
                     "driver": "exec",
                     "exec": {
-                        "argv": ["python", "-c", "import sys; print(sys.stdin.read(), end='')"]
+                        "argv": [
+                            "python",
+                            "-c",
+                            "import sys; print(sys.stdin.read(), end='')",
+                        ]
                     },
                 }
             ],

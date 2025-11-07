@@ -13,10 +13,12 @@ def register(app: typer.Typer) -> None:
 
     @app.command()
     def list(
-        kind: Literal["sources", "targets", "converters", "pipelines"] = typer.Argument(
-            ..., help="Type of items to list"
+        kind: Literal[
+            "sources", "targets", "converters", "pipelines"
+        ] = typer.Argument(..., help="Type of items to list"),
+        jn: Optional[str] = typer.Option(
+            None, "--jn", help="Path to jn.json file"
         ),
-        jn: Optional[str] = typer.Option(None, "--jn", help="Path to jn.json file"),
     ) -> None:
         """List items by kind (sources, targets, converters, pipelines)."""
         path = Path(jn) if jn else None

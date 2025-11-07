@@ -37,4 +37,6 @@ def load_json(path: Path) -> Dict[str, Any]:
 
 def save_json(path: Path, data: Dict[str, Any]) -> None:
     """Save data to JSON file with pretty formatting."""
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    path.write_text(
+        json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )

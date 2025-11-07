@@ -1,7 +1,8 @@
 """Pytest fixtures and configuration for jn tests."""
 
-import pytest
 from pathlib import Path
+
+import pytest
 from typer.testing import CliRunner
 
 

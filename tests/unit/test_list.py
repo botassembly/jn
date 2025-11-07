@@ -43,7 +43,9 @@ def test_list_converters(runner, tmp_path):
         result = runner.invoke(app, ["init", "--jn", str(jn_path)])
         assert result.exit_code == 0
 
-        result = runner.invoke(app, ["list", "converters", "--jn", str(jn_path)])
+        result = runner.invoke(
+            app, ["list", "converters", "--jn", str(jn_path)]
+        )
 
     assert result.exit_code == 0
     assert "pass" in result.output
@@ -57,7 +59,9 @@ def test_list_pipelines(runner, tmp_path):
         result = runner.invoke(app, ["init", "--jn", str(jn_path)])
         assert result.exit_code == 0
 
-        result = runner.invoke(app, ["list", "pipelines", "--jn", str(jn_path)])
+        result = runner.invoke(
+            app, ["list", "pipelines", "--jn", str(jn_path)]
+        )
 
     assert result.exit_code == 0
     assert "echo_to_cat" in result.output
@@ -69,6 +73,7 @@ def test_list_empty_collection(runner, tmp_path):
 
     # Create minimal project with no sources
     import json
+
     jn_path.write_text(
         json.dumps(
             {
