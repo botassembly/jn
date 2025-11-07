@@ -1,7 +1,6 @@
 """CLI command: jn run - execute a pipeline."""
 
 import sys
-from pathlib import Path
 from typing import Optional
 
 import typer
@@ -17,8 +16,7 @@ def run(
     jn: Optional[str] = typer.Option(None, "--jn"),
 ) -> None:
     """Execute a pipeline (source → converters → target)."""
-    path = Path(jn) if jn else None
-    project = get_config(path)
+    project = get_config(jn)
 
     try:
         output = run_pipeline(project, pipeline, {})

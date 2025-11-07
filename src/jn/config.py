@@ -9,14 +9,15 @@ from .models.project import Project
 _CONFIG: Optional[Project] = None
 
 
-def get_config(path: Optional[Path] = None) -> Project:
+def get_config(path: Optional[str | Path] = None) -> Project:
     """
     Return cached Project (load+validate on first use).
     If path is given, (re)load from that path and cache it.
     """
     global _CONFIG
     if path is not None:
-        data = load_json(path)
+        resolved = Path(path) if isinstance(path, str) else path
+        data = load_json(resolved)
         _CONFIG = Project.model_validate(data)
         return _CONFIG
     if _CONFIG is None:

@@ -1,11 +1,33 @@
 """Pipeline execution service."""
 
-import subprocess
-from typing import Any, Dict
+import json
+from typing import Any, Dict, List, TypeVar
 
+from ..drivers import Completed
 from ..drivers.exec import spawn_exec
 from ..models.project import Converter, Project, Source, Target
 from . import JnError
+
+T = TypeVar("T")
+
+
+def _check_result(item_type: str, name: str, result: Completed) -> None:
+    """Check process result and raise JnError if failed."""
+    if result.returncode != 0:
+        raise JnError(
+            item_type,
+            name,
+            result.returncode,
+            result.stderr.decode("utf-8", "ignore"),
+        )
+
+
+def _lookup(items: List[T], name: str, item_type: str) -> T:
+    """Look up item by name, raise KeyError if not found."""
+    item = next((x for x in items if x.name == name), None)  # type: ignore
+    if not item:
+        raise KeyError(f"{item_type.capitalize()} not found: {name}")
+    return item
 
 
 def _run_source(source: Source, params: Dict[str, Any]) -> bytes:
@@ -14,13 +36,7 @@ def _run_source(source: Source, params: Dict[str, Any]) -> bytes:
         result = spawn_exec(
             source.exec.argv, env=source.exec.env, cwd=source.exec.cwd
         )
-        if result.returncode != 0:
-            raise JnError(
-                "source",
-                source.name,
-                result.returncode,
-                result.stderr.decode("utf-8", "ignore"),
-            )
+        _check_result("source", source.name, result)
         return result.stdout
     raise NotImplementedError(f"Driver {source.driver} not implemented")
 
@@ -44,20 +60,10 @@ def _run_converter(converter: Converter, stdin: bytes) -> bytes:
             if isinstance(value, str):
                 argv.extend(["--arg", key, value])
             else:
-                import json
-
                 argv.extend(["--argjson", key, json.dumps(value)])
 
-        result = subprocess.run(
-            argv, input=stdin, capture_output=True, check=False
-        )
-        if result.returncode != 0:
-            raise JnError(
-                "converter",
-                converter.name,
-                result.returncode,
-                result.stderr.decode("utf-8", "ignore"),
-            )
+        result = spawn_exec(argv, stdin=stdin)
+        _check_result("converter", converter.name, result)
         return result.stdout
 
     raise NotImplementedError(f"Engine {converter.engine} not implemented")
@@ -72,13 +78,7 @@ def _run_target(target: Target, stdin: bytes) -> bytes:
             env=target.exec.env,
             cwd=target.exec.cwd,
         )
-        if result.returncode != 0:
-            raise JnError(
-                "target",
-                target.name,
-                result.returncode,
-                result.stderr.decode("utf-8", "ignore"),
-            )
+        _check_result("target", target.name, result)
         return result.stdout
     raise NotImplementedError(f"Driver {target.driver} not implemented")
 
@@ -87,11 +87,7 @@ def run_pipeline(
     project: Project, pipeline_name: str, params: Dict[str, Any]
 ) -> bytes:
     """Execute a pipeline: source → converters → target."""
-    pipeline = next(
-        (p for p in project.pipelines if p.name == pipeline_name), None
-    )
-    if not pipeline:
-        raise KeyError(f"Pipeline not found: {pipeline_name}")
+    pipeline = _lookup(project.pipelines, pipeline_name, "pipeline")
     if not pipeline.steps:
         raise ValueError(f"Pipeline {pipeline_name} has no steps")
 
@@ -101,11 +97,7 @@ def run_pipeline(
         raise ValueError(
             f"Pipeline {pipeline_name}: first step must be a source"
         )
-    source = next(
-        (s for s in project.sources if s.name == source_step.ref), None
-    )
-    if not source:
-        raise KeyError(f"Source not found: {source_step.ref}")
+    source = _lookup(project.sources, source_step.ref, "source")
     data = _run_source(source, source_step.args or {})
 
     # Converters (middle steps)
@@ -114,11 +106,7 @@ def run_pipeline(
             raise ValueError(
                 f"Pipeline {pipeline_name}: middle steps must be converters"
             )
-        converter = next(
-            (c for c in project.converters if c.name == step.ref), None
-        )
-        if not converter:
-            raise KeyError(f"Converter not found: {step.ref}")
+        converter = _lookup(project.converters, step.ref, "converter")
         data = _run_converter(converter, data)
 
     # Target (last step)
@@ -127,10 +115,6 @@ def run_pipeline(
         raise ValueError(
             f"Pipeline {pipeline_name}: last step must be a target"
         )
-    target = next(
-        (t for t in project.targets if t.name == target_step.ref), None
-    )
-    if not target:
-        raise KeyError(f"Target not found: {target_step.ref}")
+    target = _lookup(project.targets, target_step.ref, "target")
 
     return _run_target(target, data)

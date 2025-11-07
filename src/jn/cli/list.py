@@ -1,6 +1,5 @@
 """CLI command: jn list - list items by kind."""
 
-from pathlib import Path
 from typing import Literal, Optional
 
 import typer
@@ -15,8 +14,7 @@ def list(
     jn: Optional[str] = typer.Option(None, "--jn"),
 ) -> None:
     """List items by kind (sources, targets, converters, pipelines)."""
-    path = Path(jn) if jn else None
-    project = get_config(path)
+    project = get_config(jn)
 
     items = getattr(project, kind)
     if not items:
