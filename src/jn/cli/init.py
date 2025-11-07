@@ -6,6 +6,7 @@ from typing import Optional
 import typer
 
 from ..home import save_json
+from ..models.project import Project
 from . import app
 
 
@@ -24,14 +25,7 @@ def init(
         )
         raise typer.Exit(code=1)
 
-    minimal_project = {
-        "version": "0.1",
-        "name": path.parent.name or "project",
-        "sources": [],
-        "converters": [],
-        "targets": [],
-        "pipelines": [],
-    }
+    project = Project(version="0.1", name=path.parent.name or "project")
 
-    save_json(path, minimal_project)
+    save_json(path, project.model_dump(mode="json"))
     typer.echo(f"Created {path}")
