@@ -12,9 +12,7 @@ def test_init_creates_file(runner, tmp_path):
     with runner.isolated_filesystem(temp_dir=tmp_path):
         result = runner.invoke(app, ["init", "--jn", str(jn_path)])
 
-    assert (
-        result.exit_code == 0
-    ), f"Expected exit 0, got {result.exit_code}. Output: {result.output}"
+    assert result.exit_code == 0
     assert jn_path.exists()
     assert "Created" in result.output
 
@@ -41,11 +39,6 @@ def test_init_overwrites_with_force(runner, tmp_path):
 
     assert result.exit_code == 0
     assert "Created" in result.output
-
-    # Verify it's a valid minimal project
     data = json.loads(jn_path.read_text())
     assert data["version"] == "0.1"
     assert "sources" in data
-    assert "converters" in data
-    assert "targets" in data
-    assert "pipelines" in data

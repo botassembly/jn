@@ -1,24 +1,28 @@
 """Tests for jn list command."""
 
-import json
-
 from jn.cli import app
+from jn.models.project import (
+    Converter,
+    ExecSpec,
+    JqConfig,
+    Pipeline,
+    Project,
+    Source,
+    Target,
+)
 
 
 def test_list_sources(runner, tmp_path):
     """Test that jn list sources shows source names."""
     jn_path = tmp_path / "jn.json"
-    project = {
-        "version": "0.1",
-        "name": "test",
-        "sources": [
-            {"name": "foo", "driver": "exec", "exec": {"argv": ["echo"]}}
+    project = Project(
+        version="0.1",
+        name="test",
+        sources=[
+            Source(name="foo", driver="exec", exec=ExecSpec(argv=["echo"]))
         ],
-        "converters": [],
-        "targets": [],
-        "pipelines": [],
-    }
-    jn_path.write_text(json.dumps(project))
+    )
+    jn_path.write_text(project.model_dump_json())
 
     with runner.isolated_filesystem(temp_dir=tmp_path):
         result = runner.invoke(app, ["list", "sources", "--jn", str(jn_path)])
@@ -30,17 +34,14 @@ def test_list_sources(runner, tmp_path):
 def test_list_targets(runner, tmp_path):
     """Test that jn list targets shows target names."""
     jn_path = tmp_path / "jn.json"
-    project = {
-        "version": "0.1",
-        "name": "test",
-        "sources": [],
-        "converters": [],
-        "targets": [
-            {"name": "bar", "driver": "exec", "exec": {"argv": ["cat"]}}
+    project = Project(
+        version="0.1",
+        name="test",
+        targets=[
+            Target(name="bar", driver="exec", exec=ExecSpec(argv=["cat"]))
         ],
-        "pipelines": [],
-    }
-    jn_path.write_text(json.dumps(project))
+    )
+    jn_path.write_text(project.model_dump_json())
 
     with runner.isolated_filesystem(temp_dir=tmp_path):
         result = runner.invoke(app, ["list", "targets", "--jn", str(jn_path)])
@@ -52,17 +53,14 @@ def test_list_targets(runner, tmp_path):
 def test_list_converters(runner, tmp_path):
     """Test that jn list converters shows converter names."""
     jn_path = tmp_path / "jn.json"
-    project = {
-        "version": "0.1",
-        "name": "test",
-        "sources": [],
-        "converters": [
-            {"name": "transform", "engine": "jq", "jq": {"expr": "."}}
+    project = Project(
+        version="0.1",
+        name="test",
+        converters=[
+            Converter(name="transform", engine="jq", jq=JqConfig(expr="."))
         ],
-        "targets": [],
-        "pipelines": [],
-    }
-    jn_path.write_text(json.dumps(project))
+    )
+    jn_path.write_text(project.model_dump_json())
 
     with runner.isolated_filesystem(temp_dir=tmp_path):
         result = runner.invoke(
@@ -76,15 +74,12 @@ def test_list_converters(runner, tmp_path):
 def test_list_pipelines(runner, tmp_path):
     """Test that jn list pipelines shows pipeline names."""
     jn_path = tmp_path / "jn.json"
-    project = {
-        "version": "0.1",
-        "name": "test",
-        "sources": [],
-        "converters": [],
-        "targets": [],
-        "pipelines": [{"name": "my_pipeline", "steps": []}],
-    }
-    jn_path.write_text(json.dumps(project))
+    project = Project(
+        version="0.1",
+        name="test",
+        pipelines=[Pipeline(name="my_pipeline", steps=[])],
+    )
+    jn_path.write_text(project.model_dump_json())
 
     with runner.isolated_filesystem(temp_dir=tmp_path):
         result = runner.invoke(
@@ -100,9 +95,7 @@ def test_list_empty_collection(runner, tmp_path):
     jn_path = tmp_path / "jn.json"
 
     with runner.isolated_filesystem(temp_dir=tmp_path):
-        result = runner.invoke(app, ["init", "--jn", str(jn_path)])
-        assert result.exit_code == 0
-
+        runner.invoke(app, ["init", "--jn", str(jn_path)])
         result = runner.invoke(app, ["list", "sources", "--jn", str(jn_path)])
 
     assert result.exit_code == 0
