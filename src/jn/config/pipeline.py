@@ -87,6 +87,9 @@ def _run_source(
     elif source.driver == "shell" and source.shell:
         # Apply templating to shell command
         cmd = substitute_template(source.shell.cmd, params=params, env=env)
+        # Apply jc adapter if specified (prepend 'jc' to leverage magic mode)
+        if source.adapter == "jc":
+            cmd = f"jc {cmd}"
         result = spawn_shell(cmd, env=env, unsafe=unsafe_shell)
         _check_result("source", source.name, result)
         return result.stdout

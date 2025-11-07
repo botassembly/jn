@@ -280,3 +280,91 @@ def test_shell_source_with_env_templating(
     lines = [line for line in result.output.strip().split("\n") if line]
     assert len(lines) == 1
     assert json.loads(lines[0]) == {"token": "my_secret_value"}
+
+
+def test_shell_source_with_jc_adapter(
+    runner, tmp_path, pass_converter, cat_target
+):
+    """Test that shell source with jc adapter prepends 'jc' to command."""
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        jn_path = tmp_path / "jn.json"
+        init_config(runner, jn_path)
+
+        # Create a mock 'jc' command that simulates jc's behavior
+        mock_jc_dir = tmp_path / "bin"
+        mock_jc_dir.mkdir()
+        mock_jc_script = mock_jc_dir / "jc"
+        mock_jc_script.write_text(
+            """#!/usr/bin/env python3
+import sys
+import json
+import subprocess
+
+# Get the command (everything after 'jc')
+command = " ".join(sys.argv[1:])
+
+# Run the command via shell
+result = subprocess.run(command, shell=True, capture_output=True, text=True)
+
+# Wrap output as if jc parsed it
+output_lines = result.stdout.strip().split('\\n')
+json_output = [{"line": line} for line in output_lines if line]
+print(json.dumps(json_output))
+"""
+        )
+        mock_jc_script.chmod(0o755)
+
+        # Create shell source with jc adapter
+        result = runner.invoke(
+            app,
+            [
+                "new",
+                "source",
+                "shell",
+                "echo_with_jc",
+                "--adapter",
+                "jc",
+                "--cmd",
+                "echo hello",
+                "--jn",
+                str(jn_path),
+            ],
+        )
+        assert result.exit_code == 0
+
+        add_converter(runner, jn_path, "pass", pass_converter.jq.expr or ".")
+        add_exec_target(runner, jn_path, "cat", cat_target.exec.argv)
+        add_pipeline(
+            runner,
+            jn_path,
+            "jc_shell_pipeline",
+            ["source:echo_with_jc", "converter:pass", "target:cat"],
+        )
+
+        # Run with --unsafe-shell and our mock jc in PATH
+        import os
+
+        old_path = os.environ.get("PATH", "")
+        os.environ["PATH"] = f"{mock_jc_dir}:{old_path}"
+        try:
+            result = runner.invoke(
+                app,
+                [
+                    "run",
+                    "jc_shell_pipeline",
+                    "--unsafe-shell",
+                    "--jn",
+                    str(jn_path),
+                ],
+            )
+        finally:
+            os.environ["PATH"] = old_path
+
+    assert result.exit_code == 0, f"Pipeline failed: {result.output}"
+    output = result.output.strip()
+    # The output should be JSON array with one object containing "line": "hello"
+    parsed = json.loads(output)
+    assert isinstance(parsed, list)
+    assert len(parsed) == 1
+    assert parsed[0]["line"] == "hello"
