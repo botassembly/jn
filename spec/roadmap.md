@@ -2,11 +2,11 @@
 
 > Rule: write the CLI test first (Typer CliRunner), watch it fail, implement the smallest slice underneath (service/drivers), keep tests green, repeat. 2–3 imports max per CLI module.
 
-* [ ] Bootstrap checks — `make check`
-* [ ] Pytest smoke — `pytest <first-test>`
-* [ ] CLI skeleton — `jn --help`
-* [ ] Init command — `jn init`
-* [ ] List items — `jn list <kind>`
+* [x] Bootstrap checks — `make check` ✓ (all contracts enforced)
+* [x] Pytest smoke — `pytest <first-test>` ✓ (12 tests passing)
+* [x] CLI skeleton — `jn --help` ✓ (shows init, list, run)
+* [x] Init command — `jn init` ✓ (3 tests, 100% coverage)
+* [x] List items — `jn list <kind>` ✓ (5 tests, 100% coverage)
 * [ ] Show item — `jn show <kind> <name>`
 * [ ] New source — `jn new source <name> --driver <driver>`
 * [ ] New converter — `jn new converter <name> --engine <engine>`
@@ -15,7 +15,7 @@
 * [ ] Explain plan — `jn explain <pipeline>`
 * [ ] Explain env — `jn explain <pipeline> --show-env`
 * [ ] Explain cmds — `jn explain <pipeline> --show-commands`
-* [ ] Run pipeline — `jn run <pipeline>`
+* [x] Run pipeline — `jn run <pipeline>` ✓ (4 tests, 100% coverage)
 * [ ] Run with env — `jn --env <K=V> run <pipeline>`
 * [ ] Run with params — `jn run <pipeline> --param <k=v>`
 * [ ] Source run — `jn source run <name>`
@@ -42,8 +42,8 @@
 * [ ] MCP source — `jn new source <name> --driver mcp`
 * [ ] MCP target — `jn new target <name> --driver mcp`
 * [ ] Redacted env — `jn explain <pipeline> --show-env`
-* [ ] Lint imports — `uv run lint-imports --config importlinter.ini`
-* [ ] Coverage run — `make coverage`
+* [x] Lint imports — `uv run lint-imports --config importlinter.ini` ✓ (4 contracts kept)
+* [x] Coverage run — `make coverage` ✓ (79%, above 70% threshold)
 * [ ] Release smoke — `jn --version`
 
 > Keep each step green: commit after each passing test; do not add new commands without a failing test that names the exact CLI you’re about to build.
