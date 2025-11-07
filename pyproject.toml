@@ -1,0 +1,106 @@
+[build-system]
+requires = ["hatchling>=1.21.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "jn"
+description = "JN (Junction): Source → jq → Target streaming pipelines with Typer CLI"
+version = "0.0.1"
+readme = "README.md"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Operating System :: OS Independent",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Software Development :: Code Generators",
+    "Typing :: Typed",
+]
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    { name = "Ian Maurer", email = "imaurer@gmail.com"}
+]
+dependencies = [
+    "typer>=0.12.0",
+    "pydantic>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "black>=23.0",
+  "import-linter>=1.12",
+  "mypy>=1.0",
+  "pexpect>=4.8",
+  "pytest-asyncio>=0.21",
+  "pytest-cov>=4.1",
+  "pytest-flake8>=1.1",
+  "pytest>=7.0",
+  "ruff>=0.6.9",
+  "types-requests",
+]
+
+[project.scripts]
+jn = "jn.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/jn"]
+
+[tool.black]
+line-length = 79
+target-version = ['py310']
+
+[tool.ruff]
+line-length = 79
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E","F","I","B","UP","SIM","S","RUF"]
+ignore = [
+  "S101",  # allow assert in tests
+  "B008",  # Typer Option/Argument patterns
+  "UP045", # Optional[...] ok in codebase
+  "UP035", # typing aliases ok for now
+  "UP006", # gradual typing modernizations
+  "UP037", # quoted annotations allowed
+  "B904",  # raise from not mandatory in CLI
+  "B010",  # setattr used intentionally
+  "E501",  # long lines in CLI definitions
+  "I001",  # import sort leniency for now
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S603","S607","E501","F401"]
+"src/jn/util.py" = ["S602","S603","S607","S110","SIM105"]
+"src/jn/service.py" = ["S603"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+strict_optional = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+no_implicit_optional = true
+check_untyped_defs = true
+pretty = true
+exclude = ["tests/fixtures/"]
+plugins = ["pydantic.mypy"]
+
+[tool.pytest.ini_options]
+addopts = "-q --cov=jn --cov-report=term-missing"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["src/jn"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
