@@ -64,9 +64,34 @@ def add_converter(runner, path, name: str, expr: str) -> None:
 
 
 def add_pipeline(runner, path, name: str, steps: Iterable[str]) -> None:
+    """Add a pipeline with new simplified syntax.
+
+    Steps should be in format ["source:name", "converter:name", "target:name"].
+    """
     command = ["new", "pipeline", name]
+
+    # Parse steps and build command with new flags
+    source_name = None
+    converter_names = []
+    target_name = None
+
     for step in steps:
-        command.extend(["--steps", step])
+        step_type, step_ref = step.split(":", 1)
+        if step_type == "source":
+            source_name = step_ref
+        elif step_type == "converter":
+            converter_names.append(step_ref)
+        elif step_type == "target":
+            target_name = step_ref
+
+    # Build command with new flags
+    if source_name:
+        command.extend(["--source", source_name])
+    for conv_name in converter_names:
+        command.extend(["--converter", conv_name])
+    if target_name:
+        command.extend(["--target", target_name])
+
     command.extend(["--jn", str(path)])
     result = runner.invoke(app, command)
     assert result.exit_code == 0, result.output

@@ -11,14 +11,32 @@ from . import new_app
 def pipeline(
     name: str,
     jn: ConfigPathType = ConfigPath,
-    steps: list[str] = typer.Option(
+    source: str = typer.Option(
         ...,
-        "--steps",
-        help="Pipeline steps in format 'type:ref' (e.g., 'source:echo')",
+        "--source",
+        "-s",
+        help="Source name",
+    ),
+    converter: list[str] = typer.Option(
+        [],
+        "--converter",
+        "-c",
+        help="Converter name(s) - can specify multiple",
+    ),
+    target: str = typer.Option(
+        ...,
+        "--target",
+        "-t",
+        help="Target name",
     ),
 ) -> None:
-    """Create a new pipeline."""
+    """Create a new pipeline (source → converter(s) → target)."""
     config.set_config_path(jn)
+
+    # Build steps in the simple format
+    steps = [f"source:{source}"]
+    steps.extend(f"converter:{c}" for c in converter)
+    steps.append(f"target:{target}")
 
     result = config.add_pipeline(name, steps)
 
