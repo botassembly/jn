@@ -13,23 +13,10 @@ def spawn_exec(
     env: Optional[Dict[str, str]] = None,
     cwd: Optional[str] = None,
 ) -> Completed:
-    """
-    Execute a command with argv (no shell).
-
-    Args:
-        argv: Command and arguments as a list
-        stdin: Optional input bytes
-        env: Optional environment variables (merged with os.environ)
-        cwd: Optional working directory
-
-    Returns:
-        Completed with returncode, stdout, stderr
-    """
+    """Execute a command with argv (no shell)."""
     import os
 
-    # Merge env with current environment if provided
     final_env = None if env is None else {**os.environ, **env}
-
     result = subprocess.run(
         argv,
         input=stdin,
@@ -38,7 +25,6 @@ def spawn_exec(
         cwd=cwd,
         env=final_env,
     )
-
     return Completed(
         returncode=result.returncode,
         stdout=result.stdout,

@@ -6,37 +6,58 @@ from jn.cli import app
 
 
 def test_run_echo_pipeline(runner, tmp_path):
-    """Test running the default echo_to_cat pipeline."""
+    """Test running a simple echo pipeline."""
     jn_path = tmp_path / "jn.json"
 
-    with runner.isolated_filesystem(temp_dir=tmp_path):
-        # Create project
-        result = runner.invoke(app, ["init", "--jn", str(jn_path)])
-        assert result.exit_code == 0
+    project = {
+        "version": "0.1",
+        "name": "test",
+        "sources": [
+            {
+                "name": "echo",
+                "driver": "exec",
+                "exec": {
+                    "argv": [
+                        "python",
+                        "-c",
+                        "import json; print(json.dumps({'x': 1})); print(json.dumps({'x': 2}))",
+                    ]
+                },
+            }
+        ],
+        "converters": [{"name": "pass", "engine": "jq", "jq": {"expr": "."}}],
+        "targets": [
+            {"name": "cat", "driver": "exec", "exec": {"argv": ["cat"]}}
+        ],
+        "pipelines": [
+            {
+                "name": "echo_to_cat",
+                "steps": [
+                    {"type": "source", "ref": "echo"},
+                    {"type": "converter", "ref": "pass"},
+                    {"type": "target", "ref": "cat"},
+                ],
+            }
+        ],
+    }
+    jn_path.write_text(json.dumps(project))
 
-        # Run the pipeline
+    with runner.isolated_filesystem(temp_dir=tmp_path):
         result = runner.invoke(
             app, ["run", "echo_to_cat", "--jn", str(jn_path)]
         )
 
     assert result.exit_code == 0, f"Pipeline failed: {result.output}"
-
-    # Should output two JSON lines
     lines = [line for line in result.output.strip().split("\n") if line]
     assert len(lines) == 2
-
-    # Verify JSON structure
-    obj1 = json.loads(lines[0])
-    obj2 = json.loads(lines[1])
-    assert obj1 == {"x": 1}
-    assert obj2 == {"x": 2}
+    assert json.loads(lines[0]) == {"x": 1}
+    assert json.loads(lines[1]) == {"x": 2}
 
 
 def test_run_pipeline_with_jq_transform(runner, tmp_path):
     """Test running a pipeline with jq transformation."""
     jn_path = tmp_path / "jn.json"
 
-    # Create custom project with a jq transform
     project = {
         "version": "0.1",
         "name": "test",
@@ -57,11 +78,7 @@ def test_run_pipeline_with_jq_transform(runner, tmp_path):
             {"name": "double", "engine": "jq", "jq": {"expr": "{n: (.n * 2)}"}}
         ],
         "targets": [
-            {
-                "name": "stdout",
-                "driver": "exec",
-                "exec": {"argv": ["cat"]},
-            }
+            {"name": "stdout", "driver": "exec", "exec": {"argv": ["cat"]}}
         ],
         "pipelines": [
             {
@@ -74,7 +91,6 @@ def test_run_pipeline_with_jq_transform(runner, tmp_path):
             }
         ],
     }
-
     jn_path.write_text(json.dumps(project))
 
     with runner.isolated_filesystem(temp_dir=tmp_path):
@@ -83,14 +99,10 @@ def test_run_pipeline_with_jq_transform(runner, tmp_path):
         )
 
     assert result.exit_code == 0, f"Pipeline failed: {result.output}"
-
     lines = [line for line in result.output.strip().split("\n") if line]
     assert len(lines) == 2
-
-    obj1 = json.loads(lines[0])
-    obj2 = json.loads(lines[1])
-    assert obj1 == {"n": 2}
-    assert obj2 == {"n": 4}
+    assert json.loads(lines[0]) == {"n": 2}
+    assert json.loads(lines[1]) == {"n": 4}
 
 
 def test_run_nonexistent_pipeline(runner, tmp_path):
@@ -117,19 +129,11 @@ def test_run_pipeline_with_failing_source(runner, tmp_path):
         "version": "0.1",
         "name": "test",
         "sources": [
-            {
-                "name": "failing",
-                "driver": "exec",
-                "exec": {"argv": ["false"]},  # Always fails
-            }
+            {"name": "failing", "driver": "exec", "exec": {"argv": ["false"]}}
         ],
         "converters": [{"name": "pass", "engine": "jq", "jq": {"expr": "."}}],
         "targets": [
-            {
-                "name": "stdout",
-                "driver": "exec",
-                "exec": {"argv": ["cat"]},
-            }
+            {"name": "stdout", "driver": "exec", "exec": {"argv": ["cat"]}}
         ],
         "pipelines": [
             {
@@ -142,7 +146,6 @@ def test_run_pipeline_with_failing_source(runner, tmp_path):
             }
         ],
     }
-
     jn_path.write_text(json.dumps(project))
 
     with runner.isolated_filesystem(temp_dir=tmp_path):

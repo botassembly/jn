@@ -6,34 +6,22 @@ from typing import Literal, Optional
 import typer
 
 from ..config import get_config
+from . import app
 
 
-def register(app: typer.Typer) -> None:
-    """Register the list command with the Typer app."""
+@app.command()
+def list(
+    kind: Literal["sources", "targets", "converters", "pipelines"],
+    jn: Optional[str] = typer.Option(None, "--jn"),
+) -> None:
+    """List items by kind (sources, targets, converters, pipelines)."""
+    path = Path(jn) if jn else None
+    project = get_config(path)
 
-    @app.command()
-    def list(
-        kind: Literal[
-            "sources", "targets", "converters", "pipelines"
-        ] = typer.Argument(..., help="Type of items to list"),
-        jn: Optional[str] = typer.Option(
-            None, "--jn", help="Path to jn.json file"
-        ),
-    ) -> None:
-        """List items by kind (sources, targets, converters, pipelines)."""
-        path = Path(jn) if jn else None
-        project = get_config(path)
+    items = getattr(project, kind)
+    if not items:
+        typer.echo(f"No {kind} defined.")
+        return
 
-        items = {
-            "sources": project.sources,
-            "targets": project.targets,
-            "converters": project.converters,
-            "pipelines": project.pipelines,
-        }[kind]
-
-        if not items:
-            typer.echo(f"No {kind} defined.")
-            return
-
-        for item in items:
-            typer.echo(item.name)
+    for item in items:
+        typer.echo(item.name)

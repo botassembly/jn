@@ -22,13 +22,12 @@ def _run_source(source: Source, params: Dict[str, Any]) -> bytes:
                 result.stderr.decode("utf-8", "ignore"),
             )
         return result.stdout
-    raise NotImplementedError(f"Driver {source.driver} not implemented yet")
+    raise NotImplementedError(f"Driver {source.driver} not implemented")
 
 
 def _run_converter(converter: Converter, stdin: bytes) -> bytes:
     """Execute a converter and return transformed bytes."""
     if converter.engine == "jq" and converter.jq:
-        # Build jq command
         argv = ["jq", "-c"]
         if converter.jq.raw:
             argv.append("-r")
@@ -41,7 +40,6 @@ def _run_converter(converter: Converter, stdin: bytes) -> bytes:
                 f"Converter {converter.name}: jq requires expr or file"
             )
 
-        # Add args as --arg or --argjson
         for key, value in (converter.jq.args or {}).items():
             if isinstance(value, str):
                 argv.extend(["--arg", key, value])
@@ -62,7 +60,7 @@ def _run_converter(converter: Converter, stdin: bytes) -> bytes:
             )
         return result.stdout
 
-    raise NotImplementedError(f"Engine {converter.engine} not implemented yet")
+    raise NotImplementedError(f"Engine {converter.engine} not implemented")
 
 
 def _run_target(target: Target, stdin: bytes) -> bytes:
@@ -82,74 +80,53 @@ def _run_target(target: Target, stdin: bytes) -> bytes:
                 result.stderr.decode("utf-8", "ignore"),
             )
         return result.stdout
-    raise NotImplementedError(f"Driver {target.driver} not implemented yet")
+    raise NotImplementedError(f"Driver {target.driver} not implemented")
 
 
 def run_pipeline(
     project: Project, pipeline_name: str, params: Dict[str, Any]
 ) -> bytes:
-    """
-    Execute a pipeline: source → converters → target.
-
-    Args:
-        project: The jn project configuration
-        pipeline_name: Name of the pipeline to run
-        params: Runtime parameters for interpolation
-
-    Returns:
-        Final output bytes from the target
-
-    Raises:
-        JnError: If any step fails
-        KeyError: If pipeline or referenced items not found
-    """
-    # Find pipeline
+    """Execute a pipeline: source → converters → target."""
     pipeline = next(
         (p for p in project.pipelines if p.name == pipeline_name), None
     )
     if not pipeline:
         raise KeyError(f"Pipeline not found: {pipeline_name}")
-
     if not pipeline.steps:
         raise ValueError(f"Pipeline {pipeline_name} has no steps")
 
-    # Execute source (first step)
+    # Source (first step)
     source_step = pipeline.steps[0]
     if source_step.type != "source":
         raise ValueError(
             f"Pipeline {pipeline_name}: first step must be a source"
         )
-
     source = next(
         (s for s in project.sources if s.name == source_step.ref), None
     )
     if not source:
         raise KeyError(f"Source not found: {source_step.ref}")
-
     data = _run_source(source, source_step.args or {})
 
-    # Execute converters (middle steps)
+    # Converters (middle steps)
     for step in pipeline.steps[1:-1]:
         if step.type != "converter":
             raise ValueError(
                 f"Pipeline {pipeline_name}: middle steps must be converters"
             )
-
         converter = next(
             (c for c in project.converters if c.name == step.ref), None
         )
         if not converter:
             raise KeyError(f"Converter not found: {step.ref}")
-
         data = _run_converter(converter, data)
 
-    # Execute target (last step)
+    # Target (last step)
     target_step = pipeline.steps[-1]
     if target_step.type != "target":
         raise ValueError(
             f"Pipeline {pipeline_name}: last step must be a target"
         )
-
     target = next(
         (t for t in project.targets if t.name == target_step.ref), None
     )
