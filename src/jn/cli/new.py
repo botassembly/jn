@@ -5,7 +5,7 @@ from typing import List, Literal, Optional
 
 import typer
 
-from ..service.new import add_converter, add_source, add_target
+from ..service.new import add_converter, add_pipeline, add_source, add_target
 from . import app
 
 # Create a subcommand group for "new"
@@ -159,6 +159,38 @@ def converter(
         )
 
         typer.echo(f"Created converter '{name}'")
+
+    except ValueError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(1)
+    except Exception as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(1)
+
+
+@new_app.command()
+def pipeline(
+    name: str,
+    steps: List[str] = typer.Option(
+        ...,
+        "--steps",
+        help="Pipeline steps in format 'type:ref' (e.g., 'source:echo')",
+    ),
+    jn: Optional[Path] = typer.Option(
+        None, help="Path to jn.json config file"
+    ),
+) -> None:
+    """Create a new pipeline."""
+    try:
+        jn_path = jn or Path("jn.json")
+
+        add_pipeline(
+            jn_path=jn_path,
+            name=name,
+            steps=steps,
+        )
+
+        typer.echo(f"Created pipeline '{name}' with {len(steps)} steps")
 
     except ValueError as e:
         typer.echo(f"Error: {e}", err=True)

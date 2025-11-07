@@ -10,9 +10,11 @@ from ..models.project import (
     ExecSpec,
     FileSpec,
     JqConfig,
+    Pipeline,
     Project,
     ShellSpec,
     Source,
+    Step,
     Target,
 )
 
@@ -254,6 +256,77 @@ def add_converter(
 
     # Add converter to project
     project.converters.append(converter)
+
+    # Validate the updated project
+    project = Project.model_validate(project.model_dump())
+
+    # Write back to file
+    save_json(jn_path, project.model_dump(exclude_none=True))
+
+    return project
+
+
+def add_pipeline(
+    jn_path: Path,
+    name: str,
+    steps: List[str],
+    params: Optional[Dict[str, any]] = None,
+) -> Project:
+    """
+    Add a new pipeline to the project.
+
+    Args:
+        jn_path: Path to jn.json
+        name: Pipeline name
+        steps: List of step specifications in format "type:ref" (e.g., "source:echo")
+        params: Optional pipeline parameters
+
+    Returns:
+        Updated Project instance
+
+    Raises:
+        ValueError: If pipeline name already exists
+        ValueError: If steps is empty
+        ValueError: If step format is invalid
+    """
+    # Load existing project
+    data = load_json(jn_path)
+    project = Project.model_validate(data)
+
+    # Check for duplicate name
+    if any(p.name == name for p in project.pipelines):
+        raise ValueError(f"Pipeline '{name}' already exists")
+
+    # Require at least one step
+    if not steps:
+        raise ValueError("Pipeline requires at least one step (--steps)")
+
+    # Parse steps
+    parsed_steps = []
+    for step_spec in steps:
+        if ":" not in step_spec:
+            raise ValueError(
+                f"Invalid step format: '{step_spec}'. Expected 'type:ref' (e.g., 'source:echo')"
+            )
+
+        step_type, step_ref = step_spec.split(":", 1)
+
+        if step_type not in ["source", "converter", "target"]:
+            raise ValueError(
+                f"Invalid step type: '{step_type}'. Must be 'source', 'converter', or 'target'"
+            )
+
+        parsed_steps.append(Step(type=step_type, ref=step_ref))
+
+    # Build the pipeline
+    pipeline = Pipeline(
+        name=name,
+        steps=parsed_steps,
+        params=params or {},
+    )
+
+    # Add pipeline to project
+    project.pipelines.append(pipeline)
 
     # Validate the updated project
     project = Project.model_validate(project.model_dump())
