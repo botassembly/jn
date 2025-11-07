@@ -5,7 +5,7 @@ from typing import List, Literal, Optional
 
 import typer
 
-from ..service.new import add_source, add_target
+from ..service.new import add_converter, add_source, add_target
 from . import app
 
 # Create a subcommand group for "new"
@@ -119,6 +119,46 @@ def target(
         )
 
         typer.echo(f"Created target '{name}' with driver '{driver}'")
+
+    except ValueError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(1)
+    except Exception as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(1)
+
+
+@new_app.command()
+def converter(
+    name: str,
+    expr: Optional[str] = typer.Option(
+        None, "--expr", help="jq expression (inline)"
+    ),
+    file: Optional[str] = typer.Option(
+        None, "--file", help="Path to jq filter file"
+    ),
+    raw: bool = typer.Option(False, "--raw", help="Output raw strings"),
+    modules: Optional[str] = typer.Option(
+        None, "--modules", help="Path to jq modules directory"
+    ),
+    jn: Optional[Path] = typer.Option(
+        None, help="Path to jn.json config file"
+    ),
+) -> None:
+    """Create a new jq converter."""
+    try:
+        jn_path = jn or Path("jn.json")
+
+        add_converter(
+            jn_path=jn_path,
+            name=name,
+            expr=expr,
+            file=file,
+            raw=raw,
+            modules=modules,
+        )
+
+        typer.echo(f"Created converter '{name}'")
 
     except ValueError as e:
         typer.echo(f"Error: {e}", err=True)

@@ -5,9 +5,11 @@ from typing import Dict, List, Literal, Optional
 
 from ..home.io import load_json, save_json
 from ..models.project import (
+    Converter,
     CurlSpec,
     ExecSpec,
     FileSpec,
+    JqConfig,
     Project,
     ShellSpec,
     Source,
@@ -188,6 +190,70 @@ def add_target(
 
     # Add target to project
     project.targets.append(target)
+
+    # Validate the updated project
+    project = Project.model_validate(project.model_dump())
+
+    # Write back to file
+    save_json(jn_path, project.model_dump(exclude_none=True))
+
+    return project
+
+
+def add_converter(
+    jn_path: Path,
+    name: str,
+    expr: Optional[str] = None,
+    file: Optional[str] = None,
+    raw: bool = False,
+    modules: Optional[str] = None,
+) -> Project:
+    """
+    Add a new converter to the project.
+
+    Args:
+        jn_path: Path to jn.json
+        name: Converter name
+        expr: jq expression (inline)
+        file: Path to jq filter file
+        raw: Whether to output raw strings
+        modules: Path to jq modules directory
+
+    Returns:
+        Updated Project instance
+
+    Raises:
+        ValueError: If converter name already exists
+        ValueError: If neither expr nor file is provided
+    """
+    # Load existing project
+    data = load_json(jn_path)
+    project = Project.model_validate(data)
+
+    # Check for duplicate name
+    if any(c.name == name for c in project.converters):
+        raise ValueError(f"Converter '{name}' already exists")
+
+    # Require either expr or file
+    if not expr and not file:
+        raise ValueError(
+            "Either --expr or --file is required for jq converter"
+        )
+
+    # Build the converter
+    converter = Converter(
+        name=name,
+        engine="jq",
+        jq=JqConfig(
+            expr=expr,
+            file=file,
+            raw=raw,
+            modules=modules,
+        ),
+    )
+
+    # Add converter to project
+    project.converters.append(converter)
 
     # Validate the updated project
     project = Project.model_validate(project.model_dump())
