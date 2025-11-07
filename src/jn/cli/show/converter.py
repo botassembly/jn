@@ -1,24 +1,20 @@
 """CLI command: jn show converter - display converter definition."""
 
-from pathlib import Path
-from typing import Optional
-
 import typer
 
+from jn import ConfigPath, ConfigPathType, config
+
 from . import show_app
-from ...config import get_converter
 
 
 @show_app.command()
 def converter(
     name: str,
-    jn: Optional[Path] = typer.Option(
-        None,
-        help="Path to jn.json config file",
-    ),
+    jn: ConfigPathType = ConfigPath,
 ) -> None:
     """Show a converter's JSON definition."""
-    item = get_converter(name, jn)
+    config.set_config_path(jn)
+    item = config.fetch_item("converters", name)
 
     if item is None:
         typer.echo(f"Error: converter '{name}' not found", err=True)

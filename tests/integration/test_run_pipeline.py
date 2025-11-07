@@ -3,35 +3,33 @@
 import json
 
 from jn.cli import app
-from jn.models.project import Pipeline, Project, Step
+from tests.helpers import (
+    add_converter,
+    add_exec_source,
+    add_exec_target,
+    add_pipeline,
+    init_config,
+)
 
 
 def test_run_echo_pipeline(
     runner, tmp_path, echo_source, pass_converter, cat_target
 ):
     """Test running a simple echo pipeline."""
-    jn_path = tmp_path / "jn.json"
-
-    project = Project(
-        version="0.1",
-        name="test",
-        sources=[echo_source],
-        converters=[pass_converter],
-        targets=[cat_target],
-        pipelines=[
-            Pipeline(
-                name="echo_to_cat",
-                steps=[
-                    Step(type="source", ref="echo"),
-                    Step(type="converter", ref="pass"),
-                    Step(type="target", ref="cat"),
-                ],
-            )
-        ],
-    )
-    jn_path.write_text(project.model_dump_json(indent=2))
 
     with runner.isolated_filesystem(temp_dir=tmp_path):
+        jn_path = tmp_path / "jn.json"
+        init_config(runner, jn_path)
+        add_exec_source(runner, jn_path, "echo", echo_source.exec.argv)
+        add_converter(runner, jn_path, "pass", pass_converter.jq.expr or ".")
+        add_exec_target(runner, jn_path, "cat", cat_target.exec.argv)
+        add_pipeline(
+            runner,
+            jn_path,
+            "echo_to_cat",
+            ["source:echo", "converter:pass", "target:cat"],
+        )
+
         result = runner.invoke(
             app, ["run", "echo_to_cat", "--jn", str(jn_path)]
         )
@@ -47,28 +45,30 @@ def test_run_pipeline_with_jq_transform(
     runner, tmp_path, numbers_source, double_converter, cat_target
 ):
     """Test running a pipeline with jq transformation."""
-    jn_path = tmp_path / "jn.json"
-
-    project = Project(
-        version="0.1",
-        name="test",
-        sources=[numbers_source],
-        converters=[double_converter],
-        targets=[cat_target],
-        pipelines=[
-            Pipeline(
-                name="double_numbers",
-                steps=[
-                    Step(type="source", ref="numbers"),
-                    Step(type="converter", ref="double"),
-                    Step(type="target", ref="cat"),
-                ],
-            )
-        ],
-    )
-    jn_path.write_text(project.model_dump_json(indent=2))
 
     with runner.isolated_filesystem(temp_dir=tmp_path):
+        jn_path = tmp_path / "jn.json"
+        init_config(runner, jn_path)
+        add_exec_source(
+            runner,
+            jn_path,
+            "numbers",
+            numbers_source.exec.argv,
+        )
+        add_converter(
+            runner,
+            jn_path,
+            "double",
+            double_converter.jq.expr or ".",
+        )
+        add_exec_target(runner, jn_path, "cat", cat_target.exec.argv)
+        add_pipeline(
+            runner,
+            jn_path,
+            "double_numbers",
+            ["source:numbers", "converter:double", "target:cat"],
+        )
+
         result = runner.invoke(
             app, ["run", "double_numbers", "--jn", str(jn_path)]
         )
@@ -81,10 +81,10 @@ def test_run_pipeline_with_jq_transform(
 
 def test_run_nonexistent_pipeline(runner, tmp_path):
     """Test error handling for nonexistent pipeline."""
-    jn_path = tmp_path / "jn.json"
 
     with runner.isolated_filesystem(temp_dir=tmp_path):
-        runner.invoke(app, ["init", "--jn", str(jn_path)])
+        jn_path = tmp_path / "jn.json"
+        init_config(runner, jn_path)
         result = runner.invoke(
             app, ["run", "nonexistent", "--jn", str(jn_path)]
         )
@@ -97,28 +97,25 @@ def test_run_pipeline_with_failing_source(
     runner, tmp_path, failing_source, pass_converter, cat_target
 ):
     """Test error handling when source fails."""
-    jn_path = tmp_path / "jn.json"
-
-    project = Project(
-        version="0.1",
-        name="test",
-        sources=[failing_source],
-        converters=[pass_converter],
-        targets=[cat_target],
-        pipelines=[
-            Pipeline(
-                name="fail_pipeline",
-                steps=[
-                    Step(type="source", ref="failing"),
-                    Step(type="converter", ref="pass"),
-                    Step(type="target", ref="cat"),
-                ],
-            )
-        ],
-    )
-    jn_path.write_text(project.model_dump_json(indent=2))
 
     with runner.isolated_filesystem(temp_dir=tmp_path):
+        jn_path = tmp_path / "jn.json"
+        init_config(runner, jn_path)
+        add_exec_source(
+            runner,
+            jn_path,
+            "failing",
+            failing_source.exec.argv,
+        )
+        add_converter(runner, jn_path, "pass", pass_converter.jq.expr or ".")
+        add_exec_target(runner, jn_path, "cat", cat_target.exec.argv)
+        add_pipeline(
+            runner,
+            jn_path,
+            "fail_pipeline",
+            ["source:failing", "converter:pass", "target:cat"],
+        )
+
         result = runner.invoke(
             app, ["run", "fail_pipeline", "--jn", str(jn_path)]
         )

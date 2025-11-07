@@ -1,16 +1,11 @@
-"""Pytest fixtures and configuration for jn tests."""
-
-from pathlib import Path
-
 import pytest
 from typer.testing import CliRunner
 
-from jn.models.project import (
+from jn.models import (
     Converter,
     ExecSpec,
     JqConfig,
     Pipeline,
-    Project,
     Source,
     Step,
     Target,
@@ -18,14 +13,14 @@ from jn.models.project import (
 
 
 @pytest.fixture
-def runner():
+def runner() -> CliRunner:
     """Typer CliRunner instance."""
     return CliRunner()
 
 
 @pytest.fixture
-def tmp_project(tmp_path):
-    """Create a temporary project directory with standard layout."""
+def tmp_config(tmp_path):
+    """Create a temporary config directory with standard layout."""
     data_dir = tmp_path / "data"
     out_dir = tmp_path / "out"
     data_dir.mkdir()

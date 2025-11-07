@@ -1,49 +1,39 @@
 # Roadmap — Outside‑In CLI Build (JN vNext)
 
-> Rule: write the CLI test first (Typer CliRunner), watch it fail, implement the smallest slice underneath (service/drivers), keep tests green, repeat. 2–3 imports max per CLI module.
+> Rule: write the CLI test first (Typer CliRunner), watch it fail, implement the smallest slice underneath (config/drivers), keep tests green, repeat. ≤3 imports per CLI module.
 
-* [x] Bootstrap checks — `make check` ✓ (all contracts enforced)
-* [x] Pytest smoke — `pytest <first-test>` ✓ (12 tests passing)
-* [x] CLI skeleton — `jn --help` ✓ (shows init, list, run)
-* [x] Init command — `jn init` ✓ (3 tests, 100% coverage)
-* [x] List items — `jn list <kind>` ✓ (5 tests, 100% coverage)
-* [ ] Show item — `jn show <kind> <name>`
-* [ ] New source — `jn new source <name> --driver <driver>`
-* [ ] New converter — `jn new converter <name> --engine <engine>`
-* [ ] New target — `jn new target <name> --driver <driver>`
-* [ ] New pipeline — `jn new pipeline <name> --steps <steps>`
-* [ ] Explain plan — `jn explain <pipeline>`
-* [ ] Explain env — `jn explain <pipeline> --show-env`
-* [ ] Explain cmds — `jn explain <pipeline> --show-commands`
-* [x] Run pipeline — `jn run <pipeline>` ✓ (4 tests, 100% coverage)
+* [x] Bootstrap checks — `make check`
+* [x] Pytest smoke — `make test`
+* [x] CLI skeleton — `jn --help`
+* [x] Init command — `jn init`
+* [x] List items — `jn list <kind>`
+* [x] Show item — `jn show <kind> <name>`
+* [x] New source — `jn new source <driver>` (exec implemented end-to-end; other drivers parsed only)
+* [x] New converter — `jn new converter`
+* [x] New target — `jn new target <driver>` (exec implemented end-to-end)
+* [x] New pipeline — `jn new pipeline <name> --steps <steps>`
+* [x] Explain plan — `jn explain <pipeline>`
+* [x] Explain env — `jn explain <pipeline> --show-env`
+* [x] Explain cmds — `jn explain <pipeline> --show-commands`
+* [x] Run pipeline — `jn run <pipeline>` (exec → jq → exec happy-path)
 * [ ] Run with env — `jn --env <K=V> run <pipeline>`
 * [ ] Run with params — `jn run <pipeline> --param <k=v>`
-* [ ] Source run — `jn source run <name>`
-* [ ] Target run — `jn target run <name>`
-* [ ] Convert run — `jn convert <name>`
-* [ ] Edit item — `jn edit <kind> <name>`
-* [ ] Remove item — `jn rm <kind> <name>`
-* [ ] File source — `jn new source <name> --driver file`
-* [ ] File target — `jn new target <name> --driver file`
-* [ ] Curl source — `jn new source <name> --driver curl`
-* [ ] Curl target — `jn new target <name> --driver curl`
-* [ ] Exec source — `jn new source <name> --driver exec`
-* [ ] Exec target — `jn new target <name> --driver exec`
-* [ ] JC CSV conv — `jn new converter <name> --engine jc --parser csv-s`
-* [ ] JC other conv — `jn new converter <name> --engine jc --parser <parser>`
-* [ ] Jiter recover — `jn new converter <name> --engine jiter`
-* [ ] Delimited conv — `jn new converter <name> --engine delimited`
-* [ ] CSV pipeline — `jn new pipeline <name> --steps <csv-steps>`
+* [ ] Exec source extras — support `cwd`/`env` interpolation in run/explain (partial today)
+* [ ] Shell driver — implement safe execution + opt-in flag
+* [ ] Curl driver — streaming HTTP client for sources/targets
+* [ ] File driver — streaming file read/write with confinement
+* [ ] JC converter — `jn new converter <name> --engine jc`
+* [ ] Jiter converter — `jn new converter <name> --engine jiter`
+* [ ] Delimited converter — `jn new converter <name> --engine delimited`
+* [ ] Pipeline params/env templating — `${params.*}` and `${env.*}` expansion
 * [ ] Doctor check — `jn doctor`
 * [ ] Discover list — `jn discover`
 * [ ] Shape stream — `jn shape --in <path>`
 * [ ] Try building — `jn try <kind> <name>`
 * [ ] MCP import — `jn mcp import <server>`
-* [ ] MCP source — `jn new source <name> --driver mcp`
-* [ ] MCP target — `jn new target <name> --driver mcp`
-* [ ] Redacted env — `jn explain <pipeline> --show-env`
-* [x] Lint imports — `uv run lint-imports --config importlinter.ini` ✓ (4 contracts kept)
-* [x] Coverage run — `make coverage` ✓ (79%, above 70% threshold)
+* [ ] MCP driver — `jn new source|target <name> --driver mcp`
+* [ ] Edit item — `jn edit <kind> <name>`
+* [ ] Remove item — `jn rm <kind> <name>`
 * [ ] Release smoke — `jn --version`
 
 > Keep each step green: commit after each passing test; do not add new commands without a failing test that names the exact CLI you’re about to build.

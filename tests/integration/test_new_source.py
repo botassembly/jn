@@ -9,7 +9,7 @@ def test_new_source_exec(runner, tmp_path):
     """Test creating a new exec source."""
     jn_path = tmp_path / "jn.json"
     with runner.isolated_filesystem(temp_dir=tmp_path):
-        # Initialize project first
+        # Initialize config first
         runner.invoke(app, ["init", "--jn", str(jn_path)])
         # Create new source
         result = runner.invoke(
@@ -158,7 +158,7 @@ def test_new_source_duplicate_name(runner, tmp_path):
         )
     assert result.exit_code == 1
     assert result.exception is not None
-    assert "already exists" in str(result.exception)
+    assert "already exists" in (result.stderr or result.output)
 
 
 def test_new_source_with_env(runner, tmp_path):

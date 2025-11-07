@@ -1,267 +1,128 @@
-# JN vNext — User Guide (Build your `jn.json` with the CLI)
-
-**One idea:** Never hand‑edit JSON. You use the CLI to *create/edit/remove* definitions, and you run pipelines. That’s it.
+**Goal:** interact with JN only through the CLI. Create and mutate `jn.json` via commands, inspect with `list/show/explain`, and run pipelines end-to-end.
 
 ---
 
 ## Install & prerequisites
 
-**Runtime (Python ≥ 3.9)**
+* Python ≥ 3.11 (UV manages the virtualenv).
+* External binaries: `jq` (required for converters). `jc`, `curl`, etc. are optional today.
+* Install dependencies with `make install` and keep formatting/tests green with `make check` / `make test`.
 
-* `typer`, `rich` (CLI UX)
-* `pydantic>=2` (typed models)
-* `jiter` (optional; partial JSON recovery)
-
-**External binaries**
-
-* `jq` (required) — transforms
-* `jc` (optional) — parse CSV/TSV/logs/CLI output to JSON/NDJSON
-* `curl` (optional) — when using the `curl` driver
-
-**Dev (recommended)**
-
-* `pytest`, `pytest-cov`, `ruff`, `black`, `mypy`, `import-linter`
-
-> Config file resolution precedence: `--jn` path → `JN_PATH` env → `./.jn.json` or `./jn.json` → `~/.jn.json`.
+> Invoke the CLI via `uv run jn …` when running from a checkout. The published entry point is identical (`jn …`).
 
 ---
 
-## Zero‑to‑project
+## 1. Bootstrap a config
 
 ```bash
-# 1) Create a starter project file in the current dir
-jn init                 # writes ./jn.json
+# Create a starter config alongside the working directory
+uv run jn init --jn ./jn.json
 
-# 2) See the inventory
-jn list sources|targets|converters|pipelines
+# Inspect the skeleton
+cat jn.json
 ```
 
-> Tip: You can pass an explicit config via `--jn /path/to/jn.json` on any command.
+`jn init` refuses to overwrite unless `--force` is provided.
 
 ---
 
-## Add building blocks (no JSON editing!)
+## 2. Create building blocks (no JSON editing)
 
-Below are the **vNext** CLI commands for *authoring* your `jn.json`. Each `jn new …` writes to the current project file and validates it.
-
-### 1) Sources
-
-#### Exec source (prints two JSON lines)
+### Sources
 
 ```bash
-jn new source echo.ndjson \
-  --driver exec \
-  --argv python -c "import json;print(json.dumps({'x':1}));print(json.dumps({'x':2}))"
+# Exec driver (recommended for deterministic pipelines)
+uv run jn new source exec echo-json \
+  --jn ./jn.json \
+  --argv python \
+  --argv -c \
+  --argv "import json;print(json.dumps({'msg':'hello'}))"
+
+# Optional environment variables
+uv run jn new source exec echo-secret \
+  --jn ./jn.json \
+  --argv python --argv -c \
+  --argv "import json,os;print(json.dumps({'token':os.getenv('TOKEN')}))" \
+  --env TOKEN=abc123
+
+# Additional drivers are stubbed out for future work:
+#   uv run jn new source shell …
+#   uv run jn new source curl …
+#   uv run jn new source file …
 ```
 
-#### File source (reads a file’s bytes)
+### Converters
 
 ```bash
-jn new source file.read.homes \
-  --driver file --path data/homes.csv --mode read
+# jq converter (expr or file/module based)
+uv run jn new converter pass-through \
+  --jn ./jn.json \
+  --expr '.'
 ```
 
-#### Curl source (HTTP GET)
+### Targets
 
 ```bash
-jn new source http.github.repos \
-  --driver curl \
-  --method GET \
-  --url "https://api.github.com/users/${params.user}/repos" \
-  --param user:example
+# Exec driver piping stdout
+uv run jn new target exec stdout \
+  --jn ./jn.json \
+  --argv python --argv -c \
+  --argv "import sys;sys.stdout.write(sys.stdin.read())"
+
+# Shell/curl/file variants exist but are not executed yet (tracked on the roadmap).
 ```
 
-### 2) Converters
+### Pipelines
 
-#### jq converter (pass‑through)
-
-```bash
-jn new converter jq.pass --engine jq --expr '.'
-```
-
-#### jc converter (CSV → NDJSON) — streaming
+Steps are expressed as `type:name` pairs in execution order.
 
 ```bash
-jn new converter csv.parse \
-  --engine jc --parser csv-s --opt -qq --unbuffer
-```
-
-#### jiter converter (salvage truncated JSON)
-
-```bash
-jn new converter json.recover \
-  --engine jiter --partial-mode trailing-strings --tail-kib 256
-```
-
-### 3) Targets
-
-#### Exec target (cat stdin to stdout)
-
-```bash
-jn new target sink.cat --driver exec --argv python -c "import sys;print(sys.stdin.read(), end='')"
-```
-
-#### File target (write stream to a file atomically)
-
-```bash
-jn new target file.write.out \
-  --driver file --path out/out.ndjson --mode write --create-parents
-```
-
-#### Curl target (HTTP POST JSON)
-
-```bash
-jn new target http.post \
-  --driver curl --method POST --url https://httpbin.org/post \
-  --header 'Content-Type: application/json'
-```
-
-### 4) Pipelines (wire them linearly)
-
-```bash
-jn new pipeline echo_to_cat \
-  --steps \
-    source:echo.ndjson \
-    converter:jq.pass \
-    target:sink.cat
-```
-
-CSV example:
-
-```bash
-jn new pipeline homes_csv_to_json \
-  --steps \
-    source:file.read.homes \
-    converter:csv.parse \
-    converter:jq.pass \
-    target:file.write.out
+uv run jn new pipeline demo \
+  --jn ./jn.json \
+  --steps source:echo-json \
+  --steps converter:pass-through \
+  --steps target:stdout
 ```
 
 ---
 
-## Explore & inspect
+## 3. Inspect & validate
 
 ```bash
-# Show the resolved plan (after param/env interpolation)
-jn explain echo_to_cat --show-commands --show-env
+# List names by collection
+uv run jn list sources --jn ./jn.json
+uv run jn list pipelines --jn ./jn.json
 
-# Show a single item’s raw JSON (read-only)
-jn show source echo.ndjson
+# Show the stored JSON definition for an item
+uv run jn show source echo-json --jn ./jn.json
+
+# Explain a pipeline without running it
+uv run jn explain demo --jn ./jn.json
+
+# Enrich explain output with argv/env details
+uv run jn explain demo --jn ./jn.json --show-commands --show-env
 ```
 
-**Example `jn explain` (abbrev):**
-
-```json
-{
-  "pipeline": "homes_csv_to_json",
-  "steps": [
-    {"type":"source","name":"file.read.homes","driver":"file","path":"data/homes.csv"},
-    {"type":"converter","name":"csv.parse","engine":"jc","raw":false,"modules":null},
-    {"type":"target","name":"file.write.out","driver":"file","path":"out/out.ndjson"}
-  ]
-}
-```
+`explain` emits a `PipelinePlan` JSON document. `--show-commands` includes argv/cmd/url data; `--show-env` surfaces exec driver environment variables.
 
 ---
 
-## Run
+## 4. Run a pipeline
 
 ```bash
-# Plain run
-jn run echo_to_cat
-
-# With params and env overrides
-jn --env API_TOKEN=xyz run http_to_post --param user=octocat
+uv run jn run demo --jn ./jn.json
 ```
 
-**Streaming guarantee:** JN connects processes with OS pipes; no Python buffering on the hot path. For non‑streaming stages, JN uses a bounded buffer with a hard cap to avoid surprises.
+Pipelines stream bytes end-to-end. Today `run` supports the `exec` driver for sources/targets and jq converters. Missing drivers are captured in the roadmap.
 
 ---
 
-## Edit / remove
+## 5. Known gaps / next polish
 
-```bash
-# Open your editor on a definition (safe; JN validates on save)
-jn edit source echo.ndjson
+* `run` lacks global `--env` / `--param` overrides.
+* Non-`exec` drivers (`shell`, `curl`, `file`, `mcp`) are parsed into the config but not executed yet.
+* `jn explain --show-env` returns raw values; secret masking is pending.
+* `jn doctor`, `jn edit`, and other management commands remain to be built.
 
-# Remove an item by name
-jn rm converter csv.parse
-```
-
----
-
-## End‑to‑end example (CSV → JSONL file)
-
-```bash
-# Seed a project and CSV
-jn init
-mkdir -p data out && printf 'a,b\n1,2\n3,4\n' > data/homes.csv
-
-# Add blocks
-jn new source file.read.homes --driver file --path data/homes.csv --mode read
-jn new converter csv.parse --engine jc --parser csv-s --opt -qq --unbuffer
-jn new target file.write.out --driver file --path out/out.ndjson --mode write --create-parents
-jn new pipeline homes_csv_to_json --steps source:file.read.homes converter:csv.parse target:file.write.out
-
-# Inspect then run
-jn explain homes_csv_to_json --show-commands
-jn run homes_csv_to_json
-cat out/out.ndjson
-```
-
-**Output (`out/out.ndjson`):**
-
-```ndjson
-{"a":"1","b":"2"}
-{"a":"3","b":"4"}
-```
-
----
-
-## JSON snapshots (for reference only)
-
-You shouldn’t hand‑edit these, but this is what the CLI writes.
-
-```json
-{
-  "version": "0.1",
-  "name": "demo",
-  "sources": [
-    {"name":"file.read.homes","driver":"file","file":{"path":"data/homes.csv","mode":"read"}}
-  ],
-  "converters": [
-    {"name":"csv.parse","engine":"jc","jc":{"parser":"csv-s","opts":["-qq"],"unbuffer":true}},
-    {"name":"jq.pass","engine":"jq","expr":"."}
-  ],
-  "targets": [
-    {"name":"file.write.out","driver":"file","file":{"path":"out/out.ndjson","mode":"write","append":false}}
-  ],
-  "pipelines": [
-    {"name":"homes_csv_to_json","steps":[
-      {"type":"source","ref":"file.read.homes"},
-      {"type":"converter","ref":"csv.parse"},
-      {"type":"target","ref":"file.write.out"}
-    ]}
-  ]
-}
-```
-
----
-
-## Cheat sheet
-
-```
-jn init
-jn list <sources|targets|converters|pipelines>
-jn new source <name> [--driver exec|shell|curl|file|mcp] [...]
-jn new converter <name> [--engine jq|jc|jiter|delimited] [...]
-jn new target <name> [--driver exec|shell|curl|file|mcp] [...]
-jn new pipeline <name> --steps source:S [converter:C ...] target:T
-jn explain <pipeline> [--show-commands] [--show-env]
-jn run <pipeline> [--param k=v] [--env K=V]
-jn edit <kind> <name>
-jn rm <kind> <name>
-```
-
-That’s the entire surface: **author with CLI → inspect → run.**
+Track progress and upcoming work in `spec/roadmap.md`.
 

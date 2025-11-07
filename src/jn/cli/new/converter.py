@@ -1,25 +1,22 @@
 """CLI command: jn new converter - create converters."""
 
-from pathlib import Path
-from typing import Optional
-
 import typer
 
-from ...config import get_config
-from ...models import Error
-from ...service.new import add_converter
+from jn import ConfigPath, ConfigPathType, config
+
 from . import new_app
 
 
 @new_app.command()
 def converter(
     name: str,
-    expr: Optional[str] = typer.Option(
+    jn: ConfigPathType = ConfigPath,
+    expr: str | None = typer.Option(
         None,
         "--expr",
         help="jq expression (inline)",
     ),
-    file: Optional[str] = typer.Option(
+    file: str | None = typer.Option(
         None,
         "--file",
         help="Path to jq filter file",
@@ -29,21 +26,16 @@ def converter(
         "--raw",
         help="Output raw strings",
     ),
-    modules: Optional[str] = typer.Option(
+    modules: str | None = typer.Option(
         None,
         "--modules",
         help="Path to jq modules directory",
     ),
-    jn: Optional[Path] = typer.Option(
-        None,
-        help="Path to jn.json config file",
-    ),
 ) -> None:
     """Create a new jq converter."""
-    config = get_config(jn)
+    config.set_config_path(jn)
 
-    result = add_converter(
-        config,
+    result = config.add_converter(
         name,
         expr=expr,
         file=file,
@@ -51,7 +43,7 @@ def converter(
         modules=modules,
     )
 
-    if isinstance(result, Error):
+    if isinstance(result, config.Error):
         typer.echo(str(result), err=True)
         raise typer.Exit(1)
 
