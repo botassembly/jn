@@ -1,19 +1,23 @@
 """CLI command: jn init - create a minimal jn.json file."""
 
 from pathlib import Path
-from typing import Optional
 
 import typer
 
-from ..home import save_json
-from ..models import Project
-from . import app
+from jn.home import save_json
+from jn.models import Config
+
+from . import ConfigPath, app
 
 
 @app.command()
 def init(
-    jn: Optional[str] = typer.Option(None, "--jn"),
-    force: bool = typer.Option(False, "--force"),
+    jn: ConfigPath = None,
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Overwrite existing config file",
+    ),
 ) -> None:
     """Create a minimal jn.json configuration file."""
     path = Path(jn) if jn else Path.cwd() / "jn.json"
@@ -25,7 +29,7 @@ def init(
         )
         raise typer.Exit(code=1)
 
-    project = Project(version="0.1", name=path.parent.name or "project")
+    config_obj = Config(version="0.1", name=path.parent.name or "config")
 
-    save_json(path, project.model_dump(mode="json"))
+    save_json(path, config_obj.model_dump(mode="json"))
     typer.echo(f"Created {path}")

@@ -26,10 +26,10 @@
 
 ---
 
-## Zero‑to‑project
+## Zero‑to‑config
 
 ```bash
-# 1) Create a starter project file in the current dir
+# 1) Create a starter config file in the current dir
 jn init                 # writes ./jn.json
 
 # 2) See the inventory
@@ -42,7 +42,7 @@ jn list sources|targets|converters|pipelines
 
 ## Add building blocks (no JSON editing!)
 
-Below are the **vNext** CLI commands for *authoring* your `jn.json`. Each `jn new …` writes to the current project file and validates it.
+Below are the **vNext** CLI commands for *authoring* your `jn.json`. Each `jn new …` writes to the current config file and validates it.
 
 ### 1) Sources
 
@@ -193,7 +193,7 @@ jn rm converter csv.parse
 ## End‑to‑end example (CSV → JSONL file)
 
 ```bash
-# Seed a project and CSV
+# Seed a config and CSV
 jn init
 mkdir -p data out && printf 'a,b\n1,2\n3,4\n' > data/homes.csv
 

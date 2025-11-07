@@ -1,25 +1,24 @@
 """CLI command: jn list - list items by kind."""
 
-from typing import Literal, Optional
-
 import typer
 
-from ..config import get_config
-from . import app
+from jn import config
+
+from . import ConfigPath, app
 
 
 @app.command()
 def list(
-    kind: Literal["sources", "targets", "converters", "pipelines"],
-    jn: Optional[str] = typer.Option(None, "--jn"),
+    kind: config.CollectionName,
+    jn: ConfigPath = None,
 ) -> None:
     """List items by kind (sources, targets, converters, pipelines)."""
-    project = get_config(jn)
+    config.set_config_path(jn)
 
-    items = getattr(project, kind)
-    if not items:
+    names = config.list_items(kind)
+    if not names:
         typer.echo(f"No {kind} defined.")
         return
 
-    for item in items:
-        typer.echo(item.name)
+    for name in names:
+        typer.echo(name)

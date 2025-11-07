@@ -131,7 +131,7 @@ def test_new_converter_duplicate_name(runner, tmp_path):
         )
     assert result.exit_code == 1
     assert result.exception is not None
-    assert "already exists" in str(result.exception)
+    assert "already exists" in (result.stderr or result.output)
 
 
 def test_new_converter_requires_expr_or_file(runner, tmp_path):
@@ -151,7 +151,5 @@ def test_new_converter_requires_expr_or_file(runner, tmp_path):
         )
     assert result.exit_code == 1
     assert result.exception is not None
-    assert (
-        "expr" in str(result.exception).lower()
-        or "file" in str(result.exception).lower()
-    )
+    error_text = (result.stderr or result.output).lower()
+    assert "expr" in error_text or "file" in error_text

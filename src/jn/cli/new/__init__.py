@@ -1,9 +1,9 @@
-"""CLI commands: jn new - create new project items."""
+"""CLI commands: jn new - create new config items."""
 
 import typer
 
 # Create the new command group first
-new_app = typer.Typer(help="Create new project items")
+new_app = typer.Typer(help="Create new config items")
 
 # Import modules which will register their commands via decorators
 from .. import app as main_app  # noqa: E402

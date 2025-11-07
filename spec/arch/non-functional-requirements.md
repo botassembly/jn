@@ -95,7 +95,7 @@
 
 20. **Architecture contract & linting**
 
-* **Must:** Enforce `cli → service → home` layering; no upward imports from `home`; max imports per CLI file (≤3).
+* **Must:** Enforce `cli → config → home` layering; no upward imports from `home`; max imports per CLI file (≤3).
 * **Accept:** Import-linter passes; CI fails on violations; spot checks show CLI files are thin.
 
 If you want, I can turn this into a `spec/nfr.md` with a one-line “how to test” under each item and wire a small `jn doctor` checklist to enforce #10–#13 automatically.

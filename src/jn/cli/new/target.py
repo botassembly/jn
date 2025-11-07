@@ -1,13 +1,10 @@
 """CLI commands: jn new target <driver> - create targets."""
 
-from pathlib import Path
-from typing import List, Optional
-
 import typer
 
-from ...config import get_config, parse_key_value_pairs
-from ...models import Error
-from ...service.new import add_target
+from jn import config
+
+from .. import ConfigPath
 
 app = typer.Typer(help="Create a new target")
 
@@ -15,32 +12,28 @@ app = typer.Typer(help="Create a new target")
 @app.command()
 def exec(
     name: str,
-    argv: List[str] = typer.Option(
+    argv: list[str] = typer.Option(
         ...,
         "--argv",
         help="Command arguments",
     ),
-    env: List[str] = typer.Option(
+    env: list[str] = typer.Option(
         [],
         "--env",
         help="Environment variable (K=V)",
     ),
-    cwd: Optional[str] = typer.Option(
+    cwd: str | None = typer.Option(
         None,
         "--cwd",
         help="Working directory",
     ),
-    jn: Optional[Path] = typer.Option(
-        None,
-        help="Path to jn.json config file",
-    ),
+    jn: ConfigPath = None,
 ) -> None:
     """Create a new exec target."""
-    config = get_config(jn)
-    env_dict = parse_key_value_pairs(env) if env else None
+    config.set_config_path(jn)
+    env_dict = config.parse_key_value_pairs(env) if env else None
 
-    result = add_target(
-        config,
+    result = config.add_target(
         name,
         "exec",
         argv=argv,
@@ -48,7 +41,7 @@ def exec(
         cwd=cwd,
     )
 
-    if isinstance(result, Error):
+    if isinstance(result, config.Error):
         typer.echo(str(result), err=True)
         raise typer.Exit(1)
 
@@ -63,17 +56,14 @@ def shell(
         "--cmd",
         help="Shell command",
     ),
-    jn: Optional[Path] = typer.Option(
-        None,
-        help="Path to jn.json config file",
-    ),
+    jn: ConfigPath = None,
 ) -> None:
     """Create a new shell target."""
-    config = get_config(jn)
+    config.set_config_path(jn)
 
-    result = add_target(config, name, "shell", cmd=cmd)
+    result = config.add_target(name, "shell", cmd=cmd)
 
-    if isinstance(result, Error):
+    if isinstance(result, config.Error):
         typer.echo(str(result), err=True)
         raise typer.Exit(1)
 
@@ -93,17 +83,14 @@ def curl(
         "--method",
         help="HTTP method",
     ),
-    jn: Optional[Path] = typer.Option(
-        None,
-        help="Path to jn.json config file",
-    ),
+    jn: ConfigPath = None,
 ) -> None:
     """Create a new curl target."""
-    config = get_config(jn)
+    config.set_config_path(jn)
 
-    result = add_target(config, name, "curl", url=url, method=method)
+    result = config.add_target(name, "curl", url=url, method=method)
 
-    if isinstance(result, Error):
+    if isinstance(result, config.Error):
         typer.echo(str(result), err=True)
         raise typer.Exit(1)
 
@@ -118,17 +105,14 @@ def file(
         "--path",
         help="File path",
     ),
-    jn: Optional[Path] = typer.Option(
-        None,
-        help="Path to jn.json config file",
-    ),
+    jn: ConfigPath = None,
 ) -> None:
     """Create a new file target."""
-    config = get_config(jn)
+    config.set_config_path(jn)
 
-    result = add_target(config, name, "file", path=path)
+    result = config.add_target(name, "file", path=path)
 
-    if isinstance(result, Error):
+    if isinstance(result, config.Error):
         typer.echo(str(result), err=True)
         raise typer.Exit(1)
 

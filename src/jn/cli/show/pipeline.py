@@ -1,24 +1,21 @@
 """CLI command: jn show pipeline - display pipeline definition."""
 
-from pathlib import Path
-from typing import Optional
-
 import typer
 
+from jn import config
+
+from .. import ConfigPath
 from . import show_app
-from ...config import get_pipeline
 
 
 @show_app.command()
 def pipeline(
     name: str,
-    jn: Optional[Path] = typer.Option(
-        None,
-        help="Path to jn.json config file",
-    ),
+    jn: ConfigPath = None,
 ) -> None:
     """Show a pipeline's JSON definition."""
-    item = get_pipeline(name, jn)
+    config.set_config_path(jn)
+    item = config.fetch_item("pipelines", name)
 
     if item is None:
         typer.echo(f"Error: pipeline '{name}' not found", err=True)

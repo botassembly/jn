@@ -1,6 +1,6 @@
 # Roadmap — Outside‑In CLI Build (JN vNext)
 
-> Rule: write the CLI test first (Typer CliRunner), watch it fail, implement the smallest slice underneath (service/drivers), keep tests green, repeat. 2–3 imports max per CLI module.
+> Rule: write the CLI test first (Typer CliRunner), watch it fail, implement the smallest slice underneath (config/drivers), keep tests green, repeat. 2–3 imports max per CLI module.
 
 * [x] Bootstrap checks — `make check` ✓ (all contracts enforced)
 * [x] Pytest smoke — `pytest <first-test>` ✓ (12 tests passing)

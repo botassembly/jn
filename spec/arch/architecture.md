@@ -6,10 +6,10 @@
 
 ## 1) Guiding principles
 
-* **CLI is thin**: each command has 2–3 imports, does arg parsing + 3–4 service calls max.
-* **Clear layering**: `jn.cli → jn.service → jn.home`. `jn.models` is shared by all.
-* **Config as a top‑level module**: `from jn import config` → `get_config()/set_config()` with precedence and testability.
-* **Typed project**: Pydantic models for `Project/Source/Target/Converter/Pipeline` (compact, strict).
+* **CLI is thin**: each command has 2–3 imports, does arg parsing + 3–4 config helper calls max.
+* **Clear layering**: `jn.cli → jn.config → jn.home`. `jn.models` is shared by all.
+* **Config as a top‑level module**: `from jn import config` → call `config.set_config_path()` once, then use the module API (list/add/run) without touching raw models.
+* **Typed config**: Pydantic models for `Config/Source/Target/Converter/Pipeline` (compact, strict).
 * **Simple exceptions**: raise `JnError(step, name, exit_code, stderr=...)`; CLI prints either human hints or JSON envelopes.
 * **Binary‑safe streaming**: only read/write bytes on STDIN/STDOUT.
 
@@ -20,23 +20,25 @@
 ```
 src/jn/
   __init__.py
-  config.py              # global get/set/reset; resolves jn.json via home
+  config/
+    __init__.py          # facade: set_config_path, list/add/run helpers
+    core.py              # global state + persistence
+    catalog.py           # read-only helpers (names, lookups)
+    mutate.py            # add/update operations for config objects
+    pipeline.py          # explain/run pipeline operations
+    utils.py             # CLI parsing helpers
   home/
     __init__.py          # path resolution + file IO only (no Pydantic here)
   models/
     __init__.py
-    project.py           # Pydantic models + validators
-  service/
-    __init__.py
-    pipeline.py          # plan + run (executes source → converters → target)
-    explain.py           # build resolved plan for display
-    spawn.py             # one subprocess helper (exec/shell/curl/jq)
+    config.py            # Pydantic models + validators
+    ... (sources, targets, converters, pipelines split by type)
   cli/
     __init__.py          # Typer app wiring (no logic)
     init.py              # creates example jn.json
     list.py              # lists names by kind
     explain.py           # prints resolved plan (optionally commands/env)
-    run.py               # minimal: parse, get_config, service.run
+    run.py               # minimal: parse, set_config_path, config.run_pipeline
     source.py            # `source run` (thin)
     target.py            # `target run` (thin)
     convert.py           # `convert` (thin)
@@ -65,36 +67,17 @@ tests/
 **Top‑level API** (for tests & CLI):
 
 ```python
-# src/jn/config.py
-from pathlib import Path
-from typing import Optional
-from .models.project import Project
-from .home import resolve_config_path, load_json
+# src/jn/config/__init__.py
+from .core import set_config_path, require, config_path, reset
+from .catalog import list_items, fetch_item, get_names, has_item
+from .mutate import add_source, add_target, add_converter, add_pipeline
+from .pipeline import run_pipeline, explain_pipeline
 
-_CONFIG: Optional[Project] = None
-
-def get_config(path: Optional[Path] = None) -> Project:
-    """Return a cached Project (load+validate on first use).
-    If `path` is given, (re)load from that path and cache it. """
-    global _CONFIG
-    if path is not None:
-        data = load_json(path)
-        _CONFIG = Project.model_validate(data)
-        return _CONFIG
-    if _CONFIG is None:
-        p = resolve_config_path()
-        data = load_json(p)
-        _CONFIG = Project.model_validate(data)
-    return _CONFIG
-
-def set_config(project: Project) -> None:
-    """Inject a Project (for unit tests)."""
-    global _CONFIG
-    _CONFIG = project
-
-def reset_config() -> None:
-    global _CONFIG
-    _CONFIG = None
+# usage
+config.set_config_path(cli_path)
+config.add_source("echo", "exec", argv=[...])
+config.list_items("sources")
+config.run_pipeline("demo")
 ```
 
 **Home layer** (pure IO + path finding):
@@ -125,7 +108,7 @@ def load_json(path: Path) -> dict:
 Add dependency: `pydantic>=2`.
 
 ```python
-# src/jn/models/project.py
+# src/jn/models/config.py
 from pydantic import BaseModel, Field, field_validator
 from typing import Literal, Optional, Union, List, Dict, Any
 
@@ -175,7 +158,7 @@ class Pipeline(BaseModel):
     params: Dict[str, Any] = Field(default_factory=dict)
     steps: List[Step]
 
-class Project(BaseModel):
+class Config(BaseModel):
     version: str
     name: str
     sources: List[Source] = Field(default_factory=list)
@@ -195,131 +178,38 @@ class Project(BaseModel):
 
 ## 5) Service layer (single spawn helper + tiny entrypoints)
 
-**Error type:**
+**Config layer responsibilities:**
 
-```python
-# src/jn/service/__init__.py
-from dataclasses import dataclass
-@dataclass
-class JnError(Exception):
-    step: str
-    name: str
-    exit_code: int
-    stderr: str | None = None
-```
-
-**One subprocess helper (keeps logic out of CLI):**
-
-```python
-# src/jn/service/spawn.py
-import subprocess, json, sys
-from typing import Mapping, Optional
-from ..models.project import ExecSpec, ShellSpec, CurlSpec
-
-BUF = sys.stdout.buffer
-
-def write(data: bytes) -> None:
-    BUF.write(data); BUF.flush()
-
-def run_exec(spec: ExecSpec, stdin: Optional[bytes]=None):
-    return subprocess.run(spec.argv, input=stdin, cwd=spec.cwd,
-                          env=(None if not spec.env else {**spec.env, **{}}),
-                          check=False, capture_output=True)
-
-def run_shell(spec: ShellSpec, stdin: Optional[bytes]=None):
-    return subprocess.run(spec.cmd, input=stdin, shell=True, check=False, capture_output=True)
-
-def run_curl(spec: CurlSpec, stdin: Optional[bytes]=None):
-    args = ["curl","-sS","-X", spec.method, spec.url]
-    for k,v in (spec.headers or {}).items(): args += ["-H", f"{k}: {v}"]
-    if spec.body == "stdin" and stdin is not None:
-        args += ["--data-binary","@-"]
-        return subprocess.run(args, input=stdin, check=False, capture_output=True)
-    if isinstance(spec.body, (dict, list)):
-        args += ["--data", json.dumps(spec.body)]
-    elif isinstance(spec.body, str) and spec.body:
-        args += ["--data", spec.body]
-    return subprocess.run(args, check=False, capture_output=True)
-```
-
-**Pipeline run (no arg parsing here):**
-
-```python
-# src/jn/service/pipeline.py
-from typing import Dict, Any
-from ..models.project import Project, Converter
-from . import JnError
-from .spawn import run_exec, run_shell, run_curl, write
-import subprocess, tempfile, os
-
-def _run_source(src, params: Dict[str, Any]) -> bytes:
-    if src.driver == "exec":
-        return run_exec(src.exec).stdout
-    if src.driver == "shell":
-        return run_shell(src.shell).stdout
-    if src.driver == "curl":
-        return run_curl(src.curl).stdout
-    raise NotImplementedError(src.driver)
-
-def _run_converter(conv: Converter, stdin: bytes) -> bytes:
-    # jq only; respect raw/file/expr/modules/args
-    from ..util import run_jq
-    res = run_jq(expr=conv.expr, file=conv.file, modules=conv.modules,
-                 args=conv.args, raw=conv.raw, input_data=stdin)
-    if res.returncode != 0:
-        raise JnError("converter", conv.name, res.returncode, res.stderr.decode("utf-8","ignore"))
-    return res.stdout
-
-def _run_target(tgt, stdin: bytes) -> bytes:
-    if tgt.driver == "exec":
-        return run_exec(tgt.exec, stdin).stdout
-    if tgt.driver == "shell":
-        return run_shell(tgt.shell, stdin).stdout
-    if tgt.driver == "curl":
-        from copy import deepcopy
-        spec = deepcopy(tgt.curl); spec.body = spec.body or "stdin"
-        return run_curl(spec, stdin).stdout
-    raise NotImplementedError(tgt.driver)
-
-def run_pipeline(pr: Project, pipe_name: str, params: Dict[str, Any]) -> bytes:
-    pipe = next((p for p in pr.pipelines if p.name == pipe_name), None)
-    if not pipe: raise KeyError(f"pipeline not found: {pipe_name}")
-    # source
-    src = next(s for s in pr.sources if s.name == pipe.steps[0].ref)
-    out = _run_source(src, pipe.steps[0].args or {})
-    # converters
-    for step in pipe.steps[1:-1]:
-        conv = next(c for c in pr.converters if c.name == step.ref)
-        out = _run_converter(conv, out)
-    # target
-    tgt = next(t for t in pr.targets if t.name == pipe.steps[-1].ref)
-    out = _run_target(tgt, out)
-    return out
-```
+* `jn.config.core` loads, caches, and persists the active `Config` instance. `set_config_path(path)` resolves the location (CLI flag → env → cwd → home) and stores `_CONFIG` / `_CONFIG_PATH` for subsequent helpers.
+* `jn.config.catalog` provides ordered-name lookups (`list_items`, `fetch_item`, `get_pipeline`, etc.) without exposing the underlying Pydantic models to the CLI.
+* `jn.config.mutate` adds new sources/targets/converters/pipelines by cloning the cached config, re-validating with Pydantic, persisting to disk, and updating the module-level cache.
+* `jn.config.pipeline` contains the execution/explain logic. It resolves steps against the cached config, runs subprocesses via `jn.drivers.spawn_exec`, and raises `JnError` on failures so the CLI can surface human-friendly messages.
 
 ---
 
-## 6) CLI shape (minimal imports; delegates to service)
+## 6) CLI shape (minimal imports; delegates to config)
 
 **Run command (example)** — *imports ≤3 in the file*
 
 ```python
 # src/jn/cli/run.py
+import sys
 import typer
-from ..config import get_config
-from .common import resolve_params
-from ..service.pipeline import run_pipeline
 
-def register(app: typer.Typer) -> None:
-    @app.command()
-    def run(pipeline: str, param: list[str] = typer.Option([], "--param")) -> None:
-        pr = get_config()
-        args = resolve_params(param)
-        out = run_pipeline(pr, pipeline, args)
-        import sys; sys.stdout.buffer.write(out)
+from jn import config
+
+from . import ConfigPath, app
+
+
+@app.command()
+def run(pipeline: str, jn: ConfigPath = None) -> None:
+    config.set_config_path(jn)
+    out = config.run_pipeline(pipeline)
+    sys.stdout.buffer.write(out)
+    sys.stdout.buffer.flush()
 ```
 
-**Other commands** (`explain`, `list`, `init`, `source run`, `target run`, `convert`) follow the same pattern: parse → `get_config()` → call service → write bytes.
+**Other commands** (`explain`, `list`, `init`, `new`, `show`) follow the same pattern: parse → `config.set_config_path()` → call a config helper → write bytes.
 
 ---
 
@@ -333,11 +223,11 @@ root_package=jn
 include_external_packages=False
 
 [importlinter:contract:layers]
-name=CLI -> Service -> Home layering
+name=CLI -> Config -> Home layering
 type=layers
 layers=
     jn.cli
-    jn.service
+    jn.config
     jn.home
 
 [importlinter:contract:home_no_upwards]
@@ -347,7 +237,7 @@ source_modules=
     jn.home
 forbidden_modules=
     jn.cli
-    jn.service
+    jn.config
 ```
 
 ---
@@ -396,14 +286,14 @@ jn target run <name> [--jn PATH]
 jn convert <name> [--param k=v] [--jn PATH]
 ```
 
-Each command does: **parse → get_config() → service → write bytes**. No business logic in CLI.
+Each command does: **parse → config.set_config_path() → call config helper → write bytes**. No business logic in CLI.
 
 ---
 
 ## 11) Acceptance checklist (ship when all pass)
 
 * [ ] CLI files ≤3 imports; no subprocess logic in CLI.
-* [ ] `jn.config` exposes `get_config()`/`set_config()` and precedence works.
+* [ ] `jn.config` exposes `set_config_path()/require()` helpers and precedence works.
 * [ ] Models validate `jn.json`; duplicate names rejected.
 * [ ] `run_pipeline` honors converter `.raw` and produces identical behavior to `convert`.
 * [ ] All subprocess IO is **bytes**; no lossy text decoding.
@@ -414,10 +304,10 @@ Each command does: **parse → get_config() → service → write bytes**. No bu
 
 ## 12) Day‑0 refactor plan (copy/paste tasks)
 
-1. **Scaffold** `jn.config`, `jn.home`, `jn.models`, `jn.service.spawn`.
-2. **Move** pipeline/explain logic into `jn.service.*` (no Typer imports there).
-3. **Slim** CLI modules to ≤30 lines each; wire through `register(app)` only.
-4. **Add** Pydantic; validate on `get_config()`; remove ad‑hoc dict access.
+1. **Scaffold** `jn.config` package (`core`, `catalog`, `mutate`, `pipeline`, `utils`) plus `jn.home` and the split `jn.models` modules.
+2. **Consolidate** pipeline/explain logic inside `jn.config.pipeline` (no Typer imports there).
+3. **Slim** CLI modules to ≤30 lines each; wire through direct Typer commands and call `config.*` helpers.
+4. **Add** Pydantic; validate via `config.set_config_path()`/`require()` instead of ad‑hoc dict access.
 5. **Replace** any text streaming with `sys.stdout.buffer.write()`.
 6. **Unify** jq invocation in one place and honor `raw/modules/args` consistently.
 7. **Fix** `.importlinter`; add `make lint-imports` task.

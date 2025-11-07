@@ -1,25 +1,23 @@
 """CLI command: jn run - execute a pipeline."""
 
 import sys
-from typing import Optional
 
 import typer
 
-from ..config import get_config
-from ..service import run_pipeline
-from . import app
+from jn import config
+
+from . import ConfigPath, app
 
 
 @app.command()
 def run(
     pipeline: str,
-    jn: Optional[str] = typer.Option(None, "--jn"),
+    jn: ConfigPath = None,
 ) -> None:
     """Execute a pipeline (source → converters → target)."""
-    project = get_config(jn)
-
     try:
-        output = run_pipeline(project, pipeline)
+        config.set_config_path(jn)
+        output = config.run_pipeline(pipeline)
         sys.stdout.buffer.write(output)
         sys.stdout.buffer.flush()
     except Exception as e:
