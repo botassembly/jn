@@ -514,3 +514,52 @@ def test_run_pipeline_with_params_and_env_combined(
     lines = [line for line in result.output.strip().split("\n") if line]
     assert len(lines) == 1
     assert json.loads(lines[0]) == {"name": "Alice", "token": "xyz789"}
+
+
+def test_run_pipeline_env_available_in_subprocess(
+    runner, tmp_path, pass_converter, cat_target
+):
+    """Test that --env variables are passed to subprocess environment (not just templating)."""
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        jn_path = tmp_path / "jn.json"
+        init_config(runner, jn_path)
+
+        # Source that reads env var directly via os.getenv (no ${env.X} templating)
+        add_exec_source(
+            runner,
+            jn_path,
+            "read_env",
+            [
+                "python",
+                "-c",
+                "import json,os; print(json.dumps({'api_key': os.getenv('API_KEY', 'not_found')}))",
+            ],
+        )
+        add_converter(runner, jn_path, "pass", pass_converter.jq.expr or ".")
+        add_exec_target(runner, jn_path, "cat", cat_target.exec.argv)
+        add_pipeline(
+            runner,
+            jn_path,
+            "env_subprocess",
+            ["source:read_env", "converter:pass", "target:cat"],
+        )
+
+        # Run with --env API_KEY=secret_value
+        result = runner.invoke(
+            app,
+            [
+                "run",
+                "env_subprocess",
+                "--env",
+                "API_KEY=secret_value",
+                "--jn",
+                str(jn_path),
+            ],
+        )
+
+    assert result.exit_code == 0, f"Pipeline failed: {result.output}"
+    lines = [line for line in result.output.strip().split("\n") if line]
+    assert len(lines) == 1
+    # Verify subprocess received the env var (not "not_found")
+    assert json.loads(lines[0]) == {"api_key": "secret_value"}

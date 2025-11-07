@@ -67,16 +67,17 @@ def _run_source(
             if source.exec.cwd
             else None
         )
-        # Apply templating to env dict values
-        templated_env = (
-            {
+        # Build final env: start with merged env (os.environ + CLI overrides),
+        # then overlay config's env dict (with templating applied)
+        # Precedence: config.exec.env > CLI --env > os.environ
+        final_env = env.copy() if env else {}
+        if source.exec.env:
+            templated_config_env = {
                 key: substitute_template(value, params=params, env=env)
                 for key, value in source.exec.env.items()
             }
-            if source.exec.env
-            else {}
-        )
-        result = spawn_exec(argv, env=templated_env, cwd=cwd)
+            final_env.update(templated_config_env)
+        result = spawn_exec(argv, env=final_env or None, cwd=cwd)
         _check_result("source", source.name, result)
         return result.stdout
     elif source.driver == "file" and source.file:
@@ -141,16 +142,17 @@ def _run_target(
             if target.exec.cwd
             else None
         )
-        # Apply templating to env dict values
-        templated_env = (
-            {
+        # Build final env: start with merged env (os.environ + CLI overrides),
+        # then overlay config's env dict (with templating applied)
+        # Precedence: config.exec.env > CLI --env > os.environ
+        final_env = env.copy() if env else {}
+        if target.exec.env:
+            templated_config_env = {
                 key: substitute_template(value, params=params, env=env)
                 for key, value in target.exec.env.items()
             }
-            if target.exec.env
-            else {}
-        )
-        result = spawn_exec(argv, stdin=stdin, env=templated_env, cwd=cwd)
+            final_env.update(templated_config_env)
+        result = spawn_exec(argv, stdin=stdin, env=final_env or None, cwd=cwd)
         _check_result("target", target.name, result)
         return result.stdout
     elif target.driver == "file" and target.file:
