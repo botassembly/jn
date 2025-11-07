@@ -60,8 +60,9 @@
 
 13. **Dependency hardening**
 
-* **Must:** Preflight checks (`jn doctor`): presence/versions of `jq`, optional `jc`/`curl`; clear remediation.
+* **Must:** Preflight checks (`jn doctor`): presence/versions of `jq` (required), optional `jc` (source adapter)/`curl` (HTTP driver); clear remediation.
 * **Accept:** Missing `jq` → preflight stops before run with single-screen checklist.
+* **Note:** `jc` is a source adapter (shell → JSON), not a converter. See `spec/arch/adapters.md`.
 
 14. **Observability & minimal metrics**
 
@@ -78,15 +79,16 @@
 * **Must:** `--jn` > `JN_PATH` > `./.jn.json|jn.json` > `~/.jn.json`; `config.set_config()` for tests; no hidden state.
 * **Accept:** Unit test can inject a Project object; all CLI commands honor it.
 
-17. **Format coverage via jc + delimited engine**
+17. **Format coverage via source adapters**
 
-* **Must:** Support CSV/TSV/etc. via `jc` streaming parsers; provide light `engine: delimited` fallback with explicit dialect.
+* **Must:** Support CSV/TSV/etc. as **sources** (via file driver with CSV parser or jc streaming parsers); not as converters.
 * **Accept:** CSV with quoted commas and multiline fields parses correctly; TSV via delimiter config works; error rows flagged.
+* **Note:** CSV/delimited is a source type, not a converter. jq is the only converter.
 
 18. **Partial JSON recovery (jiter)**
 
-* **Must:** Optional `json.recover` salvages truncated single-blob JSON with bounded memory; never changes NDJSON streams.
-* **Accept:** Truncated tail recovers with `partial_mode=on|trailing-strings`; NDJSON unaffected.
+* **Status:** Deferred / not planned for initial releases
+* **Note:** Jiter is NOT a converter. It would be a recovery tool for malformed JSON, but is not currently in scope.
 
 19. **Cross-platform portability**
 

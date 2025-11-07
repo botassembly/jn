@@ -106,21 +106,50 @@ Each collection lives in its own file under `jn.models`. Examples:
 
 * `models/config.py` – root `Config` model + uniqueness validators.
 * `models/source.py` – driver-specific models (exec/shell/curl/file) with strict typing.
-* `models/converter.py` – jq converter model (`expr`, `file`, `modules`, `raw`).
+* `models/converter.py` – jq converter model (`expr`, `file`, `modules`, `raw`). **NOTE: jq is the ONLY converter (JSON → JSON transformation)**.
 * `models/target.py` – mirrors `Source` with driver metadata.
 * `models/pipeline.py` – pipeline steps and plan models used by `explain`.
+* `models/adapters.py` (future) – source adapters (e.g., jc for shell → JSON) and target adapters (JSON → other formats).
 
 All models enforce name uniqueness and minimal validation; business rules stay in the config layer helpers.
 
 ---
 
-## 5) Pipeline execution
+## 5) Adapters (source & target wrappers)
+
+**Source adapters** wrap non-JSON outputs and convert them to JSON/NDJSON so converters can process them:
+
+* **jc adapter** – wraps shell command output using jc's registered parsers (dig, ls, ps, etc.)
+  - Can use "magic" syntax: `jc <command>` instead of `<command> | jc --<parser>`
+  - Registered parsers map commands to jc formatters
+  - Example: `jc dig example.com` → JSON output
+
+**Target adapters** (future) would convert JSON to other formats when targets require non-JSON input.
+
+**Key principle:** Adapters are NOT converters. Converters (jq) only do JSON → JSON transformations. Adapters handle format boundaries (non-JSON ↔ JSON).
+
+**Pipeline flow with adapters:**
+```
+Source (exec/shell/curl/file)
+  ↓
+[optional source adapter: jc for shell output]
+  ↓
+Converter (jq: JSON → JSON)
+  ↓
+[optional target adapter: future JSON → other formats]
+  ↓
+Target (exec/shell/curl/file)
+```
+
+---
+
+## 6) Pipeline execution
 
 `config.pipeline.run_pipeline()` currently supports the `exec` driver for sources/targets and jq converters. Each stage spawns subprocesses via `jn.drivers.spawn_exec`, streams bytes, and raises `JnError` on non-zero exits. `config.pipeline.explain_pipeline()` builds a read-only `PipelinePlan` with optional `--show-commands` and `--show-env` enrichment for CLI callers.
 
 ---
 
-## 6) Testing discipline
+## 7) Testing discipline
 
 * Write outside-in tests under `tests/integration/` using Typer's `CliRunner`.
 * Tests set `--jn` explicitly (or rely on fixtures) so they never import config internals directly.

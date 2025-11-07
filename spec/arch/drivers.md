@@ -1,6 +1,11 @@
 # JN — Drivers
 
-**Scope.** Drivers are small, composable adapters that move bytes in and out of external systems. Service composes drivers into pipelines; drivers never touch config state directly, and they never depend upward on Service or CLI.
+**Scope.** Drivers are small, composable execution engines that move bytes in and out of external systems. They handle subprocess spawning, file I/O, and network requests. Service composes drivers into pipelines; drivers never touch config state directly, and they never depend upward on Service or CLI.
+
+**IMPORTANT:** Drivers are NOT the same as adapters:
+- **Drivers** = execution engines (exec, shell, curl, file) — how to run/read/write
+- **Adapters** = format converters (jc, CSV parser) — non-JSON ↔ JSON
+- See `spec/arch/adapters.md` for adapter documentation
 
 ## Goals
 
