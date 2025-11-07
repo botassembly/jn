@@ -9,4 +9,4 @@ app = typer.Typer(
 )
 
 # Import commands to register decorators
-from . import explain, init, list, run, show  # noqa: F401
+from . import explain, init, list, new, run, show  # noqa: F401

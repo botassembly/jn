@@ -1,0 +1,21 @@
+{
+  "version": "0.1",
+  "name": "project",
+  "sources": [
+    {
+      "name": "test.echo",
+      "driver": "exec",
+      "mode": "stream",
+      "exec": {
+        "argv": [
+          "echo",
+          "hello"
+        ],
+        "env": {}
+      }
+    }
+  ],
+  "targets": [],
+  "converters": [],
+  "pipelines": []
+}
