@@ -104,9 +104,13 @@ def _run_source(
 
 
 def _run_converter(converter: Converter, stdin: bytes) -> bytes:
-    """Execute a converter and return transformed bytes."""
+    """Execute a converter and return transformed bytes.
 
-    if converter.engine == "jq" and converter.jq:
+    Note: Converter.engine is always "jq" (Literal["jq"]), so we only
+    need to check that converter.jq is configured.
+    """
+
+    if converter.jq:
         argv = ["jq", "-c"]
         if converter.jq.raw:
             argv.append("-r")
@@ -277,7 +281,8 @@ def explain_pipeline(
             converter = config_obj.get_converter(step.ref)
             if converter:
                 step_info["engine"] = converter.engine
-                if show_commands and converter.engine == "jq" and converter.jq:
+                # Note: engine is always "jq" (Literal["jq"])
+                if show_commands and converter.jq:
                     step_info["expr"] = converter.jq.expr
                     step_info["raw"] = converter.jq.raw
                     if converter.jq.file:

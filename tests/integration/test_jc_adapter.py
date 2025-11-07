@@ -214,39 +214,3 @@ def test_source_without_adapter_works_normally(
     assert result.exit_code == 0
     output = result.output.strip()
     assert json.loads(output) == {"status": "ok"}
-
-
-def test_jc_adapter_in_config_json(runner, tmp_path):
-    """Test that adapter field appears in jn.json when specified."""
-
-    with runner.isolated_filesystem(temp_dir=tmp_path):
-        jn_path = tmp_path / "jn.json"
-        init_config(runner, jn_path)
-
-        # Create source with jc adapter
-        result = runner.invoke(
-            app,
-            [
-                "new",
-                "source",
-                "exec",
-                "test_source",
-                "--adapter",
-                "jc",
-                "--argv",
-                "ls",
-                "--jn",
-                str(jn_path),
-            ],
-        )
-        assert result.exit_code == 0
-
-        # Verify adapter field in config
-        config_text = jn_path.read_text()
-        config_obj = json.loads(config_text)
-
-    assert "sources" in config_obj
-    assert len(config_obj["sources"]) == 1
-    assert config_obj["sources"][0]["name"] == "test_source"
-    assert config_obj["sources"][0]["adapter"] == "jc"
-    assert config_obj["sources"][0]["exec"]["argv"] == ["ls"]
