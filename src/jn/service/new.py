@@ -61,8 +61,6 @@ def add_source(
 
     # Build the source based on driver
     if driver == "exec":
-        if not argv:
-            raise ValueError("--argv required for exec driver")
         source = Source(
             name=name,
             driver="exec",
@@ -73,16 +71,12 @@ def add_source(
             ),
         )
     elif driver == "shell":
-        if not cmd:
-            raise ValueError("--cmd required for shell driver")
         source = Source(
             name=name,
             driver="shell",
             shell=ShellSpec(cmd=cmd),
         )
     elif driver == "curl":
-        if not url:
-            raise ValueError("--url required for curl driver")
         source = Source(
             name=name,
             driver="curl",
@@ -92,8 +86,6 @@ def add_source(
             ),
         )
     elif driver == "file":
-        if not path:
-            raise ValueError("--path required for file driver")
         source = Source(
             name=name,
             driver="file",
@@ -142,8 +134,6 @@ def add_target(
 
     # Build the target based on driver
     if driver == "exec":
-        if not argv:
-            raise ValueError("--argv required for exec driver")
         target = Target(
             name=name,
             driver="exec",
@@ -154,16 +144,12 @@ def add_target(
             ),
         )
     elif driver == "shell":
-        if not cmd:
-            raise ValueError("--cmd required for shell driver")
         target = Target(
             name=name,
             driver="shell",
             shell=ShellSpec(cmd=cmd),
         )
     elif driver == "curl":
-        if not url:
-            raise ValueError("--url required for curl driver")
         target = Target(
             name=name,
             driver="curl",
@@ -173,8 +159,6 @@ def add_target(
             ),
         )
     elif driver == "file":
-        if not path:
-            raise ValueError("--path required for file driver")
         target = Target(
             name=name,
             driver="file",

@@ -15,8 +15,8 @@ def test_new_target_exec(runner, tmp_path):
             [
                 "new",
                 "target",
-                "test.cat",
                 "exec",
+                "test.cat",
                 "--argv",
                 "cat",
                 "--jn",
@@ -42,8 +42,8 @@ def test_new_target_shell(runner, tmp_path):
             [
                 "new",
                 "target",
-                "test.shell",
                 "shell",
+                "test.shell",
                 "--cmd",
                 "tee output.json",
                 "--jn",
@@ -67,8 +67,8 @@ def test_new_target_curl(runner, tmp_path):
             [
                 "new",
                 "target",
-                "test.api",
                 "curl",
+                "test.api",
                 "--url",
                 "https://api.example.com/webhook",
                 "--jn",
@@ -95,8 +95,8 @@ def test_new_target_file(runner, tmp_path):
             [
                 "new",
                 "target",
-                "test.file",
                 "file",
+                "test.file",
                 "--path",
                 "output/result.json",
                 "--jn",
@@ -121,8 +121,8 @@ def test_new_target_duplicate_name(runner, tmp_path):
             [
                 "new",
                 "target",
-                "duplicate",
                 "exec",
+                "duplicate",
                 "--argv",
                 "cat",
                 "--jn",
@@ -134,8 +134,8 @@ def test_new_target_duplicate_name(runner, tmp_path):
             [
                 "new",
                 "target",
-                "duplicate",
                 "exec",
+                "duplicate",
                 "--argv",
                 "tee",
                 "--jn",

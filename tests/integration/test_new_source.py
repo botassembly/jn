@@ -17,8 +17,8 @@ def test_new_source_exec(runner, tmp_path):
             [
                 "new",
                 "source",
-                "test.echo",
                 "exec",
+                "test.echo",
                 "--argv",
                 "echo",
                 "--argv",
@@ -47,8 +47,8 @@ def test_new_source_shell(runner, tmp_path):
             [
                 "new",
                 "source",
-                "test.shell",
                 "shell",
+                "test.shell",
                 "--cmd",
                 "echo hello | jq -c .",
                 "--jn",
@@ -73,8 +73,8 @@ def test_new_source_curl(runner, tmp_path):
             [
                 "new",
                 "source",
-                "test.api",
                 "curl",
+                "test.api",
                 "--url",
                 "https://api.example.com/data",
                 "--method",
@@ -102,8 +102,8 @@ def test_new_source_file(runner, tmp_path):
             [
                 "new",
                 "source",
-                "test.file",
                 "file",
+                "test.file",
                 "--path",
                 "data/input.json",
                 "--jn",
@@ -130,8 +130,8 @@ def test_new_source_duplicate_name(runner, tmp_path):
             [
                 "new",
                 "source",
-                "duplicate",
                 "exec",
+                "duplicate",
                 "--argv",
                 "echo",
                 "--argv",
@@ -146,8 +146,8 @@ def test_new_source_duplicate_name(runner, tmp_path):
             [
                 "new",
                 "source",
-                "duplicate",
                 "exec",
+                "duplicate",
                 "--argv",
                 "echo",
                 "--argv",
@@ -171,8 +171,8 @@ def test_new_source_with_env(runner, tmp_path):
             [
                 "new",
                 "source",
-                "test.env",
                 "exec",
+                "test.env",
                 "--argv",
                 "env",
                 "--env",
@@ -199,8 +199,8 @@ def test_new_source_with_cwd(runner, tmp_path):
             [
                 "new",
                 "source",
-                "test.cwd",
                 "exec",
+                "test.cwd",
                 "--argv",
                 "pwd",
                 "--cwd",
