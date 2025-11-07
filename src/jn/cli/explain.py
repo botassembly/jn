@@ -1,25 +1,13 @@
 """CLI command: explain pipeline."""
 
-import json
 from pathlib import Path
 from typing import List, Optional
 
 import typer
 
-from ..config import get_config
+from ..config import get_config, parse_key_value_pairs
 from ..service.explain import explain_pipeline
 from . import app
-
-
-def _parse_params(param_list: List[str]) -> dict:
-    """Parse --param k=v flags into a dictionary."""
-    params = {}
-    for p in param_list:
-        if "=" not in p:
-            raise ValueError(f"Invalid param format: {p} (expected k=v)")
-        k, v = p.split("=", 1)
-        params[k] = v
-    return params
 
 
 @app.command()
@@ -39,23 +27,15 @@ def explain(
     ),
 ) -> None:
     """Show the resolved plan for a pipeline without executing it."""
-    try:
-        project = get_config(jn)
-        params = _parse_params(param)
+    config = get_config(jn)
+    params = parse_key_value_pairs(param) if param else {}
 
-        plan = explain_pipeline(
-            project,
-            pipeline,
-            params=params,
-            show_commands=show_commands,
-            show_env=show_env,
-        )
+    plan = explain_pipeline(
+        config,
+        pipeline,
+        params=params,
+        show_commands=show_commands,
+        show_env=show_env,
+    )
 
-        typer.echo(json.dumps(plan, indent=2))
-
-    except KeyError as e:
-        typer.echo(f"Error: Pipeline not found - {e}", err=True)
-        raise typer.Exit(1)
-    except Exception as e:
-        typer.echo(f"Error: {e}", err=True)
-        raise typer.Exit(1)
+    typer.echo(plan.model_dump_json(indent=2, exclude_none=True))

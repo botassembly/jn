@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Dict, List, Literal, Optional
 
-from ..home.io import load_json, save_json
+from ..home.io import resolve_config_path, save_json
 from ..models.project import (
     Converter,
     CurlSpec,
@@ -20,7 +20,8 @@ from ..models.project import (
 
 
 def add_source(
-    jn_path: Path,
+    config: Project,
+    jn_path: Optional[Path],
     name: str,
     driver: Literal["exec", "shell", "curl", "file"],
     argv: Optional[List[str]] = None,
@@ -35,7 +36,8 @@ def add_source(
     Add a new source to the project.
 
     Args:
-        jn_path: Path to jn.json
+        config: Current project configuration
+        jn_path: Path to jn.json (optional, resolved if None)
         name: Source name
         driver: Driver type
         argv: Command argv (for exec driver)
@@ -53,12 +55,8 @@ def add_source(
         ValueError: If source name already exists
         ValueError: If required driver-specific args missing
     """
-    # Load existing project
-    data = load_json(jn_path)
-    project = Project.model_validate(data)
-
     # Check for duplicate name
-    if any(s.name == name for s in project.sources):
+    if config.has_source(name):
         raise ValueError(f"Source '{name}' already exists")
 
     # Build the source based on driver
@@ -107,20 +105,22 @@ def add_source(
     else:
         raise ValueError(f"Unknown driver: {driver}")
 
-    # Add source to project
-    project.sources.append(source)
+    # Add source to config
+    config.sources.append(source)
 
-    # Validate the updated project (Pydantic will check uniqueness)
-    project = Project.model_validate(project.model_dump())
+    # Validate the updated config (Pydantic will check uniqueness)
+    config = Project.model_validate(config.model_dump())
 
     # Write back to file
-    save_json(jn_path, project.model_dump(exclude_none=True))
+    resolved_path = Path(jn_path) if jn_path else resolve_config_path()
+    save_json(resolved_path, config.model_dump(exclude_none=True))
 
-    return project
+    return config
 
 
 def add_target(
-    jn_path: Path,
+    config: Project,
+    jn_path: Optional[Path],
     name: str,
     driver: Literal["exec", "shell", "curl", "file"],
     argv: Optional[List[str]] = None,
@@ -136,12 +136,8 @@ def add_target(
 
     Similar to add_source but for targets.
     """
-    # Load existing project
-    data = load_json(jn_path)
-    project = Project.model_validate(data)
-
     # Check for duplicate name
-    if any(t.name == name for t in project.targets):
+    if config.has_target(name):
         raise ValueError(f"Target '{name}' already exists")
 
     # Build the target based on driver
@@ -190,20 +186,22 @@ def add_target(
     else:
         raise ValueError(f"Unknown driver: {driver}")
 
-    # Add target to project
-    project.targets.append(target)
+    # Add target to config
+    config.targets.append(target)
 
-    # Validate the updated project
-    project = Project.model_validate(project.model_dump())
+    # Validate the updated config
+    config = Project.model_validate(config.model_dump())
 
     # Write back to file
-    save_json(jn_path, project.model_dump(exclude_none=True))
+    resolved_path = Path(jn_path) if jn_path else resolve_config_path()
+    save_json(resolved_path, config.model_dump(exclude_none=True))
 
-    return project
+    return config
 
 
 def add_converter(
-    jn_path: Path,
+    config: Project,
+    jn_path: Optional[Path],
     name: str,
     expr: Optional[str] = None,
     file: Optional[str] = None,
@@ -214,7 +212,8 @@ def add_converter(
     Add a new converter to the project.
 
     Args:
-        jn_path: Path to jn.json
+        config: Current project configuration
+        jn_path: Path to jn.json (optional, resolved if None)
         name: Converter name
         expr: jq expression (inline)
         file: Path to jq filter file
@@ -228,12 +227,8 @@ def add_converter(
         ValueError: If converter name already exists
         ValueError: If neither expr nor file is provided
     """
-    # Load existing project
-    data = load_json(jn_path)
-    project = Project.model_validate(data)
-
     # Check for duplicate name
-    if any(c.name == name for c in project.converters):
+    if config.has_converter(name):
         raise ValueError(f"Converter '{name}' already exists")
 
     # Require either expr or file
@@ -254,20 +249,22 @@ def add_converter(
         ),
     )
 
-    # Add converter to project
-    project.converters.append(converter)
+    # Add converter to config
+    config.converters.append(converter)
 
-    # Validate the updated project
-    project = Project.model_validate(project.model_dump())
+    # Validate the updated config
+    config = Project.model_validate(config.model_dump())
 
     # Write back to file
-    save_json(jn_path, project.model_dump(exclude_none=True))
+    resolved_path = Path(jn_path) if jn_path else resolve_config_path()
+    save_json(resolved_path, config.model_dump(exclude_none=True))
 
-    return project
+    return config
 
 
 def add_pipeline(
-    jn_path: Path,
+    config: Project,
+    jn_path: Optional[Path],
     name: str,
     steps: List[str],
     params: Optional[Dict[str, any]] = None,
@@ -276,7 +273,8 @@ def add_pipeline(
     Add a new pipeline to the project.
 
     Args:
-        jn_path: Path to jn.json
+        config: Current project configuration
+        jn_path: Path to jn.json (optional, resolved if None)
         name: Pipeline name
         steps: List of step specifications in format "type:ref" (e.g., "source:echo")
         params: Optional pipeline parameters
@@ -289,12 +287,8 @@ def add_pipeline(
         ValueError: If steps is empty
         ValueError: If step format is invalid
     """
-    # Load existing project
-    data = load_json(jn_path)
-    project = Project.model_validate(data)
-
     # Check for duplicate name
-    if any(p.name == name for p in project.pipelines):
+    if config.has_pipeline(name):
         raise ValueError(f"Pipeline '{name}' already exists")
 
     # Require at least one step
@@ -325,13 +319,14 @@ def add_pipeline(
         params=params or {},
     )
 
-    # Add pipeline to project
-    project.pipelines.append(pipeline)
+    # Add pipeline to config
+    config.pipelines.append(pipeline)
 
-    # Validate the updated project
-    project = Project.model_validate(project.model_dump())
+    # Validate the updated config
+    config = Project.model_validate(config.model_dump())
 
     # Write back to file
-    save_json(jn_path, project.model_dump(exclude_none=True))
+    resolved_path = Path(jn_path) if jn_path else resolve_config_path()
+    save_json(resolved_path, config.model_dump(exclude_none=True))
 
-    return project
+    return config

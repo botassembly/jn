@@ -143,7 +143,5 @@ def test_new_target_duplicate_name(runner, tmp_path):
             ],
         )
     assert result.exit_code == 1
-    assert (
-        "already exists" in result.output
-        or "duplicate" in result.output.lower()
-    )
+    assert result.exception is not None
+    assert "already exists" in str(result.exception)

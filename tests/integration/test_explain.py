@@ -144,7 +144,8 @@ def test_explain_nonexistent_pipeline(runner, tmp_path):
         )
 
     assert result.exit_code == 1
-    assert "not found" in result.output or "Error" in result.output
+    assert result.exception is not None
+    assert "not found" in str(result.exception)
 
 
 def test_explain_with_params(

@@ -18,30 +18,20 @@ def show(
     ),
 ) -> None:
     """Show a single item's JSON definition."""
-    try:
-        project = get_config(jn)
+    config = get_config(jn)
 
-        # Find the item by kind and name
-        if kind == "source":
-            collection = project.sources
-        elif kind == "target":
-            collection = project.targets
-        elif kind == "converter":
-            collection = project.converters
-        elif kind == "pipeline":
-            collection = project.pipelines
-        else:
-            raise ValueError(f"Unknown kind: {kind}")
+    # Get the item using helper methods
+    if kind == "source":
+        item = config.get_source(name)
+    elif kind == "target":
+        item = config.get_target(name)
+    elif kind == "converter":
+        item = config.get_converter(name)
+    else:  # pipeline
+        item = config.get_pipeline(name)
 
-        item = next((item for item in collection if item.name == name), None)
-
-        if item is None:
-            typer.echo(f"Error: {kind} '{name}' not found", err=True)
-            raise typer.Exit(1)
-
-        # Output the item as JSON
-        typer.echo(item.model_dump_json(indent=2, exclude_none=True))
-
-    except Exception as e:
-        typer.echo(f"Error: {e}", err=True)
+    if item is None:
+        typer.echo(f"Error: {kind} '{name}' not found", err=True)
         raise typer.Exit(1)
+
+    typer.echo(item.model_dump_json(indent=2, exclude_none=True))

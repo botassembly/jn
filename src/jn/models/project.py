@@ -143,6 +143,14 @@ class Pipeline(BaseModel):
     steps: List[Step]
 
 
+class PipelinePlan(BaseModel):
+    """Result of explaining a pipeline (resolved plan without execution)."""
+
+    pipeline: str
+    steps: List[Dict[str, Any]]
+    params: Dict[str, Any] = Field(default_factory=dict)
+
+
 class Project(BaseModel):
     """Root jn.json project configuration."""
 
@@ -161,3 +169,35 @@ class Project(BaseModel):
         if len(names) != len(set(names)):
             raise ValueError("Duplicate names are not allowed")
         return v
+
+    def get_source(self, name: str) -> Optional[Source]:
+        """Get source by name, or None if not found."""
+        return next((s for s in self.sources if s.name == name), None)
+
+    def get_target(self, name: str) -> Optional[Target]:
+        """Get target by name, or None if not found."""
+        return next((t for t in self.targets if t.name == name), None)
+
+    def get_converter(self, name: str) -> Optional[Converter]:
+        """Get converter by name, or None if not found."""
+        return next((c for c in self.converters if c.name == name), None)
+
+    def get_pipeline(self, name: str) -> Optional[Pipeline]:
+        """Get pipeline by name, or None if not found."""
+        return next((p for p in self.pipelines if p.name == name), None)
+
+    def has_source(self, name: str) -> bool:
+        """Check if source exists."""
+        return any(s.name == name for s in self.sources)
+
+    def has_target(self, name: str) -> bool:
+        """Check if target exists."""
+        return any(t.name == name for t in self.targets)
+
+    def has_converter(self, name: str) -> bool:
+        """Check if converter exists."""
+        return any(c.name == name for c in self.converters)
+
+    def has_pipeline(self, name: str) -> bool:
+        """Check if pipeline exists."""
+        return any(p.name == name for p in self.pipelines)

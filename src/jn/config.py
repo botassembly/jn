@@ -1,18 +1,41 @@
 """Config layer: global project configuration management."""
 
 from pathlib import Path
-from typing import Optional
+from typing import Dict, List, Optional
 
 from .home import load_json, resolve_config_path
 from .models import Project
 
 __all__ = [
     "get_config",
+    "parse_key_value_pairs",
     "reset_config",
     "set_config",
 ]
 
 _CONFIG: Optional[Project] = None
+
+
+def parse_key_value_pairs(items: List[str]) -> Dict[str, str]:
+    """
+    Parse key=value pairs from CLI flags.
+
+    Args:
+        items: List of "key=value" strings
+
+    Returns:
+        Dictionary of parsed key-value pairs
+
+    Raises:
+        ValueError: If any item doesn't contain '='
+    """
+    result = {}
+    for item in items:
+        if "=" not in item:
+            raise ValueError(f"Invalid format: {item} (expected key=value)")
+        key, value = item.split("=", 1)
+        result[key] = value
+    return result
 
 
 def get_config(path: Optional[str | Path] = None) -> Project:

@@ -1,45 +1,43 @@
 """Service layer: explain pipeline (resolve plan without execution)."""
 
-from typing import Any, Dict, List
+from typing import Any, Dict
 
-from ..models.project import Project
+from ..models.project import PipelinePlan, Project
 
 
 def explain_pipeline(
-    project: Project,
+    config: Project,
     pipeline_name: str,
     params: Dict[str, Any] | None = None,
     show_commands: bool = False,
     show_env: bool = False,
-) -> Dict[str, Any]:
+) -> PipelinePlan:
     """
     Build a resolved plan for a pipeline without executing it.
 
     Args:
-        project: The project configuration
+        config: The project configuration
         pipeline_name: Name of the pipeline to explain
         params: Optional parameter overrides
         show_commands: Include command details (argv/cmd)
         show_env: Include environment variables
 
     Returns:
-        Dictionary with pipeline plan details
+        PipelinePlan with pipeline plan details
 
     Raises:
-        KeyError: If pipeline not found
+        ValueError: If pipeline not found
     """
     # Find the pipeline
-    pipeline = next(
-        (p for p in project.pipelines if p.name == pipeline_name), None
-    )
+    pipeline = config.get_pipeline(pipeline_name)
     if not pipeline:
-        raise KeyError(f"Pipeline '{pipeline_name}' not found")
+        raise ValueError(f"Pipeline '{pipeline_name}' not found")
 
     # Merge params (pipeline defaults + overrides)
     resolved_params = {**(pipeline.params or {}), **(params or {})}
 
     # Build step details
-    steps: List[Dict[str, Any]] = []
+    steps = []
 
     for step in pipeline.steps:
         step_info: Dict[str, Any] = {
@@ -48,9 +46,7 @@ def explain_pipeline(
         }
 
         if step.type == "source":
-            source = next(
-                (s for s in project.sources if s.name == step.ref), None
-            )
+            source = config.get_source(step.ref)
             if source:
                 step_info["driver"] = source.driver
                 step_info["mode"] = source.mode
@@ -68,9 +64,7 @@ def explain_pipeline(
                     step_info["env"] = source.exec.env or {}
 
         elif step.type == "converter":
-            converter = next(
-                (c for c in project.converters if c.name == step.ref), None
-            )
+            converter = config.get_converter(step.ref)
             if converter:
                 step_info["engine"] = converter.engine
                 if show_commands and converter.engine == "jq" and converter.jq:
@@ -82,9 +76,7 @@ def explain_pipeline(
                         step_info["modules"] = converter.jq.modules
 
         elif step.type == "target":
-            target = next(
-                (t for t in project.targets if t.name == step.ref), None
-            )
+            target = config.get_target(step.ref)
             if target:
                 step_info["driver"] = target.driver
                 step_info["mode"] = target.mode
@@ -103,12 +95,8 @@ def explain_pipeline(
 
         steps.append(step_info)
 
-    result: Dict[str, Any] = {
-        "pipeline": pipeline_name,
-        "steps": steps,
-    }
-
-    if resolved_params:
-        result["params"] = resolved_params
-
-    return result
+    return PipelinePlan(
+        pipeline=pipeline_name,
+        steps=steps,
+        params=resolved_params,
+    )

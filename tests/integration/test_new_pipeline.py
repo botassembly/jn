@@ -220,10 +220,8 @@ def test_new_pipeline_duplicate_name(runner, tmp_path):
         )
 
     assert result.exit_code == 1
-    assert (
-        "already exists" in result.output
-        or "duplicate" in result.output.lower()
-    )
+    assert result.exception is not None
+    assert "already exists" in str(result.exception)
 
 
 def test_new_pipeline_invalid_step_format(runner, tmp_path):
@@ -246,7 +244,8 @@ def test_new_pipeline_invalid_step_format(runner, tmp_path):
         )
 
     assert result.exit_code == 1
-    assert "format" in result.output.lower() or ":" in result.output
+    assert result.exception is not None
+    assert "format" in str(result.exception).lower()
 
 
 def test_new_pipeline_requires_steps(runner, tmp_path):
