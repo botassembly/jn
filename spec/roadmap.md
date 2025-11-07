@@ -22,9 +22,8 @@
 * [ ] Shell driver — implement safe execution + opt-in flag
 * [ ] Curl driver — streaming HTTP client for sources/targets
 * [ ] File driver — streaming file read/write with confinement
-* [ ] JC converter — `jn new converter <name> --engine jc`
-* [ ] Jiter converter — `jn new converter <name> --engine jiter`
-* [ ] Delimited converter — `jn new converter <name> --engine delimited`
+* [ ] CSV/delimited source — `jn new source <name> --driver file --format csv`
+* [ ] JC source adapter — wrap shell output to JSON (registered parsers, "magic" syntax)
 * [ ] Pipeline params/env templating — `${params.*}` and `${env.*}` expansion
 * [ ] Doctor check — `jn doctor`
 * [ ] Discover list — `jn discover`

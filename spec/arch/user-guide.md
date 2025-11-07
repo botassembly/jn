@@ -5,7 +5,10 @@
 ## Install & prerequisites
 
 * Python ≥ 3.11 (UV manages the virtualenv).
-* External binaries: `jq` (required for converters). `jc`, `curl`, etc. are optional today.
+* External binaries:
+  - `jq` (required) — JSON transformation (the only converter engine)
+  - `jc` (optional) — Source adapter for shell output → JSON
+  - `curl` (optional) — HTTP sources/targets
 * Install dependencies with `make install` and keep formatting/tests green with `make check` / `make test`.
 
 > Invoke the CLI via `uv run jn …` when running from a checkout. The published entry point is identical (`jn …`).
@@ -52,6 +55,8 @@ uv run jn new source exec echo-secret \
 ```
 
 ### Converters
+
+**NOTE:** Converters are jq-only. They transform JSON → JSON. For non-JSON sources (shell output, CSV), use source adapters (see `spec/arch/adapters.md`).
 
 ```bash
 # jq converter (expr or file/module based)

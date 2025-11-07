@@ -82,6 +82,8 @@ cat data.ndjson | jn shape --validate schema.json
 * Cardinality/estimation: `datasketch` (HyperLogLog)
 * Speedups (optional): `msgspec` (struct parsing), Rust FFI (e.g., simdjson via `pysimdjson`)
 
+**Note:** jc is NOT a converter — it's a **source adapter** that converts shell output to JSON. See `spec/arch/adapters.md`.
+
 ## Determinism & Safety
 
 * Stable seed controls sampling; previews are reproducible.

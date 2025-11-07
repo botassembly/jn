@@ -18,9 +18,9 @@ We also want **jn** to *build itself*: the same CLI should create, list, edit, t
 
 2. **CLI-first authoring workflow** (self-hosting)
 
-   * `jn new source <name> --driver shell|curl|mcp --cmd/--url/--mcp-args`
-   * `jn new target <name> ...`
-   * `jn new converter <name> --jq-expr '...'` or `--file jq/filters/<name>.jq`
+   * `jn new source <name> --driver exec|shell|curl|file --argv/--cmd/--url/--path`
+   * `jn new target <name> ...` (mirrors source drivers)
+   * `jn new converter <name> --expr '...'` or `--file jq/filters/<name>.jq` (jq only)
    * `jn new pipeline <name> --source S --convert C* --target T` (scaffold with params)
    * `jn edit <kind> <name>` (opens $EDITOR, validates on save)
    * `jn list/show <kind>` to browse inventory
@@ -29,8 +29,9 @@ We also want **jn** to *build itself*: the same CLI should create, list, edit, t
 
 3. **Minimal, composable execution model**
 
-   * `jn run <pipeline> --param k=v`: runs `source → (converter|pipeline)* → target` linearly.
-   * Anything not JSON becomes JSON via an explicit **source wrapper** (e.g., `jc` or a `jq` prefilter), not by magic.
+   * `jn run <pipeline> --param k=v`: runs `source → converter(s) → target` linearly.
+   * **Converters** are jq-only (JSON → JSON transformation).
+   * Anything not JSON becomes JSON via an explicit **source adapter** (e.g., jc for shell output, CSV parser for files), not by magic.
    * Parameters interpolate (`${params.x}`, `${env.X}`) into shell/curl templates and jq `--arg/--argjson`.
 
 4. **Built-in scaffolds & docs**
@@ -65,11 +66,14 @@ We also want **jn** to *build itself*: the same CLI should create, list, edit, t
 # create building blocks
 jn new source github.repos --driver shell \
   --cmd 'curl -s https://api.github.com/users/${params.user}/repos'
-jn new converter repos_to_post --jq-expr '{repos: map({name, html_url, stargazers_count})}'
+
+# Converter is jq-only (JSON → JSON)
+jn new converter repos_to_post --expr '{repos: map({name, html_url, stargazers_count})}'
+
 jn new target httpbin.post --driver shell \
   --cmd "curl -s https://httpbin.org/post -H 'Content-Type: application/json' -d @-"
 
-# stitch a pipeline
+# stitch a pipeline (source → converter → target)
 jn new pipeline github_to_httpbin --source github.repos --convert repos_to_post --target httpbin.post
 jn run github_to_httpbin --param user=octocat | jq '.json.repos | length'
 ```
