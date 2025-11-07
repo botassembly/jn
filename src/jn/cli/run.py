@@ -17,12 +17,18 @@ def run(
     param: Optional[List[str]] = typer.Option(
         None, "--param", help="Pipeline parameters (k=v format)"
     ),
+    env: Optional[List[str]] = typer.Option(
+        None, "--env", help="Environment variable overrides (K=V format)"
+    ),
 ) -> None:
     """Execute a pipeline (source → converters → target)."""
     try:
         config.set_config_path(jn)
         params = config.parse_key_value_pairs(param or [])
-        output = config.run_pipeline(pipeline, params=params)
+        env_overrides = config.parse_key_value_pairs(env or [])
+        output = config.run_pipeline(
+            pipeline, params=params, env=env_overrides
+        )
         sys.stdout.buffer.write(output)
         sys.stdout.buffer.flush()
     except Exception as e:
