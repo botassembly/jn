@@ -2,9 +2,11 @@
 
 from .exec import spawn_exec
 from .file import run_file_read, run_file_write
+from .shell import spawn_shell
 
 __all__ = [
     "run_file_read",
     "run_file_write",
     "spawn_exec",
+    "spawn_shell",
 ]
