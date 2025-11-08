@@ -86,6 +86,68 @@ def test_filter_rm_removes_filter(runner, tmp_path):
     assert len(config["filters"]) == 0
 
 
+def test_filter_add_shows_confirmation_prompt_when_replacing(runner, tmp_path):
+    """Test that adding existing filter shows before/after diff and prompts."""
+    config_path = tmp_path / "jn.json"
+    init_config(runner, config_path)
+    add_filter(runner, config_path, "test", "select(.x > 5)")
+
+    # Try to replace WITHOUT --yes flag, and decline
+    result = runner.invoke(
+        app,
+        [
+            "filter",
+            "add",
+            "test",
+            "--query",
+            "select(.x > 10)",
+            "--jn",
+            str(config_path),
+        ],
+        input="n\n",  # Decline
+    )
+
+    assert result.exit_code == 0  # Cancellation is not an error
+    assert "BEFORE" in result.output
+    assert "AFTER" in result.output
+    assert "select(.x > 5)" in result.output
+    assert "select(.x > 10)" in result.output
+    assert "Cancelled" in result.output
+
+    # Verify NOT replaced
+    config = json.loads(config_path.read_text())
+    assert config["filters"][0]["query"] == "select(.x > 5)"
+
+
+def test_filter_add_accepts_confirmation_to_replace(runner, tmp_path):
+    """Test that accepting confirmation replaces the filter."""
+    config_path = tmp_path / "jn.json"
+    init_config(runner, config_path)
+    add_filter(runner, config_path, "test", "select(.x > 5)")
+
+    # Accept replacement
+    result = runner.invoke(
+        app,
+        [
+            "filter",
+            "add",
+            "test",
+            "--query",
+            "select(.x > 10)",
+            "--jn",
+            str(config_path),
+        ],
+        input="y\n",  # Accept
+    )
+
+    assert result.exit_code == 0
+    assert "Replaced filter: test" in result.output
+
+    # Verify WAS replaced
+    config = json.loads(config_path.read_text())
+    assert config["filters"][0]["query"] == "select(.x > 10)"
+
+
 def test_filter_add_with_yes_flag_replaces_without_prompt(runner, tmp_path):
     """Test that --yes flag replaces existing filter without prompting."""
     config_path = tmp_path / "jn.json"
@@ -109,6 +171,11 @@ def test_filter_add_with_yes_flag_replaces_without_prompt(runner, tmp_path):
 
     assert result.exit_code == 0
     assert "Replaced filter: test" in result.output
+    # BEFORE/AFTER diff is still shown, but no confirmation prompt
+    assert "BEFORE" in result.output
+    assert "AFTER" in result.output
+    assert "Replace existing filter?" not in result.output  # No prompt when --yes
+    assert "Cancelled" not in result.output
 
     # Verify it was replaced
     config = json.loads(config_path.read_text())

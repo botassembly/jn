@@ -90,6 +90,69 @@ def test_api_rm_removes_api(runner, tmp_path):
     assert len(config["apis"]) == 0
 
 
+def test_api_add_shows_confirmation_prompt_when_replacing(runner, tmp_path):
+    """Test that adding existing API shows before/after diff and prompts for confirmation."""
+    config_path = tmp_path / "jn.json"
+    init_config(runner, config_path)
+    add_api(runner, config_path, "test", "https://test.com")
+
+    # Try to replace WITHOUT --yes flag, and decline
+    result = runner.invoke(
+        app,
+        [
+            "api",
+            "add",
+            "test",
+            "--base-url",
+            "https://test2.com",
+            "--jn",
+            str(config_path),
+        ],
+        input="n\n",  # Decline the replacement
+    )
+
+    assert result.exit_code == 0  # Cancellation is not an error
+    assert "BEFORE" in result.output
+    assert "AFTER" in result.output
+    assert "https://test.com" in result.output  # Old URL in BEFORE
+    assert "https://test2.com" in result.output  # New URL in AFTER
+    assert "Replace" in result.output
+    assert "Cancelled" in result.output
+
+    # Verify it was NOT replaced
+    config = json.loads(config_path.read_text())
+    assert config["apis"][0]["base_url"] == "https://test.com"
+
+
+def test_api_add_accepts_confirmation_to_replace(runner, tmp_path):
+    """Test that accepting confirmation replaces the API."""
+    config_path = tmp_path / "jn.json"
+    init_config(runner, config_path)
+    add_api(runner, config_path, "test", "https://test.com")
+
+    # Try to replace and ACCEPT
+    result = runner.invoke(
+        app,
+        [
+            "api",
+            "add",
+            "test",
+            "--base-url",
+            "https://test2.com",
+            "--jn",
+            str(config_path),
+        ],
+        input="y\n",  # Accept the replacement
+    )
+
+    assert result.exit_code == 0
+    assert "Replaced API: test" in result.output
+
+    # Verify it WAS replaced
+    config = json.loads(config_path.read_text())
+    assert config["apis"][0]["base_url"] == "https://test2.com"
+
+
 def test_api_add_with_yes_flag_replaces_without_prompt(runner, tmp_path):
     """Test that --yes flag replaces existing API without prompting."""
     config_path = tmp_path / "jn.json"
@@ -113,6 +176,11 @@ def test_api_add_with_yes_flag_replaces_without_prompt(runner, tmp_path):
 
     assert result.exit_code == 0
     assert "Replaced API: test" in result.output
+    # BEFORE/AFTER diff is still shown, but no confirmation prompt
+    assert "BEFORE" in result.output
+    assert "AFTER" in result.output
+    assert "Replace existing API?" not in result.output  # No prompt when --yes
+    assert "Cancelled" not in result.output
 
     # Verify it was replaced
     config = json.loads(config_path.read_text())
