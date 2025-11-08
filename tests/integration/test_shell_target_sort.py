@@ -30,9 +30,9 @@ def test_shell_target_sort_json_lines(runner, tmp_path):
                 "--argv",
                 "-c",
                 "--argv",
-                'import json\n'
+                "import json\n"
                 'for item in [{"name":"zebra","id":3}, {"name":"apple","id":1}, {"name":"mango","id":2}]:\n'
-                '    print(json.dumps(item))',
+                "    print(json.dumps(item))",
                 "--jn",
                 str(jn_path),
             ],
@@ -77,7 +77,11 @@ def test_shell_target_sort_json_lines(runner, tmp_path):
             runner,
             jn_path,
             "sort_pipeline",
-            ["source:unsorted_data", "converter:extract_name", "target:sort_target"],
+            [
+                "source:unsorted_data",
+                "converter:extract_name",
+                "target:sort_target",
+            ],
         )
 
         # Run the pipeline with --unsafe-shell
@@ -112,8 +116,8 @@ def test_shell_target_sort_reverse(runner, tmp_path):
                 "--argv",
                 "-c",
                 "--argv",
-                'import json\n'
-                'for n in [5, 2, 8, 1, 9]:\n'
+                "import json\n"
+                "for n in [5, 2, 8, 1, 9]:\n"
                 '    print(json.dumps({"value": n}))',
                 "--jn",
                 str(jn_path),
@@ -198,7 +202,7 @@ def test_shell_target_sort_with_jq_and_uniq(runner, tmp_path):
                 "--argv",
                 "-c",
                 "--argv",
-                'import json\n'
+                "import json\n"
                 'for item in ["apple", "banana", "apple", "cherry", "banana", "apple"]:\n'
                 '    print(json.dumps({"fruit": item}))',
                 "--jn",
@@ -244,7 +248,11 @@ def test_shell_target_sort_with_jq_and_uniq(runner, tmp_path):
             runner,
             jn_path,
             "dedup_pipeline",
-            ["source:duplicates", "converter:extract_fruit", "target:sort_uniq"],
+            [
+                "source:duplicates",
+                "converter:extract_fruit",
+                "target:sort_uniq",
+            ],
         )
 
         # Run the pipeline
