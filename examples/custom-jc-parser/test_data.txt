@@ -1,0 +1,7 @@
+name: John Doe
+age: 30
+city: New York
+status: active
+department: Engineering
+level: Senior
+country: USA
