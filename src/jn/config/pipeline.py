@@ -7,7 +7,13 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TypeVar
 
-from jn.drivers import run_file_read, run_file_write, spawn_exec, spawn_shell
+from jn.drivers import (
+    run_file_read,
+    run_file_write,
+    spawn_curl,
+    spawn_exec,
+    spawn_shell,
+)
 from jn.exceptions import JnError
 from jn.models import Completed, Converter, PipelinePlan, Source, Target
 
@@ -103,6 +109,34 @@ def _run_source(
         )
         _check_result("source", source.name, result)
         return result.stdout
+    elif source.driver == "curl" and source.curl:
+        # Apply templating to URL, headers, and body
+        url = substitute_template(source.curl.url, params=params, env=env)
+        headers = {
+            key: substitute_template(value, params=params, env=env)
+            for key, value in source.curl.headers.items()
+        }
+        # Apply templating to body if it's a literal string
+        body = None
+        if source.curl.body is not None and source.curl.body != "stdin":
+            body = substitute_template(
+                source.curl.body, params=params, env=env
+            )
+        # Note: body="stdin" doesn't apply to sources (they don't receive data)
+
+        result = spawn_curl(
+            method=source.curl.method,
+            url=url,
+            headers=headers,
+            body=body,
+            timeout=source.curl.timeout,
+            follow_redirects=source.curl.follow_redirects,
+            retry=source.curl.retry,
+            retry_delay=source.curl.retry_delay,
+            fail_on_error=source.curl.fail_on_error,
+        )
+        _check_result("source", source.name, result)
+        return result.stdout
     raise NotImplementedError(f"Driver {source.driver} not implemented")
 
 
@@ -189,6 +223,27 @@ def _run_target(
             create_parents=target.file.create_parents,
             allow_outside_config=target.file.allow_outside_config,
             config_root=_get_config_root(),
+        )
+        _check_result("target", target.name, result)
+        return result.stdout
+    elif target.driver == "curl" and target.curl:
+        # Apply templating to URL and headers
+        url = substitute_template(target.curl.url, params=params, env=env)
+        headers = {
+            key: substitute_template(value, params=params, env=env)
+            for key, value in target.curl.headers.items()
+        }
+        result = spawn_curl(
+            method=target.curl.method,
+            url=url,
+            headers=headers,
+            body=target.curl.body,
+            stdin=stdin,
+            timeout=target.curl.timeout,
+            follow_redirects=target.curl.follow_redirects,
+            retry=target.curl.retry,
+            retry_delay=target.curl.retry_delay,
+            fail_on_error=target.curl.fail_on_error,
         )
         _check_result("target", target.name, result)
         return result.stdout
