@@ -1,7 +1,7 @@
 # JN — Adapters (Format Boundary Handlers)
 
 **Status:** Design / Partial Implementation
-**Updated:** 2025-11-07
+**Updated:** 2025-11-08
 
 ---
 
@@ -41,6 +41,34 @@ Target (raw bytes)
 ---
 
 ## Source Adapters
+
+### Quick Exploration with Auto-Detection
+
+The `jn cat`, `jn head`, and `jn tail` commands provide **automatic adapter detection** for immediate source exploration without configuration:
+
+```bash
+# Auto-detects file adapter by extension
+jn cat data.csv              # → file driver + csv adapter
+
+# Auto-detects URL pattern
+jn cat https://api.github.com/users/octocat  # → curl driver + json adapter
+
+# Auto-detects jc-supported command
+jn cat dig example.com       # → exec driver + jc --dig adapter
+
+# Auto-detects unknown command → generic streaming
+jn cat mycustomscript args   # → exec driver + generic adapter
+```
+
+**Detection priority:**
+1. URL pattern (`http://`, `https://`, etc.) → **curl driver**
+2. File exists on disk → **file driver** + extension-based adapter
+3. Command in jc registry → **exec driver** + **jc adapter**
+4. Unknown command → **exec driver** + **generic adapter** (fallback)
+
+See `spec/arch/cat-command.md` for full auto-detection specification.
+
+### Adapter Types
 
 ### 1. JC Adapter (Shell Output → JSON)
 
@@ -134,7 +162,60 @@ $ cat data.csv | jc --csv-s
 
 ---
 
-### 3. Other Source Adapters (Future)
+### 3. Generic Streaming Adapter (Fallback)
+
+**What:** When a command is unknown (not in jc registry, not a file, not a URL), wrap each output line in a JSON object with metadata.
+
+**Use case:** Ensures **everything is JSON** even without a specific parser. Provides a universal fallback for any command-line tool.
+
+**Output format:**
+```json
+{"command":"mycustomcmd","args":["arg1","arg2"],"line":1,"text":"output line 1"}
+{"command":"mycustomcmd","args":["arg1","arg2"],"line":2,"text":"output line 2"}
+```
+
+**Example:**
+```bash
+$ jn cat mycustomscript arg1 arg2
+{"command":"mycustomscript","args":["arg1","arg2"],"line":1,"text":"Hello from script"}
+{"command":"mycustomscript","args":["arg1","arg2"],"line":2,"text":"Processing..."}
+{"command":"mycustomscript","args":["arg1","arg2"],"line":3,"text":"Done!"}
+```
+
+**How it works:**
+```python
+def generic_streaming_adapter(command: str, args: list[str], output_lines: Iterable[str]):
+    """Yield JSON objects for each line of output."""
+    for line_num, line_text in enumerate(output_lines, start=1):
+        yield {
+            "command": command,
+            "args": args,
+            "line": line_num,
+            "text": line_text.rstrip('\n'),
+        }
+```
+
+**Advantages:**
+- Universal compatibility (works with any command)
+- Preserves line numbers for debugging
+- Records command and arguments for context
+- Enables jq filtering on line content: `jq 'select(.text | contains("ERROR"))'`
+
+**JN config:**
+```json
+{
+  "name": "custom-script",
+  "driver": "exec",
+  "adapter": "generic",
+  "exec": {
+    "argv": ["mycustomscript", "arg1", "arg2"]
+  }
+}
+```
+
+---
+
+### 4. Other Source Adapters (Future)
 
 | Adapter | Input Format | Use Case |
 |---------|--------------|----------|
@@ -143,6 +224,9 @@ $ cat data.csv | jc --csv-s
 | YAML | YAML files | Config ingestion |
 | Binary (Protobuf) | .proto messages | API schemas |
 | Log parsers | Syslog, Apache, nginx | Structured log analysis |
+| Excel | .xlsx/.xls files | Spreadsheet data extraction |
+| TOML | .toml files | Config file parsing |
+| INI | .ini files | Legacy config parsing |
 
 ---
 
