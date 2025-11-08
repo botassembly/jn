@@ -149,7 +149,9 @@ def _convert_to_xml(data: bytes) -> bytes:
     # Wrap records in a root element
     xml_data = {"root": {"record": records}}
 
-    return xmltodict.unparse(xml_data, pretty=True, encoding="utf-8")
+    # xmltodict.unparse returns a string when encoding is specified
+    xml_string = xmltodict.unparse(xml_data, pretty=True, encoding="utf-8")
+    return xml_string.encode("utf-8")
 
 
 def _detect_target_format(path: str) -> Optional[str]:
