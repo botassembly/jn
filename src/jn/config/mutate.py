@@ -41,9 +41,14 @@ def add_source(
     env: Optional[Dict[str, str]] = None,
     cwd: Optional[str] = None,
     allow_outside_config: bool = False,
-    adapter: Optional[str] = None,
 ) -> Source | Error:
-    """Add a new source to the cached config and persist it."""
+    """Add a new source to the cached config and persist it.
+
+    File sources automatically use JC parsers based on file extension:
+    - .csv → csv_s (JC's built-in streaming CSV parser)
+    - .tsv → tsv_s (custom streaming TSV parser)
+    - .psv → psv_s (custom streaming PSV parser)
+    """
 
     config_obj = require().model_copy(deep=True)
 
@@ -54,21 +59,18 @@ def add_source(
         source = Source(
             name=name,
             driver="exec",
-            adapter=adapter,
             exec=ExecSpec(argv=argv or [], cwd=cwd, env=env or {}),
         )
     elif driver == "shell":
         source = Source(
             name=name,
             driver="shell",
-            adapter=adapter,
             shell=ShellSpec(cmd=cmd or ""),
         )
     elif driver == "curl":
         source = Source(
             name=name,
             driver="curl",
-            adapter=adapter,
             curl=CurlSpec(
                 method=method,
                 url=url or "",
@@ -85,7 +87,6 @@ def add_source(
         source = Source(
             name=name,
             driver="file",
-            adapter=adapter,
             file=FileSpec(
                 path=path or "",
                 mode="read",
