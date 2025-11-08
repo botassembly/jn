@@ -27,7 +27,7 @@ These commands are **ephemeral source executors** that:
 jn cat data.csv
 
 # 2. Pipe through jq to refine
-jn cat data.csv | jq '.[] | select(.age > 30)'
+jn cat data.csv | jq 'select(.age > 30)'
 
 # 3. Try different sources
 jn cat https://api.github.com/users/octocat
@@ -201,13 +201,13 @@ This ensures **everything is JSON** even without a specific parser.
 ### 1. Quick File Inspection
 ```bash
 # CSV file
-jn cat data.csv | jq '.[] | {name, age}'
+jn cat data.csv | jq '{name, age}'
 
 # JSON file
 jn cat api-response.json | jq '.data[] | select(.active)'
 
-# Excel file
-jn cat report.xlsx | jq '.[0] | keys'  # see column names
+# Excel file (column names from first row)
+jn cat report.xlsx | head -n 1 | jq 'keys'
 ```
 
 ### 2. API Exploration
@@ -216,7 +216,7 @@ jn cat report.xlsx | jq '.[0] | keys'  # see column names
 jn cat https://api.github.com/users/octocat | jq '.login'
 
 # Local API
-jn cat http://localhost:3000/api/users | jq '.[] | .email'
+jn cat http://localhost:3000/api/users | jq '.email'
 
 # With headers (future)
 jn cat --header "Authorization: Bearer ${TOKEN}" https://api.example.com/data
@@ -225,13 +225,13 @@ jn cat --header "Authorization: Bearer ${TOKEN}" https://api.example.com/data
 ### 3. Command Output Parsing
 ```bash
 # Parse dig output
-jn cat dig example.com | jq '.[] | .answer[] | .data'
+jn cat dig example.com | jq '.answer[] | .data'
 
 # Parse ps output
-jn cat ps aux | jq '.[] | select(.user == "root") | .command'
+jn cat ps aux | jq 'select(.user == "root") | .command'
 
 # Parse netstat
-jn cat netstat -an | jq '.[] | select(.state == "LISTEN") | .local_address'
+jn cat netstat -an | jq 'select(.state == "LISTEN") | .local_address'
 ```
 
 ### 4. Log File Analysis
