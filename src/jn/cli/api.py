@@ -57,6 +57,51 @@ def add(
             key, value = h.split(":", 1)
             headers[key.strip()] = value.strip()
 
+    # Check if API already exists
+    existing = config.get_api(name)
+    if existing:
+        typer.echo(f"API '{name}' already exists.", err=True)
+        typer.echo()
+        typer.echo("BEFORE:")
+        typer.echo(json.dumps(existing.model_dump(exclude_none=True), indent=2))
+        typer.echo()
+
+        # Build new API config for preview
+        from jn.models import Api, AuthConfig
+
+        auth = None
+        if auth_type:
+            auth = AuthConfig(
+                type=auth_type,  # type: ignore
+                token=token,
+                username=username,
+                password=password,
+            )
+
+        new_api = Api(
+            name=name,
+            type=api_type,  # type: ignore
+            base_url=base_url,
+            auth=auth,
+            headers=headers or {},
+            source_method=source_method,
+            target_method=target_method,
+        )
+
+        typer.echo("AFTER:")
+        typer.echo(json.dumps(new_api.model_dump(exclude_none=True), indent=2))
+        typer.echo()
+
+        confirm = typer.confirm("Replace existing API?")
+        if not confirm:
+            typer.echo("Cancelled.")
+            raise typer.Exit(0)
+
+        # Remove existing before adding new
+        cfg = config.require().model_copy(deep=True)
+        cfg.apis = [a for a in cfg.apis if a.name != name]
+        config.persist(cfg)
+
     result = config.add_api(
         name=name,
         api_type=api_type,  # type: ignore
@@ -74,7 +119,10 @@ def add(
         typer.echo(f"Error: {result.message}", err=True)
         raise typer.Exit(1)
 
-    typer.echo(f"Created API: {name}")
+    if existing:
+        typer.echo(f"Replaced API: {name}")
+    else:
+        typer.echo(f"Created API: {name}")
     typer.echo(f"  Type: {result.type}")
     if result.base_url:
         typer.echo(f"  Base URL: {result.base_url}")

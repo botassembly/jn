@@ -40,6 +40,38 @@ def add(
     """
     config.set_config_path(jn)
 
+    # Check if filter already exists
+    existing = config.get_filter(name)
+    if existing:
+        typer.echo(f"Filter '{name}' already exists.", err=True)
+        typer.echo()
+        typer.echo("BEFORE:")
+        typer.echo(json.dumps(existing.model_dump(exclude_none=True), indent=2))
+        typer.echo()
+
+        # Build new filter config for preview
+        from jn.models import Filter
+
+        new_filter = Filter(
+            name=name,
+            query=query,
+            description=description,
+        )
+
+        typer.echo("AFTER:")
+        typer.echo(json.dumps(new_filter.model_dump(exclude_none=True), indent=2))
+        typer.echo()
+
+        confirm = typer.confirm("Replace existing filter?")
+        if not confirm:
+            typer.echo("Cancelled.")
+            raise typer.Exit(0)
+
+        # Remove existing before adding new
+        cfg = config.require().model_copy(deep=True)
+        cfg.filters = [f for f in cfg.filters if f.name != name]
+        config.persist(cfg)
+
     result = config.add_filter(
         name=name,
         query=query,
@@ -50,7 +82,10 @@ def add(
         typer.echo(f"Error: {result.message}", err=True)
         raise typer.Exit(1)
 
-    typer.echo(f"Created filter: {name}")
+    if existing:
+        typer.echo(f"Replaced filter: {name}")
+    else:
+        typer.echo(f"Created filter: {name}")
     typer.echo(f"  Query: {result.query}")
     if result.description:
         typer.echo(f"  Description: {result.description}")
