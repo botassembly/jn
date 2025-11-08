@@ -26,11 +26,6 @@ def exec(
         "--cwd",
         help="Working directory",
     ),
-    adapter: str | None = typer.Option(
-        None,
-        "--adapter",
-        help="Adapter for non-JSON output (e.g., 'jc')",
-    ),
 ) -> None:
     """Create a new exec source."""
     config.set_config_path(jn)
@@ -42,7 +37,6 @@ def exec(
         argv=argv,
         env=env_dict,
         cwd=cwd,
-        adapter=adapter,
     )
 
     if isinstance(result, config.Error):
@@ -61,16 +55,11 @@ def shell(
         "--cmd",
         help="Shell command",
     ),
-    adapter: str | None = typer.Option(
-        None,
-        "--adapter",
-        help="Adapter for non-JSON output (e.g., 'jc')",
-    ),
 ) -> None:
     """Create a new shell source."""
     config.set_config_path(jn)
 
-    result = config.add_source(name, "shell", cmd=cmd, adapter=adapter)
+    result = config.add_source(name, "shell", cmd=cmd)
 
     if isinstance(result, config.Error):
         typer.echo(str(result), err=True)
@@ -166,7 +155,7 @@ def file(
     path: str = typer.Option(
         ...,
         "--path",
-        help="File path to read",
+        help="File path to read (auto-detects .csv, .tsv, .psv formats)",
     ),
     allow_outside_config: bool = typer.Option(
         False,
@@ -174,11 +163,20 @@ def file(
         help="Allow reading files outside config root",
     ),
 ) -> None:
-    """Create a new file source."""
+    """Create a new file source.
+
+    File formats are auto-detected from extension:
+    - .csv: CSV (comma-separated values) via JC
+    - .tsv: TSV (tab-separated values) via JC
+    - .psv: PSV (pipe-separated values) via JC
+    """
     config.set_config_path(jn)
 
     result = config.add_source(
-        name, "file", path=path, allow_outside_config=allow_outside_config
+        name,
+        "file",
+        path=path,
+        allow_outside_config=allow_outside_config,
     )
 
     if isinstance(result, config.Error):

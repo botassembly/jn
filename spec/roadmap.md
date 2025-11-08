@@ -22,7 +22,7 @@
 * [x] Shell driver — implement safe execution + opt-in flag (PR #7: src/jn/drivers/shell.py with --unsafe-shell guard)
 * [x] Curl driver — streaming HTTP client for sources/targets (src/jn/drivers/curl.py, 100% coverage, 15 unit tests)
 * [x] File driver — streaming file read/write with confinement (src/jn/drivers/file.py, 81% coverage)
-* [ ] CSV/delimited source — `jn new source <name> --driver file --adapter csv` (architecture: spec/arch/csv-delimited.md)
+* [x] CSV/delimited source — `jn new source <name> --driver file --adapter csv` (src/jn/adapters/csv.py, 93% coverage, 18 tests)
 * [x] JC source adapter — wrap shell output to JSON (PR #7: adapter="jc" prepends jc to argv, 9 tests)
 * [x] Pipeline params/env templating — `${params.*}` and `${env.*}` expansion (src/jn/config/utils.py:substitute_template)
 * [ ] Plan mode — `jn run <pipeline> --plan` dry-run introspection (architecture: spec/arch/plan-mode.md)
