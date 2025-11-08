@@ -14,11 +14,14 @@ import typer
 
 # Register our custom parsers with JC
 # JC's plugin system expects parsers in jc.parsers namespace
-from jn.jcparsers import generic_s, psv_s, tsv_s
+from jn.jcparsers import generic_s, psv_s, toml_s, tsv_s, xml_s, yaml_s
 
 sys.modules["jc.parsers.tsv_s"] = tsv_s
 sys.modules["jc.parsers.psv_s"] = psv_s
 sys.modules["jc.parsers.generic_s"] = generic_s
+sys.modules["jc.parsers.yaml_s"] = yaml_s
+sys.modules["jc.parsers.toml_s"] = toml_s
+sys.modules["jc.parsers.xml_s"] = xml_s
 
 from jn.cli import app
 from jn.drivers import spawn_curl, spawn_exec
@@ -36,13 +39,17 @@ def _detect_file_parser(path: str) -> Optional[str]:
     """Detect JC parser from file extension.
 
     Returns:
-        Parser name (e.g., 'csv_s', 'tsv_s') or None for non-delimited files
+        Parser name (e.g., 'csv_s', 'tsv_s', 'yaml_s') or None for non-delimited files
     """
     ext = Path(path).suffix.lower()
     parser_map = {
         ".csv": "csv_s",
         ".tsv": "tsv_s",
         ".psv": "psv_s",
+        ".yaml": "yaml_s",
+        ".yml": "yaml_s",
+        ".toml": "toml_s",
+        ".xml": "xml_s",
     }
     return parser_map.get(ext)
 

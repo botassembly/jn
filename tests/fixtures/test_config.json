@@ -1,0 +1,172 @@
+{
+  "version": "0.1",
+  "name": "format_adapters_test_suite",
+  "sources": [
+    {
+      "name": "exec_two_records",
+      "driver": "exec",
+      "exec": {
+        "argv": [
+          "python3", "-c",
+          "import json; print(json.dumps({'x': 1})); print(json.dumps({'x': 2}))"
+        ]
+      }
+    },
+    {
+      "name": "exec_people_records",
+      "driver": "exec",
+      "exec": {
+        "argv": [
+          "python3", "-c",
+          "import json; print(json.dumps({'name': 'Alice', 'age': 30})); print(json.dumps({'name': 'Bob', 'age': 25}))"
+        ]
+      }
+    },
+    {
+      "name": "exec_empty",
+      "driver": "exec",
+      "exec": {"argv": ["echo", ""]}
+    },
+    {
+      "name": "csv_file",
+      "driver": "file",
+      "file": {
+        "path": "data/input.csv",
+        "mode": "read"
+      }
+    }
+  ],
+  "converters": [
+    {"name": "pass", "engine": "jq", "jq": {"expr": "."}}
+  ],
+  "targets": [
+    {
+      "name": "json_array",
+      "driver": "file",
+      "file": {
+        "path": "out/output.json",
+        "mode": "write",
+        "create_parents": true
+      }
+    },
+    {
+      "name": "jsonl_output",
+      "driver": "file",
+      "file": {
+        "path": "out/output.jsonl",
+        "mode": "write",
+        "create_parents": true
+      }
+    },
+    {
+      "name": "csv_output",
+      "driver": "file",
+      "file": {
+        "path": "out/output.csv",
+        "mode": "write",
+        "create_parents": true
+      }
+    },
+    {
+      "name": "yaml_output",
+      "driver": "file",
+      "file": {
+        "path": "out/output.yaml",
+        "mode": "write",
+        "create_parents": true
+      }
+    },
+    {
+      "name": "toml_output",
+      "driver": "file",
+      "file": {
+        "path": "out/output.toml",
+        "mode": "write",
+        "create_parents": true
+      }
+    },
+    {
+      "name": "xml_output",
+      "driver": "file",
+      "file": {
+        "path": "out/output.xml",
+        "mode": "write",
+        "create_parents": true
+      }
+    }
+  ],
+  "pipelines": [
+    {
+      "name": "to_json_array",
+      "steps": [
+        {"type": "source", "ref": "exec_two_records"},
+        {"type": "converter", "ref": "pass"},
+        {"type": "target", "ref": "json_array"}
+      ]
+    },
+    {
+      "name": "to_jsonl",
+      "steps": [
+        {"type": "source", "ref": "exec_two_records"},
+        {"type": "converter", "ref": "pass"},
+        {"type": "target", "ref": "jsonl_output"}
+      ]
+    },
+    {
+      "name": "to_csv",
+      "steps": [
+        {"type": "source", "ref": "exec_people_records"},
+        {"type": "converter", "ref": "pass"},
+        {"type": "target", "ref": "csv_output"}
+      ]
+    },
+    {
+      "name": "to_yaml",
+      "steps": [
+        {"type": "source", "ref": "exec_people_records"},
+        {"type": "converter", "ref": "pass"},
+        {"type": "target", "ref": "yaml_output"}
+      ]
+    },
+    {
+      "name": "to_toml",
+      "steps": [
+        {"type": "source", "ref": "exec_people_records"},
+        {"type": "converter", "ref": "pass"},
+        {"type": "target", "ref": "toml_output"}
+      ]
+    },
+    {
+      "name": "to_xml",
+      "steps": [
+        {"type": "source", "ref": "exec_people_records"},
+        {"type": "converter", "ref": "pass"},
+        {"type": "target", "ref": "xml_output"}
+      ]
+    },
+    {
+      "name": "csv_to_yaml",
+      "steps": [
+        {"type": "source", "ref": "csv_file"},
+        {"type": "converter", "ref": "pass"},
+        {"type": "target", "ref": "yaml_output"}
+      ]
+    },
+    {
+      "name": "empty_to_json",
+      "steps": [
+        {"type": "source", "ref": "exec_empty"},
+        {"type": "converter", "ref": "pass"},
+        {"type": "target", "ref": "json_array"}
+      ]
+    },
+    {
+      "name": "empty_to_csv",
+      "steps": [
+        {"type": "source", "ref": "exec_empty"},
+        {"type": "converter", "ref": "pass"},
+        {"type": "target", "ref": "csv_output"}
+      ]
+    }
+  ]
+}
