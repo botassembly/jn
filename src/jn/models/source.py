@@ -16,6 +16,9 @@ class Source(BaseModel):
     - .csv → csv_s (JC's built-in streaming CSV parser)
     - .tsv → tsv_s (custom streaming TSV parser)
     - .psv → psv_s (custom streaming PSV parser)
+    - .yaml, .yml → yaml (JC's built-in YAML parser)
+    - .toml → toml (JC's built-in TOML parser)
+    - .xml → xml (JC's built-in XML parser)
     """
 
     name: str

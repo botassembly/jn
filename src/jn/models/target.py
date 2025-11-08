@@ -10,7 +10,16 @@ from .drivers import CurlSpec, ExecSpec, FileSpec, McpSpec, ShellSpec
 
 
 class Target(BaseModel):
-    """Target definition (consumes bytes)."""
+    """Target definition (consumes bytes).
+
+    File targets automatically convert NDJSON to the appropriate format based on file extension:
+    - .json → JSON array format (wrapped in square brackets)
+    - .jsonl, .ndjson → NDJSON format (one object per line, no wrapping)
+    - .csv → CSV format (headers extracted from first record)
+    - .yaml, .yml → YAML array format
+    - .toml → TOML format (records wrapped in 'records' array)
+    - .xml → XML format (records wrapped in root element)
+    """
 
     name: str
     driver: Literal["exec", "shell", "curl", "file", "mcp"]
