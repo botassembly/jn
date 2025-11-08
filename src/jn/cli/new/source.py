@@ -26,11 +26,6 @@ def exec(
         "--cwd",
         help="Working directory",
     ),
-    adapter: str | None = typer.Option(
-        None,
-        "--adapter",
-        help="Adapter for non-JSON output (e.g., 'jc')",
-    ),
 ) -> None:
     """Create a new exec source."""
     config.set_config_path(jn)
@@ -42,7 +37,6 @@ def exec(
         argv=argv,
         env=env_dict,
         cwd=cwd,
-        adapter=adapter,
     )
 
     if isinstance(result, config.Error):
@@ -61,16 +55,11 @@ def shell(
         "--cmd",
         help="Shell command",
     ),
-    adapter: str | None = typer.Option(
-        None,
-        "--adapter",
-        help="Adapter for non-JSON output (e.g., 'jc')",
-    ),
 ) -> None:
     """Create a new shell source."""
     config.set_config_path(jn)
 
-    result = config.add_source(name, "shell", cmd=cmd, adapter=adapter)
+    result = config.add_source(name, "shell", cmd=cmd)
 
     if isinstance(result, config.Error):
         typer.echo(str(result), err=True)
@@ -166,62 +155,28 @@ def file(
     path: str = typer.Option(
         ...,
         "--path",
-        help="File path to read",
+        help="File path to read (auto-detects .csv, .tsv, .psv formats)",
     ),
     allow_outside_config: bool = typer.Option(
         False,
         "--allow-outside-config",
         help="Allow reading files outside config root",
     ),
-    adapter: str | None = typer.Option(
-        None,
-        "--adapter",
-        help="Adapter for non-JSON output (e.g., 'csv')",
-    ),
-    csv_delimiter: str | None = typer.Option(
-        None,
-        "--csv-delimiter",
-        help="CSV delimiter character (default: ',')",
-    ),
-    csv_quotechar: str | None = typer.Option(
-        None,
-        "--csv-quotechar",
-        help="CSV quote character (default: '\"')",
-    ),
-    csv_encoding: str | None = typer.Option(
-        None,
-        "--csv-encoding",
-        help="CSV file encoding (default: 'utf-8')",
-    ),
-    csv_no_header: bool = typer.Option(
-        False,
-        "--csv-no-header",
-        help="CSV has no header row",
-    ),
 ) -> None:
-    """Create a new file source."""
-    config.set_config_path(jn)
+    """Create a new file source.
 
-    # Build CSV config if adapter is csv
-    csv_config = None
-    if adapter == "csv":
-        csv_config = {}
-        if csv_delimiter is not None:
-            csv_config["delimiter"] = csv_delimiter
-        if csv_quotechar is not None:
-            csv_config["quotechar"] = csv_quotechar
-        if csv_encoding is not None:
-            csv_config["encoding"] = csv_encoding
-        if csv_no_header:
-            csv_config["has_header"] = False
+    File formats are auto-detected from extension:
+    - .csv: CSV (comma-separated values) via JC
+    - .tsv: TSV (tab-separated values) via JC
+    - .psv: PSV (pipe-separated values) via JC
+    """
+    config.set_config_path(jn)
 
     result = config.add_source(
         name,
         "file",
         path=path,
         allow_outside_config=allow_outside_config,
-        adapter=adapter,
-        csv=csv_config,
     )
 
     if isinstance(result, config.Error):

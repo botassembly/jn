@@ -6,7 +6,6 @@ from typing import Any, Dict, List, Literal, Optional
 
 from jn.models import (
     Converter,
-    CsvConfig,
     CurlSpec,
     Error,
     ExecSpec,
@@ -42,10 +41,14 @@ def add_source(
     env: Optional[Dict[str, str]] = None,
     cwd: Optional[str] = None,
     allow_outside_config: bool = False,
-    adapter: Optional[str] = None,
-    csv: Optional[Dict[str, Any]] = None,
 ) -> Source | Error:
-    """Add a new source to the cached config and persist it."""
+    """Add a new source to the cached config and persist it.
+
+    File sources automatically use JC parsers based on file extension:
+    - .csv → csv_s (JC's built-in streaming CSV parser)
+    - .tsv → tsv_s (custom streaming TSV parser)
+    - .psv → psv_s (custom streaming PSV parser)
+    """
 
     config_obj = require().model_copy(deep=True)
 
@@ -56,21 +59,18 @@ def add_source(
         source = Source(
             name=name,
             driver="exec",
-            adapter=adapter,
             exec=ExecSpec(argv=argv or [], cwd=cwd, env=env or {}),
         )
     elif driver == "shell":
         source = Source(
             name=name,
             driver="shell",
-            adapter=adapter,
             shell=ShellSpec(cmd=cmd or ""),
         )
     elif driver == "curl":
         source = Source(
             name=name,
             driver="curl",
-            adapter=adapter,
             curl=CurlSpec(
                 method=method,
                 url=url or "",
@@ -84,18 +84,14 @@ def add_source(
             ),
         )
     elif driver == "file":
-        # Build CSV config if provided
-        csv_config = CsvConfig(**csv) if csv else None
         source = Source(
             name=name,
             driver="file",
-            adapter=adapter,
             file=FileSpec(
                 path=path or "",
                 mode="read",
                 allow_outside_config=allow_outside_config,
             ),
-            csv=csv_config,
         )
     else:
         return Error(message=f"Unknown driver: {driver}")

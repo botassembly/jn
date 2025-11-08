@@ -59,20 +59,7 @@ class McpSpec(BaseModel):
     stream: bool = False
 
 
-class CsvConfig(BaseModel):
-    """CSV/delimited file parsing configuration (source adapter)."""
-
-    delimiter: str = ","
-    quotechar: str = '"'
-    encoding: str = "utf-8"
-    has_header: bool = True
-    skip_initial_space: bool = False
-    # Optional: explicit fieldnames if no header
-    fieldnames: list[str] | None = None
-
-
 __all__ = [
-    "CsvConfig",
     "CurlSpec",
     "ExecSpec",
     "FileSpec",

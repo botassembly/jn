@@ -6,37 +6,27 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from .drivers import (
-    CsvConfig,
-    CurlSpec,
-    ExecSpec,
-    FileSpec,
-    McpSpec,
-    ShellSpec,
-)
+from .drivers import CurlSpec, ExecSpec, FileSpec, McpSpec, ShellSpec
 
 
 class Source(BaseModel):
     """Source definition (emits bytes).
 
-    Adapters handle format boundaries (non-JSON → JSON).
-    Currently supported:
-    - "jc" for shell command output → JSON
-    - "csv" for CSV/TSV/delimited files → NDJSON
+    File sources automatically use JC parsers based on file extension:
+    - .csv → csv_s (JC's built-in streaming CSV parser)
+    - .tsv → tsv_s (custom streaming TSV parser)
+    - .psv → psv_s (custom streaming PSV parser)
     """
 
     name: str
     driver: Literal["exec", "shell", "curl", "file", "mcp"]
     mode: Literal["batch", "stream"] = "stream"
-    adapter: str | None = None  # e.g., "jc", "csv"
     # Driver specs
     exec: ExecSpec | None = None
     shell: ShellSpec | None = None
     curl: CurlSpec | None = None
     file: FileSpec | None = None
     mcp: McpSpec | None = None
-    # Adapter configs
-    csv: CsvConfig | None = None  # When adapter="csv"
 
 
 __all__ = ["Source"]

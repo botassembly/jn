@@ -7,7 +7,8 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TypeVar
 
-from jn.adapters import csv_to_ndjson
+import jc
+
 from jn.drivers import (
     run_file_read,
     run_file_write,
@@ -21,9 +22,28 @@ from jn.models import Completed, Converter, PipelinePlan, Source, Target
 from .core import config_path, ensure
 from .utils import substitute_template
 
+# Configure JC to use our custom parsers
+_JCPARSERS_DIR = Path(__file__).parent.parent / "jcparsers"
+jc.set_plugin_dir(str(_JCPARSERS_DIR))
+
 T = TypeVar("T")
 
 __all__ = ["explain_pipeline", "run_pipeline"]
+
+
+def _detect_parser_from_extension(path: str) -> Optional[str]:
+    """Auto-detect JC parser from file extension.
+
+    Returns:
+        Parser name (e.g., 'csv_s', 'tsv_s', 'psv_s') or None for non-delimited files
+    """
+    ext = Path(path).suffix.lower()
+    parser_map = {
+        ".csv": "csv_s",
+        ".tsv": "tsv_s",
+        ".psv": "psv_s",
+    }
+    return parser_map.get(ext)
 
 
 def _get_config_root() -> str:
@@ -69,9 +89,6 @@ def _run_source(
             substitute_template(arg, params=params, env=env)
             for arg in source.exec.argv
         ]
-        # Apply jc adapter if specified (prepend 'jc' to leverage magic mode)
-        if source.adapter == "jc":
-            argv = ["jc", *argv]
         # Apply templating to cwd if present
         cwd = (
             substitute_template(source.exec.cwd, params=params, env=env)
@@ -94,9 +111,6 @@ def _run_source(
     elif source.driver == "shell" and source.shell:
         # Apply templating to shell command
         cmd = substitute_template(source.shell.cmd, params=params, env=env)
-        # Apply jc adapter if specified (prepend 'jc' to leverage magic mode)
-        if source.adapter == "jc":
-            cmd = f"jc {cmd}"
         result = spawn_shell(cmd, env=env, unsafe=unsafe_shell)
         _check_result("source", source.name, result)
         return result.stdout
@@ -111,9 +125,19 @@ def _run_source(
         _check_result("source", source.name, result)
         raw_bytes = result.stdout
 
-        # Apply CSV adapter if specified
-        if source.adapter == "csv":
-            return csv_to_ndjson(raw_bytes, source.csv)
+        # Auto-detect and apply JC parser based on file extension
+        parser = _detect_parser_from_extension(path)
+        if parser:
+            # Use JC streaming parser
+            lines = raw_bytes.decode("utf-8").splitlines()
+            output_lines = []
+            for item in jc.parse(parser, lines):
+                output_lines.append(json.dumps(item, ensure_ascii=False))
+            return (
+                "\n".join(output_lines).encode("utf-8") + b"\n"
+                if output_lines
+                else b""
+            )
 
         return raw_bytes
     elif source.driver == "curl" and source.curl:
