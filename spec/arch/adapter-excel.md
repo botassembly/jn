@@ -180,13 +180,16 @@ NDJSON records with consistent keys:
 
 ```bash
 # Basic usage
-jn cat data.csv | jn put excel://output.xlsx
+jn cat data.csv | jn put output.xlsx
 
 # Options
-jn put excel://output.xlsx \
+jn put output.xlsx \
   --sheet "Results" \              # Sheet name (default: "Sheet1")
   --header \                        # Include header row with column names
   --overwrite                       # Overwrite existing file (default: error if exists)
+
+# Force format if extension is ambiguous
+jn put output.txt --format excel   # Write Excel to .txt file (unusual)
 ```
 
 ### Writing Strategy
@@ -237,8 +240,8 @@ wb.save(filename)
 
 **Option 2**: Multiple puts with `--sheet` flag
 ```bash
-jn cat sales.json | jn put excel://report.xlsx --sheet Sales
-jn cat costs.json | jn put excel://report.xlsx --sheet Costs --append
+jn cat sales.json | jn put report.xlsx --sheet Sales
+jn cat costs.json | jn put report.xlsx --sheet Costs --append
 ```
 
 ### Edge Cases
@@ -265,12 +268,12 @@ jn cat costs.json | jn put excel://report.xlsx --sheet Costs --append
 
 **API response → Excel**:
 ```bash
-jn cat https://api.example.com/users | jn put excel://users.xlsx --header
+jn cat https://api.example.com/users | jn put users.xlsx --header
 ```
 
 **Filter and export**:
 ```bash
-jn cat large-dataset.csv | jq 'select(.revenue > 1000)' | jn put excel://high-value.xlsx
+jn cat large-dataset.csv | jq 'select(.revenue > 1000)' | jn put high-value.xlsx
 ```
 
 **Multi-sheet report**:
@@ -278,7 +281,7 @@ jn cat large-dataset.csv | jq 'select(.revenue > 1000)' | jn put excel://high-va
 # Add sheet column with jq
 jn cat sales.csv | jq '. + {sheet: "Sales"}' > /tmp/sales.ndjson
 jn cat costs.csv | jq '. + {sheet: "Costs"}' > /tmp/costs.ndjson
-cat /tmp/sales.ndjson /tmp/costs.ndjson | jn put excel://report.xlsx --multi-sheet
+cat /tmp/sales.ndjson /tmp/costs.ndjson | jn put report.xlsx --multi-sheet
 ```
 
 ## Implementation Notes

@@ -341,15 +341,18 @@ NDJSON records with `_kind` field:
 
 ```bash
 # Basic usage
-jn cat data.json | jn put markdown://output.md
+jn cat data.json | jn put output.md
 
 # Options
-jn put markdown://output.md \
+jn put output.md \
   --frontmatter-format yaml \      # or 'toml', default: yaml
   --heading-style atx \             # or 'setext', default: atx (##)
   --list-marker "-" \               # or '*', '+', default: -
   --line-width 80 \                 # Wrap paragraphs at N chars (0 = no wrap)
   --overwrite                       # Overwrite existing file
+
+# Force format if extension is ambiguous
+jn put output.txt --format markdown  # Write Markdown to .txt file
 ```
 
 ### Writing Strategy
@@ -461,12 +464,12 @@ def write_markdown(records, output):
 
 **JSON data → Markdown report**:
 ```bash
-jn cat users.json | jq '{_kind: "paragraph", text: "\(.name) - \(.email)"}' | jn put markdown://report.md
+jn cat users.json | jq '{_kind: "paragraph", text: "\(.name) - \(.email)"}' | jn put report.md
 ```
 
 **Build README from structured data**:
 ```bash
-cat <<EOF | jn put markdown://README.md
+cat <<EOF | jn put README.md
 {"_kind": "frontmatter", "title": "My Project"}
 {"_kind": "heading", "level": 1, "text": "Overview"}
 {"_kind": "paragraph", "text": "This is my project."}
@@ -475,12 +478,12 @@ EOF
 
 **Convert CSV to Markdown table**:
 ```bash
-jn cat data.csv | jq -s '{_kind: "table", headers: (.[0] | keys), rows: map([.name, .age, .city])}' | jn put markdown://table.md
+jn cat data.csv | jq -s '{_kind: "table", headers: (.[0] | keys), rows: map([.name, .age, .city])}' | jn put table.md
 ```
 
 **Round-trip conversion**:
 ```bash
-jn cat input.md | jn put markdown://output.md
+jn cat input.md | jn put output.md
 # Should preserve structure (not necessarily formatting)
 ```
 
@@ -633,7 +636,7 @@ jn cat docs/**/*.md --headings-only | jq '{file: input_filename, title: .text, l
 jn cat posts/*.md --frontmatter-only | jq -s 'sort_by(.date) | reverse'
 
 # Generate RSS feed from Markdown posts
-jn cat posts/*.md | jq '...' | jn put rss://feed.xml
+jn cat posts/*.md | jq '...' | jn put feed.xml --format rss
 ```
 
 ### Knowledge Base
@@ -648,7 +651,7 @@ jn cat wiki/*.md --extract-links | jq 'select(.url | startswith("./"))'
 ### Report Generation
 ```bash
 # Database → Markdown report
-jn cat postgres://localhost/db/sales | jq '{_kind: "table", headers: ..., rows: ...}' | jn put markdown://report.md
+jn cat postgres://localhost/db/sales | jq '{_kind: "table", headers: ..., rows: ...}' | jn put report.md
 ```
 
 ## Security Considerations
