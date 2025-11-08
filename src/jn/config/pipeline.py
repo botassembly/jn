@@ -5,26 +5,31 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional, TypeVar
+from typing import Any, Dict, Iterator, List, Optional, TypeVar
 
 # Configure JC to use our custom parsers via environment variable
 _JCPARSERS_DIR = str(Path(__file__).parent.parent / "jcparsers")
 os.environ.setdefault("JC_PLUGIN_DIR", _JCPARSERS_DIR)
 
-import jc
+import jc  # noqa: E402
 
-from jn.drivers import (
-    run_file_read,
+from jn.drivers import (  # noqa: E402
     run_file_write,
     spawn_curl,
     spawn_exec,
     spawn_shell,
 )
-from jn.exceptions import JnError
-from jn.models import Completed, Converter, PipelinePlan, Source, Target
+from jn.exceptions import JnError  # noqa: E402
+from jn.models import (  # noqa: E402
+    Completed,
+    Converter,
+    PipelinePlan,
+    Source,
+    Target,
+)
 
-from .core import config_path, ensure
-from .utils import substitute_template
+from .core import config_path, ensure  # noqa: E402
+from .utils import substitute_template  # noqa: E402
 
 T = TypeVar("T")
 
@@ -54,6 +59,51 @@ def _get_config_root() -> str:
     return str(Path(path).parent)
 
 
+def _validate_file_path(
+    path: str,
+    *,
+    allow_outside_config: bool = False,
+    config_root: Optional[str] = None,
+) -> Path:
+    """Validate and resolve a file path.
+
+    Args:
+        path: File path to validate (absolute or relative to config_root)
+        allow_outside_config: If False, restrict to config root
+        config_root: Root directory for path resolution and confinement
+
+    Returns:
+        Resolved Path object
+
+    Raises:
+        ValueError: If path escapes config_root when not allowed
+        FileNotFoundError: If file doesn't exist
+    """
+    # Resolve path relative to config_root if it's relative
+    path_obj = Path(path)
+    if config_root and not path_obj.is_absolute():
+        file_path = (Path(config_root) / path_obj).resolve()
+    else:
+        file_path = path_obj.resolve()
+
+    # Path confinement check
+    if not allow_outside_config and config_root:
+        root = Path(config_root).resolve()
+        try:
+            file_path.relative_to(root)
+        except ValueError:
+            raise ValueError(
+                f"Path {path} is outside config root {config_root}. "
+                f"Use allow_outside_config=true to bypass."
+            )
+
+    # Check existence
+    if not file_path.exists():
+        raise FileNotFoundError(f"File not found: {path}")
+
+    return file_path
+
+
 def _check_result(item_type: str, name: str, result: Completed) -> None:
     """Check process result and raise JnError if failed."""
 
@@ -80,8 +130,8 @@ def _run_source(
     params: Optional[Dict[str, str]] = None,
     env: Optional[Dict[str, str]] = None,
     unsafe_shell: bool = False,
-) -> bytes:
-    """Execute a source and return its output bytes."""
+) -> Iterator[bytes]:
+    """Execute a source and return its output as a stream of bytes."""
 
     if source.driver == "exec" and source.exec:
         # Apply templating to argv
@@ -107,39 +157,38 @@ def _run_source(
             final_env.update(templated_config_env)
         result = spawn_exec(argv, env=final_env or None, cwd=cwd)
         _check_result("source", source.name, result)
-        return result.stdout
+        yield result.stdout
     elif source.driver == "shell" and source.shell:
         # Apply templating to shell command
         cmd = substitute_template(source.shell.cmd, params=params, env=env)
         result = spawn_shell(cmd, env=env, unsafe=unsafe_shell)
         _check_result("source", source.name, result)
-        return result.stdout
+        yield result.stdout
     elif source.driver == "file" and source.file:
         # Apply templating to path
         path = substitute_template(source.file.path, params=params, env=env)
-        result = run_file_read(
+
+        # Validate path and check permissions
+        file_path = _validate_file_path(
             path,
             allow_outside_config=source.file.allow_outside_config,
             config_root=_get_config_root(),
         )
-        _check_result("source", source.name, result)
-        raw_bytes = result.stdout
 
         # Auto-detect and apply JC parser based on file extension
         parser = _detect_parser_from_extension(path)
         if parser:
-            # Use JC streaming parser
-            lines = raw_bytes.decode("utf-8").splitlines()
-            output_lines = []
-            for item in jc.parse(parser, lines):
-                output_lines.append(json.dumps(item, ensure_ascii=False))
-            return (
-                "\n".join(output_lines).encode("utf-8") + b"\n"
-                if output_lines
-                else b""
-            )
-
-        return raw_bytes
+            # TRUE STREAMING: open file, let JC stream from it, yield line-by-line
+            with open(file_path, encoding="utf-8") as f:
+                for item in jc.parse(parser, f):
+                    yield json.dumps(item, ensure_ascii=False).encode(
+                        "utf-8"
+                    ) + b"\n"
+        else:
+            # Stream raw file in chunks for non-parsed files
+            with open(file_path, "rb") as f:
+                while chunk := f.read(8192):
+                    yield chunk
     elif source.driver == "curl" and source.curl:
         # Apply templating to URL, headers, and body
         url = substitute_template(source.curl.url, params=params, env=env)
@@ -167,16 +216,20 @@ def _run_source(
             fail_on_error=source.curl.fail_on_error,
         )
         _check_result("source", source.name, result)
-        return result.stdout
-    raise NotImplementedError(f"Driver {source.driver} not implemented")
+        yield result.stdout
+    else:
+        raise NotImplementedError(f"Driver {source.driver} not implemented")
 
 
-def _run_converter(converter: Converter, stdin: bytes) -> bytes:
-    """Execute a converter and return transformed bytes.
+def _run_converter(
+    converter: Converter, stdin: Iterator[bytes]
+) -> Iterator[bytes]:
+    """Execute a converter and return transformed bytes as a stream.
 
     Note: Converter.engine is always "jq" (Literal["jq"]), so we only
     need to check that converter.jq is configured.
     """
+    import subprocess
 
     if converter.jq:
         argv = ["jq", "-c"]
@@ -197,21 +250,28 @@ def _run_converter(converter: Converter, stdin: bytes) -> bytes:
             else:
                 argv.extend(["--argjson", key, json.dumps(value)])
 
-        result = spawn_exec(argv, stdin=stdin)
+        # For now, materialize the input to avoid deadlock issues
+        # TODO: Implement proper streaming with threading
+        stdin_bytes = b"".join(stdin)
+        result = spawn_exec(argv, stdin=stdin_bytes)
         _check_result("converter", converter.name, result)
-        return result.stdout
+        yield result.stdout
 
-    raise NotImplementedError(f"Engine {converter.engine} not implemented")
+    else:
+        raise NotImplementedError(f"Engine {converter.engine} not implemented")
 
 
 def _run_target(
     target: Target,
-    stdin: bytes,
+    stdin: Iterator[bytes],
     params: Optional[Dict[str, str]] = None,
     env: Optional[Dict[str, str]] = None,
     unsafe_shell: bool = False,
 ) -> bytes:
     """Execute a target and return its output bytes."""
+
+    # Materialize the iterator for targets (they need all data)
+    stdin_bytes = b"".join(stdin)
 
     if target.driver == "exec" and target.exec:
         # Apply templating to argv
@@ -235,13 +295,17 @@ def _run_target(
                 for key, value in target.exec.env.items()
             }
             final_env.update(templated_config_env)
-        result = spawn_exec(argv, stdin=stdin, env=final_env or None, cwd=cwd)
+        result = spawn_exec(
+            argv, stdin=stdin_bytes, env=final_env or None, cwd=cwd
+        )
         _check_result("target", target.name, result)
         return result.stdout
     elif target.driver == "shell" and target.shell:
         # Apply templating to shell command
         cmd = substitute_template(target.shell.cmd, params=params, env=env)
-        result = spawn_shell(cmd, stdin=stdin, env=env, unsafe=unsafe_shell)
+        result = spawn_shell(
+            cmd, stdin=stdin_bytes, env=env, unsafe=unsafe_shell
+        )
         _check_result("target", target.name, result)
         return result.stdout
     elif target.driver == "file" and target.file:
@@ -249,7 +313,7 @@ def _run_target(
         path = substitute_template(target.file.path, params=params, env=env)
         result = run_file_write(
             path,
-            stdin,
+            stdin_bytes,
             append=target.file.append,
             create_parents=target.file.create_parents,
             allow_outside_config=target.file.allow_outside_config,
@@ -269,7 +333,7 @@ def _run_target(
             url=url,
             headers=headers,
             body=target.curl.body,
-            stdin=stdin,
+            stdin=stdin_bytes,
             timeout=target.curl.timeout,
             follow_redirects=target.curl.follow_redirects,
             retry=target.curl.retry,
