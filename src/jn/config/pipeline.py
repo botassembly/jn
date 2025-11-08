@@ -110,16 +110,25 @@ def _run_source(
         _check_result("source", source.name, result)
         return result.stdout
     elif source.driver == "curl" and source.curl:
-        # Apply templating to URL and headers
+        # Apply templating to URL, headers, and body
         url = substitute_template(source.curl.url, params=params, env=env)
         headers = {
             key: substitute_template(value, params=params, env=env)
             for key, value in source.curl.headers.items()
         }
+        # Apply templating to body if it's a literal string
+        body = None
+        if source.curl.body is not None and source.curl.body != "stdin":
+            body = substitute_template(
+                source.curl.body, params=params, env=env
+            )
+        # Note: body="stdin" doesn't apply to sources (they don't receive data)
+
         result = spawn_curl(
             method=source.curl.method,
             url=url,
             headers=headers,
+            body=body,
             timeout=source.curl.timeout,
             follow_redirects=source.curl.follow_redirects,
             retry=source.curl.retry,

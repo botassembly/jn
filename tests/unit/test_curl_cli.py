@@ -133,6 +133,7 @@ def test_curl_source_all_options(runner, tmp_path):
 
     # Verify config was saved correctly
     import json
+
     config = json.loads(jn_path.read_text())
     source = config["sources"][0]
 
@@ -174,6 +175,7 @@ def test_curl_target_defaults(runner, tmp_path):
 
     # Verify defaults
     import json
+
     config = json.loads(jn_path.read_text())
     target = config["targets"][0]
 

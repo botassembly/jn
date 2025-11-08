@@ -203,9 +203,7 @@ def test_curl_target_httpbin_post(runner, tmp_path):
         )
 
         # Run pipeline
-        result = runner.invoke(
-            app, ["run", "post_test", "--jn", str(jn_path)]
-        )
+        result = runner.invoke(app, ["run", "post_test", "--jn", str(jn_path)])
 
         assert result.exit_code == 0
         response = json.loads(result.output.strip())
@@ -480,9 +478,7 @@ def test_curl_source_allow_errors(runner, tmp_path):
         # Verify the config was saved with fail_on_error=false
         config_data = json.loads((tmp_path / "jn.json").read_text())
         source = next(
-            s
-            for s in config_data["sources"]
-            if s["name"] == "httpbin-404-ok"
+            s for s in config_data["sources"] if s["name"] == "httpbin-404-ok"
         )
         assert source["curl"]["fail_on_error"] is False
 
@@ -563,3 +559,83 @@ def test_curl_source_template_substitution(runner, tmp_path):
         assert result.exit_code == 0
         # httpbin /bearer should echo back the token
         assert "my-secret-token-123" in result.output
+
+
+@pytest.mark.skipif(
+    os.getenv("JN_OFFLINE") == "1",
+    reason="Network test disabled in offline mode",
+)
+def test_curl_source_with_body(runner, tmp_path):
+    """Test curl source with POST method and request body (e.g., GraphQL)."""
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        jn_path = tmp_path / "jn.json"
+        init_config(runner, jn_path)
+
+        # Manually create POST source with body in config
+        config_data = json.loads((tmp_path / "jn.json").read_text())
+        config_data["sources"].append(
+            {
+                "name": "graphql-mock",
+                "driver": "curl",
+                "mode": "stream",
+                "adapter": None,
+                "curl": {
+                    "method": "POST",
+                    "url": "https://httpbin.org/post",
+                    "headers": {"Content-Type": "application/json"},
+                    "body": '{"query":"${params.query}","variables":{}}',
+                    "timeout": 30,
+                    "follow_redirects": True,
+                    "retry": 0,
+                    "retry_delay": 2,
+                    "fail_on_error": True,
+                },
+            }
+        )
+        (tmp_path / "jn.json").write_text(json.dumps(config_data, indent=2))
+
+        # Create converter to extract posted data
+        add_converter(runner, jn_path, "extract-data", ".data")
+
+        # Create cat target
+        result = runner.invoke(
+            app,
+            [
+                "new",
+                "target",
+                "exec",
+                "cat",
+                "--argv",
+                "cat",
+                "--jn",
+                str(jn_path),
+            ],
+        )
+        assert result.exit_code == 0
+
+        # Create pipeline
+        add_pipeline(
+            runner,
+            jn_path,
+            "post-source-test",
+            ["source:graphql-mock", "converter:extract-data", "target:cat"],
+        )
+
+        # Run pipeline with query param
+        result = runner.invoke(
+            app,
+            [
+                "run",
+                "post-source-test",
+                "--param",
+                "query={ viewer { login } }",
+                "--jn",
+                str(jn_path),
+            ],
+        )
+
+        assert result.exit_code == 0
+        # httpbin /post echoes back the posted body in the "data" field
+        # Verify our templated query made it through
+        assert "viewer" in result.output
+        assert "login" in result.output

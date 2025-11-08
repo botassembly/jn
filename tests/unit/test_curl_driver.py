@@ -24,15 +24,13 @@ def test_spawn_curl_get_builds_correct_argv():
         assert "-sS" in argv
         assert "--max-time" in argv
         assert "30" in argv
-        assert "https://api.example.com/data" == argv[-1]
+        assert argv[-1] == "https://api.example.com/data"
 
 
 def test_spawn_curl_post_with_stdin():
     """Test POST with stdin body."""
     with patch("jn.drivers.curl.subprocess.run") as mock_run:
-        mock_run.return_value = Mock(
-            returncode=0, stdout=b"ok", stderr=b""
-        )
+        mock_run.return_value = Mock(returncode=0, stdout=b"ok", stderr=b"")
 
         spawn_curl(
             method="POST",
@@ -55,9 +53,7 @@ def test_spawn_curl_post_with_stdin():
 def test_spawn_curl_headers():
     """Test headers are added correctly."""
     with patch("jn.drivers.curl.subprocess.run") as mock_run:
-        mock_run.return_value = Mock(
-            returncode=0, stdout=b"ok", stderr=b""
-        )
+        mock_run.return_value = Mock(returncode=0, stdout=b"ok", stderr=b"")
 
         spawn_curl(
             method="GET",
@@ -81,9 +77,7 @@ def test_spawn_curl_headers():
 def test_spawn_curl_retry_settings():
     """Test retry configuration."""
     with patch("jn.drivers.curl.subprocess.run") as mock_run:
-        mock_run.return_value = Mock(
-            returncode=0, stdout=b"ok", stderr=b""
-        )
+        mock_run.return_value = Mock(returncode=0, stdout=b"ok", stderr=b"")
 
         spawn_curl(
             method="GET",
@@ -104,9 +98,7 @@ def test_spawn_curl_retry_settings():
 def test_spawn_curl_follow_redirects():
     """Test redirect following."""
     with patch("jn.drivers.curl.subprocess.run") as mock_run:
-        mock_run.return_value = Mock(
-            returncode=0, stdout=b"ok", stderr=b""
-        )
+        mock_run.return_value = Mock(returncode=0, stdout=b"ok", stderr=b"")
 
         # With redirects
         spawn_curl(
@@ -130,9 +122,7 @@ def test_spawn_curl_follow_redirects():
 def test_spawn_curl_fail_on_error():
     """Test fail_on_error flag."""
     with patch("jn.drivers.curl.subprocess.run") as mock_run:
-        mock_run.return_value = Mock(
-            returncode=0, stdout=b"ok", stderr=b""
-        )
+        mock_run.return_value = Mock(returncode=0, stdout=b"ok", stderr=b"")
 
         # With fail_on_error (default)
         spawn_curl(
@@ -185,9 +175,7 @@ def test_spawn_curl_handles_errors():
 def test_spawn_curl_literal_body():
     """Test literal string body."""
     with patch("jn.drivers.curl.subprocess.run") as mock_run:
-        mock_run.return_value = Mock(
-            returncode=0, stdout=b"ok", stderr=b""
-        )
+        mock_run.return_value = Mock(returncode=0, stdout=b"ok", stderr=b"")
 
         spawn_curl(
             method="POST",
@@ -205,9 +193,7 @@ def test_spawn_curl_literal_body():
 def test_spawn_curl_custom_timeout():
     """Test custom timeout value."""
     with patch("jn.drivers.curl.subprocess.run") as mock_run:
-        mock_run.return_value = Mock(
-            returncode=0, stdout=b"ok", stderr=b""
-        )
+        mock_run.return_value = Mock(returncode=0, stdout=b"ok", stderr=b"")
 
         spawn_curl(method="GET", url="https://api.example.com", timeout=60)
 
