@@ -37,6 +37,8 @@ def add(
     source_method: str = typer.Option("GET", "--source-method", help="Default HTTP method when used as source"),
     target_method: str = typer.Option("POST", "--target-method", help="Default HTTP method when used as target"),
     api_type: str = typer.Option("rest", "--type", help="API type: rest, graphql, postgres, mysql, s3, gcs, kafka"),
+    yes: bool = typer.Option(False, "--yes", "--force", "-y", "-f", help="Skip confirmation when replacing"),
+    skip_if_exists: bool = typer.Option(False, "--skip-if-exists", help="Skip if API already exists"),
     jn: ConfigPathType = ConfigPath,
 ) -> None:
     """Add a new API configuration.
@@ -60,6 +62,10 @@ def add(
     # Check if API already exists
     existing = config.get_api(name)
     if existing:
+        if skip_if_exists:
+            typer.echo(f"API '{name}' already exists, skipping.")
+            return
+
         typer.echo(f"API '{name}' already exists.", err=True)
         typer.echo()
         typer.echo("BEFORE:")
@@ -92,10 +98,11 @@ def add(
         typer.echo(json.dumps(new_api.model_dump(exclude_none=True), indent=2))
         typer.echo()
 
-        confirm = typer.confirm("Replace existing API?")
-        if not confirm:
-            typer.echo("Cancelled.")
-            raise typer.Exit(0)
+        if not yes:
+            confirm = typer.confirm("Replace existing API?")
+            if not confirm:
+                typer.echo("Cancelled.")
+                raise typer.Exit(0)
 
         # Remove existing before adding new
         cfg = config.require().model_copy(deep=True)

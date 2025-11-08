@@ -30,6 +30,8 @@ def add(
     name: str = typer.Argument(..., help="Unique name for the filter"),
     query: str = typer.Option(..., "--query", help="jq expression to apply"),
     description: Optional[str] = typer.Option(None, "--description", help="Human-readable description"),
+    yes: bool = typer.Option(False, "--yes", "--force", "-y", "-f", help="Skip confirmation when replacing"),
+    skip_if_exists: bool = typer.Option(False, "--skip-if-exists", help="Skip if filter already exists"),
     jn: ConfigPathType = ConfigPath,
 ) -> None:
     """Add a new filter (jq transformation).
@@ -43,6 +45,10 @@ def add(
     # Check if filter already exists
     existing = config.get_filter(name)
     if existing:
+        if skip_if_exists:
+            typer.echo(f"Filter '{name}' already exists, skipping.")
+            return
+
         typer.echo(f"Filter '{name}' already exists.", err=True)
         typer.echo()
         typer.echo("BEFORE:")
@@ -62,10 +68,11 @@ def add(
         typer.echo(json.dumps(new_filter.model_dump(exclude_none=True), indent=2))
         typer.echo()
 
-        confirm = typer.confirm("Replace existing filter?")
-        if not confirm:
-            typer.echo("Cancelled.")
-            raise typer.Exit(0)
+        if not yes:
+            confirm = typer.confirm("Replace existing filter?")
+            if not confirm:
+                typer.echo("Cancelled.")
+                raise typer.Exit(0)
 
         # Remove existing before adding new
         cfg = config.require().model_copy(deep=True)
