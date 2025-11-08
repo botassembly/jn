@@ -1,9 +1,9 @@
-# Single Pipeline Per File Architecture (Hybrid Approach)
+# Simplified Registry Architecture
 
 ## Problem Statement
 
 **Current architecture is too complex**:
-- Four concepts: sources, converters, targets, pipelines
+- Four concepts: sources, filters, targets, pipelines
 - Indirection: Named references require lookup
 - Over-engineered: Storing things that could be auto-detected (file formats, shell commands)
 
@@ -76,6 +76,101 @@
 2. APIs are generic (can be source OR target)
 3. Default methods can be overridden
 4. Environment variable substitution: `${env:VAR_NAME}`
+
+### Additional API Types
+
+**Databases**:
+```json
+{
+  "apis": {
+    "warehouse": {
+      "type": "postgres",
+      "host": "localhost",
+      "port": 5432,
+      "database": "analytics",
+      "auth": {
+        "user": "etl_user",
+        "password": "${env:DB_PASSWORD}"
+      }
+    }
+  }
+}
+```
+
+**Cloud Storage**:
+```json
+{
+  "apis": {
+    "s3-data": {
+      "type": "s3",
+      "bucket": "my-data-bucket",
+      "region": "us-east-1",
+      "auth": {
+        "access_key": "${env:AWS_ACCESS_KEY}",
+        "secret_key": "${env:AWS_SECRET_KEY}"
+      }
+    }
+  }
+}
+```
+
+**Message Queues**:
+```json
+{
+  "apis": {
+    "kafka-events": {
+      "type": "kafka",
+      "brokers": ["localhost:9092"],
+      "topic": "user-events",
+      "consumer_group": "jn-processor"
+    }
+  }
+}
+```
+
+**GraphQL**:
+```json
+{
+  "apis": {
+    "github-graphql": {
+      "type": "graphql",
+      "endpoint": "https://api.github.com/graphql",
+      "auth": {"type": "bearer", "token": "${env:GITHUB_TOKEN}"}
+    }
+  }
+}
+```
+
+## Registration Commands
+
+Manage APIs and filters in the registry:
+
+```bash
+# Register new API
+jn new api github \
+  --base-url https://api.github.com \
+  --auth bearer \
+  --token-env GITHUB_TOKEN
+
+# Register new filter
+jn new filter high-value --query 'select(.amount > 1000)'
+
+# List registered items
+jn list apis
+jn list filters
+
+# Show details
+jn show api github
+jn show filter high-value
+
+# Edit (opens in $EDITOR)
+jn edit api github
+jn edit filter high-value
+
+# Remove
+jn remove api github
+jn remove filter high-value
+```
 
 ## How It Works
 
@@ -316,7 +411,7 @@ jn cat data.json | jn put https://api.example.com/users/123 --method PUT
 }
 ```
 
-### ❌ Converters Section
+### ❌ Filters Section (formerly "Converters")
 
 **Before**:
 ```json
@@ -330,7 +425,7 @@ jn cat data.json | jn put https://api.example.com/users/123 --method PUT
 }
 ```
 
-**After**: Just `filters`
+**After**: Renamed to `filters`, removed redundant driver
 ```json
 {
   "filters": {
@@ -341,7 +436,7 @@ jn cat data.json | jn put https://api.example.com/users/123 --method PUT
 }
 ```
 
-(No need for `driver: "jq"` - that's the only option)
+**Key change**: Following jq terminology, we call these "filters" not "converters". No need for `driver: "jq"` - that's the only option.
 
 ### ❌ Targets Section
 
@@ -430,12 +525,12 @@ Start simple, add to registry only when needed.
 
 ## Migration Path
 
-### Phase 1: Keep Current Architecture (jn.json with sources/converters/targets)
+### Phase 1: Keep Current Architecture (jn.json with sources/filters/targets)
 Status: Already implemented
 
 ### Phase 2: Simplify to apis + filters
 - Migrate sources + targets → `apis` (unified)
-- Migrate converters → `filters` (simpler)
+- Rename converters → `filters` (following jq terminology)
 - Remove driver specifications where redundant
 
 ### Phase 3: Add Smart Features
@@ -446,6 +541,33 @@ Status: Already implemented
 ### Phase 4: Standalone Pipeline Files
 - Optional pipeline files that reference registry
 - Composable with pipes
+
+## Model Context Protocol (MCP)
+
+**Status**: Separate but related
+
+MCP servers could be treated as a special type of API:
+
+```json
+{
+  "mcp": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed/files"],
+      "env": {}
+    },
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${env:GITHUB_TOKEN}"
+      }
+    }
+  }
+}
+```
+
+**Decision**: Keep MCP separate from `apis` initially. MCP has different semantics (tools, resources, prompts) than REST/GraphQL APIs. May merge later if patterns converge.
 
 ## Open Questions
 
