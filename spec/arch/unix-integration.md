@@ -38,7 +38,51 @@ watchmedo shell-command \
 
 ---
 
-## 2. Scheduled Jobs with `cron`
+## 2. Streaming Log Files with `tail`
+
+**Tool**: tail - Output the last part of files, follow for new lines
+
+**Use case**: Monitor log files in real-time and transform with JN
+
+```bash
+# Follow log file and filter errors
+tail -f /var/log/app.log | jn cat - --parser json_s | jq 'select(.level == "ERROR")'
+
+# Follow and send alerts
+tail -f access.log | jn cat - --parser apache_log_s | \
+  jq 'select(.status >= 500)' | \
+  while read line; do
+    curl -X POST -d "$line" https://hooks.slack.com/services/YOUR/WEBHOOK
+  done
+
+# Follow with file rotation support (tail -F)
+tail -F /var/log/app.log | jn cat - | jq 'select(.amount > 1000)'
+
+# Start from last 100 lines, then follow
+tail -n 100 -f metrics.log | jn cat - --parser csv | \
+  jq '{timestamp, value}' > live-metrics.json
+
+# Follow multiple files
+tail -f /var/log/*.log | jn cat - | jq 'select(.priority == "high")'
+```
+
+**Folder monitoring** (using ls/find with JN):
+```bash
+# List files in folder (using JC's ls parser via JN)
+jn cat ls ./inbox/ | jq -r '.filename'
+
+# Find CSV files recursively (using JC's find parser via JN)
+jn cat find ./data/ -name "*.csv" | jq -r '.path'
+
+# Process all files in folder
+jn cat ls ./inbox/ | jq -r '.filename' | while read file; do
+  jn cat "./inbox/$file" | jq '...' > "./output/$file"
+done
+```
+
+---
+
+## 3. Scheduled Jobs with `cron`
 
 **Tool**: cron - Time-based job scheduler
 
@@ -144,10 +188,11 @@ inotifywait -m -e create --format '%f' ./inbox/ | while read filename; do
   jn run process.json --input-file "./inbox/$filename"
 done
 
-# Watch for modifications
-inotifywait -m -e modify /var/log/app.log --format '%f' | while read file; do
-  jn follow /var/log/app.log --tail 1 | jq 'select(.level == "ERROR")' | \
-    jn put slack://alerts
+# Watch for modifications (trigger on log updates)
+inotifywait -m -e modify /var/log/app.log | while read path action file; do
+  tail -n 1 /var/log/app.log | jn cat - --parser json_s | \
+    jq 'select(.level == "ERROR")' | \
+    curl -X POST -d @- https://hooks.slack.com/services/YOUR/WEBHOOK
 done
 
 # Multiple events
