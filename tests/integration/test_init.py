@@ -41,4 +41,5 @@ def test_init_overwrites_with_force(runner, tmp_path):
     assert "Created" in result.output
     data = json.loads(jn_path.read_text())
     assert data["version"] == "0.1"
-    assert "sources" in data
+    assert "apis" in data
+    assert "filters" in data

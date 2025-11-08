@@ -1,97 +1,48 @@
-"""Shared CLI helpers for outside-in integration tests."""
+"""Shared CLI helpers for outside-in integration tests.
+
+Updated for simplified registry architecture (apis/filters).
+"""
 
 from __future__ import annotations
-
-from collections.abc import Iterable
-from typing import Mapping
 
 from jn.cli import app
 
 
 def init_config(runner, path) -> None:
+    """Initialize a new jn.json config file."""
     result = runner.invoke(app, ["init", "--jn", str(path), "--force"])
     assert result.exit_code == 0, result.output
 
 
-def add_exec_source(
+def add_api(
     runner,
     path,
     name: str,
-    argv: Iterable[str],
-    *,
-    env: Mapping[str, str] | None = None,
-    cwd: str | None = None,
+    base_url: str | None = None,
+    auth_type: str | None = None,
+    token: str | None = None,
+    yes: bool = False,
 ) -> None:
-    command = ["new", "source", "exec", name]
-    for arg in argv:
-        command.extend(["--argv", arg])
-    if env:
-        for key, value in env.items():
-            command.extend(["--env", f"{key}={value}"])
-    if cwd:
-        command.extend(["--cwd", cwd])
+    """Add an API to the registry."""
+    command = ["api", "add", name]
+    if base_url:
+        command.extend(["--base-url", base_url])
+    if auth_type:
+        command.extend(["--auth", auth_type])
+    if token:
+        command.extend(["--token", token])
+    if yes:
+        command.append("--yes")
     command.extend(["--jn", str(path)])
     result = runner.invoke(app, command)
     assert result.exit_code == 0, result.output
 
 
-def add_exec_target(
-    runner,
-    path,
-    name: str,
-    argv: Iterable[str],
-    *,
-    env: Mapping[str, str] | None = None,
-    cwd: str | None = None,
-) -> None:
-    command = ["new", "target", "exec", name]
-    for arg in argv:
-        command.extend(["--argv", arg])
-    if env:
-        for key, value in env.items():
-            command.extend(["--env", f"{key}={value}"])
-    if cwd:
-        command.extend(["--cwd", cwd])
-    command.extend(["--jn", str(path)])
-    result = runner.invoke(app, command)
-    assert result.exit_code == 0, result.output
-
-
-def add_converter(runner, path, name: str, expr: str) -> None:
-    command = ["new", "converter", name, "--expr", expr, "--jn", str(path)]
-    result = runner.invoke(app, command)
-    assert result.exit_code == 0, result.output
-
-
-def add_pipeline(runner, path, name: str, steps: Iterable[str]) -> None:
-    """Add a pipeline with new simplified syntax.
-
-    Steps should be in format ["source:name", "converter:name", "target:name"].
-    """
-    command = ["new", "pipeline", name]
-
-    # Parse steps and build command with new flags
-    source_name = None
-    converter_names = []
-    target_name = None
-
-    for step in steps:
-        step_type, step_ref = step.split(":", 1)
-        if step_type == "source":
-            source_name = step_ref
-        elif step_type == "converter":
-            converter_names.append(step_ref)
-        elif step_type == "target":
-            target_name = step_ref
-
-    # Build command with new flags
-    if source_name:
-        command.extend(["--source", source_name])
-    for conv_name in converter_names:
-        command.extend(["--converter", conv_name])
-    if target_name:
-        command.extend(["--target", target_name])
-
+def add_filter(runner, path, name: str, query: str, yes: bool = False) -> None:
+    """Add a filter to the registry."""
+    command = ["filter", "add", name, "--query", query]
+    if yes:
+        command.append("--yes")
     command.extend(["--jn", str(path)])
     result = runner.invoke(app, command)
     assert result.exit_code == 0, result.output
