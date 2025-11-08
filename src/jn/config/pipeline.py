@@ -4,14 +4,19 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, TypeVar
 
-# Configure JC to use our custom parsers via environment variable
-_JCPARSERS_DIR = str(Path(__file__).parent.parent / "jcparsers")
-os.environ.setdefault("JC_PLUGIN_DIR", _JCPARSERS_DIR)
+# Import JC first
+import jc
 
-import jc  # noqa: E402
+# Register our custom parsers with JC
+# JC's plugin system expects parsers in jc.parsers namespace
+from jn.jcparsers import psv_s, tsv_s
+
+sys.modules["jc.parsers.tsv_s"] = tsv_s
+sys.modules["jc.parsers.psv_s"] = psv_s
 
 from jn.drivers import (  # noqa: E402
     run_file_write,
