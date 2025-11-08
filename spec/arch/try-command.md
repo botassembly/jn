@@ -1,11 +1,30 @@
 # JN — Try Command Architecture
 
-**Status:** Design / Implementation Ready
-**Updated:** 2025-11-07
+**Status:** DEPRECATED - Use `jn cat/head/tail` instead
+**Updated:** 2025-11-08
 
 ---
 
-## Purpose
+## Deprecation Notice
+
+**This command design has been superseded by `jn cat`, `jn head`, and `jn tail`.**
+
+**Why deprecated:**
+- `jn cat/head/tail` provides the same exploration capability with minimal syntax
+- Auto-detection removes the need for explicit `--driver` and `--adapter` flags
+- 2-word syntax (`jn cat data.csv`) vs 7+ words (`jn try source --driver file --path data.csv`)
+- Unix-familiar command names (cat/head/tail) are more intuitive than "try"
+
+**Migration:**
+- `jn try source --driver file --path data.csv` → `jn cat data.csv`
+- `jn try source --driver curl --url https://...` → `jn cat https://...`
+- `jn try source --driver exec --argv dig --argv example.com` → `jn cat dig example.com`
+
+**See:** `spec/arch/cat-command.md` for the replacement design.
+
+---
+
+## Original Purpose (Archived)
 
 The `jn try` command enables **quick, ad-hoc testing** of pipeline components without persisting them to config. It's designed for:
 
