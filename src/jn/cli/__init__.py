@@ -13,4 +13,4 @@ app = typer.Typer(
 __all__ = ["ConfigPath", "app"]
 
 # Import commands to register decorators
-from . import explain, init, list, new, run, show  # noqa: F401
+from . import cat, explain, init, list, new, run, show  # noqa: F401

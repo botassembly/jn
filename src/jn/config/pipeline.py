@@ -4,15 +4,24 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, TypeVar
 
-# Configure JC to use our custom parsers via environment variable
-_JCPARSERS_DIR = str(Path(__file__).parent.parent / "jcparsers")
-os.environ.setdefault("JC_PLUGIN_DIR", _JCPARSERS_DIR)
+# Import JC first
+import jc
 
-import jc  # noqa: E402
+# Register our custom parsers with JC
+# JC's plugin system expects parsers in jc.parsers namespace
+from jn.jcparsers import psv_s, toml_s, tsv_s, xml_s, yaml_s
 
+sys.modules["jc.parsers.tsv_s"] = tsv_s
+sys.modules["jc.parsers.psv_s"] = psv_s
+sys.modules["jc.parsers.yaml_s"] = yaml_s
+sys.modules["jc.parsers.toml_s"] = toml_s
+sys.modules["jc.parsers.xml_s"] = xml_s
+
+from jn.adapters import convert_target_format  # noqa: E402
 from jn.drivers import (  # noqa: E402
     run_file_write,
     spawn_curl,
@@ -40,13 +49,18 @@ def _detect_parser_from_extension(path: str) -> Optional[str]:
     """Auto-detect JC parser from file extension.
 
     Returns:
-        Parser name (e.g., 'csv_s', 'tsv_s', 'psv_s') or None for non-delimited files
+        Parser name (e.g., 'csv_s', 'tsv_s', 'psv_s', 'yaml_s', 'toml_s', 'xml_s')
+        or None for non-delimited files
     """
     ext = Path(path).suffix.lower()
     parser_map = {
         ".csv": "csv_s",
         ".tsv": "tsv_s",
         ".psv": "psv_s",
+        ".yaml": "yaml_s",
+        ".yml": "yaml_s",
+        ".toml": "toml_s",
+        ".xml": "xml_s",
     }
     return parser_map.get(ext)
 
@@ -311,9 +325,13 @@ def _run_target(
     elif target.driver == "file" and target.file:
         # Apply templating to path
         path = substitute_template(target.file.path, params=params, env=env)
+
+        # Apply target format adapter based on file extension
+        converted_data = convert_target_format(stdin_bytes, path)
+
         result = run_file_write(
             path,
-            stdin_bytes,
+            converted_data,
             append=target.file.append,
             create_parents=target.file.create_parents,
             allow_outside_config=target.file.allow_outside_config,
