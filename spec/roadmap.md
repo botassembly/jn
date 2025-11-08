@@ -27,7 +27,7 @@
 * [x] Pipeline params/env templating — `${params.*}` and `${env.*}` expansion (src/jn/config/utils.py:substitute_template)
 * [x] Format adapters — complete source/target adapters for all common formats (YAML, TOML, XML, JSON, CSV read/write, src/jn/adapters/target_adapters.py + src/jn/jcparsers/, 95% coverage on adapters, fixture-based integration tests in tests/fixtures/test_config.json, enables format conversion workflows)
 * [x] Test architecture — establish fixture-based testing pattern (spec/testing/architecture.md: comprehensive JSON config fixtures, pure functions, outside-in CLI testing, no tautological unit tests, 86% overall coverage)
-* [ ] Test suite refactoring — migrate all tests to fixture-based architecture (14 integration tests to evaluate, remove class-based patterns from test_cat_commands.py, consolidate helper-based tests to use shared fixtures where appropriate, preserve good patterns in test_new_*.py files, see spec/testing/architecture.md for migration strategy)
+* [x] Test suite refactoring — all tests follow pure function pattern (test_cat_commands.py refactored from classes to functions, evaluated 7 helper-based test files and determined all should stay as-is due to dynamic config needs, removed 5 tautological unit tests from test_curl_cli.py, 0 test classes remaining, 123/124 tests passing, 86% coverage maintained, see spec/testing/test-refactoring-assessment.md for complete analysis)
 * [ ] Plan mode — `jn run <pipeline> --plan` dry-run introspection (architecture: spec/arch/plan-mode.md)
 * [ ] Try command — `jn try source/converter/target` ad-hoc testing (architecture: spec/arch/try-command.md)
 * [ ] Help improvements — example-driven help text for all commands (architecture: spec/arch/help-system.md)
