@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Literal, Optional
 
 from jn.models import (
     Converter,
+    CsvConfig,
     CurlSpec,
     Error,
     ExecSpec,
@@ -42,6 +43,7 @@ def add_source(
     cwd: Optional[str] = None,
     allow_outside_config: bool = False,
     adapter: Optional[str] = None,
+    csv: Optional[Dict[str, Any]] = None,
 ) -> Source | Error:
     """Add a new source to the cached config and persist it."""
 
@@ -82,6 +84,8 @@ def add_source(
             ),
         )
     elif driver == "file":
+        # Build CSV config if provided
+        csv_config = CsvConfig(**csv) if csv else None
         source = Source(
             name=name,
             driver="file",
@@ -91,6 +95,7 @@ def add_source(
                 mode="read",
                 allow_outside_config=allow_outside_config,
             ),
+            csv=csv_config,
         )
     else:
         return Error(message=f"Unknown driver: {driver}")

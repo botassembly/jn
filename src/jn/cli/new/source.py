@@ -173,12 +173,55 @@ def file(
         "--allow-outside-config",
         help="Allow reading files outside config root",
     ),
+    adapter: str | None = typer.Option(
+        None,
+        "--adapter",
+        help="Adapter for non-JSON output (e.g., 'csv')",
+    ),
+    csv_delimiter: str | None = typer.Option(
+        None,
+        "--csv-delimiter",
+        help="CSV delimiter character (default: ',')",
+    ),
+    csv_quotechar: str | None = typer.Option(
+        None,
+        "--csv-quotechar",
+        help="CSV quote character (default: '\"')",
+    ),
+    csv_encoding: str | None = typer.Option(
+        None,
+        "--csv-encoding",
+        help="CSV file encoding (default: 'utf-8')",
+    ),
+    csv_no_header: bool = typer.Option(
+        False,
+        "--csv-no-header",
+        help="CSV has no header row",
+    ),
 ) -> None:
     """Create a new file source."""
     config.set_config_path(jn)
 
+    # Build CSV config if adapter is csv
+    csv_config = None
+    if adapter == "csv":
+        csv_config = {}
+        if csv_delimiter is not None:
+            csv_config["delimiter"] = csv_delimiter
+        if csv_quotechar is not None:
+            csv_config["quotechar"] = csv_quotechar
+        if csv_encoding is not None:
+            csv_config["encoding"] = csv_encoding
+        if csv_no_header:
+            csv_config["has_header"] = False
+
     result = config.add_source(
-        name, "file", path=path, allow_outside_config=allow_outside_config
+        name,
+        "file",
+        path=path,
+        allow_outside_config=allow_outside_config,
+        adapter=adapter,
+        csv=csv_config,
     )
 
     if isinstance(result, config.Error):

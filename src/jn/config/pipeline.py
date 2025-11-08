@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TypeVar
 
+from jn.adapters import csv_to_ndjson
 from jn.drivers import (
     run_file_read,
     run_file_write,
@@ -108,7 +109,13 @@ def _run_source(
             config_root=_get_config_root(),
         )
         _check_result("source", source.name, result)
-        return result.stdout
+        raw_bytes = result.stdout
+
+        # Apply CSV adapter if specified
+        if source.adapter == "csv":
+            return csv_to_ndjson(raw_bytes, source.csv)
+
+        return raw_bytes
     elif source.driver == "curl" and source.curl:
         # Apply templating to URL, headers, and body
         url = substitute_template(source.curl.url, params=params, env=env)
