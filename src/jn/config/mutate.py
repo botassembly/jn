@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from jn.models import (
     Converter,
@@ -30,6 +30,13 @@ def add_source(
     cmd: Optional[str] = None,
     url: Optional[str] = None,
     method: str = "GET",
+    headers: Optional[Dict[str, str]] = None,
+    body: Any = None,
+    timeout: int = 30,
+    follow_redirects: bool = True,
+    retry: int = 0,
+    retry_delay: int = 2,
+    fail_on_error: bool = True,
     path: Optional[str] = None,
     env: Optional[Dict[str, str]] = None,
     cwd: Optional[str] = None,
@@ -62,7 +69,17 @@ def add_source(
             name=name,
             driver="curl",
             adapter=adapter,
-            curl=CurlSpec(method=method, url=url or ""),
+            curl=CurlSpec(
+                method=method,
+                url=url or "",
+                headers=headers or {},
+                body=body,
+                timeout=timeout,
+                follow_redirects=follow_redirects,
+                retry=retry,
+                retry_delay=retry_delay,
+                fail_on_error=fail_on_error,
+            ),
         )
     elif driver == "file":
         source = Source(
@@ -90,6 +107,13 @@ def add_target(
     cmd: Optional[str] = None,
     url: Optional[str] = None,
     method: str = "POST",
+    headers: Optional[Dict[str, str]] = None,
+    body: Any = None,
+    timeout: int = 30,
+    follow_redirects: bool = True,
+    retry: int = 0,
+    retry_delay: int = 2,
+    fail_on_error: bool = True,
     path: Optional[str] = None,
     env: Optional[Dict[str, str]] = None,
     cwd: Optional[str] = None,
@@ -118,7 +142,17 @@ def add_target(
         target = Target(
             name=name,
             driver="curl",
-            curl=CurlSpec(method=method, url=url or ""),
+            curl=CurlSpec(
+                method=method,
+                url=url or "",
+                headers=headers or {},
+                body=body,
+                timeout=timeout,
+                follow_redirects=follow_redirects,
+                retry=retry,
+                retry_delay=retry_delay,
+                fail_on_error=fail_on_error,
+            ),
         )
     elif driver == "file":
         target = Target(

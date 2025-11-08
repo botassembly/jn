@@ -22,12 +22,22 @@ class ShellSpec(BaseModel):
 
 
 class CurlSpec(BaseModel):
-    """Curl driver specification for HTTP requests."""
+    """Curl driver specification for HTTP requests.
+
+    Supports standard HTTP methods with streaming, retries, and auth.
+    For sources: typically GET with no body.
+    For targets: typically POST/PUT with body="stdin" to stream request.
+    """
 
     method: str = "GET"
     url: str
     headers: Dict[str, str] = Field(default_factory=dict)
-    body: Any | None = None
+    body: Literal["stdin"] | str | None = None
+    timeout: int = 30
+    follow_redirects: bool = True
+    retry: int = 0
+    retry_delay: int = 2
+    fail_on_error: bool = True  # Fail on HTTP 4xx/5xx
 
 
 class FileSpec(BaseModel):

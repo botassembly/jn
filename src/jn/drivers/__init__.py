@@ -1,5 +1,6 @@
 """Drivers: I/O adapters for sources and targets."""
 
+from .curl import spawn_curl
 from .exec import spawn_exec
 from .file import run_file_read, run_file_write
 from .shell import spawn_shell
@@ -7,6 +8,7 @@ from .shell import spawn_shell
 __all__ = [
     "run_file_read",
     "run_file_write",
+    "spawn_curl",
     "spawn_exec",
     "spawn_shell",
 ]

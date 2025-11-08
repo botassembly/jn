@@ -80,6 +80,7 @@ ignore = [
 "src/jn/util.py" = ["S602","S603","S607","S110","SIM105"]
 "src/jn/service.py" = ["S603"]
 "src/jn/service/pipeline.py" = ["S603"]
+"src/jn/drivers/curl.py" = ["S603"]
 "src/jn/drivers/exec.py" = ["S603"]
 "src/jn/drivers/shell.py" = ["S602"]
 "src/jn/cli/__init__.py" = ["E402"]

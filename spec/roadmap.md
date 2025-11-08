@@ -20,7 +20,7 @@
 * [x] Run with params — `jn run <pipeline> --param <k=v>` (CLI flag working, tests passing)
 * [x] Exec source extras — support `cwd`/`env` interpolation in run/explain (fully working)
 * [x] Shell driver — implement safe execution + opt-in flag (PR #7: src/jn/drivers/shell.py with --unsafe-shell guard)
-* [ ] Curl driver — streaming HTTP client for sources/targets (architecture: spec/arch/http-client.md)
+* [x] Curl driver — streaming HTTP client for sources/targets (src/jn/drivers/curl.py with GET/POST/headers/retry, 9 integration tests)
 * [x] File driver — streaming file read/write with confinement (src/jn/drivers/file.py, 81% coverage)
 * [ ] CSV/delimited source — `jn new source <name> --driver file --adapter csv` (architecture: spec/arch/csv-delimited.md)
 * [x] JC source adapter — wrap shell output to JSON (PR #7: adapter="jc" prepends jc to argv, 9 tests)
