@@ -7,6 +7,10 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TypeVar
 
+# Configure JC to use our custom parsers via environment variable
+_JCPARSERS_DIR = str(Path(__file__).parent.parent / "jcparsers")
+os.environ.setdefault("JC_PLUGIN_DIR", _JCPARSERS_DIR)
+
 import jc
 
 from jn.drivers import (
@@ -21,10 +25,6 @@ from jn.models import Completed, Converter, PipelinePlan, Source, Target
 
 from .core import config_path, ensure
 from .utils import substitute_template
-
-# Configure JC to use our custom parsers
-_JCPARSERS_DIR = Path(__file__).parent.parent / "jcparsers"
-jc.set_plugin_dir(str(_JCPARSERS_DIR))
 
 T = TypeVar("T")
 
