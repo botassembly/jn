@@ -18,7 +18,7 @@ from .catalog import (
     has_item,
     list_items,
 )
-from .core import config_path, ensure, require, reset, use
+from .core import config_path, ensure, persist, require, reset, use
 from .mutate import add_api, add_filter
 from .types import CollectionName
 from .utils import parse_key_value_pairs, substitute_template
@@ -45,6 +45,7 @@ __all__ = [
     "has_item",
     "list_items",
     "parse_key_value_pairs",
+    "persist",
     "require",
     "reset",
     "set_config_path",
