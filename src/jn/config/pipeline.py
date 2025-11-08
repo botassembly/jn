@@ -8,8 +8,9 @@ from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, TypeVar
 
 # Configure JC to use our custom parsers via environment variable
-_JCPARSERS_DIR = str(Path(__file__).parent.parent / "jcparsers")
-os.environ.setdefault("JC_PLUGIN_DIR", _JCPARSERS_DIR)
+# JC_PLUGIN_DIR should point to the parent directory containing jcparsers/
+_JN_SRC_DIR = str(Path(__file__).parent.parent)
+os.environ.setdefault("JC_PLUGIN_DIR", _JN_SRC_DIR)
 
 import jc  # noqa: E402
 
