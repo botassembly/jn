@@ -1,519 +1,551 @@
-# JN — Shape Command Architecture
+# Shape Command
 
-**Status:** Design (Implementation Pending)
-**Updated:** 2025-11-07
-**Related:** `spec/arch/shallow-json.md` (ADR-002)
+## Overview
 
----
+The `shape` command analyzes NDJSON data and provides a summary: schema, sample records (head/tail), and statistics. It's designed to help users quickly understand the structure and content of their data without overwhelming them with output.
 
 ## Purpose
 
-The `jn shape` command helps **LLMs and developers understand data structure efficiently** without loading entire datasets into memory or context windows.
+**Problem**: When working with large NDJSON streams, you want to know:
+- What fields exist? What types are they?
+- What does sample data look like?
+- How many records? How big is the data?
 
-**Core insight:** Like `head`/`tail` for content, but **structure-aware** and **streaming**.
+**Solution**: `jn shape` gives you a concise summary suitable for passing to LLMs or reviewing yourself.
 
----
-
-## Problem: LLM Context Window Optimization
-
-When working with data sources (files, APIs, databases), LLMs need to:
-
-1. **Understand structure** - What fields exist? What types?
-2. **See examples** - Representative sample data
-3. **Avoid bloat** - Don't ingest entire datasets (token cost, memory)
-
-**Traditional approach problems:**
-- `cat file.json` - Entire file in context (expensive, slow)
-- `head -n 100 file.json` - Truncates mid-record (broken JSON)
-- Manual inspection - Tedious, not automatable
-
-**Solution:** `jn shape` produces **compact, faithful artifacts** that convey structure + examples without exposing full payloads.
-
----
-
-## What Shape Does
-
-Given a data source (file, URL, source reference), `jn shape` produces three artifacts:
-
-### 1. Profile (Statistics)
-Per-field metrics and cardinality:
-```json
-{
-  "fields": {
-    "name": {
-      "type": ["string"],
-      "count": 1000,
-      "nulls": 0,
-      "examples": ["Alice", "Bob", "Charlie"],
-      "string_length": {"min": 3, "avg": 8.5, "max": 24}
-    },
-    "age": {
-      "type": ["number"],
-      "count": 1000,
-      "nulls": 5,
-      "numeric": {"min": 18, "max": 65, "avg": 34.2}
-    },
-    "email": {
-      "type": ["string"],
-      "count": 1000,
-      "format": "email",
-      "cardinality": 987,
-      "examples": ["alice@example.com", "bob@example.com"]
-    }
-  },
-  "record_count": 1000
-}
-```
-
-### 2. Shallow Preview (Truncated Samples)
-Representative records with truncation annotations:
-```json
-[
-  {
-    "name": "Alice",
-    "bio": "Software engineer who…(len=487, sha256=a3b2c1…)",
-    "projects": [
-      {"name": "Project A", "…": "2 more items"},
-      "…(len=5)"
-    ],
-    "metadata": {
-      "created": "2023-01-15T10:30:00Z",
-      "…": "3 more keys (depth>2)"
-    }
-  }
-]
-```
-
-**Key features:**
-- Strings truncated with length + hash
-- Arrays sampled (first, middle, last)
-- Objects pruned by depth
-- Binary/base64 replaced with metadata
-- Deterministic (seeded sampling)
-
-### 3. Inferred Schema (JSON Schema)
-Machine-readable schema for validation:
-```json
-{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "type": "object",
-  "required": ["name", "email"],
-  "properties": {
-    "name": {"type": "string"},
-    "age": {"type": ["number", "null"]},
-    "email": {"type": "string", "format": "email"},
-    "projects": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "name": {"type": "string"}
-        }
-      }
-    }
-  }
-}
-```
-
----
-
-## CLI Interface
-
-### Basic Usage
+## Basic Usage
 
 ```bash
-# Analyze a file
-jn shape --in data/users.ndjson
+# Shape a file
+jn cat data.csv | jn shape
 
-# Output to specific files
-jn shape --in data/users.ndjson \
-  --profile profile.json \
-  --preview preview.json \
-  --schema schema.json
+# Shape API response
+jn cat https://api.example.com/users | jn shape
 
-# Analyze a source (from config)
-jn shape --source users-api
-
-# Configure truncation and sampling
-jn shape --in data/large.ndjson \
-  --truncate 50 \
-  --array-sample 2,mid,2 \
-  --depth 4 \
-  --seed 42
-
-# Validate stream against schema
-cat new-data.ndjson | jn shape --validate schema.json
+# Shape after transformation
+jn cat sales.csv | jq 'select(.amount > 100)' | jn shape
 ```
 
-### Flags
+## Output Structure
 
-```
---in <path|url>           Input file or URL to analyze
---source <name>           Analyze a configured source
---profile <path>          Output profile JSON (default: stdout)
---preview <path>          Output shallow preview JSON
---schema <path>           Output JSON Schema
---truncate <n>            Truncate strings to N chars (default: 24)
---array-sample <pattern>  Array sampling pattern (default: "1,mid,1")
---depth <n>               Max object depth (default: 3)
---seed <n>                Random seed for sampling (default: 0)
---validate <schema>       Validate input against schema
---records <n>             Process only first N records
+```json
+{
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {"type": "string"},
+      "age": {"type": "integer"},
+      "city": {"type": "string"},
+      "active": {"type": "boolean"}
+    },
+    "required": ["name", "age"]
+  },
+  "sample": {
+    "head": [
+      {"name": "Alice", "age": 30, "city": "NYC", "active": true},
+      {"name": "Bob", "age": 25, "city": "SF", "active": false},
+      {"name": "Charlie", "age": 35, "city": "Austin", "active": true},
+      {"name": "Diana", "age": 28, "city": "Seattle", "active": true},
+      {"name": "Eve", "age": 32, "city": "Boston", "active": false}
+    ],
+    "tail": [
+      {"name": "Zara", "age": 29, "city": "Portland", "active": true},
+      {"name": "Yuri", "age": 31, "city": "Denver", "active": false},
+      {"name": "Xavier", "age": 27, "city": "Miami", "active": true},
+      {"name": "Wendy", "age": 33, "city": "Phoenix", "active": false},
+      {"name": "Victor", "age": 26, "city": "Nashville", "active": true}
+    ]
+  },
+  "stats": {
+    "record_count": 1000,
+    "field_names": ["name", "age", "city", "active"],
+    "total_chars": 45678,
+    "total_tokens": 12345,
+    "avg_record_size": 45
+  }
+}
 ```
 
----
+## Options
+
+```bash
+# Number of sample records
+jn shape --head 5 --tail 5       # Default
+jn shape --head 10 --tail 10     # More samples
+
+# Truncation limits
+jn shape --max-record-chars 500  # Max chars per record (default: 500)
+jn shape --max-string-length 100 # Max chars per string field (default: 100)
+
+# Output format
+jn shape --pretty                # Pretty-print JSON (default)
+jn shape --compact               # Compact JSON
+
+# Statistics
+jn shape --no-tokens             # Skip token counting (faster)
+jn shape --no-schema             # Skip schema inference (faster)
+```
+
+## Schema Inference
+
+Uses **genson** library to infer JSON Schema from sample data.
+
+```python
+from genson import SchemaBuilder
+
+builder = SchemaBuilder()
+
+# Add records to builder
+for record in records:
+    builder.add_object(record)
+
+# Generate schema
+schema = builder.to_schema()
+```
+
+**Features**:
+- Infers types (string, number, boolean, null, array, object)
+- Detects required vs optional fields
+- Handles nested objects and arrays
+- Merges schemas from multiple records to find union type
+
+**Example**:
+
+Input records:
+```json
+{"name": "Alice", "age": 30}
+{"name": "Bob", "city": "SF"}
+```
+
+Inferred schema:
+```json
+{
+  "type": "object",
+  "properties": {
+    "name": {"type": "string"},
+    "age": {"type": "integer"},
+    "city": {"type": "string"}
+  },
+  "required": ["name"]
+}
+```
+
+## Sample Records (Head/Tail)
+
+### Head
+First N records (default: 5)
+
+### Tail
+Last N records (default: 5)
+
+**Implementation**: Buffer last N records while streaming.
+
+```python
+from collections import deque
+
+head = []
+tail = deque(maxlen=tail_size)
+
+for i, record in enumerate(records):
+    # Collect head
+    if i < head_size:
+        head.append(record)
+
+    # Always add to tail (auto-evicts oldest)
+    tail.append(record)
+```
+
+### Truncation
+
+To keep output concise, truncate records if they exceed limits:
+
+**1. Record-level truncation** (`--max-record-chars`):
+
+If serialized record exceeds limit, drop fields until under limit:
+
+```python
+def truncate_record(record, max_chars=500):
+    while len(json.dumps(record)) > max_chars and record:
+        # Drop fields one by one (prioritize keeping name/id fields)
+        record.pop(next(reversed(record)))
+    return record
+```
+
+**2. String-level truncation** (`--max-string-length`):
+
+Truncate long string values:
+
+```python
+def truncate_strings(record, max_length=100):
+    for key, value in record.items():
+        if isinstance(value, str) and len(value) > max_length:
+            record[key] = value[:max_length] + "..."
+    return record
+```
+
+**3. Nested object truncation**:
+
+For nested objects, show `{...}` placeholder:
+
+```python
+def truncate_nested(record, depth=1):
+    if depth > 1:
+        for key, value in record.items():
+            if isinstance(value, dict):
+                record[key] = "{...}"
+            elif isinstance(value, list):
+                record[key] = "[...]"
+    return record
+```
+
+**Example**:
+
+Original record (800 chars):
+```json
+{
+  "id": "abc123",
+  "name": "Alice Johnson",
+  "email": "alice.johnson@example.com",
+  "bio": "Lorem ipsum dolor sit amet, consectetur adipiscing elit... (500 chars)",
+  "address": {"street": "123 Main St", "city": "NYC", "state": "NY", "zip": "10001"},
+  "tags": ["engineering", "management", "python", "javascript", "golang"]
+}
+```
+
+Truncated record (under 500 chars):
+```json
+{
+  "id": "abc123",
+  "name": "Alice Johnson",
+  "email": "alice.johnson@example.com",
+  "bio": "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore...",
+  "address": "{...}",
+  "tags": "[...]"
+}
+```
+
+## Statistics
+
+### Record Count
+Total number of records in stream.
+
+### Field Names
+List of all unique field names encountered across all records.
+
+```python
+field_names = set()
+for record in records:
+    field_names.update(record.keys())
+```
+
+### Total Characters
+Sum of serialized length of all records.
+
+```python
+total_chars = sum(len(json.dumps(record)) for record in records)
+```
+
+### Total Tokens (Optional)
+Estimated token count for LLM context.
+
+Uses **tiktoken** library:
+
+```python
+import tiktoken
+
+encoding = tiktoken.encoding_for_model("gpt-4")
+
+total_tokens = 0
+for record in records:
+    text = json.dumps(record)
+    total_tokens += len(encoding.encode(text))
+```
+
+**Note**: Token counting is expensive. Skip with `--no-tokens` for faster analysis.
+
+### Average Record Size
+Average character count per record.
+
+```python
+avg_record_size = total_chars / record_count
+```
 
 ## Use Cases
 
-### 1. LLM-Assisted Pipeline Design
-
-**Scenario:** Agent needs to understand API response structure
+### Use Case 1: Understand API Response
 
 ```bash
-# Agent asks: "What does the GitHub API return?"
-jn shape --source github-repos --preview preview.json
+jn cat https://api.example.com/users | jn shape
 
-# Agent receives compact preview (50 lines instead of 10,000)
-# Agent: "I see the 'stargazers_count' field, let me filter by that"
+# Quick summary of:
+# - What fields does the API return?
+# - What do sample records look like?
+# - How many users in the response?
 ```
 
-**Before:** 50KB of API response in context
-**After:** 2KB preview with structure + examples
-
-### 2. Data Source Discovery
-
-**Scenario:** Developer has unfamiliar CSV file
+### Use Case 2: Explore Large Dataset
 
 ```bash
-jn shape --in mysterious.csv --profile profile.json
+jn cat large-file.csv | jn shape
 
-# Profile shows:
-# - 50 fields
-# - 1M records
-# - Field types (3 dates, 12 numbers, 35 strings)
-# - Cardinality (e.g., "status" has 5 unique values)
+# Without loading entire file into memory, get:
+# - Schema overview
+# - First/last records
+# - Total record count
 ```
 
-**Insight:** Quickly understand data without opening massive file
-
-### 3. Schema Validation
-
-**Scenario:** Ensure new data matches expected schema
+### Use Case 3: Validate Transformation
 
 ```bash
-# Infer schema from known-good data
-jn shape --in prod-data.ndjson --schema prod-schema.json
+jn cat raw-data.csv | jq 'select(.valid)' | jn shape
 
-# Validate new data
-jn shape --in new-batch.ndjson --validate prod-schema.json
+# Verify:
+# - Filtering worked correctly
+# - Expected fields remain
+# - Sample output looks correct
 ```
 
-**Use:** Catch schema drift before pipeline failures
-
-### 4. Documentation Generation
-
-**Scenario:** Auto-generate data dictionaries
+### Use Case 4: LLM Context Preparation
 
 ```bash
-# Generate schema for all sources
-for source in $(jn list sources); do
-  jn shape --source $source --schema "docs/schemas/$source.json"
+jn cat data.csv | jn shape > data-summary.json
+
+# Pass summary to LLM instead of full data:
+# - Describe the data structure
+# - Ask LLM to write jq query
+# - LLM sees schema + samples without all data
+```
+
+### Use Case 5: Quick Data Profiling
+
+```bash
+# Profile multiple datasets
+for file in data/*.csv; do
+  echo "=== $file ==="
+  jn cat "$file" | jn shape --compact
 done
 ```
 
-**Output:** Schema files for documentation site
-
----
-
-## Architecture Integration
-
-### Pipeline Position
-
-`jn shape` operates **before** or **alongside** pipelines:
-
-```
-Data Source → [shape analysis] → Profile/Preview/Schema
-              ↓
-         Pipeline Design
-              ↓
-Source → Converter → Target
-```
-
-**Not** a pipeline component, but a **pipeline design tool**.
-
-### Source Integration
-
-```bash
-# Shape can analyze any source type
-jn shape --source <name>
-
-# Internally:
-# 1. Resolve source config
-# 2. Run source (exec/shell/file/curl)
-# 3. Capture output stream
-# 4. Analyze without modifying
-```
-
-**Benefits:**
-- Test sources before using in pipelines
-- Validate source output format
-- Generate schema for converters
-
----
-
-## Implementation Strategy
-
-See **`spec/arch/shallow-json.md` (ADR-002)** for complete implementation details.
-
-### Key Technologies
-
-**Parsing/streaming:**
-- `ijson` - Streaming JSON parser (handles GB+ files)
-- `orjson` - Fast JSON serialization
-
-**Schema inference:**
-- `genson` - Merge schemas from multiple samples
-- `jsonschema` - Validation
-
-**Statistics:**
-- Welford's algorithm - Streaming mean/variance (O(1) memory)
-- HyperLogLog - Cardinality estimation (`datasketch`)
-
-**Date/format detection:**
-- `python-dateutil` - Strict date parsing
-- Regex patterns - email/URL/IP detection
+## Implementation Notes
 
 ### Streaming Architecture
 
-**Memory guarantee:** O(1) memory regardless of input size
-
 ```python
-# Pseudocode
-def analyze_stream(input_stream):
-    stats = {}  # Field statistics
-    schema_builder = SchemaBuilder()
-    sample_records = []
+def shape(input_stream, head_size=5, tail_size=5, max_record_chars=500):
+    from genson import SchemaBuilder
+    from collections import deque
+    import tiktoken
+
+    builder = SchemaBuilder()
+    head = []
+    tail = deque(maxlen=tail_size)
+    field_names = set()
+    record_count = 0
+    total_chars = 0
+    total_tokens = 0
+    encoding = tiktoken.encoding_for_model("gpt-4")
 
     for i, record in enumerate(input_stream):
-        # Update statistics (O(1) per field)
-        update_stats(stats, record)
+        # Schema inference
+        builder.add_object(record)
 
-        # Merge schema (O(fields) per record)
-        schema_builder.add_object(record)
+        # Head collection
+        if i < head_size:
+            truncated = truncate_record(record.copy(), max_record_chars)
+            head.append(truncated)
 
-        # Sample records deterministically
-        if should_sample(i, seed):
-            sample_records.append(record)
+        # Tail collection (always)
+        truncated = truncate_record(record.copy(), max_record_chars)
+        tail.append(truncated)
 
-    # Generate outputs
-    profile = build_profile(stats)
-    preview = build_preview(sample_records)
-    schema = schema_builder.to_schema()
+        # Statistics
+        field_names.update(record.keys())
+        record_json = json.dumps(record)
+        total_chars += len(record_json)
+        total_tokens += len(encoding.encode(record_json))
+        record_count += 1
 
-    return profile, preview, schema
+    return {
+        "schema": builder.to_schema(),
+        "sample": {
+            "head": head,
+            "tail": list(tail)
+        },
+        "stats": {
+            "record_count": record_count,
+            "field_names": sorted(field_names),
+            "total_chars": total_chars,
+            "total_tokens": total_tokens,
+            "avg_record_size": total_chars // record_count if record_count > 0 else 0
+        }
+    }
 ```
 
-**Key:** No full-dataset materialization, incremental processing
+### CLI Command
 
----
+```python
+import typer
+from typing import Optional
 
-## Determinism & Reproducibility
+@app.command()
+def shape(
+    head: int = 5,
+    tail: int = 5,
+    max_record_chars: int = 500,
+    max_string_length: int = 100,
+    pretty: bool = True,
+    no_tokens: bool = False,
+    no_schema: bool = False,
+):
+    """Analyze NDJSON stream and show schema, samples, and statistics"""
 
-**All outputs are deterministic:**
+    # Read NDJSON from stdin
+    records = read_ndjson_from_stdin()
 
-1. **Seeded sampling** - Same seed → same samples
-2. **Canonical JSON** - Sorted keys (JCS-style)
-3. **Fixed truncation** - Consistent string/array truncation rules
-4. **Stable hashing** - SHA256 for referential identity
+    # Analyze
+    result = shape_analysis(
+        records,
+        head_size=head,
+        tail_size=tail,
+        max_record_chars=max_record_chars,
+        include_tokens=not no_tokens,
+        include_schema=not no_schema,
+    )
 
-**Benefits:**
-- Reproducible artifacts (CI/CD)
-- Diffable previews (version control)
-- Consistent documentation
+    # Output
+    if pretty:
+        typer.echo(json.dumps(result, indent=2))
+    else:
+        typer.echo(json.dumps(result))
+```
 
----
+## Performance Considerations
 
-## Privacy & Security
+**Memory usage**:
+- Schema builder: ~1KB per unique schema element
+- Head/tail buffers: ~(head_size + tail_size) * max_record_chars
+- Field names: ~50 bytes per unique field name
 
-**No PII exposure:**
+**Typical memory**: ~100KB for most datasets
 
-1. **Truncation** - Long strings truncated (names, addresses, etc.)
-2. **Hashing** - Full values replaced with SHA256
-3. **Optional tokenization** - Replace detected patterns
-   - `[EMAIL]` for emails
-   - `[PHONE]` for phone numbers
-   - `[UUID]` for UUIDs
+**Processing speed**:
+- Without tokens: ~100K records/sec
+- With tokens: ~10K records/sec (tokenization is slow)
 
-**Configuration:**
+**Recommendation**: Use `--no-tokens` for large datasets (>100K records) if you don't need token counts.
+
+## Dependencies
+
+```toml
+[tool.poetry.dependencies]
+genson = "^1.2.0"       # JSON Schema inference
+tiktoken = "^0.5.0"     # Token counting (optional)
+```
+
+## Example Output
+
 ```bash
-# Aggressive privacy mode
-jn shape --in sensitive.json \
-  --truncate 0 \
-  --tokenize email,phone,ssn \
-  --preview preview.json
+$ jn cat users.csv | jn shape
 ```
 
-**Example output:**
 ```json
 {
-  "name": "(string, len=18, sha256=…)",
-  "email": "[EMAIL]",
-  "ssn": "[SSN]"
+  "schema": {
+    "type": "object",
+    "properties": {
+      "id": {"type": "integer"},
+      "name": {"type": "string"},
+      "email": {"type": "string"},
+      "age": {"type": "integer"},
+      "active": {"type": "boolean"},
+      "created_at": {"type": "string"}
+    },
+    "required": ["id", "name", "email"]
+  },
+  "sample": {
+    "head": [
+      {"id": 1, "name": "Alice", "email": "alice@example.com", "age": 30, "active": true, "created_at": "2024-01-15"},
+      {"id": 2, "name": "Bob", "email": "bob@example.com", "age": 25, "active": false, "created_at": "2024-01-16"},
+      {"id": 3, "name": "Charlie", "email": "charlie@example.com", "age": 35, "active": true, "created_at": "2024-01-17"},
+      {"id": 4, "name": "Diana", "email": "diana@example.com", "age": 28, "active": true, "created_at": "2024-01-18"},
+      {"id": 5, "name": "Eve", "email": "eve@example.com", "age": 32, "active": false, "created_at": "2024-01-19"}
+    ],
+    "tail": [
+      {"id": 996, "name": "Zara", "email": "zara@example.com", "age": 29, "active": true, "created_at": "2025-01-10"},
+      {"id": 997, "name": "Yuri", "email": "yuri@example.com", "age": 31, "active": false, "created_at": "2025-01-11"},
+      {"id": 998, "name": "Xavier", "email": "xavier@example.com", "age": 27, "active": true, "created_at": "2025-01-12"},
+      {"id": 999, "name": "Wendy", "email": "wendy@example.com", "age": 33, "active": false, "created_at": "2025-01-13"},
+      {"id": 1000, "name": "Victor", "email": "victor@example.com", "age": 26, "active": true, "created_at": "2025-01-14"}
+    ]
+  },
+  "stats": {
+    "record_count": 1000,
+    "field_names": ["active", "age", "created_at", "email", "id", "name"],
+    "total_chars": 89450,
+    "total_tokens": 24567,
+    "avg_record_size": 89
+  }
 }
 ```
 
----
+## Related Commands
 
-## Testing Strategy
+### `explain`
 
-### Unit Tests
+**Purpose**: Show the resolved plan for a pipeline without executing it.
 
-```python
-def test_string_truncation():
-    long_string = "a" * 1000
-    truncated = truncate_string(long_string, max_len=24)
-    assert "…(len=1000, sha256=" in truncated
+**Usage**:
+```bash
+jn explain my-pipeline
 
-def test_array_sampling():
-    large_array = list(range(100))
-    sampled = sample_array(large_array, pattern="2,mid,2")
-    assert len(sampled) == 5  # 2 + 1 mid + 2
-
-def test_schema_inference():
-    records = [
-        {"age": 30, "name": "Alice"},
-        {"age": 25, "name": "Bob"},
-        {"age": None, "name": "Charlie"}
-    ]
-    schema = infer_schema(records)
-    assert schema["properties"]["age"]["type"] == ["number", "null"]
-
-def test_deterministic_sampling():
-    data = list(range(1000))
-    sample1 = sample_with_seed(data, seed=42, n=10)
-    sample2 = sample_with_seed(data, seed=42, n=10)
-    assert sample1 == sample2  # Same seed → same sample
+# With details
+jn explain my-pipeline --show-commands --show-env
 ```
 
-### Integration Tests
-
-```python
-def test_shape_command_file(runner, tmp_path):
-    """Test jn shape with file input."""
-    data_file = tmp_path / "data.ndjson"
-    data_file.write_text('{"x":1}\n{"x":2}\n{"x":3}\n')
-
-    result = runner.invoke(app, [
-        "shape",
-        "--in", str(data_file),
-        "--profile", "profile.json",
-        "--preview", "preview.json",
-        "--schema", "schema.json"
-    ])
-
-    assert result.exit_code == 0
-    assert (tmp_path / "profile.json").exists()
-    assert (tmp_path / "preview.json").exists()
-    assert (tmp_path / "schema.json").exists()
-
-def test_shape_command_source(runner, tmp_path):
-    """Test jn shape with source reference."""
-    jn_path = tmp_path / "jn.json"
-    init_config(runner, jn_path)
-
-    # Create source
-    add_exec_source(runner, jn_path, "test", [
-        "python", "-c",
-        "import json; print(json.dumps({'x': 1}))"
-    ])
-
-    # Shape the source
-    result = runner.invoke(app, [
-        "shape",
-        "--source", "test",
-        "--jn", str(jn_path)
-    ])
-
-    assert result.exit_code == 0
-    assert "profile" in result.output or "schema" in result.output
+**Output**: JSON representation of the pipeline execution plan:
+```json
+{
+  "source": {
+    "driver": "file",
+    "path": "data.csv",
+    "parser": "csv"
+  },
+  "converter": {
+    "query": "select(.amount > 100)"
+  },
+  "target": {
+    "driver": "file",
+    "path": "output.json",
+    "format": "json"
+  }
+}
 ```
 
----
+**Use case**: Debug pipelines, understand what would execute before running.
 
-## Roadmap
+### Comparison
 
-### Phase 1: Core Implementation ✅ (Design Complete)
-- ✅ Profile generation (statistics)
-- ✅ Shallow preview (truncation/sampling)
-- ✅ Schema inference (JSON Schema)
-- ✅ Streaming architecture (O(1) memory)
-- ✅ CLI interface design
+| Command | Purpose | Input | Output |
+|---------|---------|-------|--------|
+| `explain` | Show pipeline plan | Pipeline config | Execution plan (JSON) |
+| `shape` | Analyze data structure | NDJSON stream | Schema + samples + stats |
 
-### Phase 2: Integration (Next)
-- [ ] Integrate with source execution
-- [ ] Add CLI command (`jn shape`)
-- [ ] Implement truncation strategies
-- [ ] Schema inference with genson
-- [ ] Write tests
+## Future Enhancements
 
-### Phase 3: Enhancements (Future)
-- [ ] Privacy mode (tokenization)
-- [ ] Format detection improvements (URL, UUID, etc.)
-- [ ] Performance optimizations (parallel processing)
-- [ ] Schema validation mode
-- [ ] HTML/Markdown output formats
+**Phase 2** (not in initial implementation):
+- Histogram of field value distributions
+- Detect patterns (email, URL, date formats)
+- Suggest jq queries based on schema
+- Compare shapes of two datasets
+- HTML report output
 
----
+## Success Criteria
 
-## Comparison to Alternatives
-
-### vs `jq`
-- **jq**: Transforms JSON but requires full context
-- **shape**: Summarizes structure without full ingestion
-- **When to use jq**: Pipeline transformations
-- **When to use shape**: Understanding/exploration
-
-### vs `head`/`tail`
-- **head/tail**: Content-based truncation (breaks JSON)
-- **shape**: Structure-aware truncation (valid JSON)
-- **When to use head/tail**: Quick file preview
-- **When to use shape**: Schema inference and sampling
-
-### vs JSON Schema generators
-- **Existing tools**: Often require full dataset in memory
-- **shape**: Streaming analysis (O(1) memory)
-- **Unique**: Combines profile + preview + schema
-
-### vs `jc`
-- **jc**: Source adapter (non-JSON → JSON)
-- **shape**: Data profiler (JSON → insights)
-- **Different purposes**: jc for ingestion, shape for exploration
-
----
-
-## References
-
-- ADR-002: `spec/arch/shallow-json.md` (complete implementation design)
-- JSON Schema: https://json-schema.org/
-- NDJSON: http://ndjson.org/
-- JCS (JSON Canonicalization Scheme): https://tools.ietf.org/html/rfc8785
-- genson (schema inference): https://github.com/wolverdude/genson
-- ijson (streaming parser): https://github.com/ICRAR/ijson
-
----
-
-## Summary
-
-**`jn shape`** is a data profiling tool designed for **LLM context efficiency**:
-
-- **Purpose:** Understand data structure without full ingestion
-- **Outputs:** Profile (stats) + Preview (samples) + Schema (JSON Schema)
-- **Key feature:** Structure-aware truncation with O(1) memory
-- **Use cases:** Pipeline design, documentation, schema validation
-- **Implementation:** See `spec/arch/shallow-json.md` for details
-
-**Next steps:**
-1. Implement core shape engine (profile + preview + schema)
-2. Add `jn shape` CLI command
-3. Integrate with source execution
-4. Write comprehensive tests
+- [x] Infers JSON Schema from NDJSON stream
+- [x] Shows head and tail samples (configurable count)
+- [x] Truncates records to keep output concise
+- [x] Computes statistics (count, fields, chars, tokens)
+- [x] Streams data (low memory usage)
+- [x] Works with any NDJSON source (cat, API, transformations)
+- [x] Output suitable for LLM context
+- [x] Test coverage >85%
