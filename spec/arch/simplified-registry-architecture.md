@@ -687,6 +687,232 @@ jn cat internal-api:/data/exports/latest | \
 - [x] Composable with Unix pipes
 - [x] Backward compatible migration path
 
+## Potential Enhancements (Under Consideration)
+
+### 1. Command Structure Inversion
+
+**Current design**:
+```bash
+jn new api github
+jn list apis
+jn show api github
+jn remove api github
+```
+
+**Alternative** (noun-first, like git):
+```bash
+jn api add github
+jn api list
+jn api show github
+jn api remove github
+
+jn filter add high-value
+jn filter list
+jn filter show high-value
+```
+
+**Benefits**:
+- More intuitive grouping (all `api` commands together)
+- Familiar to git users (`git remote add`, `git remote list`)
+- Easier to discover: `jn api --help` shows all API commands
+
+**Consideration**: This is mostly a style preference. Either works.
+
+---
+
+### 2. Smart Input Auto-Detection
+
+**Idea**: When piping to `jn run`, automatically detect input type without explicit flags.
+
+**Input could be**:
+1. File paths (one per line)
+2. URLs (starting with http://, https://)
+3. API names (registry lookups)
+4. MCP tool names
+5. Inline JSON objects/arrays
+6. NDJSON stream
+
+**Example**:
+```bash
+# Pipe file paths (auto-detected as paths, not JSON)
+echo -e "./data1.csv\n./data2.csv\n./data3.csv" | jn run filter-name
+
+# Auto-processes each file without xargs:
+# - Reads ./data1.csv → applies filter → outputs NDJSON
+# - Reads ./data2.csv → applies filter → outputs NDJSON
+# - Reads ./data3.csv → applies filter → outputs NDJSON
+```
+
+**Detection logic**:
+```python
+def detect_input_type(line):
+    if line.startswith('{') or line.startswith('['):
+        return 'json'
+    elif line.startswith('http://') or line.startswith('https://'):
+        return 'url'
+    elif line in registry['apis']:
+        return 'api_name'
+    elif os.path.exists(line):
+        return 'file_path'
+    else:
+        return 'string'
+```
+
+**Built-in xargs mode**:
+```bash
+# Instead of:
+jn cat ls ./inbox/ | jq -r '.filename' | \
+  xargs -I {} jn cat ./inbox/{} | jn run filter
+
+# Just do:
+jn cat ls ./inbox/ | jq -r '.filename' | jn run filter --each
+```
+
+The `--each` flag means: "Treat each line as a separate input, process it, emit results."
+
+**Benefits**:
+- No need for xargs boilerplate
+- Natural for processing file lists
+- Works with API names, URLs, file paths
+
+**Trade-offs**:
+- Ambiguity: Is `"users.csv"` a file path or JSON string?
+- Magic behavior might be confusing
+- Harder to debug
+
+**Recommendation**: Start without this. Add `--each` mode later if users request it.
+
+---
+
+### 3. Implicit stdin/stdout
+
+**Current design**: Explicit `-` for stdin/stdout
+```bash
+jn run filter.json --input - --output -
+```
+
+**Alternative**: Auto-detect when piped
+```bash
+# If stdin is a pipe, use it automatically
+jn cat data.csv | jn run filter
+
+# If stdout is a pipe, output there automatically
+jn run filter | jn put output.csv
+```
+
+**When to use stdin**:
+- stdin is a pipe (not a TTY)
+- No `--input` specified
+
+**When to use stdout**:
+- stdout is a pipe (not a TTY)
+- No `--output` specified
+
+**Benefits**:
+- Less typing
+- More intuitive for pipe workflows
+- Matches Unix conventions
+
+**Trade-offs**:
+- Might surprise users who expect explicit behavior
+- Need to handle edge cases (redirects, process substitution)
+
+**Recommendation**: Implement this. It aligns with Unix philosophy and reduces verbosity.
+
+---
+
+### 4. Stream of File Paths Processing
+
+**Use case**: You have a list of file paths and want to process each one.
+
+**Without quality-of-life features**:
+```bash
+jn cat ls ./inbox/ | jq -r '.filename' | while read file; do
+  jn cat "./inbox/$file" | jn run filter | jn put "./output/$file"
+done
+```
+
+**With `--each` mode**:
+```bash
+jn cat ls ./inbox/ | jq -r '.filename' | \
+  jn run filter --each --input-prefix ./inbox/ --output-prefix ./output/
+```
+
+**How it works**:
+1. Reads file paths from stdin (one per line)
+2. For each path: `jn cat {input-prefix}/{path}`
+3. Applies filter
+4. Writes to: `jn put {output-prefix}/{path}`
+
+**Alternative**: Use `jn cat` in batch mode
+```bash
+jn cat ./inbox/*.csv | jn run filter | jn put ./output/combined.json
+```
+
+This processes all files, concatenates NDJSON streams, applies filter once.
+
+**Benefits**:
+- Eliminates shell loops
+- Faster (single process)
+- Simpler syntax
+
+**Trade-offs**:
+- More magic
+- Harder to understand what's happening
+- Edge cases (what if path has special chars?)
+
+**Recommendation**: Start simple. Users can use shell loops or xargs. Add `--each` only if there's strong demand.
+
+---
+
+### 5. Multi-Input Auto-Detection
+
+**Use case**: You want to process multiple types of inputs in one command.
+
+**Example**:
+```bash
+# Mix file paths, URLs, and API names
+echo -e "./local.csv\nhttps://api.example.com/data\ngithub:/users" | jn run filter
+```
+
+**Behavior**:
+- Auto-detects each line type
+- Fetches data accordingly
+- Concatenates NDJSON streams
+- Applies filter to combined stream
+
+**Benefits**:
+- Very flexible
+- Handles heterogeneous inputs naturally
+
+**Trade-offs**:
+- Complex implementation
+- Surprising behavior
+- Hard to reason about
+
+**Recommendation**: Don't implement. Too much magic. Users can combine manually:
+```bash
+(
+  jn cat ./local.csv
+  jn cat https://api.example.com/data
+  jn cat github:/users
+) | jn run filter
+```
+
+---
+
+## Summary of Potential Enhancements
+
+| Enhancement | Priority | Recommendation |
+|-------------|----------|----------------|
+| Command structure inversion (`jn api add`) | Medium | Consider for consistency |
+| Smart input auto-detection | Low | Too complex, defer |
+| Implicit stdin/stdout | High | Implement - matches Unix conventions |
+| `--each` mode for file lists | Low | Defer - users can use xargs/loops |
+| Multi-input auto-detection | Very Low | Don't implement - too magical |
+
+**Core principle**: Keep simple things simple. Don't add features that make common cases more complex to support rare edge cases.
+
 ## Recommendation
 
 **Implement this hybrid approach**:
