@@ -922,3 +922,220 @@ echo -e "./local.csv\nhttps://api.example.com/data\ngithub:/users" | jn run filt
 4. Make pipeline files optional
 
 This gives the best of both worlds: simplicity for common cases, power for complex scenarios.
+
+---
+
+## Addendum: Migration Impact Analysis
+
+**Status**: Architecture proposal - not yet implemented
+**Last Updated**: 2025-11-08
+
+This section analyzes which existing architecture documents are compatible with this new approach vs. which would need updates if we proceed with implementation.
+
+### Documents Using OLD Approach (4-concept registry)
+
+These documents reference the current `sources`/`converters`/`targets`/`pipelines` structure and would need updates:
+
+#### **architecture.md** - ⚠️ CORE ARCHITECTURE - Major changes needed
+- **Current state**: References `sources`, `converters`, `targets`, `pipelines` throughout
+- **Config structure**: Shows 4 separate registry sections
+- **API examples**: `config.add_source()`, `config.add_converter()`, `config.add_target()`, `config.add_pipeline()`
+- **Gap**: Entire mental model based on 4-concept architecture
+- **Migration effort**: HIGH - Complete rewrite needed
+
+#### **user-guide.md** - ⚠️ Major changes needed
+- **Current state**: Shows `jn.json` with 4-section structure
+- **Commands**: `jn new source`, `jn new converter`, `jn new target`, `jn new pipeline`
+- **Workflow**: `jn list sources/pipelines`, `jn show source`, `jn explain demo`
+- **Gap**: Entire user workflow based on old registry structure
+- **Migration effort**: HIGH - New workflow examples needed
+
+#### **pipeline-arguments.md** - ⚠️ Major changes needed
+- **Current state**: All examples reference `pipelines` with parameterization
+- **Config examples**: Shows `source`, `converter`, `target` fields in pipeline configs
+- **Gap**: In new approach, standalone pipeline files are optional; might just use `jn run <filter>` instead
+- **Migration effort**: MEDIUM - Either update for optional pipeline files, or remove if too complex for MVP
+
+#### **adapters.md** - ⚠️ Moderate changes needed
+- **Current state**: Has config examples with `sources`, `converters`, `targets`, `pipelines` sections
+- **Valid concepts**: "Source adapters" and "Target adapters" remain valid (format boundary handlers)
+- **Gap**: Config JSON examples need updating, but adapter *concepts* are unchanged
+- **Migration effort**: MEDIUM - Update config examples; keep conceptual content
+
+#### **drivers.md** - ⚠️ Minor changes needed
+- **Current state**: References sources/targets in example configs
+- **Valid concepts**: Driver types (exec, shell, curl, file, mcp) unchanged
+- **Gap**: Just example JSON configs need updating; driver concepts unchanged
+- **Migration effort**: LOW - Update JSON examples only
+
+#### **unix-integration.md** - ⚠️ Minor updates needed
+- **Current state**: Uses both approaches in examples
+  - Old: `jn run process.json --input-file` (pipeline files)
+  - New: `jn cat`, `jn put` (neutral commands)
+- **Gap**: Examples using `jn run pipeline.json` should show both old (pipeline files) and new (filter names) approaches
+- **Migration effort**: LOW - Add alternative examples with new commands
+
+#### **aggregations-and-pivots.md** - ⚠️ Very minor update
+- **Current state**: Mostly neutral jq patterns
+- **Gap**: One mention of "converters" in rationale ("users need jq for converters anyway")
+- **Migration effort**: VERY LOW - Change one word: "converters" → "filters"
+
+---
+
+### Documents Using NEW Approach
+
+#### **simplified-registry-architecture.md** (this document) - ✅ The new spec
+- Defines `apis` + `filters` approach
+- Commands: `jn new api`, `jn new filter`, `jn cat`, `jn run`, `jn put`
+- Smart URL matching, auto-detection
+- **This IS the new approach specification**
+
+---
+
+### Documents That Are NEUTRAL (Work with both approaches)
+
+These documents are intentionally registry-agnostic and require NO changes:
+
+#### **cat-command.md** - ✅ Clean
+- **Purpose**: Exploration command `jn cat <source>`
+- **Content**: Auto-detection logic (URL/file/command)
+- **Assessment**: Doesn't reference registry structure at all; works perfectly in both worlds
+
+#### **put-command.md** - ✅ Clean
+- **Purpose**: Write command `jn put <target>`
+- **Content**: Format auto-detection from extension
+- **Assessment**: Doesn't reference registry structure; works perfectly in both worlds
+
+#### **shape-command.md** - ✅ Clean
+- **Purpose**: Analyze NDJSON with `jn shape`
+- **Content**: Schema inference, samples, stats
+- **Note**: One mention of "pipelines" in "use case" context, not structural
+- **Assessment**: Completely neutral
+
+#### **adapter-excel.md** - ✅ Clean
+- **Purpose**: Excel format specification (.xlsx, multi-sheet)
+- **Content**: Pure format handling, streaming approach
+- **Assessment**: No registry references; completely neutral
+
+#### **adapter-markdown.md** - ✅ Clean
+- **Purpose**: Markdown format specification (with Front Matter)
+- **Content**: Pure format handling, block types
+- **Assessment**: No registry references; completely neutral
+
+---
+
+### Command Mapping: Old → New
+
+If this architecture is adopted, here's how commands would change:
+
+| Old Approach | New Approach | Notes |
+|--------------|--------------|-------|
+| `jn new source <name>` | `jn new api <name>` | Or `jn api add <name>` if inverted |
+| `jn new converter <name>` | `jn new filter <name>` | Or `jn filter add <name>` if inverted |
+| `jn new target <name>` | Uses same `apis` registry | Same API, different default method |
+| `jn new pipeline <name>` | Optional, or just shell pipes | Standalone pipeline files become optional |
+| `jn list sources` | `jn list apis` | Or `jn api list` if inverted |
+| `jn list converters` | `jn list filters` | Or `jn filter list` if inverted |
+| `jn run pipeline-name` | `jn run filter-name` | Or `jn cat \| jn run filter \| jn put` |
+| `jn show source <name>` | `jn show api <name>` | Or `jn api show <name>` if inverted |
+| `jn cat <source>` | **No change** ✅ | Same in both approaches |
+| `jn put <target>` | **No change** ✅ | Same in both approaches |
+| `jn shape` | **No change** ✅ | Same in both approaches |
+
+---
+
+### Config Structure Comparison
+
+#### Old Approach (Current)
+```json
+{
+  "sources": {
+    "github-users": {
+      "driver": "curl",
+      "curl": {
+        "method": "GET",
+        "url": "https://api.github.com/users",
+        "headers": {"Accept": "application/vnd.github.v3+json"}
+      }
+    }
+  },
+  "converters": {
+    "filter-high": {
+      "expr": "select(.amount > 100)"
+    }
+  },
+  "targets": {
+    "file-out": {
+      "driver": "file",
+      "file": {"path": "output.json", "mode": "write"}
+    }
+  },
+  "pipelines": {
+    "demo": {
+      "steps": ["source:github-users", "converter:filter-high", "target:file-out"]
+    }
+  }
+}
+```
+
+#### New Approach (Proposed)
+```json
+{
+  "apis": {
+    "github": {
+      "base_url": "https://api.github.com",
+      "auth": {"type": "bearer", "token": "${env:GITHUB_TOKEN}"},
+      "headers": {"Accept": "application/vnd.github.v3+json"},
+      "source_method": "GET",
+      "target_method": "POST"
+    }
+  },
+  "filters": {
+    "high-value": {
+      "query": "select(.amount > 1000)"
+    }
+  }
+}
+```
+
+**Usage shift:**
+```bash
+# Old: Explicit pipeline
+jn run demo
+
+# New: Composable commands
+jn cat github:/users | jn run high-value | jn put output.json
+```
+
+---
+
+### Migration Strategy Summary
+
+| Document | Priority | Migration Effort | Changes Needed |
+|----------|----------|------------------|----------------|
+| **architecture.md** | HIGH | HIGH | Complete rewrite - core mental model changes |
+| **user-guide.md** | HIGH | HIGH | New workflow examples with `apis`/`filters` |
+| **pipeline-arguments.md** | MEDIUM | MEDIUM | Update for optional pipeline files, or defer |
+| **adapters.md** | MEDIUM | MEDIUM | Update config examples; keep adapter concepts |
+| **drivers.md** | LOW | LOW | Update JSON examples only |
+| **unix-integration.md** | LOW | LOW | Add alternative examples with new commands |
+| **aggregations-and-pivots.md** | VERY LOW | VERY LOW | Change "converters" → "filters" (1 word) |
+| **cat-command.md** | N/A | NONE | ✅ No changes needed |
+| **put-command.md** | N/A | NONE | ✅ No changes needed |
+| **shape-command.md** | N/A | NONE | ✅ No changes needed |
+| **adapter-excel.md** | N/A | NONE | ✅ No changes needed |
+| **adapter-markdown.md** | N/A | NONE | ✅ No changes needed |
+
+---
+
+### Key Insight
+
+**The newer specifications (cat, put, shape, format adapters, aggregations, Unix integration) are already compatible with the new approach.** They were designed to be registry-agnostic. Only the older foundational documents (architecture, user-guide, pipeline-arguments) are tightly coupled to the 4-concept model.
+
+This suggests a **phased migration approach**:
+1. **Phase 1**: Keep current architecture, continue building cat/put/shape/adapters
+2. **Phase 2**: Implement new registry structure alongside old (feature flag)
+3. **Phase 3**: Update core docs (architecture, user-guide) to new approach
+4. **Phase 4**: Deprecate old structure, default to new approach
+
+The good news: **Much of the recent design work is future-proof** and will work seamlessly with either architecture.
