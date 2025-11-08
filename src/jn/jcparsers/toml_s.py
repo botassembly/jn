@@ -75,14 +75,11 @@ def parse(data, raw=False, quiet=False, ignore_exceptions=False):
     parsed = tomli.loads(content)
 
     # If it's a dict with a single key that's a list, yield each element
-    if isinstance(parsed, dict):
-        # Check if there's a single key that contains a list
-        if len(parsed) == 1:
-            key, value = next(iter(parsed.items()))
-            if isinstance(value, list):
-                for item in value:
-                    yield item
-                return
+    if isinstance(parsed, dict) and len(parsed) == 1:
+        _key, value = next(iter(parsed.items()))
+        if isinstance(value, list):
+            yield from value
+            return
 
     # Otherwise yield the whole object
     yield parsed

@@ -102,6 +102,58 @@ class TestCatCommand:
         first = json.loads(lines[0])
         assert first["name"] == "Alice"
 
+    def test_cat_yaml_file(self, runner, tmp_path):
+        """Test cat with YAML file auto-detection."""
+        yaml_file = tmp_path / "test.yaml"
+        yaml_file.write_text(
+            "- name: Alice\n"
+            "  age: 30\n"
+            "- name: Bob\n"
+            "  age: 25\n"
+        )
+
+        result = runner.invoke(app, ["cat", str(yaml_file)])
+        assert result.exit_code == 0
+
+        lines = result.output.strip().split("\n")
+        assert len(lines) == 2
+        first = json.loads(lines[0])
+        assert first["name"] == "Alice"
+        assert first["age"] == 30
+
+    def test_cat_toml_file(self, runner, tmp_path):
+        """Test cat with TOML file auto-detection."""
+        toml_file = tmp_path / "test.toml"
+        toml_file.write_text(
+            "[[items]]\n"
+            'name = "Alice"\n'
+            "age = 30\n"
+        )
+
+        result = runner.invoke(app, ["cat", str(toml_file)])
+        assert result.exit_code == 0
+
+        lines = result.output.strip().split("\n")
+        parsed = json.loads(lines[0])
+        assert parsed["name"] == "Alice"
+
+    def test_cat_xml_file(self, runner, tmp_path):
+        """Test cat with XML file auto-detection."""
+        xml_file = tmp_path / "test.xml"
+        xml_file.write_text(
+            '<?xml version="1.0"?>\n'
+            "<root>\n"
+            "  <item>value</item>\n"
+            "</root>\n"
+        )
+
+        result = runner.invoke(app, ["cat", str(xml_file)])
+        assert result.exit_code == 0
+
+        lines = result.output.strip().split("\n")
+        parsed = json.loads(lines[0])
+        assert "root" in parsed
+
     def test_cat_json_file_passthrough(self, runner, json_file):
         """Test cat with JSON file (no parsing, just passthrough)."""
         result = runner.invoke(app, ["cat", str(json_file)])

@@ -65,24 +65,9 @@ def parse(data, raw=False, quiet=False, ignore_exceptions=False):
 
         Iterable of Dictionaries
     """
-    try:
-        from ruamel.yaml import YAML
-    except ImportError:
-        import yaml  # type: ignore
+    from ruamel.yaml import YAML
 
-        # Read all data
-        content = "".join(data)
-        parsed = yaml.safe_load(content)
-
-        # Yield elements
-        if isinstance(parsed, list):
-            for item in parsed:
-                yield item
-        elif parsed is not None:
-            yield parsed
-        return
-
-    # Use ruamel.yaml for better parsing
+    # Use ruamel.yaml for parsing
     yaml_handler = YAML()
     yaml_handler.preserve_quotes = True
 
@@ -92,7 +77,6 @@ def parse(data, raw=False, quiet=False, ignore_exceptions=False):
 
     # Yield elements
     if isinstance(parsed, list):
-        for item in parsed:
-            yield item
+        yield from parsed
     elif parsed is not None:
         yield parsed

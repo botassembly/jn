@@ -74,7 +74,7 @@ def _convert_to_csv(data: bytes) -> bytes:
     fieldnames = []
     seen_fields = set()
     for record in records:
-        for key in record.keys():
+        for key in record:
             if key not in seen_fields:
                 fieldnames.append(key)
                 seen_fields.add(key)
@@ -97,14 +97,7 @@ def _convert_to_yaml(data: bytes) -> bytes:
     Returns:
         YAML formatted bytes
     """
-    try:
-        from ruamel.yaml import YAML
-    except ImportError:
-        # Fallback to PyYAML if ruamel.yaml not available
-        import yaml  # type: ignore
-
-        records = _parse_ndjson(data)
-        return yaml.dump(records, default_flow_style=False, allow_unicode=True).encode("utf-8")
+    from ruamel.yaml import YAML
 
     records = _parse_ndjson(data)
 
@@ -130,13 +123,7 @@ def _convert_to_toml(data: bytes) -> bytes:
     Returns:
         TOML formatted bytes
     """
-    try:
-        import tomli_w  # type: ignore
-    except ImportError:
-        raise ImportError(
-            "tomli_w is required for TOML output. "
-            "Install it with: pip install tomli-w"
-        )
+    import tomli_w  # type: ignore
 
     records = _parse_ndjson(data)
 
@@ -155,13 +142,7 @@ def _convert_to_xml(data: bytes) -> bytes:
     Returns:
         XML formatted bytes
     """
-    try:
-        import xmltodict  # type: ignore
-    except ImportError:
-        raise ImportError(
-            "xmltodict is required for XML output. "
-            "Install it with: pip install xmltodict"
-        )
+    import xmltodict  # type: ignore
 
     records = _parse_ndjson(data)
 
