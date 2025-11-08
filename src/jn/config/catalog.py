@@ -1,33 +1,30 @@
-"""Read operations over the cached config."""
+"""Read operations over the cached config.
+
+Simplified registry queries for apis and filters.
+"""
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Iterable, Optional, Protocol, Sequence, Tuple, TypeVar
 
-from jn.models import Config, Converter, Pipeline, Source, Target
+from jn.models import Api, Config, Filter
 
 from .core import ensure
 from .types import CollectionName
 
 __all__ = [
-    "converter_names",
+    "api_names",
     "fetch_item",
-    "get_converter",
+    "filter_names",
+    "get_api",
+    "get_filter",
     "get_item",
     "get_names",
-    "get_pipeline",
-    "get_source",
-    "get_target",
-    "has_converter",
+    "has_api",
+    "has_filter",
     "has_item",
-    "has_pipeline",
-    "has_source",
-    "has_target",
     "list_items",
-    "pipeline_names",
-    "source_names",
-    "target_names",
 ]
 
 
@@ -56,20 +53,14 @@ def get_names(
     return _ordered_names(_collection(config_obj, kind))
 
 
-def source_names(path: Optional[Path | str] = None) -> Tuple[str, ...]:
-    return get_names("sources", path)
+def api_names(path: Optional[Path | str] = None) -> Tuple[str, ...]:
+    """Get all API names in sorted order."""
+    return get_names("apis", path)
 
 
-def target_names(path: Optional[Path | str] = None) -> Tuple[str, ...]:
-    return get_names("targets", path)
-
-
-def converter_names(path: Optional[Path | str] = None) -> Tuple[str, ...]:
-    return get_names("converters", path)
-
-
-def pipeline_names(path: Optional[Path | str] = None) -> Tuple[str, ...]:
-    return get_names("pipelines", path)
+def filter_names(path: Optional[Path | str] = None) -> Tuple[str, ...]:
+    """Get all filter names in sorted order."""
+    return get_names("filters", path)
 
 
 def has_item(
@@ -80,20 +71,14 @@ def has_item(
     return name in get_names(kind, path)
 
 
-def has_source(name: str, path: Optional[Path | str] = None) -> bool:
-    return has_item(name, "sources", path)
+def has_api(name: str, path: Optional[Path | str] = None) -> bool:
+    """Check if API exists in registry."""
+    return has_item(name, "apis", path)
 
 
-def has_target(name: str, path: Optional[Path | str] = None) -> bool:
-    return has_item(name, "targets", path)
-
-
-def has_converter(name: str, path: Optional[Path | str] = None) -> bool:
-    return has_item(name, "converters", path)
-
-
-def has_pipeline(name: str, path: Optional[Path | str] = None) -> bool:
-    return has_item(name, "pipelines", path)
+def has_filter(name: str, path: Optional[Path | str] = None) -> bool:
+    """Check if filter exists in registry."""
+    return has_item(name, "filters", path)
 
 
 def _get_by_name(
@@ -118,28 +103,14 @@ def get_item(
     return _get_by_name(name, kind, path)
 
 
-def get_source(
-    name: str, path: Optional[Path | str] = None
-) -> Optional[Source]:
-    return _get_by_name(name, "sources", path)
+def get_api(name: str, path: Optional[Path | str] = None) -> Optional[Api]:
+    """Get API by name, or None if not found."""
+    return _get_by_name(name, "apis", path)
 
 
-def get_target(
-    name: str, path: Optional[Path | str] = None
-) -> Optional[Target]:
-    return _get_by_name(name, "targets", path)
-
-
-def get_converter(
-    name: str, path: Optional[Path | str] = None
-) -> Optional[Converter]:
-    return _get_by_name(name, "converters", path)
-
-
-def get_pipeline(
-    name: str, path: Optional[Path | str] = None
-) -> Optional[Pipeline]:
-    return _get_by_name(name, "pipelines", path)
+def get_filter(name: str, path: Optional[Path | str] = None) -> Optional[Filter]:
+    """Get filter by name, or None if not found."""
+    return _get_by_name(name, "filters", path)
 
 
 def list_items(

@@ -2,6 +2,6 @@
 
 from typing import Literal
 
-CollectionName = Literal["sources", "targets", "converters", "pipelines"]
+CollectionName = Literal["apis", "filters"]
 
 __all__ = ["CollectionName"]

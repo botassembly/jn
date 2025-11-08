@@ -1,7 +1,12 @@
-"""CLI command: jn run - execute a pipeline."""
+"""CLI command: jn run - execute a filter on NDJSON input.
 
+Simplified architecture: Filters replace pipelines.
+Filters are jq transformations that read NDJSON from stdin and write NDJSON to stdout.
+"""
+
+import subprocess
 import sys
-from typing import List, Optional
+from typing import Optional
 
 import typer
 
@@ -12,33 +17,41 @@ from . import app
 
 @app.command()
 def run(
-    pipeline: str,
+    filter_name: str = typer.Argument(..., help="Filter name from registry"),
     jn: ConfigPathType = ConfigPath,
-    param: Optional[List[str]] = typer.Option(
-        None, "--param", help="Pipeline parameters (k=v format)"
-    ),
-    env: Optional[List[str]] = typer.Option(
-        None, "--env", help="Environment variable overrides (K=V format)"
-    ),
-    unsafe_shell: bool = typer.Option(
-        False,
-        "--unsafe-shell",
-        help="Allow shell driver execution (security risk)",
-    ),
 ) -> None:
-    """Execute a pipeline (source → converters → target)."""
+    """Execute a named filter on NDJSON input.
+
+    Reads NDJSON from stdin, applies the filter's jq query, writes NDJSON to stdout.
+
+    Examples:
+      # Use filter from registry
+      jn cat data.csv | jn run high-value | jn put output.json
+
+      # Chain multiple filters
+      jn cat data.csv | jn run filter1 | jn run filter2 | jn put output.csv
+    """
+
+    config.set_config_path(jn)
+
+    # Get filter from registry
+    filter_obj = config.get_filter(filter_name)
+    if not filter_obj:
+        typer.echo(f"Error: Filter '{filter_name}' not found in registry", err=True)
+        raise typer.Exit(1)
+
+    # Execute jq with the filter's query
     try:
-        config.set_config_path(jn)
-        params = config.parse_key_value_pairs(param or [])
-        env_overrides = config.parse_key_value_pairs(env or [])
-        output = config.run_pipeline(
-            pipeline,
-            params=params,
-            env=env_overrides,
-            unsafe_shell=unsafe_shell,
+        result = subprocess.run(
+            ["jq", "-c", filter_obj.query],
+            stdin=sys.stdin.buffer,
+            stdout=sys.stdout.buffer,
+            stderr=subprocess.PIPE,
+            check=True,
         )
-        sys.stdout.buffer.write(output)
-        sys.stdout.buffer.flush()
-    except Exception as e:
-        typer.echo(f"Error: {e}", err=True)
-        raise typer.Exit(code=1)
+    except subprocess.CalledProcessError as e:
+        typer.echo(f"Error executing filter: {e.stderr.decode()}", err=True)
+        raise typer.Exit(e.returncode)
+    except FileNotFoundError:
+        typer.echo("Error: jq not found. Please install jq.", err=True)
+        raise typer.Exit(1)

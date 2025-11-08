@@ -1,4 +1,7 @@
-"""CLI command: jn list - list items by kind."""
+"""CLI command: jn list - list items by kind.
+
+Simplified for apis and filters architecture.
+"""
 
 import typer
 
@@ -12,7 +15,12 @@ def list(
     kind: config.CollectionName,
     jn: ConfigPathType = ConfigPath,
 ) -> None:
-    """List items by kind (sources, targets, converters, pipelines)."""
+    """List items by kind (apis, filters).
+
+    Examples:
+      jn list apis
+      jn list filters
+    """
     config.set_config_path(jn)
 
     names = config.list_items(kind)
