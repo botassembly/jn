@@ -272,27 +272,34 @@
 
 ## Week 3: Shell Commands & Advanced Features
 
-### Day 1-2: Shell Command Plugins
+### Day 1-2: Shell Command Plugins ✅ COMPLETE
 
 Vendor key commands from JC concepts:
 
-- [ ] `plugins/shell/ps.py` - Process listing
+- [x] `plugins/shell/ps.py` - Process listing (180 LOC)
   - Parse `ps aux` output
-  - Fields: pid, user, cpu, mem, command
+  - Fields: pid, ppid, user, cpu_percent, mem_percent, status, command
+  - Built-in tests (5/5 passing)
 
-- [ ] `plugins/shell/find.py` - File search
-  - Parse `find` output
-  - Fields: path, type, size, permissions
+- [x] `plugins/shell/find.py` - File search (200 LOC)
+  - Parse `find` output with structured format
+  - Fields: path, name, type, size, mode, user, group, mtime
+  - Size conversions (KB, MB)
+  - Built-in tests (5/5 passing)
 
-- [ ] `plugins/shell/du.py` - Disk usage
-  - Parse `du -sh` output
-  - Fields: size, path
+- [x] `plugins/shell/env.py` - Environment variables (120 LOC)
+  - Parse `env` output
+  - Fields: name, value
+  - Built-in tests (5/5 passing)
 
-- [ ] `plugins/shell/df.py` - Filesystem info
-  - Parse `df -h` output
-  - Fields: filesystem, size, used, available, mount
+- [x] `plugins/shell/df.py` - Filesystem info (200 LOC)
+  - Parse `df -k` output
+  - Fields: filesystem, size, used, available, use_percent, mounted_on
+  - Multiple size units (1K, MB, GB)
+  - Built-in tests (5/5 passing)
 
-**Target:** 600 LOC | **Tests:** 8-10 tests
+**Status:** ✅ Complete | **LOC:** 700 | **Plugins:** 4 new, 11 total
+**All plugin tests passing!**
 
 ---
 
@@ -549,27 +556,34 @@ Vendor key commands from JC concepts:
   - HTTP GET (http_get)
   - **Week 2 Complete!** 🎉
 
+- **Week 3, Days 1-2: Shell Commands Complete**
+  - Process listing (ps)
+  - File search (find)
+  - Environment variables (env)
+  - Disk space (df)
+  - **4 new shell plugins, 11 total!**
+
 ### 🔄 In Progress
-- Week 3: Shell commands and advanced features
+- Week 3, Days 3-4: Network shell commands
 
 ### 📋 Next Up
-- More shell command plugins (ps, find, df, etc.)
-- Advanced pipeline features
+- Network command plugins (dig, netstat, ping)
+- Advanced CLI features
 - Performance optimizations
 
 ### Metrics
-- **LOC:** 1,971 (code) + 400 (docs)
+- **LOC:** 2,671 (code) + 400 (docs)
 - **Core modules:** 7 (detection, subprocess_utils, discovery, registry, pipeline, executor, cli)
-- **Plugins:** 7 working
+- **Plugins:** 11 working
   - Readers: csv_reader, json_reader
   - Writers: csv_writer, json_writer
   - Filters: jq_filter
-  - Shell: ls
+  - Shell: ls, ps, find, env, df
   - HTTP: http_get
 - **Tests:** 80/80 passing (100%)
 - **Coverage:** 71%
 - **Dependencies:** 1 (click only!)
-- **Code Reduction:** 44% smaller than oldgen!
+- **Code Reduction:** 24% smaller than oldgen!
 
 ---
 
@@ -638,6 +652,33 @@ Vendor key commands from JC concepts:
 - ✅ All 80 tests passing
 - ✅ **Week 2 Complete!** 🎉
 
+**Week 3 Days 1-2 (Complete):**
+- ✅ Implemented ps plugin (plugins/shell/ps.py - 180 LOC)
+  - Parse ps aux output
+  - Fields: pid, ppid, user, cpu_percent, mem_percent, status, command
+  - Built-in tests (5/5 passing)
+- ✅ Implemented find plugin (plugins/shell/find.py - 200 LOC)
+  - Parse find output with structured format (-printf)
+  - Fields: path, name, type, size, mode, user, group, mtime
+  - Size conversions (KB, MB)
+  - Built-in tests (5/5 passing)
+- ✅ Implemented env plugin (plugins/shell/env.py - 120 LOC)
+  - Parse environment variables
+  - Simple name/value pairs
+  - Built-in tests (5/5 passing)
+- ✅ Implemented df plugin (plugins/shell/df.py - 200 LOC)
+  - Parse df -k output
+  - Fields: filesystem, size, used, available, use_percent, mounted_on
+  - Multiple size units (1K, MB, GB)
+  - Built-in tests (5/5 passing)
+- ✅ All 11 plugins now discovered
+- ✅ Tested pipelines:
+  - env → jq filter (select PATH variable)
+  - df → jq filter (select full filesystems)
+  - ps → jq filter → JSON
+- ✅ All 80 tests still passing
+- 🔄 Next: Network shell commands (dig, netstat, ping)
+
 ---
 
 ## Notes & Decisions
@@ -692,5 +733,5 @@ Vendor key commands from JC concepts:
 ---
 
 **Last Updated:** 2025-11-09
-**Current Phase:** Week 2 Complete → Week 3 Ready
-**Milestone Reached:** Week 2 complete with 7 working plugins and full CLI!
+**Current Phase:** Week 3, Days 1-2 Complete
+**Milestone Reached:** 11 plugins including 5 shell commands! 🎉
