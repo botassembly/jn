@@ -175,7 +175,8 @@ class RegistryCommands(Generic[T]):
         for attr, label in success_attrs.items():
             value = getattr(result, attr, None)
             if value is not None:
-                if isinstance(value, dict) and hasattr(value, "type"):
+                # Special handling for auth config - only show type, not credentials
+                if hasattr(value, "type"):
                     typer.echo(f"  {label}: {value.type}")
                 else:
                     typer.echo(f"  {label}: {value}")
