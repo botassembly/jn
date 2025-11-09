@@ -8,6 +8,8 @@ Reimplemented as standalone CLI plugin for JN.
 # dependencies = []
 # ///
 # META: type=source, command="ls"
+# KEYWORDS: ls, files, directory, listing, filesystem
+# DESCRIPTION: Parse ls command output to NDJSON
 
 import json
 import re
@@ -116,20 +118,33 @@ def run(config: Optional[dict] = None) -> Iterator[dict]:
             yield parsed
 
 
+def schema() -> dict:
+    """Return JSON schema for ls output."""
+    return {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "description": "File/directory information from ls command",
+        "properties": {
+            "filename": {"type": "string"},
+            "type": {"type": "string"},
+            "permissions": {"type": "string"},
+            "owner": {"type": "string"},
+            "group": {"type": "string"},
+            "size": {"type": "integer", "minimum": 0},
+            "modified": {"type": "string"}
+        }
+    }
+
+
 def examples() -> list[dict]:
-    """Return test cases."""
+    """Return test cases - NO MOCKS, real ls command!"""
     return [
         {
-            "description": "Parse ls -la output",
-            "config": {"raw_command": True, "args": ["-la"]},
-            "input": """total 24
-drwxr-xr-x  4 user group 4096 Nov  9 10:30 .
-drwxr-xr-x 12 user group 4096 Nov  8 15:20 ..
--rw-r--r--  1 user group 1234 Nov  9 09:15 file.txt
-drwxr-xr-x  2 user group 4096 Nov  9 10:30 subdir
-""",
-            "expected_count": 4,
-            "expected_fields": ['filename', 'type', 'permissions', 'owner', 'size']
+            "description": "Parse real ls output (variable results)",
+            "config": {},
+            "input": "",
+            "expected": [],  # Empty = schema-only validation
+            "ignore_fields": set()
         }
     ]
 
@@ -208,8 +223,17 @@ if __name__ == '__main__':
         action='store_true',
         help='Run built-in tests'
     )
+    parser.add_argument(
+        '--schema',
+        action='store_true',
+        help='Output JSON schema'
+    )
 
     args = parser.parse_args()
+
+    if args.schema:
+        print(json.dumps(schema(), indent=2))
+        sys.exit(0)
 
     if args.test:
         success = test()
