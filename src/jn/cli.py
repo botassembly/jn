@@ -572,6 +572,10 @@ def put(output, format, indent, delimiter, no_header, verbose):
                 '.json': 'json',
                 '.jsonl': 'ndjson',
                 '.ndjson': 'ndjson',
+                '.yaml': 'yaml',
+                '.yml': 'yaml',
+                '.xml': 'xml',
+                '.toml': 'toml',
             }
             output_format = ext_format_map.get(extension, 'json')
         else:
@@ -589,6 +593,9 @@ def put(output, format, indent, delimiter, no_header, verbose):
         'tsv': 'csv_writer',
         'json': 'json_writer',
         'ndjson': 'json_writer',
+        'yaml': 'yaml_writer',
+        'yml': 'yaml_writer',
+        'xml': 'xml_writer',
     }
 
     plugin_name = format_writer_map.get(output_format)
@@ -625,6 +632,12 @@ def put(output, format, indent, delimiter, no_header, verbose):
     elif output_format == 'ndjson':
         # NDJSON just passes through
         pass
+    elif output_format in ['yaml', 'yml']:
+        # YAML writer writes to stdout
+        cmd.extend(['--indent', str(indent)])
+    elif output_format == 'xml':
+        # XML writer writes to stdout
+        pass
 
     # Convert records back to NDJSON for plugin input
     ndjson_input = '\n'.join(json.dumps(record) for record in records)
@@ -644,7 +657,7 @@ def put(output, format, indent, delimiter, no_header, verbose):
     # Handle output
     if use_stdout:
         click.echo(result.stdout, nl=False)
-    elif output_format in ['csv', 'tsv', 'ndjson']:
+    elif output_format in ['csv', 'tsv', 'ndjson', 'yaml', 'yml', 'xml']:
         # These writers output to stdout, write to file ourselves
         with open(output, 'w') as f:
             f.write(result.stdout)
