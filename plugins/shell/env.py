@@ -8,6 +8,8 @@ Each environment variable becomes a record.
 # dependencies = []
 # ///
 # META: type=source, command="env"
+# KEYWORDS: env, environment, variables, system, config
+# DESCRIPTION: Parse env command output to NDJSON
 
 import sys
 import json
@@ -52,36 +54,49 @@ def run(config: Optional[dict] = None) -> Iterator[dict]:
         sys.exit(1)
 
 
+def schema() -> dict:
+    """Return JSON schema for env output.
+
+    Defines structure for environment variable records.
+    """
+    return {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "description": "Environment variable name-value pair",
+        "properties": {
+            "name": {"type": "string", "description": "Variable name"},
+            "value": {"type": "string", "description": "Variable value"}
+        },
+        "required": ["name", "value"]
+    }
+
+
 def examples() -> list[dict]:
-    """Return example usage patterns.
+    """Return example usage patterns - NO MOCKS, real env command!
 
     Returns:
-        List of example dicts
+        List of example dicts with schema-only validation
     """
     return [
         {
-            "description": "List all environment variables",
-            "expected_fields": ["name", "value"]
-        },
-        {
-            "description": "Example output",
-            "sample": {
-                "name": "PATH",
-                "value": "/usr/local/bin:/usr/bin:/bin"
-            }
+            "description": "Parse real env output (variable results)",
+            "config": {},
+            "input": "",
+            "expected": [],  # Empty = schema-only validation (env vars change)
+            "ignore_fields": set()  # Not needed for schema-only validation
         }
     ]
 
 
 def test() -> bool:
-    """Run built-in tests.
+    """Run built-in tests - NO MOCKS, real env command!
+
+    Runs real env and validates against schema.
 
     Returns:
         True if all tests pass
     """
-    print("✓ Plugin structure valid", file=sys.stderr)
-    print("✓ run() function defined", file=sys.stderr)
-    print("✓ examples() function defined", file=sys.stderr)
+    print("Testing with REAL env command (NO MOCKS)...", file=sys.stderr)
 
     # Try to run env and parse output
     try:
@@ -94,7 +109,7 @@ def test() -> bool:
             if 'name' in first and 'value' in first:
                 print("✓ Required fields present (name, value)", file=sys.stderr)
 
-            print(f"\n5/5 tests passed", file=sys.stderr)
+            print(f"\n2/2 real env tests passed", file=sys.stderr)
             return True
         else:
             print("✗ No environment variables parsed", file=sys.stderr)
@@ -121,8 +136,17 @@ if __name__ == '__main__':
         action='store_true',
         help='Run built-in tests'
     )
+    parser.add_argument(
+        '--schema',
+        action='store_true',
+        help='Output JSON schema'
+    )
 
     args = parser.parse_args()
+
+    if args.schema:
+        print(json.dumps(schema(), indent=2))
+        sys.exit(0)
 
     if args.examples:
         print(json.dumps(examples(), indent=2))
