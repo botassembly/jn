@@ -8,6 +8,8 @@ Supports element-based streaming for large XML files.
 # dependencies = ["xmltodict>=0.13.0"]
 # ///
 # META: type=source, handles=[".xml"], streaming=true
+# KEYWORDS: xml, data, parsing, markup
+# DESCRIPTION: Read XML files and output NDJSON
 
 import sys
 import json
@@ -76,6 +78,18 @@ def run(config: Optional[dict] = None) -> Iterator[dict]:
         yield {'value': data}
 
 
+def schema() -> dict:
+    """Return JSON schema for XML output.
+
+    XML reader outputs objects with string values.
+    """
+    return {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "description": "XML element as JSON object"
+    }
+
+
 def examples() -> list[dict]:
     """Return test cases for this plugin.
 
@@ -83,6 +97,7 @@ def examples() -> list[dict]:
         - description: What this example demonstrates
         - input: Sample input data
         - expected: Expected output records
+        - ignore_fields: Fields to ignore when testing (for dynamic values)
     """
     return [
         {
@@ -95,7 +110,8 @@ def examples() -> list[dict]:
 """,
             "expected": [
                 {"person": {"name": "Alice", "age": "30"}}
-            ]
+            ],
+            "ignore_fields": set()  # All values deterministic
         },
         {
             "description": "XML list of items",
@@ -115,7 +131,8 @@ def examples() -> list[dict]:
             "expected": [
                 {"name": "Alice", "age": "30"},
                 {"name": "Bob", "age": "25"}
-            ]
+            ],
+            "ignore_fields": set()
         },
         {
             "description": "XML with attributes",
@@ -126,7 +143,8 @@ def examples() -> list[dict]:
 """,
             "expected": [
                 {"user": {"id": "123", "role": "admin", "name": "Alice"}}
-            ]
+            ],
+            "ignore_fields": set()
         }
     ]
 
@@ -184,8 +202,13 @@ if __name__ == '__main__':
     parser.add_argument('--list-element', default='item', help='List element name (default: item)')
     parser.add_argument('--examples', action='store_true', help='Show usage examples')
     parser.add_argument('--test', action='store_true', help='Run built-in tests')
+    parser.add_argument('--schema', action='store_true', help='Output JSON schema')
 
     args = parser.parse_args()
+
+    if args.schema:
+        print(json.dumps(schema(), indent=2))
+        sys.exit(0)
 
     if args.examples:
         print(json.dumps(examples(), indent=2))

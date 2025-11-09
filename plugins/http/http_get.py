@@ -8,6 +8,8 @@ Supports JSON responses (arrays and objects).
 # dependencies = []
 # ///
 # META: type=source
+# KEYWORDS: http, get, fetch, api, web
+# DESCRIPTION: Fetch data from URLs via HTTP GET
 
 import sys
 import json
@@ -96,50 +98,89 @@ def run(config: Optional[dict] = None) -> Iterator[dict]:
         sys.exit(1)
 
 
+def schema() -> dict:
+    """Return JSON schema for HTTP GET output.
+
+    HTTP GET returns JSON objects from API responses.
+    """
+    return {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "description": "JSON response from HTTP GET request"
+    }
+
+
 def examples() -> list[dict]:
-    """Return example usage patterns.
+    """Return example usage patterns - NO MOCKS, real httpbin.org!
 
     Returns:
-        List of example dicts
+        List of example dicts with real HTTP tests
     """
     return [
         {
-            "description": "Fetch JSON array",
-            "url": "https://api.example.com/users",
-            "expected_type": "array of objects"
+            "description": "GET UUID endpoint (dynamic value)",
+            "config": {
+                "url": "https://httpbin.org/uuid",
+                "timeout": 10
+            },
+            "input": "",
+            "expected": [
+                {"uuid": ""}  # UUID changes every time!
+            ],
+            "ignore_fields": {"uuid"}  # UUID is dynamic - only validate structure
         },
         {
-            "description": "Fetch single JSON object",
-            "url": "https://api.example.com/user/123",
-            "expected_type": "single object"
-        },
-        {
-            "description": "Fetch with headers",
-            "url": "https://api.example.com/data",
-            "headers": {
-                "Authorization": "Bearer token123",
-                "Accept": "application/json"
-            }
+            "description": "GET IP address (dynamic value)",
+            "config": {
+                "url": "https://httpbin.org/ip",
+                "timeout": 10
+            },
+            "input": "",
+            "expected": [
+                {"origin": ""}  # Our IP (dynamic)
+            ],
+            "ignore_fields": {"origin"}  # IP is dynamic
         }
     ]
 
 
 def test() -> bool:
-    """Run built-in tests.
+    """Run built-in tests - NO MOCKS, real HTTP!
+
+    Tests against httpbin.org with real HTTP requests.
 
     Returns:
         True if all tests pass
     """
-    # We can't run full tests without a test server
-    # Just verify the plugin structure is correct
-    print("✓ Plugin structure valid", file=sys.stderr)
-    print("✓ run() function defined", file=sys.stderr)
-    print("✓ examples() function defined", file=sys.stderr)
-    print("\nNote: Full HTTP tests require a test server", file=sys.stderr)
-    print("Use with real URLs to test functionality", file=sys.stderr)
-    print("\n3/3 structure tests passed", file=sys.stderr)
+    print("Testing with REAL HTTP requests (NO MOCKS)...", file=sys.stderr)
 
-    return True
+    passed = 0
+    failed = 0
+
+    for example in examples():
+        desc = example['description']
+        config = example.get('config', {})
+
+        try:
+            # Run with real HTTP request
+            results = list(run(config))
+
+            # Check we got at least one result
+            if len(results) > 0:
+                print(f"✓ {desc}: Got {len(results)} result(s)", file=sys.stderr)
+                passed += 1
+            else:
+                print(f"✗ {desc}: No results", file=sys.stderr)
+                failed += 1
+
+        except Exception as e:
+            print(f"✗ {desc}: {e}", file=sys.stderr)
+            failed += 1
+
+    total = passed + failed
+    print(f"\n{passed}/{total} real HTTP tests passed", file=sys.stderr)
+
+    return failed == 0
 
 
 if __name__ == '__main__':
@@ -180,8 +221,17 @@ if __name__ == '__main__':
         action='store_true',
         help='Run built-in tests'
     )
+    parser.add_argument(
+        '--schema',
+        action='store_true',
+        help='Output JSON schema'
+    )
 
     args = parser.parse_args()
+
+    if args.schema:
+        print(json.dumps(schema(), indent=2))
+        sys.exit(0)
 
     if args.examples:
         print(json.dumps(examples(), indent=2))

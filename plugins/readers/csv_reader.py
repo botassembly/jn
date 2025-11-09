@@ -7,6 +7,8 @@ Harvested from oldgen jcparsers logic with adaptations.
 # dependencies = []
 # ///
 # META: type=source, handles=[".csv", ".tsv"], streaming=true
+# KEYWORDS: csv, tsv, data, parsing, tabular
+# DESCRIPTION: Read CSV/TSV files and output NDJSON
 
 import csv
 import json
@@ -39,6 +41,25 @@ def run(config: Optional[dict] = None) -> Iterator[dict]:
         yield row
 
 
+def schema() -> dict:
+    """Return JSON schema for CSV output.
+
+    CSV reader outputs records as objects with string values.
+    Field names come from the header row.
+    """
+    return {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "description": "CSV row as key-value pairs",
+        "patternProperties": {
+            ".*": {
+                "type": "string",
+                "description": "All CSV values are strings"
+            }
+        }
+    }
+
+
 def examples() -> list[dict]:
     """Return test cases for this plugin.
 
@@ -46,6 +67,7 @@ def examples() -> list[dict]:
         - description: What this example demonstrates
         - input: Sample input data
         - expected: Expected output records
+        - ignore_fields: Fields to ignore when testing (for dynamic values)
     """
     return [
         {
@@ -54,7 +76,8 @@ def examples() -> list[dict]:
             "expected": [
                 {"name": "Alice", "age": "30"},
                 {"name": "Bob", "age": "25"}
-            ]
+            ],
+            "ignore_fields": set()  # All values are deterministic
         },
         {
             "description": "TSV (tab-separated)",
@@ -63,7 +86,8 @@ def examples() -> list[dict]:
             "expected": [
                 {"name": "Alice", "age": "30"},
                 {"name": "Bob", "age": "25"}
-            ]
+            ],
+            "ignore_fields": set()
         }
     ]
 
@@ -132,8 +156,17 @@ if __name__ == '__main__':
         action='store_true',
         help='Run built-in tests'
     )
+    parser.add_argument(
+        '--schema',
+        action='store_true',
+        help='Output JSON schema'
+    )
 
     args = parser.parse_args()
+
+    if args.schema:
+        print(json.dumps(schema(), indent=2))
+        sys.exit(0)
 
     if args.test:
         success = test()

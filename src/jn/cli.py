@@ -40,6 +40,240 @@ def main(ctx, debug):
     ctx.obj['debug'] = debug
 
 
+# Plugin subcommand group
+@main.group()
+def plugin():
+    """Manage and inspect plugins.
+
+    Commands for discovering, testing, and introspecting plugins without importing them.
+    All discovery is regex-based to avoid dependency installation overhead.
+
+    Examples:
+        jn plugin discover               # List all plugins
+        jn plugin search csv             # Search by keyword
+        jn plugin show csv_reader        # Show details
+        jn plugin schema csv_reader      # Get output schema
+        jn plugin test csv_reader        # Run tests
+    """
+    pass
+
+
+@plugin.command(name='discover')
+@click.option('--type', 'plugin_type', help='Filter by plugin type (source, filter, target)')
+@click.option('--category', help='Filter by category (readers, writers, filters, shell)')
+@click.option('--keyword', help='Filter by keyword')
+@click.option('--json', 'json_output', is_flag=True, help='Output as JSON')
+@click.option('--verbose', '-v', is_flag=True, help='Show detailed information')
+def plugin_discover(plugin_type, category, keyword, json_output, verbose):
+    """Discover available plugins (regex-based, no imports)."""
+    plugins = discover_plugins()
+
+    # Filter
+    if plugin_type:
+        plugins = {k: v for k, v in plugins.items() if v.type == plugin_type}
+    if category:
+        plugins = {k: v for k, v in plugins.items() if v.category == category}
+    if keyword:
+        keyword_lower = keyword.lower()
+        plugins = {k: v for k, v in plugins.items()
+                   if keyword_lower in k.lower()
+                   or keyword_lower in (v.description or '').lower()
+                   or any(keyword_lower in kw.lower() for kw in v.keywords)}
+
+    if json_output:
+        data = {name: {
+            'name': meta.name,
+            'type': meta.type,
+            'category': meta.category,
+            'description': meta.description,
+            'keywords': meta.keywords,
+            'handles': meta.handles,
+            'dependencies': meta.dependencies
+        } for name, meta in plugins.items()}
+        click.echo(json.dumps(data, indent=2))
+    else:
+        if not plugins:
+            click.echo("No plugins found")
+            return
+
+        for name, meta in sorted(plugins.items()):
+            if verbose:
+                click.echo(f"\n{name}:")
+                click.echo(f"  Type: {meta.type or 'N/A'}")
+                click.echo(f"  Category: {meta.category or 'N/A'}")
+                if meta.description:
+                    click.echo(f"  Description: {meta.description}")
+                if meta.keywords:
+                    click.echo(f"  Keywords: {', '.join(meta.keywords)}")
+                if meta.handles:
+                    click.echo(f"  Handles: {', '.join(meta.handles)}")
+            else:
+                desc = f" - {meta.description}" if meta.description else ""
+                click.echo(f"{name}{desc}")
+
+
+@plugin.command(name='search')
+@click.argument('keyword')
+@click.option('--json', 'json_output', is_flag=True, help='Output as JSON')
+def plugin_search(keyword, json_output):
+    """Search plugins by keyword."""
+    plugins = discover_plugins()
+
+    keyword_lower = keyword.lower()
+    matches = {k: v for k, v in plugins.items()
+               if keyword_lower in k.lower()
+               or keyword_lower in (v.description or '').lower()
+               or any(keyword_lower in kw.lower() for kw in v.keywords)}
+
+    if json_output:
+        data = {name: {
+            'name': meta.name,
+            'description': meta.description,
+            'keywords': meta.keywords,
+            'type': meta.type,
+            'category': meta.category
+        } for name, meta in matches.items()}
+        click.echo(json.dumps(data, indent=2))
+    else:
+        if not matches:
+            click.echo(f"No plugins found matching '{keyword}'")
+            return
+
+        click.echo(f"Found {len(matches)} plugin(s) matching '{keyword}':\n")
+        for name, meta in sorted(matches.items()):
+            desc = f" - {meta.description}" if meta.description else ""
+            keywords = f" [{', '.join(meta.keywords)}]" if meta.keywords else ""
+            click.echo(f"{name}{desc}{keywords}")
+
+
+@plugin.command(name='show')
+@click.argument('name')
+@click.option('--json', 'json_output', is_flag=True, help='Output as JSON')
+def plugin_show(name, json_output):
+    """Show detailed plugin information (regex-based)."""
+    plugins = discover_plugins()
+
+    if name not in plugins:
+        click.echo(f"Plugin '{name}' not found", err=True)
+        sys.exit(1)
+
+    meta = plugins[name]
+
+    if json_output:
+        data = {
+            'name': meta.name,
+            'path': meta.path,
+            'type': meta.type,
+            'category': meta.category,
+            'description': meta.description,
+            'keywords': meta.keywords,
+            'handles': meta.handles,
+            'command': meta.command,
+            'streaming': meta.streaming,
+            'dependencies': meta.dependencies
+        }
+        click.echo(json.dumps(data, indent=2))
+    else:
+        click.echo(f"\nPlugin: {meta.name}")
+        click.echo(f"Path: {meta.path}")
+        if meta.type:
+            click.echo(f"Type: {meta.type}")
+        if meta.category:
+            click.echo(f"Category: {meta.category}")
+        if meta.description:
+            click.echo(f"Description: {meta.description}")
+        if meta.keywords:
+            click.echo(f"Keywords: {', '.join(meta.keywords)}")
+        if meta.handles:
+            click.echo(f"Handles: {', '.join(meta.handles)}")
+        if meta.command:
+            click.echo(f"Command: {meta.command}")
+        click.echo(f"Streaming: {meta.streaming}")
+        if meta.dependencies:
+            click.echo(f"\nDependencies:")
+            for dep in meta.dependencies:
+                click.echo(f"  - {dep}")
+
+
+@plugin.command(name='schema')
+@click.argument('name')
+def plugin_schema(name):
+    """Get plugin output schema (invokes plugin --schema)."""
+    import subprocess
+
+    plugins = discover_plugins()
+
+    if name not in plugins:
+        click.echo(f"Plugin '{name}' not found", err=True)
+        sys.exit(1)
+
+    meta = plugins[name]
+    plugin_path = Path(meta.path)
+
+    # Invoke plugin with --schema flag
+    try:
+        result = subprocess.run(
+            [sys.executable, str(plugin_path), '--schema'],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        click.echo(result.stdout)
+    except subprocess.CalledProcessError as e:
+        click.echo(f"Error getting schema: {e.stderr}", err=True)
+        sys.exit(1)
+    except FileNotFoundError:
+        click.echo(f"Plugin file not found: {plugin_path}", err=True)
+        sys.exit(1)
+
+
+@plugin.command(name='test')
+@click.argument('name')
+@click.option('--verbose', '-v', is_flag=True, help='Verbose output')
+def plugin_test(name, verbose):
+    """Test plugin (invokes tools/jn-test-plugin)."""
+    import subprocess
+
+    plugins = discover_plugins()
+
+    if name not in plugins:
+        click.echo(f"Plugin '{name}' not found", err=True)
+        sys.exit(1)
+
+    meta = plugins[name]
+    plugin_path = Path(meta.path)
+
+    # Find jn-test-plugin tool
+    # Look in: ./tools/, ../tools/, package root
+    tool_paths = [
+        Path.cwd() / 'tools' / 'jn-test-plugin',
+        Path(__file__).parent.parent.parent / 'tools' / 'jn-test-plugin',
+    ]
+
+    test_tool = None
+    for path in tool_paths:
+        if path.exists():
+            test_tool = path
+            break
+
+    if not test_tool:
+        click.echo("Error: jn-test-plugin tool not found", err=True)
+        click.echo("Expected at: tools/jn-test-plugin", err=True)
+        sys.exit(1)
+
+    # Invoke test tool
+    cmd = [str(test_tool), str(plugin_path)]
+    if verbose:
+        cmd.append('--verbose')
+
+    try:
+        result = subprocess.run(cmd, check=False)
+        sys.exit(result.returncode)
+    except FileNotFoundError:
+        click.echo(f"Error: Could not execute test tool: {test_tool}", err=True)
+        sys.exit(1)
+
+
 @main.command()
 @click.option('--type', 'plugin_type', help='Filter by plugin type (source, filter, target)')
 @click.option('--category', help='Filter by category (readers, writers, filters, shell)')

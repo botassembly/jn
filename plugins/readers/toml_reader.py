@@ -7,6 +7,8 @@ Parses TOML configuration files and converts to JSON Lines format.
 # dependencies = []
 # ///
 # META: type=source, handles=[".toml"], streaming=false
+# KEYWORDS: toml, configuration, data, parsing
+# DESCRIPTION: Read TOML files and output NDJSON
 
 import sys
 import json
@@ -71,6 +73,18 @@ def run(config: Optional[dict] = None) -> Iterator[dict]:
         yield parsed
 
 
+def schema() -> dict:
+    """Return JSON schema for TOML output.
+
+    TOML reader outputs objects with typed values.
+    """
+    return {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "description": "TOML document as JSON object"
+    }
+
+
 def examples() -> list[dict]:
     """Return test cases for this plugin.
 
@@ -78,6 +92,7 @@ def examples() -> list[dict]:
         - description: What this example demonstrates
         - input: Sample input data
         - expected: Expected output records
+        - ignore_fields: Fields to ignore when testing (for dynamic values)
     """
     return [
         {
@@ -99,7 +114,8 @@ port = 5432
                         "port": 5432
                     }
                 }
-            ]
+            ],
+            "ignore_fields": set()  # All values deterministic
         },
         {
             "description": "TOML with array of tables",
@@ -116,7 +132,8 @@ age = 25
             "expected": [
                 {"name": "Alice", "age": 30},
                 {"name": "Bob", "age": 25}
-            ]
+            ],
+            "ignore_fields": set()
         },
         {
             "description": "Extract specific table",
@@ -132,7 +149,8 @@ port = 5432
             "config": {"table": "server"},
             "expected": [
                 {"host": "localhost", "port": 8080}
-            ]
+            ],
+            "ignore_fields": set()
         }
     ]
 
@@ -190,8 +208,13 @@ if __name__ == '__main__':
     parser.add_argument('--array-table', help='Extract array of tables')
     parser.add_argument('--examples', action='store_true', help='Show usage examples')
     parser.add_argument('--test', action='store_true', help='Run built-in tests')
+    parser.add_argument('--schema', action='store_true', help='Output JSON schema')
 
     args = parser.parse_args()
+
+    if args.schema:
+        print(json.dumps(schema(), indent=2))
+        sys.exit(0)
 
     if args.examples:
         print(json.dumps(examples(), indent=2))

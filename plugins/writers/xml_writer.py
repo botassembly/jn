@@ -7,6 +7,8 @@ Converts JSON Lines stream to XML output.
 # dependencies = ["xmltodict>=0.13.0"]
 # ///
 # META: type=target, handles=[".xml"]
+# KEYWORDS: xml, writer, output, markup
+# DESCRIPTION: Write NDJSON to XML format
 
 import sys
 import json
@@ -66,6 +68,18 @@ def run(config: Optional[dict] = None) -> None:
     print(xml_output)
 
 
+def schema() -> dict:
+    """Return JSON schema for XML writer input.
+
+    XML writer accepts NDJSON with any object structure.
+    """
+    return {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "description": "NDJSON objects to convert to XML"
+    }
+
+
 def examples() -> list[dict]:
     """Return test cases for this plugin.
 
@@ -73,18 +87,21 @@ def examples() -> list[dict]:
         - description: What this example demonstrates
         - input: Sample NDJSON input
         - expected_pattern: Pattern to check in output
+        - ignore_fields: Fields to ignore when testing (for dynamic values)
     """
     return [
         {
             "description": "Single record to XML",
             "input": '{"name": "Alice", "age": 30}\n',
-            "expected_pattern": "<root>\n  <name>Alice</name>\n  <age>30</age>\n</root>"
+            "expected_pattern": "<root>\n  <name>Alice</name>\n  <age>30</age>\n</root>",
+            "ignore_fields": set()  # Output is deterministic
         },
         {
             "description": "Multiple records to XML list",
             "input": '{"name": "Alice"}\n{"name": "Bob"}\n',
             "config": {"item_element": "person"},
-            "expected_pattern": "<person>"
+            "expected_pattern": "<person>",
+            "ignore_fields": set()
         }
     ]
 
@@ -152,8 +169,13 @@ if __name__ == '__main__':
                         help='Compact output (no pretty printing)')
     parser.add_argument('--examples', action='store_true', help='Show usage examples')
     parser.add_argument('--test', action='store_true', help='Run built-in tests')
+    parser.add_argument('--schema', action='store_true', help='Output JSON schema')
 
     args = parser.parse_args()
+
+    if args.schema:
+        print(json.dumps(schema(), indent=2))
+        sys.exit(0)
 
     if args.examples:
         print(json.dumps(examples(), indent=2))

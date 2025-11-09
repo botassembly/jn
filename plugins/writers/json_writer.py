@@ -8,6 +8,8 @@ Supports pretty-printing and compact output.
 # dependencies = []
 # ///
 # META: type=target, handles=[".json"]
+# KEYWORDS: json, writer, output, array
+# DESCRIPTION: Convert NDJSON to JSON array
 
 import sys
 import json
@@ -55,6 +57,18 @@ def run(config: Optional[dict] = None) -> None:
         print(json_output)
 
 
+def schema() -> dict:
+    """Return JSON schema for JSON writer input.
+
+    JSON writer accepts NDJSON with any object structure.
+    """
+    return {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "description": "NDJSON objects to convert to JSON array"
+    }
+
+
 def examples() -> list[dict]:
     """Return example usage patterns.
 
@@ -66,7 +80,8 @@ def examples() -> list[dict]:
             "description": "Basic NDJSON to JSON",
             "config": {"pretty": False},
             "input": '{"name": "Alice", "age": 30}\n{"name": "Bob", "age": 25}\n',
-            "expected": '[{"name": "Alice", "age": 30}, {"name": "Bob", "age": 25}]'
+            "expected": '[{"name": "Alice", "age": 30}, {"name": "Bob", "age": 25}]',
+            "ignore_fields": set()  # Output is deterministic
         },
         {
             "description": "Pretty-printed output",
@@ -79,13 +94,15 @@ def examples() -> list[dict]:
   {
     "name": "Bob"
   }
-]"""
+]""",
+            "ignore_fields": set()
         },
         {
             "description": "Empty input",
             "config": {"pretty": False},
             "input": "",
-            "expected": "[]"
+            "expected": "[]",
+            "ignore_fields": set()
         }
     ]
 
@@ -180,8 +197,17 @@ if __name__ == '__main__':
         action='store_true',
         help='Run built-in tests'
     )
+    parser.add_argument(
+        '--schema',
+        action='store_true',
+        help='Output JSON schema'
+    )
 
     args = parser.parse_args()
+
+    if args.schema:
+        print(json.dumps(schema(), indent=2))
+        sys.exit(0)
 
     if args.examples:
         print(json.dumps(examples(), indent=2))

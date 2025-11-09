@@ -8,6 +8,8 @@ Requires jq to be installed on the system.
 # dependencies = []
 # ///
 # META: type=filter, streaming=true
+# KEYWORDS: jq, filter, transform, query, json
+# DESCRIPTION: Transform JSON data using jq expressions
 
 import sys
 import json
@@ -77,6 +79,18 @@ def run(config: Optional[dict] = None) -> Iterator[dict]:
         sys.exit(1)
 
 
+def schema() -> dict:
+    """Return JSON schema for jq filter output.
+
+    JQ filter can output any JSON structure depending on the query.
+    """
+    return {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "description": "JSON object transformed by jq expression"
+    }
+
+
 def examples() -> list[dict]:
     """Return example usage patterns.
 
@@ -86,36 +100,31 @@ def examples() -> list[dict]:
     return [
         {
             "description": "Select field",
-            "query": ".name",
-            "input": [
-                {"name": "Alice", "age": 30},
-                {"name": "Bob", "age": 25}
-            ],
+            "config": {"query": ".name"},
+            "input": '{"name": "Alice", "age": 30}\n{"name": "Bob", "age": 25}\n',
             "expected": [
-                "Alice",  # jq returns strings directly
-                "Bob"
-            ]
+                {"value": "Alice"},  # Wrapped non-dict values
+                {"value": "Bob"}
+            ],
+            "ignore_fields": set()  # Deterministic output
         },
         {
             "description": "Filter by condition",
-            "query": "select(.age > 25)",
-            "input": [
-                {"name": "Alice", "age": 30},
-                {"name": "Bob", "age": 25}
-            ],
+            "config": {"query": "select(.age > 25)"},
+            "input": '{"name": "Alice", "age": 30}\n{"name": "Bob", "age": 25}\n',
             "expected": [
                 {"name": "Alice", "age": 30}
-            ]
+            ],
+            "ignore_fields": set()
         },
         {
             "description": "Transform object",
-            "query": "{user: .name, years: .age}",
-            "input": [
-                {"name": "Alice", "age": 30}
-            ],
+            "config": {"query": "{user: .name, years: .age}"},
+            "input": '{"name": "Alice", "age": 30}\n',
             "expected": [
                 {"user": "Alice", "years": 30}
-            ]
+            ],
+            "ignore_fields": set()
         }
     ]
 
@@ -138,30 +147,31 @@ def test() -> bool:
 
     for example in examples():
         desc = example['description']
-        query = example['query']
-        input_data = example['input']
+        config = example.get('config', {})
+        test_input = example['input']
         expected = example['expected']
 
         try:
             # Setup stdin with NDJSON input
-            input_lines = [json.dumps(record) for record in input_data]
-            sys.stdin = StringIO('\n'.join(input_lines))
+            old_stdin = sys.stdin
+            sys.stdin = StringIO(test_input)
 
             # Run filter
-            results = list(run({'query': query}))
+            results = list(run(config))
+            sys.stdin = old_stdin
 
-            # Compare (note: for simple value extracts, we wrap in {'value': x})
+            # Compare
             if results == expected:
                 print(f"✓ {desc}", file=sys.stderr)
                 passed += 1
             else:
                 print(f"✗ {desc}: Output mismatch", file=sys.stderr)
-                print(f"  Query: {query}", file=sys.stderr)
                 print(f"  Expected: {expected}", file=sys.stderr)
                 print(f"  Got: {results}", file=sys.stderr)
                 failed += 1
 
         except Exception as e:
+            sys.stdin = old_stdin
             print(f"✗ {desc}: {e}", file=sys.stderr)
             failed += 1
 
@@ -192,8 +202,17 @@ if __name__ == '__main__':
         action='store_true',
         help='Run built-in tests'
     )
+    parser.add_argument(
+        '--schema',
+        action='store_true',
+        help='Output JSON schema'
+    )
 
     args = parser.parse_args()
+
+    if args.schema:
+        print(json.dumps(schema(), indent=2))
+        sys.exit(0)
 
     if args.examples:
         print(json.dumps(examples(), indent=2))

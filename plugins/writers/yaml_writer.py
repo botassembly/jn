@@ -8,6 +8,8 @@ Can produce single document or multi-document streams.
 # dependencies = ["PyYAML>=6.0"]
 # ///
 # META: type=target, handles=[".yaml", ".yml"]
+# KEYWORDS: yaml, yml, writer, output, configuration
+# DESCRIPTION: Write NDJSON to YAML format
 
 import sys
 import json
@@ -57,6 +59,18 @@ def run(config: Optional[dict] = None) -> None:
         yaml.dump(records, sys.stdout, default_flow_style=False, indent=indent, allow_unicode=True)
 
 
+def schema() -> dict:
+    """Return JSON schema for YAML writer input.
+
+    YAML writer accepts NDJSON with any object structure.
+    """
+    return {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "description": "NDJSON objects to convert to YAML"
+    }
+
+
 def examples() -> list[dict]:
     """Return test cases for this plugin.
 
@@ -64,19 +78,22 @@ def examples() -> list[dict]:
         - description: What this example demonstrates
         - input: Sample NDJSON input
         - expected_pattern: Pattern to check in output
+        - ignore_fields: Fields to ignore when testing (for dynamic values)
     """
     return [
         {
             "description": "Single document output (list)",
             "input": '{"name": "Alice", "age": 30}\n{"name": "Bob", "age": 25}\n',
             "config": {"multi_document": False},
-            "expected_pattern": "- age: 30\n  name: Alice\n- age: 25\n  name: Bob"
+            "expected_pattern": "- age: 30\n  name: Alice\n- age: 25\n  name: Bob",
+            "ignore_fields": set()  # Output is deterministic
         },
         {
             "description": "Multi-document output",
             "input": '{"name": "Alice"}\n{"name": "Bob"}\n',
             "config": {"multi_document": True},
-            "expected_pattern": "---"
+            "expected_pattern": "---",
+            "ignore_fields": set()
         }
     ]
 
@@ -142,8 +159,13 @@ if __name__ == '__main__':
                         help='Indentation spaces (default: 2)')
     parser.add_argument('--examples', action='store_true', help='Show usage examples')
     parser.add_argument('--test', action='store_true', help='Run built-in tests')
+    parser.add_argument('--schema', action='store_true', help='Output JSON schema')
 
     args = parser.parse_args()
+
+    if args.schema:
+        print(json.dumps(schema(), indent=2))
+        sys.exit(0)
 
     if args.examples:
         print(json.dumps(examples(), indent=2))

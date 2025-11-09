@@ -9,6 +9,8 @@ For NDJSON (already line-delimited), pass through unchanged.
 # dependencies = []
 # ///
 # META: type=source, handles=[".json", ".jsonl", ".ndjson"], streaming=true
+# KEYWORDS: json, ndjson, jsonl, data, parsing
+# DESCRIPTION: Read JSON/NDJSON files and output NDJSON
 
 import json
 import sys
@@ -68,6 +70,18 @@ def run(config: Optional[dict] = None) -> Iterator[dict]:
         yield data
 
 
+def schema() -> dict:
+    """Return JSON schema for JSON output.
+
+    JSON reader can output any valid JSON structure.
+    """
+    return {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "description": "JSON object with arbitrary properties"
+    }
+
+
 def examples() -> list[dict]:
     """Return test cases."""
     return [
@@ -77,7 +91,8 @@ def examples() -> list[dict]:
             "expected": [
                 {"name": "Alice"},
                 {"name": "Bob"}
-            ]
+            ],
+            "ignore_fields": set()  # All values deterministic
         },
         {
             "description": "JSON array",
@@ -85,14 +100,16 @@ def examples() -> list[dict]:
             "expected": [
                 {"name": "Alice"},
                 {"name": "Bob"}
-            ]
+            ],
+            "ignore_fields": set()
         },
         {
             "description": "Single JSON object",
             "input": '{"name": "Alice", "age": 30}',
             "expected": [
                 {"name": "Alice", "age": 30}
-            ]
+            ],
+            "ignore_fields": set()
         }
     ]
 
@@ -140,8 +157,17 @@ if __name__ == '__main__':
         action='store_true',
         help='Run built-in tests'
     )
+    parser.add_argument(
+        '--schema',
+        action='store_true',
+        help='Output JSON schema'
+    )
 
     args = parser.parse_args()
+
+    if args.schema:
+        print(json.dumps(schema(), indent=2))
+        sys.exit(0)
 
     if args.test:
         success = test()

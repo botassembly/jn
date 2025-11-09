@@ -24,6 +24,8 @@ class PluginMetadata:
     dependencies: List[str] = field(default_factory=list)  # PEP 723 dependencies
     mtime: float = 0.0  # File modification time
     category: Optional[str] = None  # readers, writers, filters, shell, http
+    description: Optional[str] = None  # Plugin description
+    keywords: List[str] = field(default_factory=list)  # Search keywords
 
 
 def get_plugin_paths() -> List[Path]:
@@ -139,6 +141,31 @@ def parse_plugin_metadata(file_path: Path) -> Optional[PluginMetadata]:
         dep_str = dep_match.group(1)
         dependencies = re.findall(r'["\']([^"\']+)["\']', dep_str)
 
+    # Parse KEYWORDS
+    # Format: # KEYWORDS: csv, data, parsing
+    keywords = []
+    keywords_pattern = r'#\s*KEYWORDS:\s*(.+)'
+    keywords_match = re.search(keywords_pattern, content)
+    if keywords_match:
+        keywords_str = keywords_match.group(1).strip()
+        keywords = [k.strip() for k in keywords_str.split(',') if k.strip()]
+
+    # Parse DESCRIPTION (from comment or docstring)
+    # Format: # DESCRIPTION: Read CSV files...
+    description = None
+    desc_pattern = r'#\s*DESCRIPTION:\s*(.+)'
+    desc_match = re.search(desc_pattern, content)
+    if desc_match:
+        description = desc_match.group(1).strip()
+    else:
+        # Try to extract from module docstring (first triple-quoted string)
+        docstring_pattern = r'"""(.+?)"""'
+        docstring_match = re.search(docstring_pattern, content, re.DOTALL)
+        if docstring_match:
+            # Get first line of docstring
+            docstring = docstring_match.group(1).strip()
+            description = docstring.split('\n')[0].strip()
+
     # Get file modification time
     mtime = file_path.stat().st_mtime
 
@@ -151,7 +178,9 @@ def parse_plugin_metadata(file_path: Path) -> Optional[PluginMetadata]:
         streaming=streaming,
         dependencies=dependencies,
         mtime=mtime,
-        category=category
+        category=category,
+        description=description,
+        keywords=keywords
     )
 
 

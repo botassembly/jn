@@ -7,6 +7,8 @@ Harvested from oldgen writers/csv_writer.py with adaptations.
 # dependencies = []
 # ///
 # META: type=target, handles=[".csv", ".tsv"]
+# KEYWORDS: csv, tsv, writer, output, tabular
+# DESCRIPTION: Write NDJSON to CSV/TSV format
 
 import csv
 import json
@@ -66,24 +68,39 @@ def run(config: Optional[dict] = None) -> None:
     writer.writerows(records)
 
 
+def schema() -> dict:
+    """Return JSON schema for CSV writer input.
+
+    CSV writer accepts NDJSON with any object structure.
+    """
+    return {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "description": "NDJSON objects to convert to CSV rows"
+    }
+
+
 def examples() -> list[dict]:
     """Return test cases."""
     return [
         {
             "description": "Basic NDJSON to CSV",
             "input": '{"name": "Alice", "age": 30}\n{"name": "Bob", "age": 25}\n',
-            "expected": "name,age\nAlice,30\nBob,25\n"
+            "expected": "name,age\nAlice,30\nBob,25\n",
+            "ignore_fields": set()  # Output is deterministic
         },
         {
             "description": "Inconsistent keys (union)",
             "input": '{"name": "Alice", "age": 30}\n{"name": "Bob", "city": "NYC"}\n',
-            "expected": "name,age,city\nAlice,30,\nBob,,NYC\n"
+            "expected": "name,age,city\nAlice,30,\nBob,,NYC\n",
+            "ignore_fields": set()
         },
         {
             "description": "TSV output",
             "config": {"delimiter": "\t"},
             "input": '{"name": "Alice", "age": 30}\n',
-            "expected": "name\tage\nAlice\t30\n"
+            "expected": "name\tage\nAlice\t30\n",
+            "ignore_fields": set()
         }
     ]
 
@@ -156,8 +173,17 @@ if __name__ == '__main__':
         action='store_true',
         help='Run built-in tests'
     )
+    parser.add_argument(
+        '--schema',
+        action='store_true',
+        help='Output JSON schema'
+    )
 
     args = parser.parse_args()
+
+    if args.schema:
+        print(json.dumps(schema(), indent=2))
+        sys.exit(0)
 
     if args.test:
         success = test()

@@ -8,6 +8,8 @@ Supports both single documents and multi-document streams.
 # dependencies = ["PyYAML>=6.0"]
 # ///
 # META: type=source, handles=[".yaml", ".yml"], streaming=true
+# KEYWORDS: yaml, yml, data, parsing, configuration
+# DESCRIPTION: Read YAML files and output NDJSON
 
 import sys
 import json
@@ -63,6 +65,18 @@ def run(config: Optional[dict] = None) -> Iterator[dict]:
             yield {'value': doc}
 
 
+def schema() -> dict:
+    """Return JSON schema for YAML output.
+
+    YAML reader can output any valid YAML structure as JSON.
+    """
+    return {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "description": "YAML document as JSON object"
+    }
+
+
 def examples() -> list[dict]:
     """Return test cases for this plugin.
 
@@ -70,6 +84,7 @@ def examples() -> list[dict]:
         - description: What this example demonstrates
         - input: Sample input data
         - expected: Expected output records
+        - ignore_fields: Fields to ignore when testing (for dynamic values)
     """
     return [
         {
@@ -81,7 +96,8 @@ city: NYC
 """,
             "expected": [
                 {"name": "Alice", "age": 30, "city": "NYC"}
-            ]
+            ],
+            "ignore_fields": set()  # All values deterministic
         },
         {
             "description": "YAML list of objects",
@@ -94,7 +110,8 @@ city: NYC
             "expected": [
                 {"name": "Alice", "age": 30},
                 {"name": "Bob", "age": 25}
-            ]
+            ],
+            "ignore_fields": set()
         },
         {
             "description": "Multi-document YAML",
@@ -108,7 +125,8 @@ age: 25
             "expected": [
                 {"name": "Alice", "age": 30},
                 {"name": "Bob", "age": 25}
-            ]
+            ],
+            "ignore_fields": set()
         },
         {
             "description": "Nested YAML structure",
@@ -126,7 +144,8 @@ user:
                         "address": {"city": "NYC", "zip": 10001}
                     }
                 }
-            ]
+            ],
+            "ignore_fields": set()
         }
     ]
 
@@ -182,8 +201,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Read YAML files and output NDJSON')
     parser.add_argument('--examples', action='store_true', help='Show usage examples')
     parser.add_argument('--test', action='store_true', help='Run built-in tests')
+    parser.add_argument('--schema', action='store_true', help='Output JSON schema')
 
     args = parser.parse_args()
+
+    if args.schema:
+        print(json.dumps(schema(), indent=2))
+        sys.exit(0)
 
     if args.examples:
         print(json.dumps(examples(), indent=2))
