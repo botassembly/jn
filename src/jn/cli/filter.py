@@ -1,28 +1,30 @@
 """CLI command: jn filter - manage filters in the registry."""
 
-import json
 from typing import Optional
 
 import typer
 
 from jn import config
-from jn.models import Error
+from jn.cli.registry_commands import RegistryCommands
 from jn.options import ConfigPath, ConfigPathType
 
 app = typer.Typer(help="Manage filter configurations")
+
+# Create registry command helper
+_registry = RegistryCommands(
+    resource_name="filter",
+    list_func=config.filter_names,
+    get_func=config.get_filter,
+    has_func=config.has_filter,
+    remove_attr="filters",
+)
 
 
 @app.callback(invoke_without_command=True)
 def default(ctx: typer.Context, jn: ConfigPathType = ConfigPath):
     """List all registered filters (default action)."""
     if ctx.invoked_subcommand is None:
-        config.set_config_path(jn)
-        names = config.filter_names()
-        if not names:
-            typer.echo("No filters defined.")
-            return
-        for name in names:
-            typer.echo(name)
+        _registry.list_resources(jn)
 
 
 @app.command()
@@ -56,18 +58,6 @@ def add(
     # Check if filter already exists
     existing = config.get_filter(name)
     if existing:
-        if skip_if_exists:
-            typer.echo(f"Filter '{name}' already exists, skipping.")
-            return
-
-        typer.echo(f"Filter '{name}' already exists.", err=True)
-        typer.echo()
-        typer.echo("BEFORE:")
-        typer.echo(
-            json.dumps(existing.model_dump(exclude_none=True), indent=2)
-        )
-        typer.echo()
-
         # Build new filter config for preview
         from jn.models import Filter
 
@@ -77,22 +67,12 @@ def add(
             description=description,
         )
 
-        typer.echo("AFTER:")
-        typer.echo(
-            json.dumps(new_filter.model_dump(exclude_none=True), indent=2)
+        # Handle existing resource confirmation flow
+        should_proceed = _registry.handle_existing_resource(
+            name, existing, new_filter, skip_if_exists, yes
         )
-        typer.echo()
-
-        if not yes:
-            confirm = typer.confirm("Replace existing filter?")
-            if not confirm:
-                typer.echo("Cancelled.")
-                raise typer.Exit(0)
-
-        # Remove existing before adding new
-        cfg = config.require().model_copy(deep=True)
-        cfg.filters = [f for f in cfg.filters if f.name != name]
-        config.persist(cfg)
+        if not should_proceed:
+            return
 
     result = config.add_filter(
         name=name,
@@ -100,17 +80,16 @@ def add(
         description=description,
     )
 
-    if isinstance(result, Error):
-        typer.echo(f"Error: {result.message}", err=True)
-        raise typer.Exit(1)
-
-    if existing:
-        typer.echo(f"Replaced filter: {name}")
-    else:
-        typer.echo(f"Created filter: {name}")
-    typer.echo(f"  Query: {result.query}")
-    if result.description:
-        typer.echo(f"  Description: {result.description}")
+    # Handle add result
+    _registry.handle_add_result(
+        result,
+        name,
+        existing,
+        {
+            "query": "Query",
+            "description": "Description",
+        },
+    )
 
 
 @app.command()
@@ -123,15 +102,7 @@ def show(
     Example:
       jn filter show high-value
     """
-    config.set_config_path(jn)
-
-    filter_obj = config.get_filter(name)
-    if not filter_obj:
-        typer.echo(f"Error: Filter '{name}' not found", err=True)
-        raise typer.Exit(1)
-
-    filter_dict = filter_obj.model_dump(exclude_none=True)
-    typer.echo(json.dumps(filter_dict, indent=2))
+    _registry.show_resource(name, jn)
 
 
 @app.command()
@@ -162,21 +133,4 @@ def rm(
       jn filter rm high-value
       jn filter rm high-value --force
     """
-    config.set_config_path(jn)
-
-    if not config.has_filter(name):
-        typer.echo(f"Error: Filter '{name}' not found", err=True)
-        raise typer.Exit(1)
-
-    if not force:
-        confirm = typer.confirm(f"Remove filter '{name}'?")
-        if not confirm:
-            typer.echo("Cancelled.")
-            raise typer.Exit(0)
-
-    # Load config, remove filter, persist
-    cfg = config.require().model_copy(deep=True)
-    cfg.filters = [f for f in cfg.filters if f.name != name]
-    config.persist(cfg)
-
-    typer.echo(f"Removed filter: {name}")
+    _registry.remove_resource(name, force, jn)

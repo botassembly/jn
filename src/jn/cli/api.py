@@ -1,28 +1,35 @@
 """CLI command: jn api - manage APIs in the registry."""
 
-import json
 from typing import List, Optional
 
 import typer
 
 from jn import config
-from jn.models import Error
+from jn.cli.registry_commands import RegistryCommands
+from jn.cli.validation import (
+    parse_headers,
+    validate_api_type,
+    validate_auth_type,
+)
 from jn.options import ConfigPath, ConfigPathType
 
 app = typer.Typer(help="Manage API configurations")
+
+# Create registry command helper
+_registry = RegistryCommands(
+    resource_name="API",
+    list_func=config.api_names,
+    get_func=config.get_api,
+    has_func=config.has_api,
+    remove_attr="apis",
+)
 
 
 @app.callback(invoke_without_command=True)
 def default(ctx: typer.Context, jn: ConfigPathType = ConfigPath):
     """List all registered APIs (default action)."""
     if ctx.invoked_subcommand is None:
-        config.set_config_path(jn)
-        names = config.api_names()
-        if not names:
-            typer.echo("No APIs defined.")
-            return
-        for name in names:
-            typer.echo(name)
+        _registry.list_resources(jn)
 
 
 @app.command()
@@ -82,41 +89,21 @@ def add(
     """
     config.set_config_path(jn)
 
-    # Parse headers
-    headers = {}
-    if header:
-        for h in header:
-            if ":" not in h:
-                typer.echo(
-                    f"Error: Invalid header format: {h}. Expected KEY:VALUE",
-                    err=True,
-                )
-                raise typer.Exit(1)
-            key, value = h.split(":", 1)
-            headers[key.strip()] = value.strip()
+    # Validate and parse inputs
+    validated_api_type = validate_api_type(api_type)
+    validated_auth_type = validate_auth_type(auth_type) if auth_type else None
+    headers = parse_headers(header) if header else {}
 
     # Check if API already exists
     existing = config.get_api(name)
     if existing:
-        if skip_if_exists:
-            typer.echo(f"API '{name}' already exists, skipping.")
-            return
-
-        typer.echo(f"API '{name}' already exists.", err=True)
-        typer.echo()
-        typer.echo("BEFORE:")
-        typer.echo(
-            json.dumps(existing.model_dump(exclude_none=True), indent=2)
-        )
-        typer.echo()
-
         # Build new API config for preview
         from jn.models import Api, AuthConfig
 
         auth = None
-        if auth_type:
+        if validated_auth_type:
             auth = AuthConfig(
-                type=auth_type,  # type: ignore
+                type=validated_auth_type,
                 token=token,
                 username=username,
                 password=password,
@@ -124,7 +111,7 @@ def add(
 
         new_api = Api(
             name=name,
-            type=api_type,  # type: ignore
+            type=validated_api_type,
             base_url=base_url,
             auth=auth,
             headers=headers or {},
@@ -132,26 +119,18 @@ def add(
             target_method=target_method,
         )
 
-        typer.echo("AFTER:")
-        typer.echo(json.dumps(new_api.model_dump(exclude_none=True), indent=2))
-        typer.echo()
-
-        if not yes:
-            confirm = typer.confirm("Replace existing API?")
-            if not confirm:
-                typer.echo("Cancelled.")
-                raise typer.Exit(0)
-
-        # Remove existing before adding new
-        cfg = config.require().model_copy(deep=True)
-        cfg.apis = [a for a in cfg.apis if a.name != name]
-        config.persist(cfg)
+        # Handle existing resource confirmation flow
+        should_proceed = _registry.handle_existing_resource(
+            name, existing, new_api, skip_if_exists, yes
+        )
+        if not should_proceed:
+            return
 
     result = config.add_api(
         name=name,
-        api_type=api_type,  # type: ignore
+        api_type=validated_api_type,
         base_url=base_url,
-        auth_type=auth_type,  # type: ignore
+        auth_type=validated_auth_type,
         token=token,
         username=username,
         password=password,
@@ -160,19 +139,17 @@ def add(
         target_method=target_method,
     )
 
-    if isinstance(result, Error):
-        typer.echo(f"Error: {result.message}", err=True)
-        raise typer.Exit(1)
-
-    if existing:
-        typer.echo(f"Replaced API: {name}")
-    else:
-        typer.echo(f"Created API: {name}")
-    typer.echo(f"  Type: {result.type}")
-    if result.base_url:
-        typer.echo(f"  Base URL: {result.base_url}")
-    if result.auth:
-        typer.echo(f"  Auth: {result.auth.type}")
+    # Handle add result
+    _registry.handle_add_result(
+        result,
+        name,
+        existing,
+        {
+            "type": "Type",
+            "base_url": "Base URL",
+            "auth": "Auth",
+        },
+    )
 
 
 @app.command()
@@ -185,15 +162,7 @@ def show(
     Example:
       jn api show github
     """
-    config.set_config_path(jn)
-
-    api = config.get_api(name)
-    if not api:
-        typer.echo(f"Error: API '{name}' not found", err=True)
-        raise typer.Exit(1)
-
-    api_dict = api.model_dump(exclude_none=True)
-    typer.echo(json.dumps(api_dict, indent=2))
+    _registry.show_resource(name, jn)
 
 
 @app.command()
@@ -224,21 +193,4 @@ def rm(
       jn api rm github
       jn api rm github --force
     """
-    config.set_config_path(jn)
-
-    if not config.has_api(name):
-        typer.echo(f"Error: API '{name}' not found", err=True)
-        raise typer.Exit(1)
-
-    if not force:
-        confirm = typer.confirm(f"Remove API '{name}'?")
-        if not confirm:
-            typer.echo("Cancelled.")
-            raise typer.Exit(0)
-
-    # Load config, remove API, persist
-    cfg = config.require().model_copy(deep=True)
-    cfg.apis = [a for a in cfg.apis if a.name != name]
-    config.persist(cfg)
-
-    typer.echo(f"Removed API: {name}")
+    _registry.remove_resource(name, force, jn)
