@@ -8,6 +8,8 @@ Parsing logic inspired by JC project by Kelly Brazil (MIT license).
 # dependencies = []
 # ///
 # META: type=source, command="dig"
+# KEYWORDS: dig, dns, network, domain, lookup
+# DESCRIPTION: Parse dig command output to NDJSON
 
 import sys
 import json

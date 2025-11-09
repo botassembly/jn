@@ -8,6 +8,8 @@ Parsing logic inspired by JC project by Kelly Brazil (MIT license).
 # dependencies = []
 # ///
 # META: type=source, command="ping"
+# KEYWORDS: ping, network, connectivity, icmp, latency
+# DESCRIPTION: Parse ping command output to NDJSON
 
 import sys
 import json

@@ -8,6 +8,8 @@ Supports various find options and formats.
 # dependencies = []
 # ///
 # META: type=source, command="find"
+# KEYWORDS: find, search, files, filesystem, locate
+# DESCRIPTION: Parse find command output to NDJSON
 
 import sys
 import json

@@ -8,6 +8,8 @@ Parsing logic inspired by JC project by Kelly Brazil (MIT license).
 # dependencies = []
 # ///
 # META: type=source, command="df"
+# KEYWORDS: df, disk, space, filesystem, storage
+# DESCRIPTION: Parse df command output to NDJSON
 
 import sys
 import json

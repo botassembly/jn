@@ -8,6 +8,8 @@ Parsing logic inspired by JC project by Kelly Brazil (MIT license).
 # dependencies = []
 # ///
 # META: type=source, command="netstat"
+# KEYWORDS: netstat, network, connections, sockets, ports
+# DESCRIPTION: Parse netstat command output to NDJSON
 
 import sys
 import json
