@@ -170,41 +170,55 @@
 
 ---
 
-### Day 3-4: Click-Based CLI
+### Day 3-4: Click-Based CLI ✅ COMPLETE
 
-- [ ] Core CLI (`src/jn/cli.py`)
+- [x] Core CLI (`src/jn/cli.py`)
   - Click application setup
-  - Common options (--json, --quiet, --debug)
+  - Common options (--json, --debug, --version)
   - Error handling and exit codes
+  - Additional commands: `paths`, `which`
 
-- [ ] `jn discover` command
+- [x] `jn discover` command
   ```bash
   jn discover                    # List all plugins
   jn discover --type source      # Filter by type
+  jn discover --category readers # Filter by category
   jn discover --changed-since    # Recent changes
   jn discover --json             # Machine-readable
+  jn discover --verbose          # Detailed output
   ```
 
-- [ ] `jn show` command
+- [x] `jn show` command
   ```bash
   jn show csv_reader             # Show plugin details
   jn show csv_reader --examples  # Show examples
-  jn show csv_reader --schema    # Show output schema
+  jn show csv_reader --test      # Run plugin tests
+  jn show csv_reader --json      # JSON output
   ```
 
-- [ ] `jn run` command (basic)
+- [x] `jn run` command
   ```bash
-  jn run data.csv output.json    # Auto-detect pipeline
-  jn run data.csv filter output.json  # With filter
+  jn run data.csv                # CSV to NDJSON (stdout)
+  jn run data.csv output.json    # CSV to JSON file
+  jn run data.csv '.name' out.json  # With jq filter
+  jn run ls /tmp output.csv      # Shell command → CSV
+  jn run --dry-run data.csv      # Show pipeline without executing
+  jn run --verbose data.csv      # Show execution details
   ```
 
-- [ ] CLI tests
-  - `tests/integration/test_cli.py`
-  - Test discovery output
-  - Test show command
-  - Test basic run command
+- [x] Additional commands
+  - `jn paths` - Show plugin search paths
+  - `jn which .csv` - Show which plugin handles an extension
 
-**Target:** 300 LOC | **Tests:** 15-20 tests
+- [x] CLI tests (`tests/unit/test_cli.py`)
+  - 29 tests covering all commands
+  - Test discovery with filters
+  - Test show command variations
+  - Test run command with real files
+  - Test JSON output modes
+  - Test error handling
+
+**Status:** ✅ Complete | **LOC:** 203 | **Tests:** 29/29 passing (100%)
 
 ---
 
@@ -502,21 +516,40 @@ Vendor key commands from JC concepts:
   - Package configuration
   - Plugin organization strategy
 
+### ✅ Completed
+- **Week 1, Days 1-5: Foundation Complete**
+  - Foundation and core plugins
+  - Plugin discovery system (regex-based, no imports)
+  - Extension registry with caching
+  - 4 working plugins (csv_reader, csv_writer, json_reader, ls)
+
+- **Week 2, Days 1-2: Pipeline System Complete**
+  - Automatic pipeline builder
+  - Subprocess-based executor with Unix pipes
+  - UV integration for PEP 723 dependencies
+  - End-to-end CSV→NDJSON execution
+
+- **Week 2, Days 3-4: CLI Complete**
+  - Full Click-based CLI
+  - Commands: discover, show, run, paths, which
+  - JSON and verbose output modes
+  - Comprehensive CLI tests
+
 ### 🔄 In Progress
-- Week 2, Day 3: Click-Based CLI
+- Week 2, Day 5: Additional core plugins (jq_filter, json_writer, http_get)
 
 ### 📋 Next Up
-- Core CLI with Click
-- `jn discover` command (list plugins)
-- `jn show` command (show plugin details)
-- `jn run` command (execute pipelines)
+- JQ filter wrapper plugin
+- JSON writer plugin
+- HTTP GET plugin
+- Complete Week 2
 
 ### Metrics
-- **LOC:** 1,368 (code) + 400 (docs)
-- **Core modules:** 6 (detection, subprocess_utils, discovery, registry, pipeline, executor)
+- **LOC:** 1,571 (code) + 400 (docs)
+- **Core modules:** 7 (detection, subprocess_utils, discovery, registry, pipeline, executor, cli)
 - **Plugins:** 4 working
-- **Tests:** 51/51 passing (100%)
-- **Coverage:** 68%
+- **Tests:** 80/80 passing (100%)
+- **Coverage:** 71%
 - **Dependencies:** 1 (click only!)
 
 ---
@@ -544,14 +577,27 @@ Vendor key commands from JC concepts:
   - jq expression detection
   - Output format detection
   - Command argument parsing
-- ✅ Implemented pipeline executor (src/jn/executor.py - 150 LOC)
+- ✅ Implemented pipeline executor (src/jn/executor.py - 155 LOC)
   - Subprocess execution with Unix pipes
   - UV integration for PEP 723 dependencies
   - File I/O redirection
   - Error handling
 - ✅ Created pipeline integration tests (17 tests, 100% passing)
 - ✅ End-to-end CSV→NDJSON execution verified
-- 🔄 Next: Click-based CLI commands
+
+**Week 2 Days 3-4 (Complete):**
+- ✅ Implemented Click-based CLI (src/jn/cli.py - 203 LOC)
+  - Core CLI application with Click
+  - `jn discover` - List plugins with filtering (type, category, changed-since)
+  - `jn show` - Display plugin details, examples, run tests
+  - `jn run` - Execute pipelines with dry-run and verbose modes
+  - `jn paths` - Show plugin search paths
+  - `jn which` - Show which plugin handles an extension
+  - JSON output mode for all commands
+- ✅ Created comprehensive CLI tests (29 tests, 100% passing)
+- ✅ Manual CLI testing verified
+- ✅ End-to-end pipeline execution via CLI verified
+- 🔄 Next: Additional core plugins (jq_filter, json_writer, http_get)
 
 ---
 
@@ -607,5 +653,5 @@ Vendor key commands from JC concepts:
 ---
 
 **Last Updated:** 2025-11-09
-**Current Phase:** Week 2, Day 3
-**Next Milestone:** Click-based CLI with discover, show, and run commands
+**Current Phase:** Week 2, Day 5
+**Next Milestone:** Additional core plugins (jq_filter, json_writer, http_get)

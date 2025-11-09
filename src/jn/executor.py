@@ -199,8 +199,12 @@ class PipelineExecutor:
                 # Determine stdout
                 if is_last and output_file:
                     stdout = open(output_file, 'w')
+                elif is_last and step.config.get('output'):
+                    # Target plugin with output file in config
+                    stdout = subprocess.PIPE
                 elif is_last:
-                    stdout = None  # Use plugin's default (stdout or file from config)
+                    # Last step, no output file - capture so we can print
+                    stdout = subprocess.PIPE
                 else:
                     stdout = subprocess.PIPE
 
@@ -229,6 +233,11 @@ class PipelineExecutor:
 
             for i, process in enumerate(processes):
                 stdout_data, stderr_data = process.communicate()
+
+                # Print stdout from last process if captured and no output file
+                is_last = i == len(processes) - 1
+                if is_last and stdout_data and not output_file:
+                    print(stdout_data, end='')
 
                 if process.returncode != 0:
                     step_name = pipeline.steps[i].plugin
