@@ -332,104 +332,144 @@ Vendor key commands from JC concepts:
 
 ---
 
-### Day 5: Advanced CLI Features
+### Day 5: Core CLI Commands (Oldgen Parity)
 
-- [ ] `jn create` command
+**Priority: Reach oldgen feature parity for exploration and convenience**
+
+- [ ] `jn cat` command (250 LOC)
+  ```bash
+  jn cat data.csv                  # Preview CSV as NDJSON
+  jn cat https://api.github.com/   # Fetch API data
+  jn cat data.csv | head -10       # Quick exploration
+  jn cat 'ps aux'                  # Execute command
+  ```
+  - Auto-detect source type (file, URL, command)
+  - Extension-based reader selection
+  - JC command integration
+  - Output NDJSON to stdout
+
+- [ ] `jn put` command (150 LOC)
+  ```bash
+  cat data.ndjson | jn put output.csv      # Write CSV
+  jn cat data.csv | jn put - | head -10    # Format to stdout
+  jn cat api | jq '.items[]' | jn put out.json
+  ```
+  - Read NDJSON from stdin
+  - Extension-based writer selection
+  - Format options (delimiter, header, indent)
+
+**Target:** 400 LOC | **Tests:** 15-18 tests
+
+---
+
+### Week 3 Summary Status ✅
+
+- [x] 8 shell command plugins (14 total plugins)
+- [x] Core CLI (discover, show, run, paths, which)
+- [x] Rich plugin ecosystem foundation
+- [x] 80/80 tests passing (100%)
+
+**Final Status:**
+- LOC: 3,321 (vs target 3,250)
+- Plugins: 14 (vs target 14)
+- Tests: 80 passing (100%)
+- Coverage: 71%
+
+---
+
+## Week 4: Essential Formats & Features
+
+### Day 1-2: Common File Formats
+
+**Priority: YAML, XML, TOML support for oldgen parity**
+
+- [ ] `plugins/readers/yaml_reader.py` (120 LOC)
+  - Parse YAML/YML files to NDJSON
+  - Support both single documents and multi-document streams
+  - PEP 723 dependency: PyYAML
+
+- [ ] `plugins/writers/yaml_writer.py` (100 LOC)
+  - Write NDJSON to YAML format
+  - Options: single vs multi-document
+
+- [ ] `plugins/readers/xml_reader.py` (150 LOC)
+  - Parse XML to NDJSON
+  - Configurable element mapping
+  - PEP 723 dependency: lxml or xmltodict
+
+- [ ] `plugins/writers/xml_writer.py` (130 LOC)
+  - Write NDJSON to XML
+  - Configurable root element and record element names
+
+- [ ] `plugins/readers/toml_reader.py` (100 LOC)
+  - Parse TOML to NDJSON
+  - Built-in support (Python 3.11+ tomllib)
+
+**Target:** 600 LOC | **Plugins:** 5 new, 19 total | **Tests:** 20-25 tests
+
+---
+
+### Day 3-4: Advanced CLI Features
+
+- [ ] `jn create` command (150 LOC)
   ```bash
   jn create filter my-filter --query 'select(.amount > 100)'
   jn create source my-api --template http-json
   ```
 
-- [ ] `jn test` command
+- [ ] `jn test` command (100 LOC)
   ```bash
   jn test csv_reader              # Run plugin tests
   jn test csv_reader --verbose    # Detailed output
   ```
 
-- [ ] `jn validate` command
+- [ ] `jn validate` command (80 LOC)
   ```bash
   jn validate my-plugin.py        # Lint + dry-run
   ```
 
-**Target:** 250 LOC | **Tests:** 10-12 tests
-
----
-
-### Week 3 Summary Goals
-
-- [ ] 10+ shell command plugins
-- [ ] Advanced CLI (create, test, validate)
-- [ ] Rich plugin ecosystem
-
-**Target Status:**
-- LOC: 3,250
-- Plugins: 14
-- Tests: 60+ passing
-
----
-
-## Week 4: Testing & Documentation
-
-### Day 1-2: Test Infrastructure
-
-- [ ] Port test patterns from oldgen
-  - `tests/conftest.py` - CliRunner, fixtures
-  - `tests/helpers.py` - Test data generators
-  - Integration test structure
-
-- [ ] Comprehensive test coverage
-  - All plugins: 100% coverage
-  - Core: 90%+ coverage
-  - CLI: 80%+ coverage
-
-- [ ] Plugin test runner
-  ```bash
-  make test-plugins    # Test all plugins
-  make test-core       # Test core library
-  make test-cli        # Test CLI
-  ```
-
-**Target:** 500 LOC (tests) | **Coverage:** 90%+
-
----
-
-### Day 3-5: Documentation
-
-- [ ] README.md - Quick start guide
-- [ ] docs/architecture.md - Copy nextgen-redesign.md
-- [ ] docs/plugins.md - Plugin authoring guide
-- [ ] docs/agents.md - Guide for agents
-- [ ] docs/examples/ - Working examples
-  - basic-etl.md
-  - agent-workflow.md
-  - shell-commands.md
-
-- [ ] Plugin templates
+- [ ] Plugin templates (200 LOC)
   - `templates/source_basic.py`
   - `templates/filter_basic.py`
   - `templates/target_basic.py`
 
-**Target:** 2,000 LOC (docs)
+**Target:** 530 LOC | **Tests:** 15-18 tests
+
+---
+
+### Day 5: Test Infrastructure & Documentation
+
+- [ ] Comprehensive test coverage improvements
+  - Target: 85%+ coverage (from 71%)
+  - Focus on executor, pipeline, detection modules
+
+- [ ] Essential documentation
+  - README.md - Quick start guide (500 LOC)
+  - docs/plugins.md - Plugin authoring (300 LOC)
+  - Update CHANGELOG.md
+
+**Target:** 800 LOC (docs) | **Coverage:** 85%+
 
 ---
 
 ### Week 4 Summary Goals
 
-- [ ] 90%+ test coverage
-- [ ] Complete documentation
-- [ ] Plugin templates ready
+- [ ] Oldgen format parity (YAML, XML, TOML)
+- [ ] Core CLI complete (cat, put, run + tooling)
+- [ ] Plugin creation tools (create, test, validate)
+- [ ] 85%+ test coverage
 
 **Target Status:**
-- LOC: 3,750 (code) + 2,500 (docs/tests)
-- Plugins: 14
-- Tests: 100+ passing
-- Coverage: 90%+
+- LOC: 4,850 (code) + 800 (docs)
+- Plugins: 19
+- Tests: 115+ passing
+- Coverage: 85%+
 
 ---
 
-## Weeks 5-8: Advanced Features & Polish
+## Week 5: Advanced Formats & Database Support
 
-### Week 5: Advanced Readers/Writers
+### Day 1-2: Advanced File Formats
 
 - [ ] Excel reader/writer (openpyxl)
 - [ ] YAML reader/writer

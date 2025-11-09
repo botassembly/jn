@@ -373,5 +373,288 @@ def which(extension):
         sys.exit(1)
 
 
+@main.command()
+@click.argument('source')
+@click.option('--limit', '-n', type=int, help='Limit output to N records')
+@click.option('--verbose', '-v', is_flag=True, help='Show processing details')
+def cat(source, limit, verbose):
+    """Read a source and output NDJSON to stdout.
+
+    Auto-detects the source type and uses the appropriate plugin:
+    - Files: Uses extension-based reader (e.g., .csv → csv_reader)
+    - URLs: Uses http_get plugin
+    - Commands: Executes as shell command plugin
+
+    Examples:
+        jn cat data.csv              # Read CSV file
+        jn cat https://api.com/data  # Fetch from URL
+        jn cat data.json | head -5   # Pipe to other commands
+    """
+    from pathlib import Path
+    import subprocess
+
+    # Determine source type
+    is_url = source.startswith(('http://', 'https://', 'ftp://', 'ftps://'))
+    is_file = Path(source).exists()
+
+    if verbose:
+        click.echo(f"Processing source: {source}", err=True)
+
+    # Build a simple pipeline for the source
+    executor = PipelineExecutor()
+
+    if is_url:
+        # Use http_get plugin
+        plugin_name = 'http_get'
+        all_plugins = discover_plugins()
+
+        if plugin_name not in all_plugins:
+            click.echo(f"Error: http_get plugin not found", err=True)
+            sys.exit(1)
+
+        plugin_path = Path(all_plugins[plugin_name].path)
+
+        if verbose:
+            click.echo(f"Using plugin: {plugin_name}", err=True)
+
+        # Execute plugin with URL as argument
+        cmd = [sys.executable, str(plugin_path), source]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        if result.returncode != 0:
+            click.echo(f"Error: {result.stderr}", err=True)
+            sys.exit(result.returncode)
+
+        output = result.stdout
+
+    elif is_file:
+        # Use extension-based reader
+        path = Path(source)
+        extension = path.suffix
+
+        if not extension:
+            click.echo(f"Error: Cannot determine file type (no extension)", err=True)
+            sys.exit(1)
+
+        registry = get_registry()
+        plugin_name = registry.get_plugin_for_extension(extension)
+
+        if not plugin_name:
+            click.echo(f"Error: No plugin found for extension: {extension}", err=True)
+            click.echo(f"Supported extensions: {', '.join(sorted(registry.extension_map.keys()))}", err=True)
+            sys.exit(1)
+
+        all_plugins = discover_plugins()
+        if plugin_name not in all_plugins:
+            click.echo(f"Error: Plugin '{plugin_name}' not found", err=True)
+            sys.exit(1)
+
+        plugin_path = Path(all_plugins[plugin_name].path)
+
+        if verbose:
+            click.echo(f"Using plugin: {plugin_name}", err=True)
+
+        # Execute plugin with file content on stdin
+        with open(path, 'r') as f:
+            file_content = f.read()
+
+        cmd = [sys.executable, str(plugin_path)]
+        result = subprocess.run(cmd, input=file_content, capture_output=True, text=True)
+
+        if result.returncode != 0:
+            click.echo(f"Error: {result.stderr}", err=True)
+            sys.exit(result.returncode)
+
+        output = result.stdout
+
+    else:
+        # Treat as command - check if we have a matching shell plugin
+        all_plugins = discover_plugins(plugin_types={'source'})
+
+        # Look for shell plugins that match the command
+        cmd_name = source.split()[0] if ' ' in source else source
+        matching_plugin = None
+
+        for name, meta in all_plugins.items():
+            if meta.command == cmd_name:
+                matching_plugin = name
+                break
+
+        if matching_plugin:
+            plugin_path = Path(all_plugins[matching_plugin].path)
+
+            if verbose:
+                click.echo(f"Using plugin: {matching_plugin}", err=True)
+
+            # Execute plugin with command arguments
+            cmd_args = source.split()[1:] if ' ' in source else []
+            cmd = [sys.executable, str(plugin_path)] + cmd_args
+            result = subprocess.run(cmd, capture_output=True, text=True)
+
+            if result.returncode != 0:
+                click.echo(f"Error: {result.stderr}", err=True)
+                sys.exit(result.returncode)
+
+            output = result.stdout
+        else:
+            click.echo(f"Error: No plugin found for command '{cmd_name}'", err=True)
+            click.echo(f"\nAvailable shell commands:", err=True)
+            for name, meta in all_plugins.items():
+                if meta.category == 'shell':
+                    click.echo(f"  {meta.command}", err=True)
+            sys.exit(1)
+
+    # Output results (with optional limit)
+    if limit:
+        lines = output.strip().split('\n')
+        for i, line in enumerate(lines):
+            if i >= limit:
+                break
+            click.echo(line)
+    else:
+        click.echo(output, nl=False)
+
+
+@main.command()
+@click.argument('output', required=False, default='-')
+@click.option('--format', '-f', help='Output format (csv, json, etc). Auto-detected from extension.')
+@click.option('--indent', type=int, default=2, help='JSON indent level (default: 2)')
+@click.option('--delimiter', default=',', help='CSV delimiter (default: ,)')
+@click.option('--no-header', is_flag=True, help='Skip CSV header row')
+@click.option('--verbose', '-v', is_flag=True, help='Show processing details')
+def put(output, format, indent, delimiter, no_header, verbose):
+    """Write NDJSON from stdin to a file.
+
+    Reads NDJSON records from stdin and writes to the specified output format.
+    Format is auto-detected from file extension or can be specified explicitly.
+
+    Examples:
+        jn cat data.csv | jn put output.json    # CSV to JSON
+        jn cat api | jn put data.csv             # API to CSV
+        echo '{"a":1}' | jn put -                # Format to stdout
+    """
+    from pathlib import Path
+    import subprocess
+    import json
+
+    # Read NDJSON from stdin
+    records = []
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            records.append(json.loads(line))
+        except json.JSONDecodeError as e:
+            click.echo(f"Error: Invalid JSON on line: {line[:50]}...", err=True)
+            click.echo(f"  {e}", err=True)
+            sys.exit(1)
+
+    if verbose:
+        click.echo(f"Read {len(records)} records", err=True)
+
+    # Determine output format
+    if output == '-':
+        # Output to stdout - default to JSON
+        output_format = format or 'json'
+        use_stdout = True
+    else:
+        path = Path(output)
+        extension = path.suffix
+
+        if format:
+            output_format = format
+        elif extension:
+            # Map extension to format
+            ext_format_map = {
+                '.csv': 'csv',
+                '.tsv': 'tsv',
+                '.json': 'json',
+                '.jsonl': 'ndjson',
+                '.ndjson': 'ndjson',
+            }
+            output_format = ext_format_map.get(extension, 'json')
+        else:
+            output_format = 'json'
+
+        use_stdout = False
+
+    if verbose:
+        click.echo(f"Output format: {output_format}", err=True)
+
+    # Find appropriate writer plugin
+    # Map format to writer plugin name
+    format_writer_map = {
+        'csv': 'csv_writer',
+        'tsv': 'csv_writer',
+        'json': 'json_writer',
+        'ndjson': 'json_writer',
+    }
+
+    plugin_name = format_writer_map.get(output_format)
+
+    if not plugin_name:
+        click.echo(f"Error: No writer plugin found for format: {output_format}", err=True)
+        click.echo(f"Supported formats: {', '.join(format_writer_map.keys())}", err=True)
+        sys.exit(1)
+
+    all_plugins = discover_plugins(plugin_types={'target'})
+    if plugin_name not in all_plugins:
+        click.echo(f"Error: Plugin '{plugin_name}' not found", err=True)
+        sys.exit(1)
+
+    plugin_path = Path(all_plugins[plugin_name].path)
+
+    if verbose:
+        click.echo(f"Using plugin: {plugin_name}", err=True)
+
+    # Prepare plugin arguments based on format
+    cmd = [sys.executable, str(plugin_path)]
+
+    # CSV/TSV writer writes to stdout, we redirect to file
+    if output_format in ['csv', 'tsv']:
+        if delimiter != ',':
+            cmd.extend(['--delimiter', delimiter])
+        if no_header:
+            cmd.append('--no-header')
+    # JSON writer supports --output flag
+    elif output_format == 'json':
+        cmd.extend(['--indent', str(indent)])
+        if not use_stdout:
+            cmd.extend(['--output', output])
+    elif output_format == 'ndjson':
+        # NDJSON just passes through
+        pass
+
+    # Convert records back to NDJSON for plugin input
+    ndjson_input = '\n'.join(json.dumps(record) for record in records)
+
+    # Execute writer plugin
+    result = subprocess.run(
+        cmd,
+        input=ndjson_input,
+        capture_output=True,
+        text=True
+    )
+
+    if result.returncode != 0:
+        click.echo(f"Error: {result.stderr}", err=True)
+        sys.exit(result.returncode)
+
+    # Handle output
+    if use_stdout:
+        click.echo(result.stdout, nl=False)
+    elif output_format in ['csv', 'tsv', 'ndjson']:
+        # These writers output to stdout, write to file ourselves
+        with open(output, 'w') as f:
+            f.write(result.stdout)
+        if verbose:
+            click.echo(f"Wrote {len(records)} records to {output}", err=True)
+    else:
+        # JSON writer handles file output itself
+        if verbose:
+            click.echo(f"Wrote {len(records)} records to {output}", err=True)
+
+
 if __name__ == '__main__':
     main()

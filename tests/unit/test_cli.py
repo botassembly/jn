@@ -291,3 +291,206 @@ def test_run_with_command_source(runner):
     assert result.exit_code == 0
     assert 'Pipeline:' in result.output
     assert 'ls' in result.output
+
+
+def test_cat_csv_file(runner):
+    """Test cat command with CSV file."""
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+        f.write("name,age\nAlice,30\nBob,25\n")
+        f.flush()
+
+        result = runner.invoke(main, ['cat', f.name])
+        assert result.exit_code == 0
+
+        # Should output NDJSON
+        lines = result.output.strip().split('\n')
+        assert len(lines) == 2
+
+        record1 = json.loads(lines[0])
+        assert record1['name'] == 'Alice'
+        assert record1['age'] == '30'
+
+        # Cleanup
+        Path(f.name).unlink()
+
+
+def test_cat_json_file(runner):
+    """Test cat command with JSON file."""
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        f.write('{"x": 1}\n{"x": 2}\n')
+        f.flush()
+
+        result = runner.invoke(main, ['cat', f.name])
+        assert result.exit_code == 0
+
+        # Should output NDJSON
+        lines = result.output.strip().split('\n')
+        assert len(lines) == 2
+
+        record1 = json.loads(lines[0])
+        assert record1['x'] == 1
+
+        # Cleanup
+        Path(f.name).unlink()
+
+
+def test_cat_with_limit(runner):
+    """Test cat command with limit option."""
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+        f.write("name,age\nAlice,30\nBob,25\nCharlie,35\n")
+        f.flush()
+
+        result = runner.invoke(main, ['cat', f.name, '--limit', '2'])
+        assert result.exit_code == 0
+
+        # Should only output 2 records
+        lines = result.output.strip().split('\n')
+        assert len(lines) == 2
+
+        # Cleanup
+        Path(f.name).unlink()
+
+
+def test_cat_nonexistent_file(runner):
+    """Test cat with nonexistent file."""
+    result = runner.invoke(main, ['cat', '/nonexistent/file.csv'])
+    assert result.exit_code != 0
+    assert 'Error' in result.output
+
+
+def test_cat_file_no_extension(runner):
+    """Test cat with file without extension."""
+    with tempfile.NamedTemporaryFile(mode='w', suffix='', delete=False) as f:
+        f.write("data")
+        f.flush()
+
+        result = runner.invoke(main, ['cat', f.name])
+        assert result.exit_code != 0
+        assert 'Cannot determine file type' in result.output
+
+        # Cleanup
+        Path(f.name).unlink()
+
+
+def test_put_to_json(runner):
+    """Test put command to JSON file."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / 'output.json'
+
+        # Create NDJSON input
+        ndjson_input = '{"name": "Alice", "age": 30}\n{"name": "Bob", "age": 25}\n'
+
+        result = runner.invoke(main, ['put', str(output_path)], input=ndjson_input)
+        assert result.exit_code == 0
+
+        # Verify output file
+        assert output_path.exists()
+        with open(output_path, 'r') as f:
+            data = json.load(f)
+
+        assert len(data) == 2
+        assert data[0]['name'] == 'Alice'
+        assert data[1]['name'] == 'Bob'
+
+
+def test_put_to_csv(runner):
+    """Test put command to CSV file."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / 'output.csv'
+
+        # Create NDJSON input
+        ndjson_input = '{"name": "Alice", "age": 30}\n{"name": "Bob", "age": 25}\n'
+
+        result = runner.invoke(main, ['put', str(output_path)], input=ndjson_input)
+        assert result.exit_code == 0
+
+        # Verify output file
+        assert output_path.exists()
+        content = output_path.read_text()
+
+        assert 'name,age' in content
+        assert 'Alice,30' in content
+        assert 'Bob,25' in content
+
+
+def test_put_to_stdout(runner):
+    """Test put command to stdout."""
+    ndjson_input = '{"x": 1}\n{"x": 2}\n'
+
+    result = runner.invoke(main, ['put', '-', '--format', 'json'], input=ndjson_input)
+    assert result.exit_code == 0
+
+    # Should output JSON array
+    output_data = json.loads(result.output)
+    assert len(output_data) == 2
+    assert output_data[0]['x'] == 1
+
+
+def test_put_with_format_override(runner):
+    """Test put with explicit format override."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Use .txt extension but specify JSON format
+        output_path = Path(tmpdir) / 'output.txt'
+
+        ndjson_input = '{"x": 1}\n'
+
+        result = runner.invoke(main, ['put', str(output_path), '--format', 'json'], input=ndjson_input)
+        assert result.exit_code == 0
+
+        # Should create JSON despite .txt extension
+        assert output_path.exists()
+        with open(output_path, 'r') as f:
+            data = json.load(f)
+        assert data[0]['x'] == 1
+
+
+def test_put_with_csv_options(runner):
+    """Test put with CSV delimiter option."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / 'output.tsv'
+
+        ndjson_input = '{"name": "Alice", "age": 30}\n'
+
+        result = runner.invoke(main, ['put', str(output_path), '--delimiter', '\t'], input=ndjson_input)
+        assert result.exit_code == 0
+
+        # Verify TSV format
+        content = output_path.read_text()
+        assert '\t' in content
+
+
+def test_put_invalid_json_input(runner):
+    """Test put with invalid JSON input."""
+    invalid_input = 'not json\n'
+
+    result = runner.invoke(main, ['put', '-'], input=invalid_input)
+    assert result.exit_code != 0
+    assert 'Invalid JSON' in result.output
+
+
+def test_cat_verbose(runner):
+    """Test cat command with verbose flag."""
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+        f.write("name,age\nAlice,30\n")
+        f.flush()
+
+        result = runner.invoke(main, ['cat', f.name, '--verbose'])
+        assert result.exit_code == 0
+        assert 'Processing source' in result.output
+        assert 'Using plugin' in result.output
+
+        # Cleanup
+        Path(f.name).unlink()
+
+
+def test_put_verbose(runner):
+    """Test put command with verbose flag."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / 'output.json'
+
+        ndjson_input = '{"x": 1}\n'
+
+        result = runner.invoke(main, ['put', str(output_path), '--verbose'], input=ndjson_input)
+        assert result.exit_code == 0
+        assert 'Read 1 records' in result.output
+        assert 'Wrote 1 records' in result.output
