@@ -4,6 +4,7 @@ Command-line interface for discovering, inspecting, and executing plugins.
 """
 
 import sys
+import os
 import json
 from pathlib import Path
 from typing import Optional, List
@@ -371,6 +372,263 @@ def which(extension):
     else:
         click.echo(f"No plugin found for extension: {extension}", err=True)
         sys.exit(1)
+
+
+@main.command()
+@click.argument('plugin_type', type=click.Choice(['source', 'filter', 'target']))
+@click.argument('name')
+@click.option('--output-dir', '-o', default='plugins', help='Output directory (default: plugins)')
+@click.option('--description', '-d', default='', help='Short description')
+@click.option('--handles', help='File extensions to handle (comma-separated, e.g., .txt,.log)')
+@click.option('--streaming/--no-streaming', default=True, help='Enable streaming mode')
+@click.option('--force', '-f', is_flag=True, help='Overwrite existing file')
+def create(plugin_type, name, output_dir, description, handles, streaming, force):
+    """Create a new plugin from a template.
+
+    Creates a plugin file from built-in templates with proper structure.
+
+    Examples:
+        jn create source my_reader --handles .txt
+        jn create filter my_transform
+        jn create target my_writer --handles .out
+    """
+    import os
+    import stat
+    from pathlib import Path
+
+    # Determine template and output paths
+    template_map = {
+        'source': 'source_basic.py',
+        'filter': 'filter_basic.py',
+        'target': 'target_basic.py'
+    }
+
+    category_map = {
+        'source': 'readers',
+        'filter': 'filters',
+        'target': 'writers'
+    }
+
+    template_name = template_map[plugin_type]
+    category = category_map[plugin_type]
+
+    # Find template file
+    # Try package templates first, then project templates
+    template_search_paths = [
+        Path(__file__).parent.parent.parent / 'templates' / template_name,  # Project root
+        Path.home() / '.jn' / 'templates' / template_name,  # User directory
+    ]
+
+    template_path = None
+    for path in template_search_paths:
+        if path.exists():
+            template_path = path
+            break
+
+    if not template_path:
+        click.echo(f"Error: Template '{template_name}' not found", err=True)
+        click.echo(f"Searched paths:", err=True)
+        for path in template_search_paths:
+            click.echo(f"  {path}", err=True)
+        sys.exit(1)
+
+    # Determine output path
+    output_base = Path(output_dir)
+    if plugin_type in ['source', 'target']:
+        output_path = output_base / category / f'{name}.py'
+    else:
+        output_path = output_base / category / f'{name}.py'
+
+    # Check if file exists
+    if output_path.exists() and not force:
+        click.echo(f"Error: File already exists: {output_path}", err=True)
+        click.echo(f"Use --force to overwrite", err=True)
+        sys.exit(1)
+
+    # Read template
+    with open(template_path, 'r') as f:
+        template_content = f.read()
+
+    # Prepare replacements
+    replacements = {
+        '{{DESCRIPTION}}': description or f'{name} plugin',
+        '{{LONG_DESCRIPTION}}': f'Processes data for {name}.',
+        '{{DEPENDENCIES}}': '',
+        '{{HANDLES}}': f'"{handles}"' if handles else '".ext"',
+        '{{STREAMING}}': 'true' if streaming else 'false',
+        '{{RUN_DESCRIPTION}}': f'Process data for {name}',
+        '{{CONFIG_KEYS}}': 'None',
+        '{{YIELDS_DESCRIPTION}}': 'Dict per record',
+    }
+
+    # Apply replacements
+    output_content = template_content
+    for placeholder, value in replacements.items():
+        output_content = output_content.replace(placeholder, value)
+
+    # Create output directory
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Write file
+    with open(output_path, 'w') as f:
+        f.write(output_content)
+
+    # Make executable
+    current_perms = output_path.stat().st_mode
+    output_path.chmod(current_perms | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+    click.echo(f"Created plugin: {output_path}")
+    click.echo(f"\nNext steps:")
+    click.echo(f"  1. Edit the plugin: {output_path}")
+    click.echo(f"  2. Implement the run() function")
+    click.echo(f"  3. Add test cases to examples()")
+    click.echo(f"  4. Run tests: jn test {name}")
+
+
+@main.command()
+@click.argument('plugin_name')
+@click.option('--verbose', '-v', is_flag=True, help='Show detailed output')
+def test(plugin_name, verbose):
+    """Run tests for a specific plugin.
+
+    Executes the built-in tests for a plugin by calling its test() function.
+
+    Examples:
+        jn test csv_reader
+        jn test my_filter --verbose
+    """
+    import subprocess
+
+    # Discover plugins
+    all_plugins = discover_plugins()
+
+    if plugin_name not in all_plugins:
+        click.echo(f"Error: Plugin '{plugin_name}' not found.", err=True)
+        click.echo(f"\nAvailable plugins:", err=True)
+        for name in sorted(all_plugins.keys()):
+            click.echo(f"  {name}", err=True)
+        sys.exit(1)
+
+    plugin_meta = all_plugins[plugin_name]
+    plugin_path = Path(plugin_meta.path)
+
+    if verbose:
+        click.echo(f"Testing plugin: {plugin_name}", err=True)
+        click.echo(f"Path: {plugin_path}", err=True)
+        click.echo()
+
+    # Run plugin tests
+    result = subprocess.run(
+        [sys.executable, str(plugin_path), '--test'],
+        capture_output=True,
+        text=True
+    )
+
+    # Show output
+    if result.stderr:
+        click.echo(result.stderr, nl=False)
+    if result.stdout:
+        click.echo(result.stdout, nl=False)
+
+    sys.exit(result.returncode)
+
+
+@main.command()
+@click.argument('plugin_path', type=click.Path(exists=True))
+@click.option('--strict', is_flag=True, help='Strict validation (fail on warnings)')
+def validate(plugin_path, strict):
+    """Validate a plugin file.
+
+    Checks plugin structure, metadata, and runs basic validation.
+
+    Examples:
+        jn validate plugins/readers/my_reader.py
+        jn validate my_plugin.py --strict
+    """
+    from pathlib import Path
+
+    plugin_file = Path(plugin_path)
+
+    if not plugin_file.exists():
+        click.echo(f"Error: File not found: {plugin_path}", err=True)
+        sys.exit(1)
+
+    click.echo(f"Validating plugin: {plugin_file.name}")
+    click.echo()
+
+    issues = []
+    warnings = []
+
+    # Check file is executable
+    if not os.access(plugin_file, os.X_OK):
+        warnings.append("File is not executable (chmod +x recommended)")
+
+    # Try to parse metadata
+    try:
+        meta = parse_plugin_metadata(plugin_file)
+        if meta:
+            click.echo(f"✓ Metadata found:")
+            click.echo(f"  Type: {meta.type}")
+            click.echo(f"  Category: {meta.category}")
+            if meta.handles:
+                click.echo(f"  Handles: {', '.join(meta.handles)}")
+            if meta.command:
+                click.echo(f"  Command: {meta.command}")
+            click.echo(f"  Streaming: {meta.streaming}")
+        else:
+            issues.append("No META header found")
+    except Exception as e:
+        issues.append(f"Error parsing metadata: {e}")
+
+    # Check for required functions (basic check without importing)
+    content = plugin_file.read_text()
+
+    if 'def run(' not in content:
+        issues.append("Missing run() function")
+    else:
+        click.echo("✓ Has run() function")
+
+    if 'def examples(' not in content:
+        warnings.append("Missing examples() function (recommended)")
+    else:
+        click.echo("✓ Has examples() function")
+
+    if 'def test(' not in content:
+        warnings.append("Missing test() function (recommended)")
+    else:
+        click.echo("✓ Has test() function")
+
+    # Check shebang
+    first_line = content.split('\n')[0]
+    if not first_line.startswith('#!'):
+        warnings.append("Missing shebang line (#!/usr/bin/env python3)")
+
+    # Check PEP 723 dependencies
+    if '# /// script' in content and '# dependencies' in content:
+        click.echo("✓ Has PEP 723 dependencies block")
+    elif '# dependencies' not in content:
+        warnings.append("No PEP 723 dependencies block (add if needed)")
+
+    # Summary
+    click.echo()
+    if warnings:
+        click.echo(f"Warnings ({len(warnings)}):")
+        for warning in warnings:
+            click.echo(f"  ⚠ {warning}")
+
+    if issues:
+        click.echo()
+        click.echo(f"Issues ({len(issues)}):")
+        for issue in issues:
+            click.echo(f"  ✗ {issue}")
+        sys.exit(1)
+    elif strict and warnings:
+        click.echo()
+        click.echo("Validation failed (strict mode with warnings)")
+        sys.exit(1)
+    else:
+        click.echo()
+        click.echo("✓ Validation passed")
 
 
 @main.command()
