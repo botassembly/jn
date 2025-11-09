@@ -303,21 +303,32 @@ Vendor key commands from JC concepts:
 
 ---
 
-### Day 3-4: Network Shell Commands
+### Day 3-4: Network Shell Commands ✅ COMPLETE
 
-- [ ] `plugins/shell/dig.py` - DNS queries
-  - Parse dig output
-  - Fields: query, answer, authority, additional
+- [x] `plugins/shell/ping.py` - Network connectivity (200 LOC)
+  - Parse ping output to structured JSON
+  - Fields: host, packets_transmitted, packets_received, packet_loss_percent, replies[], rtt_min/avg/max/mdev_ms
+  - Individual reply details (bytes, icmp_seq, ttl, time_ms)
+  - Timeout and error handling
+  - Structure tests (3/3 passing)
 
-- [ ] `plugins/shell/netstat.py` - Network connections
+- [x] `plugins/shell/netstat.py` - Network connections (220 LOC)
   - Parse netstat output
-  - Fields: protocol, local_address, foreign_address, state
+  - Fields: protocol, recv_q, send_q, local_address, local_port, foreign_address, foreign_port, state
+  - Support for process info (pid, program) when available
+  - Flexible header parsing
+  - Structure tests (3/3 passing)
 
-- [ ] `plugins/shell/ping.py` - Network connectivity
-  - Parse ping output
-  - Fields: host, time, ttl, packets
+- [x] `plugins/shell/dig.py` - DNS queries (230 LOC)
+  - Parse dig output to structured JSON
+  - Fields: domain, record_type, answers[], authority[], additional[]
+  - Answer records with name, ttl, class, type, data
+  - Query statistics (query_time_ms, server, when, msg_size)
+  - Support for custom DNS servers
+  - Structure tests (3/3 passing)
 
-**Target:** 400 LOC | **Tests:** 6-8 tests
+**Status:** ✅ Complete | **LOC:** 650 | **Plugins:** 3 new, 14 total
+**All plugin structure tests passing!**
 
 ---
 
