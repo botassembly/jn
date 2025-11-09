@@ -1,28 +1,20 @@
-"""Pydantic models for jn.json configuration."""
+"""Pydantic models for jn.json configuration.
 
+Simplified registry architecture:
+- Api: Generic API configurations (REST, GraphQL, DB, etc.)
+- Filter: jq transformations
+"""
+
+from .api import Api, AuthConfig
 from .config import Config
-from .converter import Converter, JqConfig
-from .drivers import CurlSpec, ExecSpec, FileSpec, McpSpec, ShellSpec
 from .errors import Completed, Error
-from .pipeline import Pipeline, Step
-from .plans import PipelinePlan
-from .source import Source
-from .target import Target
+from .filter import Filter
 
 __all__ = [
+    "Api",
+    "AuthConfig",
     "Completed",
     "Config",
-    "Converter",
-    "CurlSpec",
     "Error",
-    "ExecSpec",
-    "FileSpec",
-    "JqConfig",
-    "McpSpec",
-    "Pipeline",
-    "PipelinePlan",
-    "ShellSpec",
-    "Source",
-    "Step",
-    "Target",
+    "Filter",
 ]

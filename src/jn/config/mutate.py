@@ -1,241 +1,141 @@
-"""Mutation helpers for config objects (add/update operations)."""
+"""Mutation helpers for config objects (add/update operations).
+
+Simplified mutations for apis and filters.
+"""
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 
-from jn.models import (
-    Converter,
-    CurlSpec,
-    Error,
-    ExecSpec,
-    FileSpec,
-    JqConfig,
-    Pipeline,
-    ShellSpec,
-    Source,
-    Step,
-    Target,
-)
+from jn.models import Api, AuthConfig, Error, Filter
 
 from .core import persist, require
 
-__all__ = ["add_converter", "add_pipeline", "add_source", "add_target"]
+__all__ = ["add_api", "add_filter"]
 
 
-def add_source(
+def add_api(
     name: str,
-    driver: Literal["exec", "shell", "curl", "file"],
-    argv: Optional[List[str]] = None,
-    cmd: Optional[str] = None,
-    url: Optional[str] = None,
-    method: str = "GET",
+    api_type: Literal[
+        "rest", "graphql", "postgres", "mysql", "s3", "gcs", "kafka"
+    ] = "rest",
+    base_url: Optional[str] = None,
+    endpoint: Optional[str] = None,
+    auth_type: Optional[
+        Literal["bearer", "basic", "oauth2", "api_key"]
+    ] = None,
+    token: Optional[str] = None,
+    username: Optional[str] = None,
+    password: Optional[str] = None,
+    api_key: Optional[str] = None,
+    header_name: Optional[str] = None,
     headers: Optional[Dict[str, str]] = None,
-    body: Any = None,
-    timeout: int = 30,
-    follow_redirects: bool = True,
-    retry: int = 0,
-    retry_delay: int = 2,
-    fail_on_error: bool = True,
-    path: Optional[str] = None,
-    env: Optional[Dict[str, str]] = None,
-    cwd: Optional[str] = None,
-    allow_outside_config: bool = False,
-) -> Source | Error:
-    """Add a new source to the cached config and persist it.
+    source_method: str = "GET",
+    target_method: str = "POST",
+    # Database fields
+    host: Optional[str] = None,
+    port: Optional[int] = None,
+    database: Optional[str] = None,
+    # Cloud storage fields
+    bucket: Optional[str] = None,
+    region: Optional[str] = None,
+    access_key: Optional[str] = None,
+    secret_key: Optional[str] = None,
+    # Message queue fields
+    brokers: Optional[List[str]] = None,
+    topic: Optional[str] = None,
+    consumer_group: Optional[str] = None,
+) -> Api | Error:
+    """Add a new API to the cached config and persist it.
 
-    File sources automatically use JC parsers based on file extension:
-    - .csv → csv_s (JC's built-in streaming CSV parser)
-    - .tsv → tsv_s (custom streaming TSV parser)
-    - .psv → psv_s (custom streaming PSV parser)
+    APIs are generic configurations that can be used as both sources and targets.
+    Supports REST, GraphQL, databases, cloud storage, and message queues.
+
+    Environment variable substitution:
+    Use ${env:VAR_NAME} in any string field, e.g., token="${env:GITHUB_TOKEN}"
     """
 
     config_obj = require().model_copy(deep=True)
 
-    if config_obj.has_source(name):
-        return Error(message=f"Source '{name}' already exists")
+    if config_obj.has_api(name):
+        return Error(message=f"API '{name}' already exists")
 
-    if driver == "exec":
-        source = Source(
-            name=name,
-            driver="exec",
-            exec=ExecSpec(argv=argv or [], cwd=cwd, env=env or {}),
-        )
-    elif driver == "shell":
-        source = Source(
-            name=name,
-            driver="shell",
-            shell=ShellSpec(cmd=cmd or ""),
-        )
-    elif driver == "curl":
-        source = Source(
-            name=name,
-            driver="curl",
-            curl=CurlSpec(
-                method=method,
-                url=url or "",
-                headers=headers or {},
-                body=body,
-                timeout=timeout,
-                follow_redirects=follow_redirects,
-                retry=retry,
-                retry_delay=retry_delay,
-                fail_on_error=fail_on_error,
-            ),
-        )
-    elif driver == "file":
-        source = Source(
-            name=name,
-            driver="file",
-            file=FileSpec(
-                path=path or "",
-                mode="read",
-                allow_outside_config=allow_outside_config,
-            ),
-        )
-    else:
-        return Error(message=f"Unknown driver: {driver}")
-
-    config_obj.sources.append(source)
-    persist(config_obj)
-    return source
-
-
-def add_target(
-    name: str,
-    driver: Literal["exec", "shell", "curl", "file"],
-    argv: Optional[List[str]] = None,
-    cmd: Optional[str] = None,
-    url: Optional[str] = None,
-    method: str = "POST",
-    headers: Optional[Dict[str, str]] = None,
-    body: Any = None,
-    timeout: int = 30,
-    follow_redirects: bool = True,
-    retry: int = 0,
-    retry_delay: int = 2,
-    fail_on_error: bool = True,
-    path: Optional[str] = None,
-    env: Optional[Dict[str, str]] = None,
-    cwd: Optional[str] = None,
-    append: bool = False,
-    create_parents: bool = False,
-    allow_outside_config: bool = False,
-) -> Target | Error:
-    """Add a new target to the cached config and persist it."""
-
-    config_obj = require().model_copy(deep=True)
-
-    if config_obj.has_target(name):
-        return Error(message=f"Target '{name}' already exists")
-
-    if driver == "exec":
-        target = Target(
-            name=name,
-            driver="exec",
-            exec=ExecSpec(argv=argv or [], cwd=cwd, env=env or {}),
-        )
-    elif driver == "shell":
-        target = Target(
-            name=name, driver="shell", shell=ShellSpec(cmd=cmd or "")
-        )
-    elif driver == "curl":
-        target = Target(
-            name=name,
-            driver="curl",
-            curl=CurlSpec(
-                method=method,
-                url=url or "",
-                headers=headers or {},
-                body=body,
-                timeout=timeout,
-                follow_redirects=follow_redirects,
-                retry=retry,
-                retry_delay=retry_delay,
-                fail_on_error=fail_on_error,
-            ),
-        )
-    elif driver == "file":
-        target = Target(
-            name=name,
-            driver="file",
-            file=FileSpec(
-                path=path or "",
-                mode="write",
-                append=append,
-                create_parents=create_parents,
-                allow_outside_config=allow_outside_config,
-            ),
-        )
-    else:
-        return Error(message=f"Unknown driver: {driver}")
-
-    config_obj.targets.append(target)
-    persist(config_obj)
-    return target
-
-
-def add_converter(
-    name: str,
-    expr: Optional[str] = None,
-    file: Optional[str] = None,
-    raw: bool = False,
-    modules: Optional[str] = None,
-) -> Converter | Error:
-    """Add a new jq converter to the cached config and persist it."""
-
-    config_obj = require().model_copy(deep=True)
-
-    if config_obj.has_converter(name):
-        return Error(message=f"Converter '{name}' already exists")
-
-    if not expr and not file:
-        return Error(
-            message="Either --expr or --file is required for jq converter"
+    # Build auth config if auth fields provided
+    auth = None
+    if auth_type:
+        auth = AuthConfig(
+            type=auth_type,
+            token=token,
+            username=username,
+            password=password,
+            api_key=api_key,
+            header_name=header_name,
         )
 
-    converter = Converter(
+    api = Api(
         name=name,
-        engine="jq",
-        jq=JqConfig(expr=expr, file=file, raw=raw, modules=modules),
+        type=api_type,
+        base_url=base_url,
+        endpoint=endpoint,
+        headers=headers or {},
+        auth=auth,
+        source_method=source_method,
+        target_method=target_method,
+        # Database fields
+        host=host,
+        port=port,
+        database=database,
+        user=username,  # Reuse username for DB user
+        password=password,
+        # Cloud storage fields
+        bucket=bucket,
+        region=region,
+        access_key=access_key,
+        secret_key=secret_key,
+        # Message queue fields
+        brokers=brokers or [],
+        topic=topic,
+        consumer_group=consumer_group,
     )
 
-    config_obj.converters.append(converter)
+    config_obj.apis.append(api)
     persist(config_obj)
-    return converter
+    return api
 
 
-def add_pipeline(name: str, steps: List[str]) -> Pipeline | Error:
-    """Add a new pipeline to the cached config and persist it."""
+def add_filter(
+    name: str,
+    query: str,
+    description: Optional[str] = None,
+) -> Filter | Error:
+    """Add a new filter to the cached config and persist it.
+
+    Filters are jq transformations that operate on JSON/NDJSON data.
+    The term 'filter' follows jq terminology (not 'converter').
+
+    Args:
+        name: Unique name for the filter
+        query: jq expression (e.g., "select(.amount > 1000)")
+        description: Optional human-readable description
+
+    Returns:
+        The created Filter or an Error if filter already exists
+    """
 
     config_obj = require().model_copy(deep=True)
 
-    if config_obj.has_pipeline(name):
-        return Error(message=f"Pipeline '{name}' already exists")
+    if config_obj.has_filter(name):
+        return Error(message=f"Filter '{name}' already exists")
 
-    if not steps:
-        return Error(message="Pipeline requires at least one step (--steps)")
+    if not query:
+        return Error(message="Filter query is required (--query)")
 
-    parsed_steps: list[Step] = []
-    for step_spec in steps:
-        if ":" not in step_spec:
-            return Error(
-                message=(
-                    f"Invalid step format: '{step_spec}'. Expected 'type:ref' (e.g., 'source:echo')"
-                )
-            )
+    filter_obj = Filter(
+        name=name,
+        query=query,
+        description=description,
+    )
 
-        step_type, step_ref = step_spec.split(":", 1)
-        if step_type not in {"source", "converter", "target"}:
-            return Error(
-                message=(
-                    f"Invalid step type: '{step_type}'. Must be 'source', 'converter', or 'target'"
-                )
-            )
-
-        parsed_steps.append(Step(type=step_type, ref=step_ref))
-
-    pipeline = Pipeline(name=name, steps=parsed_steps)
-    config_obj.pipelines.append(pipeline)
+    config_obj.filters.append(filter_obj)
     persist(config_obj)
-    return pipeline
+    return filter_obj

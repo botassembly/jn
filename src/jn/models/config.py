@@ -1,4 +1,9 @@
-"""Root configuration model for jn.json."""
+"""Root configuration model for jn.json.
+
+Simplified registry architecture with just two concepts:
+- apis: Generic API configurations (can be source or target)
+- filters: jq transformations (renamed from converters)
+"""
 
 from __future__ import annotations
 
@@ -7,24 +12,30 @@ from typing import Any, List
 
 from pydantic import BaseModel, Field, field_validator
 
-from .converter import Converter
-from .pipeline import Pipeline
-from .source import Source
-from .target import Target
+from .api import Api
+from .filter import Filter
 
 
 class Config(BaseModel):
-    """Root jn.json configuration."""
+    """Root jn.json configuration.
+
+    Simplified registry with just two sections:
+    - apis: REST APIs, GraphQL, databases, cloud storage, etc.
+    - filters: jq transformations
+
+    Auto-detection handles simple cases:
+    - File formats (CSV, JSON, etc.) - detected by extension
+    - Shell commands - via jc
+    - Plain URLs - no registry needed
+    """
 
     version: str
     name: str
-    sources: List[Source] = Field(default_factory=list)
-    targets: List[Target] = Field(default_factory=list)
-    converters: List[Converter] = Field(default_factory=list)
-    pipelines: List[Pipeline] = Field(default_factory=list)
+    apis: List[Api] = Field(default_factory=list)
+    filters: List[Filter] = Field(default_factory=list)
     config_path: Path | None = Field(default=None, exclude=True)
 
-    @field_validator("sources", "targets", "converters", "pipelines")
+    @field_validator("apis", "filters")
     @classmethod
     def names_unique(cls, v: List[Any]) -> List[Any]:
         """Ensure names are unique within each collection."""
@@ -34,45 +45,46 @@ class Config(BaseModel):
             raise ValueError("Duplicate names are not allowed")
         return v
 
-    def get_source(self, name: str) -> Source | None:
-        """Get source by name, or None if not found."""
+    def get_api(self, name: str) -> Api | None:
+        """Get API by name, or None if not found."""
 
-        return next((s for s in self.sources if s.name == name), None)
+        return next((a for a in self.apis if a.name == name), None)
 
-    def get_target(self, name: str) -> Target | None:
-        """Get target by name, or None if not found."""
+    def get_filter(self, name: str) -> Filter | None:
+        """Get filter by name, or None if not found."""
 
-        return next((t for t in self.targets if t.name == name), None)
+        return next((f for f in self.filters if f.name == name), None)
 
-    def get_converter(self, name: str) -> Converter | None:
-        """Get converter by name, or None if not found."""
+    def has_api(self, name: str) -> bool:
+        """Check if API exists."""
 
-        return next((c for c in self.converters if c.name == name), None)
+        return any(a.name == name for a in self.apis)
 
-    def get_pipeline(self, name: str) -> Pipeline | None:
-        """Get pipeline by name, or None if not found."""
+    def has_filter(self, name: str) -> bool:
+        """Check if filter exists."""
 
-        return next((p for p in self.pipelines if p.name == name), None)
+        return any(f.name == name for f in self.filters)
 
-    def has_source(self, name: str) -> bool:
-        """Check if source exists."""
+    def find_api_by_url(self, url: str) -> Api | None:
+        """Find API by longest prefix match on URL.
 
-        return any(s.name == name for s in self.sources)
+        Returns the API with the longest matching base_url prefix.
+        Example: If registry has both 'https://api.github.com' and
+        'https://api.github.com/v4/graphql', and url is
+        'https://api.github.com/v4/graphql/query', it returns the latter.
+        """
 
-    def has_target(self, name: str) -> bool:
-        """Check if target exists."""
+        matches = []
+        for api in self.apis:
+            if api.base_url and url.startswith(api.base_url):
+                matches.append((len(api.base_url), api))
 
-        return any(t.name == name for t in self.targets)
+        if not matches:
+            return None
 
-    def has_converter(self, name: str) -> bool:
-        """Check if converter exists."""
-
-        return any(c.name == name for c in self.converters)
-
-    def has_pipeline(self, name: str) -> bool:
-        """Check if pipeline exists."""
-
-        return any(p.name == name for p in self.pipelines)
+        # Return API with longest prefix match
+        matches.sort(key=lambda x: x[0], reverse=True)
+        return matches[0][1]
 
 
 __all__ = ["Config"]
