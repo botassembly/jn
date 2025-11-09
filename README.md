@@ -277,7 +277,7 @@ plugin1 < input.txt | plugin2 | plugin3 > output.json
 - ✅ 19 working plugins
 - ✅ Full CLI (10 commands)
 - ✅ Plugin creation tools
-- ✅ 105 tests passing (72% coverage)
+- ✅ 105 tests passing (78% coverage)
 
 **Coming Soon:**
 - Excel reader/writer
