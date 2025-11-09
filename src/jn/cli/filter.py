@@ -29,10 +29,19 @@ def default(ctx: typer.Context, jn: ConfigPathType = ConfigPath):
 
 @app.command()
 def add(
-    name: str = typer.Argument(..., help="Unique name for the filter"),
-    query: str = typer.Option(..., "--query", help="jq expression to apply"),
+    name: str = typer.Argument(
+        ...,
+        help="Unique name for the filter",
+    ),
+    query: str = typer.Option(
+        ...,
+        "--query",
+        help="jq expression to apply",
+    ),
     description: Optional[str] = typer.Option(
-        None, "--description", help="Human-readable description"
+        None,
+        "--description",
+        help="Human-readable description",
     ),
     yes: bool = typer.Option(
         False,
@@ -43,7 +52,9 @@ def add(
         help="Skip confirmation when replacing",
     ),
     skip_if_exists: bool = typer.Option(
-        False, "--skip-if-exists", help="Skip if filter already exists"
+        False,
+        "--skip-if-exists",
+        help="Skip if filter already exists",
     ),
     jn: ConfigPathType = ConfigPath,
 ) -> None:

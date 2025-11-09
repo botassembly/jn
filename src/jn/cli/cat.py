@@ -189,16 +189,22 @@ def _execute_source(
 @app.command()
 def cat(
     source: str = typer.Argument(
-        ..., help="Source: URL, file path, or command"
+        ...,
+        help="Source: URL, file path, or command",
     ),
     source_args: Optional[list[str]] = typer.Argument(
-        None, help="Arguments for the source (if command)"
+        None,
+        help="Arguments for the source (if command)",
     ),
     driver: Optional[str] = typer.Option(
-        None, "--driver", help="Force specific driver (file, curl, exec)"
+        None,
+        "--driver",
+        help="Force specific driver (file, curl, exec)",
     ),
     parser: Optional[str] = typer.Option(
-        None, "--parser", help="Force specific JC parser"
+        None,
+        "--parser",
+        help="Force specific JC parser",
     ),
 ) -> None:
     """Output source data as JSON (auto-detects driver and parser).
@@ -233,17 +239,27 @@ def cat(
 @app.command()
 def head(
     source: str = typer.Argument(
-        ..., help="Source: URL, file path, or command"
+        ...,
+        help="Source: URL, file path, or command",
     ),
     source_args: Optional[list[str]] = typer.Argument(
-        None, help="Arguments for the source (if command)"
+        None,
+        help="Arguments for the source (if command)",
     ),
-    n: int = typer.Option(10, "-n", help="Number of lines to output"),
+    n: int = typer.Option(
+        10,
+        "-n",
+        help="Number of lines to output",
+    ),
     driver: Optional[str] = typer.Option(
-        None, "--driver", help="Force specific driver (file, curl, exec)"
+        None,
+        "--driver",
+        help="Force specific driver (file, curl, exec)",
     ),
     parser: Optional[str] = typer.Option(
-        None, "--parser", help="Force specific JC parser"
+        None,
+        "--parser",
+        help="Force specific JC parser",
     ),
 ) -> None:
     """Output first N records from source.
@@ -280,17 +296,27 @@ def head(
 @app.command()
 def tail(
     source: str = typer.Argument(
-        ..., help="Source: URL, file path, or command"
+        ...,
+        help="Source: URL, file path, or command",
     ),
     source_args: Optional[list[str]] = typer.Argument(
-        None, help="Arguments for the source (if command)"
+        None,
+        help="Arguments for the source (if command)",
     ),
-    n: int = typer.Option(10, "-n", help="Number of lines to output"),
+    n: int = typer.Option(
+        10,
+        "-n",
+        help="Number of lines to output",
+    ),
     driver: Optional[str] = typer.Option(
-        None, "--driver", help="Force specific driver (file, curl, exec)"
+        None,
+        "--driver",
+        help="Force specific driver (file, curl, exec)",
     ),
     parser: Optional[str] = typer.Option(
-        None, "--parser", help="Force specific JC parser"
+        None,
+        "--parser",
+        help="Force specific JC parser",
     ),
 ) -> None:
     """Output last N records from source.

@@ -34,24 +34,39 @@ def default(ctx: typer.Context, jn: ConfigPathType = ConfigPath):
 
 @app.command()
 def add(
-    name: str = typer.Argument(..., help="Unique name for the API"),
+    name: str = typer.Argument(
+        ...,
+        help="Unique name for the API",
+    ),
     base_url: Optional[str] = typer.Option(
-        None, "--base-url", help="Base URL for REST API"
+        None,
+        "--base-url",
+        help="Base URL for REST API",
     ),
     auth_type: Optional[str] = typer.Option(
-        None, "--auth", help="Auth type: bearer, basic, oauth2, api_key"
+        None,
+        "--auth",
+        help="Auth type: bearer, basic, oauth2, api_key",
     ),
     token: Optional[str] = typer.Option(
-        None, "--token", help="Auth token (supports ${env:VAR})"
+        None,
+        "--token",
+        help="Auth token (supports ${env:VAR})",
     ),
     username: Optional[str] = typer.Option(
-        None, "--username", help="Username for basic auth or DB user"
+        None,
+        "--username",
+        help="Username for basic auth or DB user",
     ),
     password: Optional[str] = typer.Option(
-        None, "--password", help="Password (supports ${env:VAR})"
+        None,
+        "--password",
+        help="Password (supports ${env:VAR})",
     ),
     header: Optional[List[str]] = typer.Option(
-        None, "--header", help="HTTP header in KEY:VALUE format"
+        None,
+        "--header",
+        help="HTTP header in KEY:VALUE format",
     ),
     source_method: str = typer.Option(
         "GET",
@@ -77,7 +92,9 @@ def add(
         help="Skip confirmation when replacing",
     ),
     skip_if_exists: bool = typer.Option(
-        False, "--skip-if-exists", help="Skip if API already exists"
+        False,
+        "--skip-if-exists",
+        help="Skip if API already exists",
     ),
     jn: ConfigPathType = ConfigPath,
 ) -> None:

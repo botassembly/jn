@@ -64,23 +64,38 @@ def read_ndjson_from_stdin():
 @app.command()
 def put(
     output_file: str = typer.Argument(
-        ..., help="Output file path (use '-' for stdout)"
+        ...,
+        help="Output file path (use '-' for stdout)",
     ),
     format: Optional[str] = typer.Option(
-        None, "--format", help="Output format: csv, tsv, psv, json, ndjson"
+        None,
+        "--format",
+        help="Output format: csv, tsv, psv, json, ndjson",
     ),
     header: bool = typer.Option(
-        True, "--header/--no-header", help="Include header row (CSV only)"
+        True,
+        "--header/--no-header",
+        help="Include header row (CSV only)",
     ),
     delimiter: str = typer.Option(
-        ",", "--delimiter", help="Field delimiter (CSV)"
+        ",",
+        "--delimiter",
+        help="Field delimiter (CSV)",
     ),
-    pretty: bool = typer.Option(False, "--pretty", help="Pretty-print JSON"),
+    pretty: bool = typer.Option(
+        False,
+        "--pretty",
+        help="Pretty-print JSON",
+    ),
     overwrite: bool = typer.Option(
-        True, "--overwrite/--no-overwrite", help="Overwrite existing file"
+        True,
+        "--overwrite/--no-overwrite",
+        help="Overwrite existing file",
     ),
     append: bool = typer.Option(
-        False, "--append", help="Append to existing file"
+        False,
+        "--append",
+        help="Append to existing file",
     ),
 ) -> None:
     """Write NDJSON from stdin to file in specified format.
