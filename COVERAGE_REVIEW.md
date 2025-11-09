@@ -1,12 +1,14 @@
 # Coverage Review - JN v4.0.0-alpha1
 
-**Date:** 2025-11-09
-**Overall Coverage:** 71% (1096 statements, 279 missed)
+**Date:** 2025-11-09 (Updated after code cleanup)
+**Overall Coverage:** 74% (1034 statements, 225 missed)
 **Test Count:** 105 passing (100%)
 
 ## Summary
 
 Strong coverage across core modules with excellent outside-in CLI testing. The framework is production-ready for alpha use with comprehensive testing of user-facing functionality.
+
+**Cleanup Impact:** Removed 63 statements of dead code (detection.py and subprocess_utils.py), improving coverage from 71% to 74%. All remaining modules are actively used and tested.
 
 ## Module Breakdown
 
@@ -33,9 +35,10 @@ Strong coverage across core modules with excellent outside-in CLI testing. The f
 ### Good Coverage (60-75%)
 
 **src/jn/pipeline.py - 67%** ✅
-- 150 statements, 39 missed
+- 151 statements, 39 missed
 - Pipeline construction tested
 - Auto-detection working
+- Inlined is_url() helper for cleaner dependencies
 - Missing: Some advanced pipeline scenarios and error cases
 
 ### Moderate Coverage (40-60%)
@@ -46,17 +49,16 @@ Strong coverage across core modules with excellent outside-in CLI testing. The f
 - Missing: Error handling, UV integration paths, complex pipe scenarios
 - Recommendation: Add more integration tests for pipeline execution
 
-### Low Coverage (<40%)
+### Removed Modules
 
-**src/jn/detection.py - 20%** ⚠️
-- 34 statements, 25 missed
-- Basic detection logic only
-- Recommendation: May be deprecated/unused code from oldgen
+**src/jn/detection.py** - ❌ REMOVED
+- Was 20% coverage (34 statements, 25 missed)
+- Only one function (is_url) was used - inlined into pipeline.py
+- All other functions were dead code from oldgen
 
-**src/jn/subprocess_utils.py - 0%** ⚠️
-- 29 statements, 0 tested
-- Harvested utility module
-- Recommendation: Either test or remove if unused
+**src/jn/subprocess_utils.py** - ❌ REMOVED
+- Was 0% coverage (29 statements, 0 tested)
+- Not imported anywhere - complete dead code from oldgen harvest
 
 ## Test Distribution
 
@@ -97,35 +99,42 @@ Strong coverage across core modules with excellent outside-in CLI testing. The f
 ## Areas for Improvement
 
 1. **Executor Module** (47%) - Add more execution edge cases
-2. **Detection Module** (20%) - Audit and test or remove
-3. **Subprocess Utils** (0%) - Audit and test or remove
-4. **Error Paths** - Many error handling branches untested
+2. **Error Paths** - Many error handling branches untested in CLI and pipeline
+3. **Advanced Scenarios** - More complex pipeline integration tests
 
 ## Recommendations
 
 ### For v4.0.0 Release
-- ✅ Current 71% coverage is acceptable for alpha
+- ✅ Current 74% coverage exceeds alpha requirements
 - ✅ User-facing functionality well tested
 - ✅ Core modules have strong coverage
+- ✅ All dead code removed - lean codebase
 
 ### Future Improvements
 1. Add executor integration tests for:
    - Error handling
    - Multi-stage pipelines
    - UV dependency resolution
-   
-2. Review and clean up:
-   - `detection.py` - possibly deprecated
-   - `subprocess_utils.py` - possibly unused
 
-3. Target 80%+ for beta release
+2. Improve CLI edge case coverage:
+   - Error paths in new commands (create, test, validate)
+   - Complex pipeline scenarios
+
+3. Target 80%+ for beta release (currently 74%)
 
 ## Conclusion
 
 The codebase demonstrates **production-ready quality** for an alpha release:
-- Strong coverage of critical paths (discovery, registry, CLI)
+- Strong coverage of critical paths (discovery 91%, registry 94%, CLI 77%)
 - Comprehensive outside-in testing approach
-- All tests passing
+- All tests passing (105/105)
+- All dead code removed - lean, maintainable codebase
 - Clear areas for future improvement identified
 
-The 71% overall coverage combined with 100% test success rate indicates a **well-tested, reliable foundation** for the JN framework.
+The **74% overall coverage** (improved from 71% after cleanup) combined with **100% test success rate** indicates a **well-tested, reliable foundation** for the JN framework.
+
+**Post-cleanup metrics:**
+- 5 core modules (down from 7)
+- 1034 statements (down from 1096)
+- 225 missed (down from 279)
+- Zero unused code

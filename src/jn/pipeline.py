@@ -1,15 +1,21 @@
 """Automatic pipeline construction.
 
 Analyzes command-line arguments to build a pipeline of source → filters → target.
-Uses detection and registry to automatically select appropriate plugins.
+Uses registry to automatically select appropriate plugins.
 """
 
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 from dataclasses import dataclass, field
 
-from .detection import detect_source_type, is_url
 from .registry import get_registry, resolve_plugin
+
+
+def is_url(source: str) -> bool:
+    """Check if source is a URL pattern."""
+    return source.startswith(
+        ("http://", "https://", "ftp://", "ftps://", "s3://")
+    )
 
 
 @dataclass
