@@ -494,3 +494,175 @@ def test_put_verbose(runner):
         assert result.exit_code == 0
         assert 'Read 1 records' in result.output
         assert 'Wrote 1 records' in result.output
+
+
+def test_create_source_plugin(runner):
+    """Test create command for source plugin."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = runner.invoke(main, [
+            'create', 'source', 'test_reader',
+            '--output-dir', tmpdir,
+            '--description', 'Test reader plugin',
+            '--handles', '.test'
+        ])
+
+        assert result.exit_code == 0
+        assert 'Created plugin:' in result.output
+
+        # Check file was created
+        plugin_path = Path(tmpdir) / 'readers' / 'test_reader.py'
+        assert plugin_path.exists()
+
+        # Check file is executable
+        import os
+        assert os.access(plugin_path, os.X_OK)
+
+        # Check content
+        content = plugin_path.read_text()
+        assert 'Test reader plugin' in content
+        assert '".test"' in content
+        assert 'def run(' in content
+
+
+def test_create_filter_plugin(runner):
+    """Test create command for filter plugin."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = runner.invoke(main, [
+            'create', 'filter', 'test_transform',
+            '--output-dir', tmpdir,
+            '--description', 'Test transformer'
+        ])
+
+        assert result.exit_code == 0
+        assert 'Created plugin:' in result.output
+
+        plugin_path = Path(tmpdir) / 'filters' / 'test_transform.py'
+        assert plugin_path.exists()
+
+        content = plugin_path.read_text()
+        assert 'Test transformer' in content
+        assert 'type=filter' in content
+
+
+def test_create_target_plugin(runner):
+    """Test create command for target plugin."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = runner.invoke(main, [
+            'create', 'target', 'test_writer',
+            '--output-dir', tmpdir,
+            '--handles', '.out'
+        ])
+
+        assert result.exit_code == 0
+        plugin_path = Path(tmpdir) / 'writers' / 'test_writer.py'
+        assert plugin_path.exists()
+
+
+def test_create_plugin_already_exists(runner):
+    """Test create command when file already exists."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Create first time
+        result = runner.invoke(main, [
+            'create', 'filter', 'test_plugin',
+            '--output-dir', tmpdir
+        ])
+        assert result.exit_code == 0
+
+        # Try to create again without --force
+        result = runner.invoke(main, [
+            'create', 'filter', 'test_plugin',
+            '--output-dir', tmpdir
+        ])
+        assert result.exit_code != 0
+        assert 'already exists' in result.output
+
+
+def test_create_plugin_force_overwrite(runner):
+    """Test create command with --force flag."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Create first time
+        runner.invoke(main, [
+            'create', 'filter', 'test_plugin',
+            '--output-dir', tmpdir
+        ])
+
+        # Overwrite with --force
+        result = runner.invoke(main, [
+            'create', 'filter', 'test_plugin',
+            '--output-dir', tmpdir,
+            '--force'
+        ])
+        assert result.exit_code == 0
+        assert 'Created plugin:' in result.output
+
+
+def test_test_command_existing_plugin(runner):
+    """Test test command with existing plugin."""
+    result = runner.invoke(main, ['test', 'csv_reader'])
+    assert result.exit_code == 0
+    assert 'passed' in result.output
+
+
+def test_test_command_nonexistent_plugin(runner):
+    """Test test command with nonexistent plugin."""
+    result = runner.invoke(main, ['test', 'nonexistent_plugin'])
+    assert result.exit_code != 0
+    assert 'not found' in result.output
+
+
+def test_test_command_verbose(runner):
+    """Test test command with verbose flag."""
+    result = runner.invoke(main, ['test', 'json_reader', '--verbose'])
+    assert result.exit_code == 0
+    assert 'Testing plugin:' in result.output
+
+
+def test_validate_command_existing_plugin(runner):
+    """Test validate command with existing plugin."""
+    plugin_path = Path('plugins/readers/csv_reader.py')
+    result = runner.invoke(main, ['validate', str(plugin_path)])
+
+    assert result.exit_code == 0
+    assert 'Validation passed' in result.output
+    assert 'Metadata found' in result.output
+
+
+def test_validate_command_checks_structure(runner):
+    """Test validate command checks plugin structure."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Create a plugin with missing functions
+        bad_plugin = Path(tmpdir) / 'bad_plugin.py'
+        bad_plugin.write_text("""#!/usr/bin/env python3
+# META: type=source, handles=[".bad"]
+
+def not_run():
+    pass
+""")
+
+        result = runner.invoke(main, ['validate', str(bad_plugin)])
+        assert result.exit_code != 0
+        assert 'Missing run() function' in result.output
+
+
+def test_validate_command_strict_mode(runner):
+    """Test validate command with strict mode."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Create plugin missing recommended functions
+        plugin = Path(tmpdir) / 'minimal_plugin.py'
+        plugin.write_text("""#!/usr/bin/env python3
+# META: type=source, handles=[".min"]
+
+def run():
+    pass
+""")
+
+        result = runner.invoke(main, ['validate', str(plugin), '--strict'])
+        assert result.exit_code != 0
+        assert 'Warnings' in result.output
+
+
+def test_validate_command_nonexistent_file(runner):
+    """Test validate command with nonexistent file."""
+    result = runner.invoke(main, ['validate', '/nonexistent/plugin.py'])
+    assert result.exit_code != 0
+    assert 'does not exist' in result.output
