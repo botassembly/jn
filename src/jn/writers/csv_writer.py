@@ -3,7 +3,7 @@
 import csv
 import sys
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, TextIO
+from typing import Any, Dict, Iterator, List
 
 
 def write_csv(
@@ -44,24 +44,25 @@ def write_csv(
     all_keys: List[str] = []
     seen = set()
     for record in records_list:
-        for key in record.keys():
+        for key in record:
             if key not in seen:
                 all_keys.append(key)
                 seen.add(key)
 
     # Write CSV
-    output: TextIO
     if output_file:
         mode = "a" if append else "w"
-        output = open(output_file, mode, newline="")
+        with open(output_file, mode, newline="") as output:
+            writer = csv.DictWriter(
+                output, fieldnames=all_keys, delimiter=delimiter
+            )
+            if header and not append:
+                writer.writeheader()
+            writer.writerows(records_list)
     else:
-        output = sys.stdout
-
-    try:
-        writer = csv.DictWriter(output, fieldnames=all_keys, delimiter=delimiter)
+        writer = csv.DictWriter(
+            sys.stdout, fieldnames=all_keys, delimiter=delimiter
+        )
         if header and not append:
             writer.writeheader()
         writer.writerows(records_list)
-    finally:
-        if output_file:
-            output.close()

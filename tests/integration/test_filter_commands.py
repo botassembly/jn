@@ -57,7 +57,9 @@ def test_filter_show_displays_details(runner, tmp_path):
     init_config(runner, config_path)
     add_filter(runner, config_path, "test", "select(.amount > 100)")
 
-    result = runner.invoke(app, ["filter", "show", "test", "--jn", str(config_path)])
+    result = runner.invoke(
+        app, ["filter", "show", "test", "--jn", str(config_path)]
+    )
 
     assert result.exit_code == 0
     output_json = json.loads(result.output)
@@ -76,7 +78,9 @@ def test_filter_rm_removes_filter(runner, tmp_path):
     assert len(config["filters"]) == 1
 
     # Remove with --force to skip confirmation
-    result = runner.invoke(app, ["filter", "rm", "test", "--force", "--jn", str(config_path)])
+    result = runner.invoke(
+        app, ["filter", "rm", "test", "--force", "--jn", str(config_path)]
+    )
 
     assert result.exit_code == 0
     assert "Removed filter: test" in result.output
@@ -174,7 +178,9 @@ def test_filter_add_with_yes_flag_replaces_without_prompt(runner, tmp_path):
     # BEFORE/AFTER diff is still shown, but no confirmation prompt
     assert "BEFORE" in result.output
     assert "AFTER" in result.output
-    assert "Replace existing filter?" not in result.output  # No prompt when --yes
+    assert (
+        "Replace existing filter?" not in result.output
+    )  # No prompt when --yes
     assert "Cancelled" not in result.output
 
     # Verify it was replaced
@@ -216,7 +222,9 @@ def test_filter_show_nonexistent_returns_error(runner, tmp_path):
     config_path = tmp_path / "jn.json"
     init_config(runner, config_path)
 
-    result = runner.invoke(app, ["filter", "show", "nonexistent", "--jn", str(config_path)])
+    result = runner.invoke(
+        app, ["filter", "show", "nonexistent", "--jn", str(config_path)]
+    )
 
     assert result.exit_code == 1
     assert "not found" in result.output
@@ -227,7 +235,10 @@ def test_filter_rm_nonexistent_returns_error(runner, tmp_path):
     config_path = tmp_path / "jn.json"
     init_config(runner, config_path)
 
-    result = runner.invoke(app, ["filter", "rm", "nonexistent", "--force", "--jn", str(config_path)])
+    result = runner.invoke(
+        app,
+        ["filter", "rm", "nonexistent", "--force", "--jn", str(config_path)],
+    )
 
     assert result.exit_code == 1
     assert "not found" in result.output

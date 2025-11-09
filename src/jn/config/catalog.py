@@ -108,7 +108,9 @@ def get_api(name: str, path: Optional[Path | str] = None) -> Optional[Api]:
     return _get_by_name(name, "apis", path)
 
 
-def get_filter(name: str, path: Optional[Path | str] = None) -> Optional[Filter]:
+def get_filter(
+    name: str, path: Optional[Path | str] = None
+) -> Optional[Filter]:
     """Get filter by name, or None if not found."""
     return _get_by_name(name, "filters", path)
 

@@ -3,7 +3,7 @@
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict, Iterator, TextIO
+from typing import Any, Dict, Iterator
 
 
 def write_json(
@@ -27,18 +27,16 @@ def write_json(
     records_list = list(records)
 
     # Write JSON array
-    output: TextIO
     if output_file:
-        output = open(output_file, "w")
+        with open(output_file, "w") as output:
+            if pretty:
+                json.dump(records_list, output, indent=2)
+            else:
+                json.dump(records_list, output)
+            output.write("\n")  # Add trailing newline
     else:
-        output = sys.stdout
-
-    try:
         if pretty:
-            json.dump(records_list, output, indent=2)
+            json.dump(records_list, sys.stdout, indent=2)
         else:
-            json.dump(records_list, output)
-        output.write("\n")  # Add trailing newline
-    finally:
-        if output_file:
-            output.close()
+            json.dump(records_list, sys.stdout)
+        sys.stdout.write("\n")  # Add trailing newline

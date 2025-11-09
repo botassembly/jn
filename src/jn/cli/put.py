@@ -54,20 +54,34 @@ def read_ndjson_from_stdin():
         try:
             yield json.loads(line)
         except json.JSONDecodeError as e:
-            typer.echo(f"Error: Invalid JSON on line: {line[:50]}...", err=True)
+            typer.echo(
+                f"Error: Invalid JSON on line: {line[:50]}...", err=True
+            )
             typer.echo(f"  {e}", err=True)
             raise typer.Exit(1)
 
 
 @app.command()
 def put(
-    output_file: str = typer.Argument(..., help="Output file path (use '-' for stdout)"),
-    format: Optional[str] = typer.Option(None, "--format", help="Output format: csv, tsv, psv, json, ndjson"),
-    header: bool = typer.Option(True, "--header/--no-header", help="Include header row (CSV only)"),
-    delimiter: str = typer.Option(",", "--delimiter", help="Field delimiter (CSV)"),
+    output_file: str = typer.Argument(
+        ..., help="Output file path (use '-' for stdout)"
+    ),
+    format: Optional[str] = typer.Option(
+        None, "--format", help="Output format: csv, tsv, psv, json, ndjson"
+    ),
+    header: bool = typer.Option(
+        True, "--header/--no-header", help="Include header row (CSV only)"
+    ),
+    delimiter: str = typer.Option(
+        ",", "--delimiter", help="Field delimiter (CSV)"
+    ),
     pretty: bool = typer.Option(False, "--pretty", help="Pretty-print JSON"),
-    overwrite: bool = typer.Option(True, "--overwrite/--no-overwrite", help="Overwrite existing file"),
-    append: bool = typer.Option(False, "--append", help="Append to existing file"),
+    overwrite: bool = typer.Option(
+        True, "--overwrite/--no-overwrite", help="Overwrite existing file"
+    ),
+    append: bool = typer.Option(
+        False, "--append", help="Append to existing file"
+    ),
 ) -> None:
     """Write NDJSON from stdin to file in specified format.
 
@@ -95,7 +109,9 @@ def put(
     # Handle stdout
     if output_file == "-":
         if not format:
-            typer.echo("Error: --format is required when writing to stdout", err=True)
+            typer.echo(
+                "Error: --format is required when writing to stdout", err=True
+            )
             raise typer.Exit(1)
         output_path = None
     else:
@@ -119,20 +135,43 @@ def put(
     # Write based on format
     try:
         if format == "csv":
-            write_csv(records, output_path, delimiter=delimiter, header=header, append=append)
+            write_csv(
+                records,
+                output_path,
+                delimiter=delimiter,
+                header=header,
+                append=append,
+            )
         elif format == "tsv":
-            write_csv(records, output_path, delimiter="\t", header=header, append=append)
+            write_csv(
+                records,
+                output_path,
+                delimiter="\t",
+                header=header,
+                append=append,
+            )
         elif format == "psv":
-            write_csv(records, output_path, delimiter="|", header=header, append=append)
+            write_csv(
+                records,
+                output_path,
+                delimiter="|",
+                header=header,
+                append=append,
+            )
         elif format == "json":
             if append:
-                typer.echo("Warning: --append not supported for JSON format (array format)", err=True)
+                typer.echo(
+                    "Warning: --append not supported for JSON format (array format)",
+                    err=True,
+                )
             write_json(records, output_path, pretty=pretty)
         elif format == "ndjson":
             write_ndjson(records, output_path, append=append)
         else:
             typer.echo(f"Error: Unsupported format: {format}", err=True)
-            typer.echo("Supported formats: csv, tsv, psv, json, ndjson", err=True)
+            typer.echo(
+                "Supported formats: csv, tsv, psv, json, ndjson", err=True
+            )
             raise typer.Exit(1)
 
     except Exception as e:

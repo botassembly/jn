@@ -12,7 +12,11 @@ from typing import Iterator, Optional
 import jc
 import typer
 
-# Register our custom parsers with JC
+from jn.cli import app
+from jn.drivers import spawn_curl, spawn_exec
+from jn.exceptions import JnError
+
+# Register our custom parsers with JC before other jn imports
 # JC's plugin system expects parsers in jc.parsers namespace
 from jn.jcparsers import generic_s, psv_s, toml_s, tsv_s, xml_s, yaml_s
 
@@ -22,10 +26,6 @@ sys.modules["jc.parsers.generic_s"] = generic_s
 sys.modules["jc.parsers.yaml_s"] = yaml_s
 sys.modules["jc.parsers.toml_s"] = toml_s
 sys.modules["jc.parsers.xml_s"] = xml_s
-
-from jn.cli import app
-from jn.drivers import spawn_curl, spawn_exec
-from jn.exceptions import JnError
 
 
 def _is_url(source: str) -> bool:
@@ -88,10 +88,10 @@ def _detect_source_type(
 
     # 3. Check if command is in jc registry
     if _is_jc_command(source):
-        return ("exec", source, [source] + args)
+        return ("exec", source, [source, *args])
 
     # 4. Fallback: unknown command with generic parser
-    return ("exec", "generic_s", [source] + args)
+    return ("exec", "generic_s", [source, *args])
 
 
 def _execute_source(
@@ -124,7 +124,9 @@ def _execute_source(
             fail_on_error=True,
         )
         if result.returncode != 0:
-            raise JnError("source", url, result.returncode, result.stderr.decode("utf-8"))
+            raise JnError(
+                "source", url, result.returncode, result.stderr.decode("utf-8")
+            )
         yield result.stdout
 
     elif driver == "file":
@@ -137,7 +139,9 @@ def _execute_source(
             # Parse file with JC streaming parser
             with open(file_path, encoding="utf-8") as f:
                 for item in jc.parse(parser, f):
-                    yield json.dumps(item, ensure_ascii=False).encode("utf-8") + b"\n"
+                    yield json.dumps(item, ensure_ascii=False).encode(
+                        "utf-8"
+                    ) + b"\n"
         else:
             # Stream raw file
             with open(file_path, "rb") as f:
@@ -155,7 +159,12 @@ def _execute_source(
 
         result = spawn_exec(argv, env=None, cwd=None)
         if result.returncode != 0:
-            raise JnError("source", " ".join(argv), result.returncode, result.stderr.decode("utf-8"))
+            raise JnError(
+                "source",
+                " ".join(argv),
+                result.returncode,
+                result.stderr.decode("utf-8"),
+            )
 
         # If using generic parser, parse output
         if parser == "generic_s":
@@ -167,7 +176,9 @@ def _execute_source(
             for item in jc.parse("generic_s", lines):
                 item["command"] = command
                 item["args"] = cmd_args
-                yield json.dumps(item, ensure_ascii=False).encode("utf-8") + b"\n"
+                yield json.dumps(item, ensure_ascii=False).encode(
+                    "utf-8"
+                ) + b"\n"
         else:
             yield result.stdout
 
@@ -177,7 +188,9 @@ def _execute_source(
 
 @app.command()
 def cat(
-    source: str = typer.Argument(..., help="Source: URL, file path, or command"),
+    source: str = typer.Argument(
+        ..., help="Source: URL, file path, or command"
+    ),
     source_args: Optional[list[str]] = typer.Argument(
         None, help="Arguments for the source (if command)"
     ),
@@ -200,7 +213,9 @@ def cat(
     args = source_args or []
 
     # Auto-detect or use explicit driver/parser
-    detected_driver, detected_parser, full_args = _detect_source_type(source, args)
+    detected_driver, detected_parser, full_args = _detect_source_type(
+        source, args
+    )
     final_driver = driver or detected_driver
     final_parser = parser or detected_parser
 
@@ -217,7 +232,9 @@ def cat(
 
 @app.command()
 def head(
-    source: str = typer.Argument(..., help="Source: URL, file path, or command"),
+    source: str = typer.Argument(
+        ..., help="Source: URL, file path, or command"
+    ),
     source_args: Optional[list[str]] = typer.Argument(
         None, help="Arguments for the source (if command)"
     ),
@@ -239,19 +256,21 @@ def head(
     args = source_args or []
 
     # Auto-detect or use explicit driver/parser
-    detected_driver, detected_parser, full_args = _detect_source_type(source, args)
+    detected_driver, detected_parser, full_args = _detect_source_type(
+        source, args
+    )
     final_driver = driver or detected_driver
     final_parser = parser or detected_parser
 
     # Execute source and output first N lines
     try:
-        count = 0
-        for chunk in _execute_source(final_driver, final_parser, full_args):
+        for count, chunk in enumerate(
+            _execute_source(final_driver, final_parser, full_args)
+        ):
             if count >= n:
                 break
             sys.stdout.buffer.write(chunk)
             sys.stdout.buffer.flush()
-            count += 1
 
     except Exception as e:
         typer.echo(f"Error: {e}", err=True)
@@ -260,7 +279,9 @@ def head(
 
 @app.command()
 def tail(
-    source: str = typer.Argument(..., help="Source: URL, file path, or command"),
+    source: str = typer.Argument(
+        ..., help="Source: URL, file path, or command"
+    ),
     source_args: Optional[list[str]] = typer.Argument(
         None, help="Arguments for the source (if command)"
     ),
@@ -282,7 +303,9 @@ def tail(
     args = source_args or []
 
     # Auto-detect or use explicit driver/parser
-    detected_driver, detected_parser, full_args = _detect_source_type(source, args)
+    detected_driver, detected_parser, full_args = _detect_source_type(
+        source, args
+    )
     final_driver = driver or detected_driver
     final_parser = parser or detected_parser
 

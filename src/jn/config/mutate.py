@@ -5,7 +5,7 @@ Simplified mutations for apis and filters.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 
 from jn.models import Api, AuthConfig, Error, Filter
 
@@ -16,10 +16,14 @@ __all__ = ["add_api", "add_filter"]
 
 def add_api(
     name: str,
-    api_type: Literal["rest", "graphql", "postgres", "mysql", "s3", "gcs", "kafka"] = "rest",
+    api_type: Literal[
+        "rest", "graphql", "postgres", "mysql", "s3", "gcs", "kafka"
+    ] = "rest",
     base_url: Optional[str] = None,
     endpoint: Optional[str] = None,
-    auth_type: Optional[Literal["bearer", "basic", "oauth2", "api_key"]] = None,
+    auth_type: Optional[
+        Literal["bearer", "basic", "oauth2", "api_key"]
+    ] = None,
     token: Optional[str] = None,
     username: Optional[str] = None,
     password: Optional[str] = None,

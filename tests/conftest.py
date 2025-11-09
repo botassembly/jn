@@ -37,11 +37,7 @@ def format_test_config(tmp_path):
     data_dir.mkdir()
 
     csv_file = data_dir / "input.csv"
-    csv_file.write_text(
-        "name,age,city\n"
-        "Alice,30,NYC\n"
-        "Bob,25,SF\n"
-    )
+    csv_file.write_text("name,age,city\n" "Alice,30,NYC\n" "Bob,25,SF\n")
 
     # Write config to tmp_path
     config_file = tmp_path / "jn.json"

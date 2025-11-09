@@ -226,7 +226,7 @@ def test_put_handles_empty_input(runner, tmp_path):
     result = runner.invoke(
         app,
         ["put", str(output_file)],
-        input='',
+        input="",
     )
 
     assert result.exit_code == 0
@@ -246,7 +246,7 @@ def test_put_handles_complex_nested_objects(runner, tmp_path):
     result = runner.invoke(
         app,
         ["put", str(output_file)],
-        input=json.dumps(complex_data) + '\n',
+        input=json.dumps(complex_data) + "\n",
     )
 
     assert result.exit_code == 0

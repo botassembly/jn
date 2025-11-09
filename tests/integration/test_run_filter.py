@@ -39,6 +39,7 @@ def test_run_filter_exists_lookup(runner, tmp_path):
 
     # Verify the filter was added successfully
     from jn import config as jn_config
+
     jn_config.set_config_path(config_path)
 
     filter_obj = jn_config.get_filter("test-filter")

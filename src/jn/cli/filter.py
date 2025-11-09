@@ -29,9 +29,20 @@ def default(ctx: typer.Context, jn: ConfigPathType = ConfigPath):
 def add(
     name: str = typer.Argument(..., help="Unique name for the filter"),
     query: str = typer.Option(..., "--query", help="jq expression to apply"),
-    description: Optional[str] = typer.Option(None, "--description", help="Human-readable description"),
-    yes: bool = typer.Option(False, "--yes", "--force", "-y", "-f", help="Skip confirmation when replacing"),
-    skip_if_exists: bool = typer.Option(False, "--skip-if-exists", help="Skip if filter already exists"),
+    description: Optional[str] = typer.Option(
+        None, "--description", help="Human-readable description"
+    ),
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        "--force",
+        "-y",
+        "-f",
+        help="Skip confirmation when replacing",
+    ),
+    skip_if_exists: bool = typer.Option(
+        False, "--skip-if-exists", help="Skip if filter already exists"
+    ),
     jn: ConfigPathType = ConfigPath,
 ) -> None:
     """Add a new filter (jq transformation).
@@ -52,7 +63,9 @@ def add(
         typer.echo(f"Filter '{name}' already exists.", err=True)
         typer.echo()
         typer.echo("BEFORE:")
-        typer.echo(json.dumps(existing.model_dump(exclude_none=True), indent=2))
+        typer.echo(
+            json.dumps(existing.model_dump(exclude_none=True), indent=2)
+        )
         typer.echo()
 
         # Build new filter config for preview
@@ -65,7 +78,9 @@ def add(
         )
 
         typer.echo("AFTER:")
-        typer.echo(json.dumps(new_filter.model_dump(exclude_none=True), indent=2))
+        typer.echo(
+            json.dumps(new_filter.model_dump(exclude_none=True), indent=2)
+        )
         typer.echo()
 
         if not yes:
@@ -136,7 +151,9 @@ def update(
 @app.command()
 def rm(
     name: str = typer.Argument(..., help="Filter name to remove"),
-    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
+    force: bool = typer.Option(
+        False, "--force", "-f", help="Skip confirmation"
+    ),
     jn: ConfigPathType = ConfigPath,
 ) -> None:
     """Remove a filter from the registry.

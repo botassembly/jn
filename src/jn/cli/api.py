@@ -28,17 +28,50 @@ def default(ctx: typer.Context, jn: ConfigPathType = ConfigPath):
 @app.command()
 def add(
     name: str = typer.Argument(..., help="Unique name for the API"),
-    base_url: Optional[str] = typer.Option(None, "--base-url", help="Base URL for REST API"),
-    auth_type: Optional[str] = typer.Option(None, "--auth", help="Auth type: bearer, basic, oauth2, api_key"),
-    token: Optional[str] = typer.Option(None, "--token", help="Auth token (supports ${env:VAR})"),
-    username: Optional[str] = typer.Option(None, "--username", help="Username for basic auth or DB user"),
-    password: Optional[str] = typer.Option(None, "--password", help="Password (supports ${env:VAR})"),
-    header: Optional[List[str]] = typer.Option(None, "--header", help="HTTP header in KEY:VALUE format"),
-    source_method: str = typer.Option("GET", "--source-method", help="Default HTTP method when used as source"),
-    target_method: str = typer.Option("POST", "--target-method", help="Default HTTP method when used as target"),
-    api_type: str = typer.Option("rest", "--type", help="API type: rest, graphql, postgres, mysql, s3, gcs, kafka"),
-    yes: bool = typer.Option(False, "--yes", "--force", "-y", "-f", help="Skip confirmation when replacing"),
-    skip_if_exists: bool = typer.Option(False, "--skip-if-exists", help="Skip if API already exists"),
+    base_url: Optional[str] = typer.Option(
+        None, "--base-url", help="Base URL for REST API"
+    ),
+    auth_type: Optional[str] = typer.Option(
+        None, "--auth", help="Auth type: bearer, basic, oauth2, api_key"
+    ),
+    token: Optional[str] = typer.Option(
+        None, "--token", help="Auth token (supports ${env:VAR})"
+    ),
+    username: Optional[str] = typer.Option(
+        None, "--username", help="Username for basic auth or DB user"
+    ),
+    password: Optional[str] = typer.Option(
+        None, "--password", help="Password (supports ${env:VAR})"
+    ),
+    header: Optional[List[str]] = typer.Option(
+        None, "--header", help="HTTP header in KEY:VALUE format"
+    ),
+    source_method: str = typer.Option(
+        "GET",
+        "--source-method",
+        help="Default HTTP method when used as source",
+    ),
+    target_method: str = typer.Option(
+        "POST",
+        "--target-method",
+        help="Default HTTP method when used as target",
+    ),
+    api_type: str = typer.Option(
+        "rest",
+        "--type",
+        help="API type: rest, graphql, postgres, mysql, s3, gcs, kafka",
+    ),
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        "--force",
+        "-y",
+        "-f",
+        help="Skip confirmation when replacing",
+    ),
+    skip_if_exists: bool = typer.Option(
+        False, "--skip-if-exists", help="Skip if API already exists"
+    ),
     jn: ConfigPathType = ConfigPath,
 ) -> None:
     """Add a new API configuration.
@@ -54,7 +87,10 @@ def add(
     if header:
         for h in header:
             if ":" not in h:
-                typer.echo(f"Error: Invalid header format: {h}. Expected KEY:VALUE", err=True)
+                typer.echo(
+                    f"Error: Invalid header format: {h}. Expected KEY:VALUE",
+                    err=True,
+                )
                 raise typer.Exit(1)
             key, value = h.split(":", 1)
             headers[key.strip()] = value.strip()
@@ -69,7 +105,9 @@ def add(
         typer.echo(f"API '{name}' already exists.", err=True)
         typer.echo()
         typer.echo("BEFORE:")
-        typer.echo(json.dumps(existing.model_dump(exclude_none=True), indent=2))
+        typer.echo(
+            json.dumps(existing.model_dump(exclude_none=True), indent=2)
+        )
         typer.echo()
 
         # Build new API config for preview
@@ -175,7 +213,9 @@ def update(
 @app.command()
 def rm(
     name: str = typer.Argument(..., help="API name to remove"),
-    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
+    force: bool = typer.Option(
+        False, "--force", "-f", help="Skip confirmation"
+    ),
     jn: ConfigPathType = ConfigPath,
 ) -> None:
     """Remove an API from the registry.

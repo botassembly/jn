@@ -4,9 +4,9 @@ Simplified architecture: Filters replace pipelines.
 Filters are jq transformations that read NDJSON from stdin and write NDJSON to stdout.
 """
 
+import shutil
 import subprocess
 import sys
-from typing import Optional
 
 import typer
 
@@ -37,13 +37,20 @@ def run(
     # Get filter from registry
     filter_obj = config.get_filter(filter_name)
     if not filter_obj:
-        typer.echo(f"Error: Filter '{filter_name}' not found in registry", err=True)
+        typer.echo(
+            f"Error: Filter '{filter_name}' not found in registry", err=True
+        )
         raise typer.Exit(1)
 
     # Execute jq with the filter's query
+    jq_path = shutil.which("jq")
+    if not jq_path:
+        typer.echo("Error: jq not found. Please install jq.", err=True)
+        raise typer.Exit(1)
+
     try:
-        result = subprocess.run(
-            ["jq", "-c", filter_obj.query],
+        subprocess.run(  # noqa: S603
+            [jq_path, "-c", filter_obj.query],
             stdin=sys.stdin.buffer,
             stdout=sys.stdout.buffer,
             stderr=subprocess.PIPE,
@@ -52,6 +59,3 @@ def run(
     except subprocess.CalledProcessError as e:
         typer.echo(f"Error executing filter: {e.stderr.decode()}", err=True)
         raise typer.Exit(e.returncode)
-    except FileNotFoundError:
-        typer.echo("Error: jq not found. Please install jq.", err=True)
-        raise typer.Exit(1)

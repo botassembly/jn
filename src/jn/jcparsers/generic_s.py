@@ -39,7 +39,9 @@ class info:
     """Provides parser metadata (version, author, etc.)"""
 
     version: str = "1.0"
-    description: str = "Generic streaming parser (fallback for unknown commands)"
+    description: str = (
+        "Generic streaming parser (fallback for unknown commands)"
+    )
     author: str = "JN Team"
     author_email: str = "team@jn.dev"
     details: str = "Wraps each line in JSON with line number and text"
@@ -78,5 +80,5 @@ def parse(data, raw=False, quiet=False, ignore_exceptions=False):
     for line_num, line_text in enumerate(data, start=1):
         yield {
             "line": line_num,
-            "text": line_text.rstrip('\n\r'),
+            "text": line_text.rstrip("\n\r"),
         }

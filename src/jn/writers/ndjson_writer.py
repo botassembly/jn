@@ -3,7 +3,7 @@
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict, Iterator, TextIO
+from typing import Any, Dict, Iterator
 
 
 def write_ndjson(
@@ -24,16 +24,11 @@ def write_ndjson(
         - Suitable for large datasets
     """
 
-    output: TextIO
     if output_file:
         mode = "a" if append else "w"
-        output = open(output_file, mode)
+        with open(output_file, mode) as output:
+            for record in records:
+                output.write(json.dumps(record) + "\n")
     else:
-        output = sys.stdout
-
-    try:
         for record in records:
-            output.write(json.dumps(record) + "\n")
-    finally:
-        if output_file:
-            output.close()
+            sys.stdout.write(json.dumps(record) + "\n")

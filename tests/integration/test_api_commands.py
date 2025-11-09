@@ -37,7 +37,10 @@ def test_api_add_creates_new_api(runner, tmp_path):
     assert config["apis"][0]["name"] == "github"
     assert config["apis"][0]["base_url"] == "https://api.github.com"
     assert config["apis"][0]["auth"]["type"] == "bearer"
-    assert config["apis"][0]["auth"]["token"] == "${env:GITHUB_TOKEN}"
+    assert (
+        config["apis"][0]["auth"]["token"]
+        == "${env:GITHUB_TOKEN}"  # noqa: S105
+    )
 
 
 def test_api_list_shows_apis(runner, tmp_path):
@@ -58,9 +61,18 @@ def test_api_show_displays_details(runner, tmp_path):
     """Test that jn api show displays API details."""
     config_path = tmp_path / "jn.json"
     init_config(runner, config_path)
-    add_api(runner, config_path, "github", "https://api.github.com", "bearer", "${env:TOKEN}")
+    add_api(
+        runner,
+        config_path,
+        "github",
+        "https://api.github.com",
+        "bearer",
+        "${env:TOKEN}",
+    )
 
-    result = runner.invoke(app, ["api", "show", "github", "--jn", str(config_path)])
+    result = runner.invoke(
+        app, ["api", "show", "github", "--jn", str(config_path)]
+    )
 
     assert result.exit_code == 0
     output_json = json.loads(result.output)
@@ -80,7 +92,9 @@ def test_api_rm_removes_api(runner, tmp_path):
     assert len(config["apis"]) == 1
 
     # Remove with --force to skip confirmation
-    result = runner.invoke(app, ["api", "rm", "github", "--force", "--jn", str(config_path)])
+    result = runner.invoke(
+        app, ["api", "rm", "github", "--force", "--jn", str(config_path)]
+    )
 
     assert result.exit_code == 0
     assert "Removed API: github" in result.output
@@ -221,7 +235,9 @@ def test_api_show_nonexistent_returns_error(runner, tmp_path):
     config_path = tmp_path / "jn.json"
     init_config(runner, config_path)
 
-    result = runner.invoke(app, ["api", "show", "nonexistent", "--jn", str(config_path)])
+    result = runner.invoke(
+        app, ["api", "show", "nonexistent", "--jn", str(config_path)]
+    )
 
     assert result.exit_code == 1
     assert "not found" in result.output
@@ -232,7 +248,9 @@ def test_api_rm_nonexistent_returns_error(runner, tmp_path):
     config_path = tmp_path / "jn.json"
     init_config(runner, config_path)
 
-    result = runner.invoke(app, ["api", "rm", "nonexistent", "--force", "--jn", str(config_path)])
+    result = runner.invoke(
+        app, ["api", "rm", "nonexistent", "--force", "--jn", str(config_path)]
+    )
 
     assert result.exit_code == 1
     assert "not found" in result.output

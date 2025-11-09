@@ -27,11 +27,7 @@ def csv_file(tmp_path):
 def tsv_file(tmp_path):
     """Create a test TSV file."""
     tsv_path = tmp_path / "test.tsv"
-    tsv_path.write_text(
-        "name\tage\tcity\n"
-        "Alice\t30\tNYC\n"
-        "Bob\t25\tSF\n"
-    )
+    tsv_path.write_text("name\tage\tcity\n" "Alice\t30\tNYC\n" "Bob\t25\tSF\n")
     return tsv_path
 
 
@@ -39,11 +35,7 @@ def tsv_file(tmp_path):
 def psv_file(tmp_path):
     """Create a test PSV file."""
     psv_path = tmp_path / "test.psv"
-    psv_path.write_text(
-        "name|age|city\n"
-        "Alice|30|NYC\n"
-        "Bob|25|SF\n"
-    )
+    psv_path.write_text("name|age|city\n" "Alice|30|NYC\n" "Bob|25|SF\n")
     return psv_path
 
 
@@ -51,7 +43,9 @@ def psv_file(tmp_path):
 def json_file(tmp_path):
     """Create a test JSON file."""
     json_path = tmp_path / "test.json"
-    json_path.write_text('{"name": "Alice", "age": 30}\n{"name": "Bob", "age": 25}\n')
+    json_path.write_text(
+        '{"name": "Alice", "age": 30}\n{"name": "Bob", "age": 25}\n'
+    )
     return json_path
 
 
@@ -106,10 +100,7 @@ def test_cat_yaml_file(runner, tmp_path):
     """Test cat with YAML file auto-detection."""
     yaml_file = tmp_path / "test.yaml"
     yaml_file.write_text(
-        "- name: Alice\n"
-        "  age: 30\n"
-        "- name: Bob\n"
-        "  age: 25\n"
+        "- name: Alice\n" "  age: 30\n" "- name: Bob\n" "  age: 25\n"
     )
 
     result = runner.invoke(app, ["cat", str(yaml_file)])
@@ -125,11 +116,7 @@ def test_cat_yaml_file(runner, tmp_path):
 def test_cat_toml_file(runner, tmp_path):
     """Test cat with TOML file auto-detection."""
     toml_file = tmp_path / "test.toml"
-    toml_file.write_text(
-        "[[items]]\n"
-        'name = "Alice"\n'
-        "age = 30\n"
-    )
+    toml_file.write_text("[[items]]\n" 'name = "Alice"\n' "age = 30\n")
 
     result = runner.invoke(app, ["cat", str(toml_file)])
     assert result.exit_code == 0
@@ -199,7 +186,7 @@ def test_cat_generic_parser_multiline(runner):
 
 def test_cat_nonexistent_file(runner):
     """Test cat with nonexistent file."""
-    result = runner.invoke(app, ["cat", "/tmp/nonexistent.csv"])
+    result = runner.invoke(app, ["cat", "/tmp/nonexistent.csv"])  # noqa: S108
 
     assert result.exit_code == 1
     assert "Error:" in result.output
@@ -207,9 +194,7 @@ def test_cat_nonexistent_file(runner):
 
 def test_cat_force_driver_file(runner, csv_file):
     """Test cat with forced driver override."""
-    result = runner.invoke(
-        app, ["cat", "--driver", "file", str(csv_file)]
-    )
+    result = runner.invoke(app, ["cat", "--driver", "file", str(csv_file)])
 
     assert result.exit_code == 0
     lines = result.output.strip().split("\n")
@@ -271,9 +256,7 @@ def test_head_zero_lines(runner, csv_file):
 
 def test_head_generic_command(runner):
     """Test head with generic parser command."""
-    result = runner.invoke(
-        app, ["head", "-n", "1", "printf", "a\\nb\\nc"]
-    )
+    result = runner.invoke(app, ["head", "-n", "1", "printf", "a\\nb\\nc"])
 
     assert result.exit_code == 0
 
@@ -336,9 +319,7 @@ def test_tail_one_line(runner, csv_file):
 
 def test_tail_generic_command(runner):
     """Test tail with generic parser command."""
-    result = runner.invoke(
-        app, ["tail", "-n", "2", "printf", "a\\nb\\nc\\nd"]
-    )
+    result = runner.invoke(app, ["tail", "-n", "2", "printf", "a\\nb\\nc\\nd"])
 
     assert result.exit_code == 0
 

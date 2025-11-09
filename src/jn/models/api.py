@@ -6,7 +6,7 @@ They support REST, GraphQL, databases, cloud storage, message queues, and more.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Literal
+from typing import Dict, Literal
 
 from pydantic import BaseModel, Field
 
@@ -38,7 +38,9 @@ class Api(BaseModel):
     """
 
     name: str
-    type: Literal["rest", "graphql", "postgres", "mysql", "s3", "gcs", "kafka"] = "rest"
+    type: Literal[
+        "rest", "graphql", "postgres", "mysql", "s3", "gcs", "kafka"
+    ] = "rest"
 
     # REST/GraphQL config
     base_url: str | None = None
