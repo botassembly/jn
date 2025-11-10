@@ -32,19 +32,20 @@ def cli(ctx, home):
         ctx.obj.cache_path = Path(__file__).parent / 'cache.json'
 
 
+# Register commands at module level so tests can import cli with commands attached
+from .commands import cat, put, run, filter, head, tail, plugin
+
+cli.add_command(cat.cat)
+cli.add_command(put.put)
+cli.add_command(run.run)
+cli.add_command(filter.filter)
+cli.add_command(head.head)
+cli.add_command(tail.tail)
+cli.add_command(plugin.plugin)
+
+
 def main():
     """Entry point for CLI."""
-    # Import commands after cli is defined to avoid circular imports
-    from .commands import cat, put, run, filter, head, tail, plugin
-
-    cli.add_command(cat.cat)
-    cli.add_command(put.put)
-    cli.add_command(run.run)
-    cli.add_command(filter.filter)
-    cli.add_command(head.head)
-    cli.add_command(tail.tail)
-    cli.add_command(plugin.plugin)
-
     cli()
 
 
