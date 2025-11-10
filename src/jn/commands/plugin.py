@@ -54,7 +54,7 @@ def call(ctx, args):
     plugin = plugins[name]
 
     # Build command
-    cmd = [sys.executable, plugin.path] + list(plugin_args)
+    cmd = [sys.executable, plugin.path, *list(plugin_args)]
 
     # Execute plugin (inherit stdin/stdout/stderr)
     proc = subprocess.Popen(cmd)

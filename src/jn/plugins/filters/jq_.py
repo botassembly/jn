@@ -7,6 +7,7 @@
 # matches = []  # jq doesn't match files, invoked explicitly via 'jn filter'
 # ///
 
+import contextlib
 import json
 import shutil
 import subprocess
@@ -101,10 +102,8 @@ def filters(config: Optional[dict] = None) -> Iterator[dict]:
 
     except Exception as e:
         # Clean up process if still running
-        try:
+        with contextlib.suppress(BaseException):
             jq_process.kill()
-        except:
-            pass
         print(f"jq error: {e}", file=sys.stderr)
         sys.exit(1)
 

@@ -5,7 +5,7 @@ import sys
 
 import click
 
-from ..cli import pass_context
+from ..context import pass_context
 from ..discovery import get_cached_plugins
 from ..registry import build_registry
 
