@@ -7,28 +7,88 @@ JN is an **agent-native ETL framework** that uses:
 - **NDJSON** as the universal data format
 - **Standalone Python plugins** for all data operations
 - **Automatic backpressure** via OS pipe buffers
+- **UV isolation** for dependency management (no virtualenv hell)
 
-Think: `jn cat data.xlsx | jn filter 'select(.revenue > 1000)' | jn put output.csv`
+Think: `jn cat data.xlsx | jn filter '.revenue > 1000' | jn put output.csv`
+
+---
+
+## Goals
+
+### Functional Goals
+**Universal JSON-based ETL that enables AI agents to create on-demand data tools**
+
+JN allows AI agents (like Claude) to:
+- **Extract** data from any source (files, APIs, databases, CLIs)
+- **Transform** data with filters and transformations
+- **Load** data into any destination format
+- **Create plugins on-demand** for new data sources/formats
+- **Compose pipelines** naturally via Unix pipes
+
+Unlike traditional ETL tools built for humans, JN is optimized for:
+- **Agent discoverability** - Regex-based plugin discovery (no imports)
+- **Agent extensibility** - Plugins are simple Python scripts with minimal boilerplate
+- **Agent composability** - Standard stdin/stdout/NDJSON everywhere
+- **Transparent execution** - Subprocess calls are visible and debuggable
+
+### Non-Functional Goals
+**High performance with constant memory usage, regardless of data size**
+
+- **Constant memory**: Process 10GB files with ~1MB RAM usage
+- **Streaming by default**: First output appears immediately, not after processing entire dataset
+- **Parallel execution**: Multi-stage pipelines run concurrently across CPUs
+- **Early termination**: `| head -n 10` stops upstream processing after 10 rows
+- **No buffering**: Data flows through pipes, never accumulated in memory
+
+### Architectural Approach
+**Leverage the OS for concurrency, backpressure, and resource management**
+
+#### 1. **Backpressure via OS Pipes**
+- OS pipe buffers (~64KB) automatically block when full
+- Slow downstream consumers pause fast upstream producers
+- No manual flow control, queues, or async complexity
+- See `spec/arch/backpressure.md` for detailed explanation
+
+#### 2. **UV Python Environment Isolation**
+- Each plugin declares dependencies via PEP 723 (`# /// script`)
+- UV automatically manages isolated environments per plugin
+- No virtualenv activation, no dependency conflicts
+- First run downloads deps, subsequent runs are instant
+
+#### 3. **Process-based Parallelism**
+- Each pipeline stage runs as a separate process
+- True parallelism (not Python GIL-limited threads)
+- OS scheduler distributes work across CPUs
+- SIGPIPE signal propagates shutdown backward through pipeline
+
+#### 4. **Incorporate, Don't Replace**
+- Call existing CLIs directly (`jq`, `curl`, `aws`)
+- Don't rewrite tools in Python
+- Compose battle-tested Unix utilities
+- Plugins are thin wrappers when possible
+
+#### 5. **NDJSON as Universal Format**
+- Newline-Delimited JSON (one object per line)
+- Streamable (unlike JSON arrays)
+- Human-readable and tool-friendly
+- Universal interchange format between all plugins
 
 ---
 
 ## Quick Start
 
-**Build:**
 ```bash
+# Install
 pip install -e .
-```
 
-**Test:**
-```bash
-pytest
-```
+# Test
+make test    # Run all tests
+make check   # Code quality checks
 
-**Use:**
-```bash
+# Use
 jn cat data.csv                    # Read CSV → NDJSON
-jn cat s3://bucket/data.xlsx       # Fetch from S3 → parse → NDJSON
 jn cat data.json | jn put out.csv  # JSON → CSV
+jn cat data.csv | jn filter '.revenue > 1000' | jn put filtered.json
 ```
 
 ---
@@ -37,29 +97,24 @@ jn cat data.json | jn put out.csv  # JSON → CSV
 
 ```
 jn/
-├── src/jn/           # Core framework
-│   ├── cli.py        # Commands: cat, put, plugin, profile
-│   ├── discovery.py  # Plugin discovery (regex-based)
-│   ├── registry.py   # Extension/URL → plugin mapping
-│   ├── executor.py   # Popen + pipes execution
-│   └── pipeline.py   # Pipeline building
+├── src/jn/              # Core framework
+│   ├── cli.py           # CLI entry point
+│   ├── context.py       # JN_HOME, paths
+│   ├── discovery.py     # Plugin discovery with caching
+│   ├── registry.py      # Pattern matching
+│   ├── commands/        # cat, put, filter, head, tail, plugin, run
+│   └── plugins/         # Built-in plugins
+│       ├── formats/     # csv_.py, json_.py, yaml_.py
+│       └── filters/     # jq_.py
 │
-├── plugins/          # Data operations (standalone scripts)
-│   ├── readers/      # csv_reader, xlsx_reader, json_reader, etc.
-│   ├── writers/      # csv_writer, xlsx_writer, json_writer, etc.
-│   ├── filters/      # jq_filter
-│   ├── http/         # s3_get, http_get, ftp_get
-│   └── shell/        # ls, ps, find, etc.
+├── spec/                # Architecture documentation
+│   ├── roadmap.md       # Development roadmap
+│   └── arch/
+│       ├── design.md         # v5 architecture overview
+│       ├── backpressure.md   # Why Popen > async
+│       └── profiles.md       # Future: API/MCP profiles
 │
-├── spec/             # Architecture docs
-│   ├── roadmap.md    # What's done, what's next
-│   └── arch/         # Architecture details
-│       ├── plugins.md      # Plugin system
-│       ├── backpressure.md # Streaming with Popen
-│       ├── profiles.md     # API/MCP profiles (v4.2.0)
-│       └── pipeline.md     # Pipeline execution
-│
-└── tests/            # Test suite
+└── tests/               # Test suite
 ```
 
 ---
@@ -70,37 +125,56 @@ jn/
 
 **DO:**
 ```python
-# Streaming with automatic backpressure
-process = subprocess.Popen(cmd, stdin=stdin, stdout=subprocess.PIPE)
-
-# CRITICAL: Close stdout in parent for SIGPIPE
-prev_process.stdout.close()
+reader = subprocess.Popen([sys.executable, plugin.path, "--mode", "read"],
+                         stdin=infile, stdout=subprocess.PIPE)
+writer = subprocess.Popen([sys.executable, plugin.path, "--mode", "write"],
+                         stdin=reader.stdout, stdout=outfile)
+reader.stdout.close()  # CRITICAL for SIGPIPE backpressure!
+writer.wait()
+reader.wait()
 ```
 
 **DON'T:**
 ```python
 # NO async/await for data pipelines
 # NO subprocess.run(capture_output=True) - buffers everything!
+# NO threads - Python GIL kills parallelism
 ```
 
 **Why:** OS handles concurrency, backpressure, and shutdown automatically. See `spec/arch/backpressure.md`.
 
-### 2. Plugins are Standalone Scripts
+### 2. Plugins are Standalone Scripts with PEP 723
 
 **Pattern:**
 ```python
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
 # /// script
-# dependencies = ["library>=1.0"]  # PEP 723
+# requires-python = ">=3.11"
+# dependencies = []
+# [tool.jn]
+# matches = [".*\\.csv$", ".*\\.tsv$"]
 # ///
-# META: type=source, handles=[".csv"]
 
-def run(config):
-    for line in sys.stdin:
-        yield process_line(line)
+def reads(config=None):
+    """Read CSV from stdin, yield NDJSON records."""
+    # ...
+
+def writes(config=None):
+    """Read NDJSON from stdin, write CSV to stdout."""
+    # ...
+
+if __name__ == '__main__':
+    # --mode read|write CLI interface
 ```
 
-**Discovery:** Regex parsing (no imports needed). See `spec/arch/plugins.md`.
+**Key features:**
+- UV shebang for direct execution
+- PEP 723 TOML for dependencies
+- Regex patterns for file matching
+- Duck typing (`reads`/`writes` functions)
+- Framework passes `--mode` flag
+
+**See:** `src/jn/plugins/formats/csv_.py` for complete example
 
 ### 3. NDJSON is the Universal Format
 
@@ -110,120 +184,141 @@ All plugins communicate via NDJSON (one JSON object per line):
 {"name": "Bob", "age": 25}
 ```
 
----
-
-## Common Tasks
-
-**Add a new plugin:**
-1. Create `plugins/readers/my_reader.py`
-2. Add META header, run() function
-3. Done - auto-discovered!
-
-**Read a file:**
-```bash
-jn cat data.xlsx        # Auto-detects extension
-```
-
-**Fetch from URL:**
-```bash
-jn cat https://api.github.com/repos/anthropics/claude-code/issues
-jn cat s3://bucket/file.csv
-```
-
-**Convert formats:**
-```bash
-jn cat data.csv | jn put output.json
-jn cat api-response.json | jn put data.xlsx
-```
-
-**Filter with jq:**
-```bash
-jn cat data.csv | jn filter '.revenue > 1000' | jn put filtered.csv
-```
+**Why:**
+- Streamable (unlike JSON arrays)
+- Human-readable
+- Tool-friendly (`jq`, `grep`)
+- Constant memory
 
 ---
 
-## Testing Philosophy
+## Plugin System
 
-**Outside-in testing with real data:**
-- Use real public URLs (no mocks)
-- Test with actual files
-- Validate end-to-end pipelines
+### Discovery
+1. Scan `$JN_HOME/plugins/` for `.py` files
+2. Parse PEP 723 `[tool.jn]` metadata using regex
+3. Cache in `cache.json` with timestamp-based invalidation
+4. Fallback to built-in plugins if custom dir empty
 
-Each plugin has inline tests:
+**See:** `src/jn/discovery.py`
+
+### Pattern Matching
+- Plugins declare regex patterns in `[tool.jn] matches = [...]`
+- Registry compiles patterns and matches source files
+- Longest pattern wins
+
+**See:** `src/jn/registry.py`
+
+### Invocation
+```bash
+# Framework invokes plugins as subprocesses:
+python plugin.py --mode=read < input.csv
+python plugin.py --mode=write > output.csv
+
+# Chained:
+python csv_.py --mode=read < input.csv | python json_.py --mode=write > output.json
+```
+
+---
+
+## Common Patterns
+
+### Two-Stage Pipeline
+See `src/jn/commands/cat.py` for complete implementation:
+- Load plugins with fallback
+- Resolve input/output plugins via registry
+- Start reader and writer as Popen subprocesses
+- **Critical:** `reader.stdout.close()` for SIGPIPE
+- Wait for both processes
+
+### Filter Pipeline
+See `src/jn/commands/filter.py`:
+- Find plugin (custom dir → fallback to built-in)
+- Run as Popen (inherit stdin/stdout for chaining)
+- Wait and check returncode
+
+### Direct Plugin Invocation
 ```python
-def test():
-    """Test with real data (NO MOCKS)."""
-    url = "https://httpbin.org/json"
-    results = list(run({'url': url}))
-    assert len(results) > 0
+# Test plugins directly without framework
+plugin_path = Path("src/jn/plugins/formats/csv_.py")
+result = subprocess.run([sys.executable, str(plugin_path), "--mode", "read"],
+                       stdin=f, capture_output=True, text=True)
 ```
 
 ---
 
-## Coming Soon (v4.2.0)
+## Performance Characteristics
 
-### Profile System for APIs/MCP
+**Memory:** Constant ~1MB regardless of file size (10MB, 1GB, 10GB)
 
-**Example:**
+**Early Termination:**
 ```bash
-# Configure once
-~/.local/jn/profiles/http/github.json
-
-# Use forever
-jn cat @github/repos/anthropics/claude-code/issues
-jn put @github/repos/myuser/myrepo/issues < data.ndjson
+jn cat https://example.com/1GB.csv | head -n 10
+# Downloads ~1KB, processes 10 rows, stops ✅ (not entire 1GB)
 ```
 
-See `spec/arch/profiles.md` for complete design.
+**Parallel Execution:**
+```
+CPU1: ████ fetch     CPU2:   ████ parse
+CPU3:     ████ filter CPU4:       ████ write
+All stages run simultaneously!
+```
 
 ---
 
 ## Architecture Deep Dives
 
-**For implementation details, see:**
-- `spec/arch/plugins.md` - How plugins work
-- `spec/arch/backpressure.md` - Why Popen > async
-- `spec/arch/pipeline.md` - How pipelines execute
-- `spec/arch/profiles.md` - API/MCP integration (coming)
-- `spec/roadmap.md` - What's done, what's next
+**For implementation details:**
+- `spec/arch/design.md` - v5 architecture, PEP 723, duck typing
+- `spec/arch/backpressure.md` - Why Popen > async, SIGPIPE, memory
+- `spec/roadmap.md` - Development roadmap
 
-**For code examples, see:**
-- `plugins/http/s3_get.py` - Streaming transport (64KB chunks)
-- `plugins/readers/csv_reader.py` - Incremental reader
-- `plugins/filters/jq_filter.py` - Streaming filter (Popen stdin→stdout)
-- `plugins/writers/csv_writer.py` - Buffering writer
-- `src/jn/executor.py` - Pipeline execution reference
+**For code examples:**
+- `src/jn/commands/cat.py` - Pipeline execution with Popen
+- `src/jn/discovery.py` - Plugin discovery and caching
+- `src/jn/plugins/formats/csv_.py` - Example format plugin
+- `src/jn/plugins/filters/jq_.py` - Example filter (wraps jq CLI)
 
 ---
 
 ## Key Principles
 
-**Unix Philosophy:**
-- Small, focused plugins
-- stdin → process → stdout
-- Compose via pipes
+### Unix Philosophy
+- Small, focused plugins (each does one thing well)
+- stdin → process → stdout (standard interface)
+- Compose via pipes (build complex from simple)
 
-**Agent-Friendly:**
-- Plugins are standalone scripts
-- Regex-based discovery (fast, no execution)
-- Self-documenting (META headers, inline tests)
+### Agent-Friendly
+- Plugins are standalone scripts (no framework imports)
+- Fast discovery (regex parsing, no execution)
+- Self-documenting (PEP 723 metadata)
+- Extensible (agents create plugins on-demand)
 
-**Performance:**
+### Performance
 - Streaming by default (constant memory)
-- Automatic backpressure (OS handles it)
-- Parallel execution (multi-CPU)
+- Automatic backpressure (OS handles flow control)
+- Parallel execution (multi-CPU via processes)
+- Early termination (SIGPIPE propagates shutdown)
 
-**Simplicity:**
-- No async complexity
-- No heavy dependencies
-- Transparent (subprocess calls visible)
+### Simplicity
+- No async complexity (no async/await)
+- No heavy dependencies (click + ruamel.yaml)
+- Transparent execution (subprocess calls visible via `ps`)
+- UV isolation (no virtualenv hell)
 
 ---
 
-## Version Info
+## Development
 
-- **Current:** v4.0.0-alpha1
-- **Branch:** claude/api-plugin-strategy-011CUyR9Mx1yrXG8iBDnUKLK
-- **Next:** v4.1.0 (HTTP plugin) → v4.2.0 (MCP plugin)
-- See `spec/roadmap.md` for details
+```bash
+# Install with dev dependencies
+uv sync --all-extras
+
+# Run tests
+make test
+
+# Code quality
+make check
+
+# See Makefile for more commands
+```

@@ -6,7 +6,7 @@ import sys
 import click
 
 from ..context import pass_context
-from ..discovery import get_cached_plugins
+from ..discovery import get_cached_plugins_with_fallback
 
 
 @click.group(
@@ -42,8 +42,8 @@ def call(ctx, args):
     name = args[0]
     plugin_args = args[1:]
 
-    # Load plugins from cache
-    plugins = get_cached_plugins(ctx.plugin_dir, ctx.cache_path)
+    # Load plugins from cache (with fallback)
+    plugins = get_cached_plugins_with_fallback(ctx.plugin_dir, ctx.cache_path)
 
     # Find plugin by name
     if name not in plugins:
@@ -54,7 +54,7 @@ def call(ctx, args):
     plugin = plugins[name]
 
     # Build command
-    cmd = [sys.executable, plugin.path] + list(plugin_args)
+    cmd = [sys.executable, plugin.path, *list(plugin_args)]
 
     # Execute plugin (inherit stdin/stdout/stderr)
     proc = subprocess.Popen(cmd)
@@ -67,7 +67,7 @@ def call(ctx, args):
 @pass_context
 def list(ctx):
     """List all available plugins."""
-    plugins = get_cached_plugins(ctx.plugin_dir, ctx.cache_path)
+    plugins = get_cached_plugins_with_fallback(ctx.plugin_dir, ctx.cache_path)
 
     if not plugins:
         click.echo("No plugins found")

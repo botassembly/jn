@@ -13,9 +13,7 @@ def head(n):
     Example:
         jn cat data.csv | jn head 10
     """
-    count = 0
-    for line in sys.stdin:
+    for count, line in enumerate(sys.stdin):
         if count >= n:
             break
         click.echo(line, nl=False)
-        count += 1

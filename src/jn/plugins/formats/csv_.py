@@ -37,8 +37,7 @@ def reads(config: Optional[dict] = None) -> Iterator[dict]:
     # Read CSV
     reader = csv.DictReader(sys.stdin, delimiter=delimiter)
 
-    for row in reader:
-        yield row
+    yield from reader
 
 
 def writes(config: Optional[dict] = None) -> None:

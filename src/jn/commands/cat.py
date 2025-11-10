@@ -5,8 +5,8 @@ import sys
 
 import click
 
-from ..cli import pass_context
-from ..discovery import get_cached_plugins
+from ..context import pass_context
+from ..discovery import get_cached_plugins_with_fallback
 from ..registry import build_registry
 
 
@@ -21,8 +21,8 @@ def cat(ctx, input_file, output_file):
         jn cat data.csv              # Output NDJSON to stdout
         jn cat data.csv output.json  # Convert CSV to JSON
     """
-    # Load plugins
-    plugins = get_cached_plugins(ctx.plugin_dir, ctx.cache_path)
+    # Load plugins (with fallback to built-in if custom dir is empty)
+    plugins = get_cached_plugins_with_fallback(ctx.plugin_dir, ctx.cache_path)
     registry = build_registry(plugins)
 
     # Resolve input plugin

@@ -11,7 +11,7 @@ DATA_DIR = Path(__file__).parent / "data"
 
 def run_jn(*args, input_data=None):
     """Run jn CLI command with given args."""
-    cmd = ["uv", "run", "jn"] + list(args)
+    cmd = ["uv", "run", "jn", *list(args)]
 
     result = subprocess.run(
         cmd,

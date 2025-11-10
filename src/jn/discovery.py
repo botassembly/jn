@@ -213,3 +213,35 @@ def get_plugin_by_name(
         PluginMetadata or None
     """
     return plugins.get(name)
+
+
+def get_cached_plugins_with_fallback(
+    plugin_dir: Path, cache_path: Path, fallback_to_builtin: bool = True
+) -> Dict[str, PluginMetadata]:
+    """Get plugins with fallback to built-in plugins.
+
+    Loads built-in plugins first, then merges custom plugins on top.
+    Custom plugins with the same name override built-ins.
+
+    Args:
+        plugin_dir: Primary directory containing plugins
+        cache_path: Path to cache.json
+        fallback_to_builtin: If True, merge with built-in plugins
+
+    Returns:
+        Dict mapping plugin name to metadata (custom plugins override built-ins)
+    """
+    result = {}
+
+    # Load built-in plugins first (if fallback enabled)
+    if fallback_to_builtin:
+        builtin_dir = Path(__file__).parent / "plugins"
+        builtin_cache = Path(__file__).parent / "cache.json"
+        if builtin_dir.exists():
+            result = get_cached_plugins(builtin_dir, builtin_cache)
+
+    # Load custom/specified plugins (override built-ins with same name)
+    custom_plugins = get_cached_plugins(plugin_dir, cache_path)
+    result.update(custom_plugins)
+
+    return result
