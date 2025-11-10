@@ -873,20 +873,25 @@ def cat(source, limit, verbose):
     """Read a source and output NDJSON to stdout.
 
     Auto-detects the source type and uses the appropriate plugin:
-    - Files: Uses extension-based reader (e.g., .csv → csv_reader)
-    - URLs: Uses http_get plugin
+    - Files: Uses extension-based reader (e.g., .csv → csv_reader, .xlsx → xlsx_reader)
+    - URLs with extensions: Fetches file and parses (e.g., https://example.com/data.xlsx)
+    - URLs without extensions: Uses http_get plugin (JSON APIs)
     - Commands: Executes as shell command plugin
 
     Examples:
-        jn cat data.csv              # Read CSV file
-        jn cat https://api.com/data  # Fetch from URL
-        jn cat data.json | head -5   # Pipe to other commands
+        jn cat data.csv                      # Read local CSV file
+        jn cat data.xlsx                     # Read local XLSX file
+        jn cat https://api.com/data          # Fetch from JSON API
+        jn cat https://s3.../file.xlsx       # Fetch and parse XLSX from S3
+        jn cat s3://bucket/data.xlsx         # Private S3 bucket (requires AWS CLI)
+        jn cat ftp://ftp.../file.xlsx        # Fetch and parse XLSX from FTP
+        jn cat data.json | head -5           # Pipe to other commands
     """
     from pathlib import Path
     import subprocess
 
     # Determine source type
-    is_url = source.startswith(('http://', 'https://', 'ftp://', 'ftps://'))
+    is_url = source.startswith(('http://', 'https://', 'ftp://', 'ftps://', 's3://'))
     is_file = Path(source).exists()
 
     if verbose:
@@ -896,28 +901,127 @@ def cat(source, limit, verbose):
     executor = PipelineExecutor()
 
     if is_url:
-        # Use http_get plugin
-        plugin_name = 'http_get'
+        # Check if URL has a file extension (e.g., .xlsx, .csv)
+        from urllib.parse import urlparse
+        parsed_url = urlparse(source)
+        url_path = parsed_url.path
+        extension = Path(url_path).suffix if url_path else None
+
         all_plugins = discover_plugins()
+        registry = get_registry()
 
-        if plugin_name not in all_plugins:
-            click.echo(f"Error: http_get plugin not found", err=True)
-            sys.exit(1)
+        # If URL has a file extension, fetch + parse pipeline
+        if extension and extension in ['.xlsx', '.xlsm', '.csv', '.json', '.xml', '.yaml', '.toml']:
+            # Step 1: Determine transport plugin
+            if source.startswith('s3://'):
+                transport_plugin = 's3_get'
+            elif source.startswith(('ftp://', 'ftps://')):
+                transport_plugin = 'ftp_get'
+            else:  # http:// or https://
+                # For HTTP(S), we can use curl directly
+                transport_plugin = None  # Will use curl below
 
-        plugin_path = Path(all_plugins[plugin_name].path)
+            # Step 2: Get reader plugin for the file extension
+            reader_plugin = registry.get_plugin_for_extension(extension)
 
-        if verbose:
-            click.echo(f"Using plugin: {plugin_name}", err=True)
+            if not reader_plugin:
+                click.echo(f"Error: No reader plugin found for extension: {extension}", err=True)
+                sys.exit(1)
 
-        # Execute plugin with URL as argument
-        cmd = [sys.executable, str(plugin_path), source]
-        result = subprocess.run(cmd, capture_output=True, text=True)
+            if reader_plugin not in all_plugins:
+                click.echo(f"Error: Reader plugin '{reader_plugin}' not found", err=True)
+                sys.exit(1)
 
-        if result.returncode != 0:
-            click.echo(f"Error: {result.stderr}", err=True)
-            sys.exit(result.returncode)
+            reader_path = Path(all_plugins[reader_plugin].path)
 
-        output = result.stdout
+            if verbose:
+                if transport_plugin:
+                    click.echo(f"Transport: {transport_plugin} → Reader: {reader_plugin}", err=True)
+                else:
+                    click.echo(f"Transport: curl → Reader: {reader_plugin}", err=True)
+
+            # Step 3: Fetch file via transport
+            if transport_plugin and transport_plugin in all_plugins:
+                # Use transport plugin (s3_get or ftp_get)
+                transport_path = Path(all_plugins[transport_plugin].path)
+                fetch_cmd = [sys.executable, str(transport_path), source]
+            else:
+                # Use curl for HTTP(S)
+                fetch_cmd = ['curl', '-sL', source]
+
+            # Step 4: Stream through pipeline with backpressure
+            # Use Popen + pipes for true streaming (no memory buffering)
+            # This provides automatic backpressure via OS pipe buffers (~64KB)
+
+            reader_cmd = [sys.executable, str(reader_path)]
+
+            # Create fetch process
+            fetch_process = subprocess.Popen(
+                fetch_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+
+            # Create reader process, connected via pipe
+            # stdin comes from fetch stdout (OS pipe provides backpressure)
+            reader_process = subprocess.Popen(
+                reader_cmd,
+                stdin=fetch_process.stdout,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+
+            # CRITICAL: Close fetch stdout in parent process
+            # This enables proper SIGPIPE propagation for clean shutdown
+            # Without this, if reader exits early, fetch can deadlock
+            fetch_process.stdout.close()
+
+            # Stream output line by line (pull-based with backpressure)
+            # Reader only pulls data as fast as it can process
+            # If reader is slow, pipe fills → fetch blocks → curl pauses
+            output_buffer = []
+            for line in reader_process.stdout:
+                output_buffer.append(line.decode('utf-8'))
+
+            # Wait for processes to complete
+            reader_returncode = reader_process.wait()
+            fetch_returncode = fetch_process.wait()
+
+            # Check for errors after completion
+            if fetch_returncode != 0:
+                fetch_stderr = fetch_process.stderr.read().decode('utf-8', errors='replace')
+                click.echo(f"Error fetching URL: {fetch_stderr}", err=True)
+                sys.exit(fetch_returncode)
+
+            if reader_returncode != 0:
+                reader_stderr = reader_process.stderr.read().decode('utf-8', errors='replace')
+                click.echo(f"Error parsing file: {reader_stderr}", err=True)
+                sys.exit(reader_returncode)
+
+            output = ''.join(output_buffer)
+
+        else:
+            # No file extension or unknown type - use http_get (JSON API)
+            plugin_name = 'http_get'
+
+            if plugin_name not in all_plugins:
+                click.echo(f"Error: http_get plugin not found", err=True)
+                sys.exit(1)
+
+            plugin_path = Path(all_plugins[plugin_name].path)
+
+            if verbose:
+                click.echo(f"Using plugin: {plugin_name}", err=True)
+
+            # Execute plugin with URL as argument
+            cmd = [sys.executable, str(plugin_path), source]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+
+            if result.returncode != 0:
+                click.echo(f"Error: {result.stderr}", err=True)
+                sys.exit(result.returncode)
+
+            output = result.stdout
 
     elif is_file:
         # Use extension-based reader
