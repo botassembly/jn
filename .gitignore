@@ -13,3 +13,7 @@ coverage.xml
 htmlcov/
 .coverage
 jn.json
+
+# Plugin cache (auto-generated)
+cache.json
+**/cache.json

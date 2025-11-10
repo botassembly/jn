@@ -113,39 +113,41 @@ def discover_plugins(plugin_dir: Path) -> Dict[str, PluginMetadata]:
     return plugins
 
 
-def load_cache(cache_path: Path) -> dict:
+def load_cache(cache_path: Optional[Path]) -> dict:
     """Load plugin cache from JSON file.
 
     Args:
-        cache_path: Path to cache.json
+        cache_path: Path to cache.json (can be None)
 
     Returns:
         Cache dict with 'version', 'plugins', etc.
     """
-    if not cache_path.exists():
-        return {"version": "5.0.0", "plugins": {}}
+    if cache_path is None or not cache_path.exists():
+        return {"version": "0.0.1", "plugins": {}}
 
     try:
         with open(cache_path) as f:
             return json.load(f)
     except (OSError, json.JSONDecodeError):
-        return {"version": "5.0.0", "plugins": {}}
+        return {"version": "0.0.1", "plugins": {}}
 
 
-def save_cache(cache_path: Path, cache: dict) -> None:
+def save_cache(cache_path: Optional[Path], cache: dict) -> None:
     """Save plugin cache to JSON file.
 
     Args:
-        cache_path: Path to cache.json
+        cache_path: Path to cache.json (can be None)
         cache: Cache dict to save
     """
+    if cache_path is None:
+        return  # No cache path specified, skip saving
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     with open(cache_path, "w") as f:
         json.dump(cache, f, indent=2)
 
 
 def get_cached_plugins(
-    plugin_dir: Path, cache_path: Path
+    plugin_dir: Path, cache_path: Optional[Path]
 ) -> Dict[str, PluginMetadata]:
     """Get plugins with caching.
 
@@ -156,7 +158,7 @@ def get_cached_plugins(
 
     Args:
         plugin_dir: Directory containing plugins
-        cache_path: Path to cache.json
+        cache_path: Path to cache.json (can be None)
 
     Returns:
         Dict mapping plugin name to metadata
@@ -216,7 +218,7 @@ def get_plugin_by_name(
 
 
 def get_cached_plugins_with_fallback(
-    plugin_dir: Path, cache_path: Path, fallback_to_builtin: bool = True
+    plugin_dir: Path, cache_path: Optional[Path], fallback_to_builtin: bool = True
 ) -> Dict[str, PluginMetadata]:
     """Get plugins with fallback to built-in plugins.
 
@@ -225,7 +227,7 @@ def get_cached_plugins_with_fallback(
 
     Args:
         plugin_dir: Primary directory containing plugins
-        cache_path: Path to cache.json
+        cache_path: Path to cache.json (can be None)
         fallback_to_builtin: If True, merge with built-in plugins
 
     Returns:
@@ -234,13 +236,17 @@ def get_cached_plugins_with_fallback(
     result = {}
 
     # Load built-in plugins first (if fallback enabled)
+    # NOTE: Built-ins are discovered without caching since:
+    # 1. They never change after package installation
+    # 2. There are only a few of them (fast to discover)
+    # 3. We can't write to site-packages (read-only on most systems)
     if fallback_to_builtin:
         builtin_dir = Path(__file__).parent / "plugins"
-        builtin_cache = Path(__file__).parent / "cache.json"
         if builtin_dir.exists():
-            result = get_cached_plugins(builtin_dir, builtin_cache)
+            result = discover_plugins(builtin_dir)
 
-    # Load custom/specified plugins (override built-ins with same name)
+    # Load custom/specified plugins WITH caching (override built-ins with same name)
+    # Custom plugins are in user-writable directories
     custom_plugins = get_cached_plugins(plugin_dir, cache_path)
     result.update(custom_plugins)
 

@@ -1,3 +1,3 @@
-"""JN v5 - Agent-native ETL framework."""
+"""JN - Agent-native ETL framework."""
 
-__version__ = "5.0.0-alpha1"
+__version__ = "0.0.1dev1"

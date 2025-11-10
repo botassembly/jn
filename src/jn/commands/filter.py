@@ -1,12 +1,11 @@
 """Filter command - apply jq expressions."""
 
-import subprocess
 import sys
-from pathlib import Path
 
 import click
 
 from ..context import pass_context
+from ..core.pipeline import PipelineError, filter_stream
 
 
 @click.command()
@@ -18,29 +17,8 @@ def filter(ctx, query):
     Example:
         jn cat data.csv | jn filter '.age > 25'
     """
-    # Find jq plugin (try custom dir first, fallback to built-in)
-    jq_plugin = ctx.plugin_dir / "filters" / "jq_.py"
-
-    if not jq_plugin.exists():
-        # Fallback to built-in
-        builtin_jq = (
-            Path(__file__).parent.parent / "plugins" / "filters" / "jq_.py"
-        )
-        if builtin_jq.exists():
-            jq_plugin = builtin_jq
-        else:
-            click.echo("Error: jq filter plugin not found", err=True)
-            sys.exit(1)
-
-    # Run jq filter (inherit stdin/stdout)
-    proc = subprocess.Popen(
-        [sys.executable, str(jq_plugin), "--query", query],
-        stderr=subprocess.PIPE,
-    )
-
-    proc.wait()
-
-    if proc.returncode != 0:
-        error_msg = proc.stderr.read().decode()
-        click.echo(f"Filter error: {error_msg}", err=True)
+    try:
+        filter_stream(query, ctx.plugin_dir, ctx.cache_path)
+    except PipelineError as e:
+        click.echo(f"Error: {e}", err=True)
         sys.exit(1)

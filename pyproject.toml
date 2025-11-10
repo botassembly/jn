@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "jn"
-description = "JN v5: Agent-native ETL with NDJSON pipelines"
-version = "5.0.0-alpha1"
+description = "JN: Agent-native ETL with NDJSON pipelines"
+version = "0.0.1dev1"
 readme = "README.md"
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -85,7 +85,7 @@ ignore = [
 "src/jn/drivers/curl.py" = ["S603"]
 "src/jn/drivers/exec.py" = ["S603"]
 "src/jn/drivers/shell.py" = ["S602"]
-"src/jn/cli.py" = ["E402"]
+"src/jn/cli/main.py" = ["E402"]
 "src/jn/commands/*.py" = ["S603"]
 "src/jn/plugins/filters/jq_.py" = ["S603","S607","S110"]
 
