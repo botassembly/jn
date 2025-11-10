@@ -41,12 +41,12 @@ def cli(ctx, home):
 from ..commands import cat, filter, head, put, run, tail
 from .plugin import plugin
 
-cli.add_command(cat.cat)
-cli.add_command(put.put)
-cli.add_command(run.run)
-cli.add_command(filter.filter)
-cli.add_command(head.head)
-cli.add_command(tail.tail)
+cli.add_command(cat)
+cli.add_command(put)
+cli.add_command(run)
+cli.add_command(filter)
+cli.add_command(head)
+cli.add_command(tail)
 cli.add_command(plugin)
 
 
