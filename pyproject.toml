@@ -25,6 +25,7 @@ authors = [
     { name = "Ian Maurer", email = "imaurer@gmail.com"}
 ]
 dependencies = [
+    "click>=8.0.0",
     "ruamel.yaml>=0.18.0",
 ]
 
