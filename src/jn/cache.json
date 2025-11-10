@@ -1,0 +1,41 @@
+{
+  "version": "5.0.0",
+  "plugins": {
+    "yaml_": {
+      "name": "yaml_",
+      "path": "/home/user/jn/src/jn/plugins/formats/yaml_.py",
+      "mtime": 1762790238.4315064,
+      "matches": [
+        ".*\\.yaml$",
+        ".*\\.yml$"
+      ],
+      "requires_python": ">=3.11",
+      "dependencies": [
+        "ruamel.yaml>=0.18.0"
+      ]
+    },
+    "json_": {
+      "name": "json_",
+      "path": "/home/user/jn/src/jn/plugins/formats/json_.py",
+      "mtime": 1762790226.02725,
+      "matches": [
+        ".*\\.json$",
+        ".*\\.jsonl$",
+        ".*\\.ndjson$"
+      ],
+      "requires_python": ">=3.11",
+      "dependencies": []
+    },
+    "csv_": {
+      "name": "csv_",
+      "path": "/home/user/jn/src/jn/plugins/formats/csv_.py",
+      "mtime": 1762789853.3925436,
+      "matches": [
+        ".*\\.csv$",
+        ".*\\.tsv$"
+      ],
+      "requires_python": ">=3.11",
+      "dependencies": []
+    }
+  }
+}
