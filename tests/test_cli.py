@@ -42,11 +42,11 @@ def test_cat_csv_to_stdout():
 
 
 def test_cat_csv_to_json():
-    """Test: jn cat file.csv file.json → JSON array."""
+    """Test: jn run file.csv file.json → JSON array."""
     with tempfile.TemporaryDirectory() as tmpdir:
         output_file = Path(tmpdir) / "output.json"
 
-        run_jn("cat", str(DATA_DIR / "people.csv"), str(output_file))
+        run_jn("run", str(DATA_DIR / "people.csv"), str(output_file))
 
         # Read output file
         with open(output_file) as f:
@@ -58,11 +58,11 @@ def test_cat_csv_to_json():
 
 
 def test_cat_csv_to_yaml():
-    """Test: jn cat file.csv file.yaml → multi-doc YAML."""
+    """Test: jn run file.csv file.yaml → multi-doc YAML."""
     with tempfile.TemporaryDirectory() as tmpdir:
         output_file = Path(tmpdir) / "output.yaml"
 
-        run_jn("cat", str(DATA_DIR / "people.csv"), str(output_file))
+        run_jn("run", str(DATA_DIR / "people.csv"), str(output_file))
 
         # Read output file
         with open(output_file) as f:
@@ -103,11 +103,11 @@ def test_pipeline_with_filter():
 
 
 def test_head_command():
-    """Test: jn cat | jn head N."""
+    """Test: jn cat | jn head -n N."""
     # Get first 2 records
     output = run_jn("cat", str(DATA_DIR / "people.csv"))
     result = subprocess.run(
-        ["uv", "run", "jn", "head", "2"],
+        ["uv", "run", "jn", "head", "-n", "2"],
         input=output,
         capture_output=True,
         text=True,
@@ -122,11 +122,11 @@ def test_head_command():
 
 
 def test_tail_command():
-    """Test: jn cat | jn tail N."""
+    """Test: jn cat | jn tail -n N."""
     # Get last 2 records
     output = run_jn("cat", str(DATA_DIR / "people.csv"))
     result = subprocess.run(
-        ["uv", "run", "jn", "tail", "2"],
+        ["uv", "run", "jn", "tail", "-n", "2"],
         input=output,
         capture_output=True,
         text=True,

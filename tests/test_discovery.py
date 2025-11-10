@@ -18,7 +18,7 @@ def test_pep723_parsing(tmp_path):
         # requires-python = ">=3.11"
         # dependencies = ["pandas>=2.0"]
         # [tool.jn]
-        # matches = [".*\\.csv$"]
+        # matches = [".*\\\\.csv$"]
         # ///
 
         def reads(config=None):
@@ -49,7 +49,7 @@ def test_plugin_discovery_caching(tmp_path):
         # requires-python = ">=3.11"
         # dependencies = []
         # [tool.jn]
-        # matches = [".*\\.test$"]
+        # matches = [".*\\\\.test$"]
         # ///
 
         def reads(config=None):
@@ -72,7 +72,7 @@ def test_plugin_discovery_caching(tmp_path):
         # requires-python = ">=3.11"
         # dependencies = []
         # [tool.jn]
-        # matches = [".*\\.test2$"]
+        # matches = [".*\\\\.test2$"]
         # ///
 
         def reads(config=None):
@@ -104,7 +104,7 @@ def test_plugin_fallback_merges_with_builtins(tmp_path):
         # requires-python = ">=3.11"
         # dependencies = []
         # [tool.jn]
-        # matches = [".*\\.custom$"]
+        # matches = [".*\\\\.custom$"]
         # ///
 
         def reads(config=None):
@@ -141,7 +141,7 @@ def test_plugin_fallback_custom_overrides_builtin(tmp_path):
         # requires-python = ">=3.11"
         # dependencies = []
         # [tool.jn]
-        # matches = [".*\\.customcsv$"]
+        # matches = [".*\\\\.customcsv$"]
         # ///
 
         def reads(config=None):

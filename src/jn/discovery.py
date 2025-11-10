@@ -90,11 +90,14 @@ def discover_plugins(plugin_dir: Path) -> Dict[str, PluginMetadata]:
 
         # Extract plugin info
         tool_jn = metadata.get("tool", {}).get("jn", {})
-        matches = tool_jn.get("matches", [])
 
-        if not matches:
-            # No matches defined - skip this plugin
+        # Skip if no [tool.jn] section at all
+        if not tool_jn:
             continue
+
+        matches = tool_jn.get("matches", [])
+        # Note: matches can be empty for filter plugins that don't match files
+        # They're invoked by name, not by file pattern matching
 
         # Plugin name = filename without .py
         name = py_file.stem

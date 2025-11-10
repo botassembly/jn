@@ -84,10 +84,10 @@ def test_cat_csv_to_stdout(people_csv):
 
 
 def test_cat_csv_to_json(cli_runner, people_csv, tmp_path):
-    """Test: jn cat file.csv file.json."""
+    """Test: jn run file.csv file.json."""
     output_file = tmp_path / "output.json"
 
-    result = cli_runner.invoke(cli, ["cat", str(people_csv), str(output_file)])
+    result = cli_runner.invoke(cli, ["run", str(people_csv), str(output_file)])
 
     assert result.exit_code == 0
     assert output_file.exists()
@@ -100,7 +100,7 @@ def test_cat_csv_to_json(cli_runner, people_csv, tmp_path):
 
 
 def test_cat_with_custom_home(people_csv, jn_home, tmp_path):
-    """Test: jn --home custom/path cat file.csv (uses built-in plugin fallback)."""
+    """Test: jn --home custom/path run file.csv file.json (uses built-in plugin fallback)."""
     import subprocess
 
     output_file = tmp_path / "output.json"
@@ -113,7 +113,7 @@ def test_cat_with_custom_home(people_csv, jn_home, tmp_path):
             "jn",
             "--home",
             str(jn_home),
-            "cat",
+            "run",
             str(people_csv),
             str(output_file),
         ],
@@ -133,8 +133,8 @@ def test_cat_with_custom_home(people_csv, jn_home, tmp_path):
 
 
 def test_head_command(cli_runner, sample_ndjson):
-    """Test: jn head 1."""
-    result = cli_runner.invoke(cli, ["head", "1"], input=sample_ndjson)
+    """Test: jn head -n 1."""
+    result = cli_runner.invoke(cli, ["head", "-n", "1"], input=sample_ndjson)
 
     assert result.exit_code == 0
     lines = result.output.strip().split("\n")
@@ -143,8 +143,8 @@ def test_head_command(cli_runner, sample_ndjson):
 
 
 def test_tail_command(cli_runner, sample_ndjson):
-    """Test: jn tail 1."""
-    result = cli_runner.invoke(cli, ["tail", "1"], input=sample_ndjson)
+    """Test: jn tail -n 1."""
+    result = cli_runner.invoke(cli, ["tail", "-n", "1"], input=sample_ndjson)
 
     assert result.exit_code == 0
     lines = result.output.strip().split("\n")
