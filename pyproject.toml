@@ -101,12 +101,5 @@ exclude = ["tests/fixtures/"]
 plugins = ["pydantic.mypy"]
 
 [tool.pytest.ini_options]
-addopts = "-q --cov=jn --cov-report=term-missing"
+addopts = "-q"
 testpaths = ["tests"]
-
-[tool.coverage.run]
-source = ["src/jn"]
-branch = true
-
-[tool.coverage.report]
-show_missing = true
