@@ -949,26 +949,56 @@ def cat(source, limit, verbose):
                 # Use curl for HTTP(S)
                 fetch_cmd = ['curl', '-sL', source]
 
-            # Step 4: Pipe through reader
-            # Fetch file
-            fetch_result = subprocess.run(fetch_cmd, capture_output=True)
-            if fetch_result.returncode != 0:
-                click.echo(f"Error fetching URL: {fetch_result.stderr.decode()}", err=True)
-                sys.exit(fetch_result.returncode)
+            # Step 4: Stream through pipeline with backpressure
+            # Use Popen + pipes for true streaming (no memory buffering)
+            # This provides automatic backpressure via OS pipe buffers (~64KB)
 
-            # Parse through reader
             reader_cmd = [sys.executable, str(reader_path)]
-            reader_result = subprocess.run(
-                reader_cmd,
-                input=fetch_result.stdout,
-                capture_output=True
+
+            # Create fetch process
+            fetch_process = subprocess.Popen(
+                fetch_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
             )
 
-            if reader_result.returncode != 0:
-                click.echo(f"Error parsing file: {reader_result.stderr.decode()}", err=True)
-                sys.exit(reader_result.returncode)
+            # Create reader process, connected via pipe
+            # stdin comes from fetch stdout (OS pipe provides backpressure)
+            reader_process = subprocess.Popen(
+                reader_cmd,
+                stdin=fetch_process.stdout,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
 
-            output = reader_result.stdout.decode('utf-8')
+            # CRITICAL: Close fetch stdout in parent process
+            # This enables proper SIGPIPE propagation for clean shutdown
+            # Without this, if reader exits early, fetch can deadlock
+            fetch_process.stdout.close()
+
+            # Stream output line by line (pull-based with backpressure)
+            # Reader only pulls data as fast as it can process
+            # If reader is slow, pipe fills → fetch blocks → curl pauses
+            output_buffer = []
+            for line in reader_process.stdout:
+                output_buffer.append(line.decode('utf-8'))
+
+            # Wait for processes to complete
+            reader_returncode = reader_process.wait()
+            fetch_returncode = fetch_process.wait()
+
+            # Check for errors after completion
+            if fetch_returncode != 0:
+                fetch_stderr = fetch_process.stderr.read().decode('utf-8', errors='replace')
+                click.echo(f"Error fetching URL: {fetch_stderr}", err=True)
+                sys.exit(fetch_returncode)
+
+            if reader_returncode != 0:
+                reader_stderr = reader_process.stderr.read().decode('utf-8', errors='replace')
+                click.echo(f"Error parsing file: {reader_stderr}", err=True)
+                sys.exit(reader_returncode)
+
+            output = ''.join(output_buffer)
 
         else:
             # No file extension or unknown type - use http_get (JSON API)
