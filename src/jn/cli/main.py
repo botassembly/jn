@@ -16,7 +16,7 @@ from ..context import JNContext
 )
 @click.pass_context
 def cli(ctx, home):
-    """JN v5 - Agent-native ETL with NDJSON pipelines."""
+    """JN - Agent-native ETL with NDJSON pipelines."""
     ctx.ensure_object(JNContext)
 
     # Determine JN_HOME priority: --home > $JN_HOME > default

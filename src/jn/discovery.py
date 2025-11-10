@@ -123,13 +123,13 @@ def load_cache(cache_path: Optional[Path]) -> dict:
         Cache dict with 'version', 'plugins', etc.
     """
     if cache_path is None or not cache_path.exists():
-        return {"version": "5.0.0", "plugins": {}}
+        return {"version": "0.0.1", "plugins": {}}
 
     try:
         with open(cache_path) as f:
             return json.load(f)
     except (OSError, json.JSONDecodeError):
-        return {"version": "5.0.0", "plugins": {}}
+        return {"version": "0.0.1", "plugins": {}}
 
 
 def save_cache(cache_path: Optional[Path], cache: dict) -> None:

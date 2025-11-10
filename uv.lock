@@ -260,7 +260,7 @@ wheels = [
 
 [[package]]
 name = "jn"
-version = "5.0.0a1"
+version = "0.0.1.dev1"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
