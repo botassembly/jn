@@ -1,28 +1,26 @@
-# Profile System
+# Profile System Design
 
 ## Overview
 
-Profiles provide **connection configuration** and **named resources** for plugins that integrate with external systems. Profiles are **named after plugins** and stored in `profiles/{plugin_name}/`.
+Profiles provide **connection configuration** for external systems. This is a **planned feature** for v4.2.0 to support REST APIs, MCP servers, and databases.
 
-## Structure
+**Current state:** Basic file/URL routing exists. Profile system is design phase.
+
+## Planned Structure
 
 ```
 ~/.local/jn/profiles/
-├── jq/                   # jq plugin profiles
-│   ├── revenue.jq       # Named filter
-│   └── clean-nulls.jq   # Named filter
-│
-├── http/                 # HTTP plugin profiles
+├── http/                 # HTTP API profiles
 │   ├── github.json      # Simple profile (single file)
 │   └── stripe/          # Complex profile (directory)
 │       ├── config.json  # Base connection config
 │       └── charges.json # Per-endpoint overrides
 │
-├── mcp/                  # MCP plugin profiles
+├── mcp/                  # MCP server profiles
 │   └── github/
 │       └── config.json
 │
-└── sql/                  # SQL plugin profiles
+└── sql/                  # Database profiles
     └── mydb/
         ├── config.json  # Database connection
         └── queries/     # Named SQL queries
@@ -31,25 +29,91 @@ Profiles provide **connection configuration** and **named resources** for plugin
 
 **Pattern:** Each plugin owns its profile namespace: `profiles/{plugin_name}/`
 
-## JN_HOME Priority
+## Design Goals
 
-Profiles discovered across all JN_HOME locations (highest to lowest priority):
+### 1. Profiles Are Optional
 
-1. `--home <path>` (CLI flag)
-2. `$JN_HOME` (environment variable)
-3. `./.jn` (current working directory - project-specific)
-4. `~/.local/jn` (user home - default)
+Direct URLs should work without profiles:
 
-**First found wins** - allows project to override user defaults.
+```bash
+# Works today (no profile needed)
+jn cat https://api.github.com/repos/anthropics/claude-code/issues
 
-## Profile Types
+# Planned (with profile for convenience)
+jn cat @github/repos/anthropics/claude-code/issues
+```
 
-### Simple Profile (Single File)
+Profiles add:
+- Authentication
+- Custom headers
+- Timeouts/retry logic
+- Per-endpoint configuration
 
-For plugins with uniform configuration:
+### 2. Simple by Default, Powerful When Needed
 
+**Simple profile (single file):**
 ```json
 // profiles/http/github.json
+{
+  "base_url": "https://api.github.com",
+  "headers": {
+    "Authorization": "Bearer ${GITHUB_TOKEN}"
+  }
+}
+```
+
+**Complex profile (directory with overrides):**
+```
+profiles/http/stripe/
+├── config.json       # Base config
+├── charges.json      # Override for /charges
+└── customers.json    # Override for /customers
+```
+
+### 3. Plugin-Owned Namespaces
+
+Each plugin defines its profile structure:
+- `profiles/http/` - HTTP plugin profiles
+- `profiles/mcp/` - MCP plugin profiles
+- `profiles/sql/` - SQL plugin profiles
+- `profiles/jq/` - jq filter definitions
+
+### 4. JN_HOME Cascading
+
+Profiles discovered across JN_HOME locations:
+
+1. `--home <path>` (CLI flag - highest priority)
+2. `$JN_HOME` (environment variable)
+3. `./.jn` (project-specific)
+4. `~/.local/jn` (user home - default)
+
+**First found wins** - allows projects to override user defaults.
+
+## Planned Syntax
+
+**Path-based (/)** - Hierarchical resources:
+```bash
+@profile/path/to/resource
+```
+
+Examples:
+- `@github/repos/anthropics/claude-code/issues` (HTTP)
+- `@mydb/public/users` (SQL table)
+
+**Tool-based (:)** - Named resources:
+```bash
+@profile:tool_name
+```
+
+Examples:
+- `@github:create_issue` (MCP tool)
+- `@mydb:active-users` (SQL query)
+
+## Example Profile Structures
+
+### HTTP Profile
+
+```json
 {
   "base_url": "https://api.github.com",
   "headers": {
@@ -60,112 +124,79 @@ For plugins with uniform configuration:
 }
 ```
 
-**Usage:**
-```bash
-jn cat @github/repos/anthropics/claude-code/issues
-```
-
-### Complex Profile (Directory with Overrides)
-
-For plugins needing per-resource customization:
-
-```
-profiles/http/stripe/
-├── config.json       # Base connection config
-├── charges.json      # Override for /charges endpoint
-└── customers.json    # Override for /customers endpoint
-```
-
-**Merged config example:** When accessing `/charges`, `config.json` and `charges.json` are deep merged.
-
-**Usage:**
-```bash
-jn cat @stripe/charges?limit=10
-# Uses config.json + charges.json (merged)
-```
-
-## Plugin-Specific Examples
-
-### HTTP Profiles
-
-```json
-{
-  "base_url": "https://api.example.com",
-  "headers": {},
-  "timeout": 30,
-  "retry": {"max_attempts": 3}
-}
-```
-
-```bash
-jn cat @github/repos/anthropics/claude-code/issues
-```
-
-### MCP Profiles
+### MCP Profile
 
 ```json
 {
   "server": "docker run -i --rm ghcr.io/github/github-mcp-server",
-  "env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"}
+  "env": {
+    "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
+  }
 }
 ```
 
-```bash
-jn cat @github:get_issues
-```
-
-### SQL Profiles
+### SQL Profile
 
 ```json
 {
   "type": "postgresql",
   "host": "localhost",
   "port": 5432,
-  "database": "production"
+  "database": "production",
+  "user": "admin",
+  "password": "${DB_PASSWORD}"
 }
 ```
 
-```bash
-jn cat @mydb/public/users
-jn cat @mydb:active-users
-```
-
-### jq Profiles (Named Filters)
+### jq Profile (Named Filter)
 
 ```jq
 # profiles/jq/revenue.jq
 select(.revenue > 1000) | {id, name, revenue}
 ```
 
-```bash
-jn cat data.csv | jn filter jq @revenue
-```
+## Environment Variables
 
-## Environment Variable Expansion
+All profiles support environment variable expansion:
 
 ```json
 {
   "token": "${GITHUB_TOKEN}",     // Error if not set
-  "timeout": "${TIMEOUT:-30}"     // Default to 30
+  "timeout": "${TIMEOUT:-30}"     // Default to 30 if not set
 }
 ```
 
-## Syntax Patterns
+## Implementation Plan
 
-**Path-based (/):** `@profile/path/to/resource`
-- `@github/repos/anthropics/claude-code/issues`
-- `@mydb/public/users`
+**Phase 1: Profile Infrastructure**
+- Profile discovery across JN_HOME locations
+- Environment variable expansion
+- Simple profile loading
 
-**Tool-based (:):** `@profile:tool_name`
-- `@github:get_issues`
-- `@mydb:active-users`
+**Phase 2: HTTP Plugin**
+- Generic HTTP plugin with profile support
+- Auth helpers (bearer, API key)
+- Simple GET/POST support
+
+**Phase 3: MCP Plugin**
+- MCP server integration
+- Profile-based server launching
+- Tool execution
+
+**Phase 4: SQL Plugin**
+- Database connections
+- Named queries
+- Table read/write
 
 ## Key Principles
 
-- **Plugin-owned** - profiles/{plugin_name}/
 - **Optional** - Direct URIs work without profiles
-- **Cascading** - Project can override user
+- **Plugin-owned** - profiles/{plugin_name}/
+- **Cascading** - Project can override user defaults
+- **Environment-aware** - ${VAR} expansion
 - **Simple by default** - Single file for simple cases
 - **Powerful when needed** - Directory for overrides
 
-See also: `arch/plugins.md` for plugin system details
+See also:
+- `arch/plugins.md` - Plugin system
+- `arch/pipeline.md` - Pipeline execution
