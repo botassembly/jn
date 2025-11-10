@@ -57,6 +57,22 @@ class PluginExecutor:
             # Run directly with python
             cmd = [sys.executable, str(plugin_path)]
 
+        # Add config as CLI arguments
+        # Convert config dict to CLI flags (e.g., {'output': 'file.json'} -> ['--output', 'file.json'])
+        for key, value in step.config.items():
+            flag = f'--{key.replace("_", "-")}'
+            if isinstance(value, bool):
+                # Boolean flags: only add if True
+                if value:
+                    cmd.append(flag)
+            elif isinstance(value, list):
+                # List values: repeat flag for each item
+                for item in value:
+                    cmd.extend([flag, str(item)])
+            else:
+                # Regular value: add flag and value
+                cmd.extend([flag, str(value)])
+
         # Add any custom args
         cmd.extend(step.args)
 
