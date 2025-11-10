@@ -220,8 +220,8 @@ def get_cached_plugins_with_fallback(
 ) -> Dict[str, PluginMetadata]:
     """Get plugins with fallback to built-in plugins.
 
-    First loads from the specified plugin_dir. If empty or if fallback_to_builtin
-    is True, also loads built-in plugins (from src/jn/plugins/).
+    Loads built-in plugins first, then merges custom plugins on top.
+    Custom plugins with the same name override built-ins.
 
     Args:
         plugin_dir: Primary directory containing plugins
@@ -231,18 +231,17 @@ def get_cached_plugins_with_fallback(
     Returns:
         Dict mapping plugin name to metadata (custom plugins override built-ins)
     """
-    # Load custom/specified plugins
-    plugins = get_cached_plugins(plugin_dir, cache_path)
+    result = {}
 
-    # If we have custom plugins or fallback disabled, return as-is
-    if plugins or not fallback_to_builtin:
-        return plugins
+    # Load built-in plugins first (if fallback enabled)
+    if fallback_to_builtin:
+        builtin_dir = Path(__file__).parent / "plugins"
+        builtin_cache = Path(__file__).parent / "cache.json"
+        if builtin_dir.exists():
+            result = get_cached_plugins(builtin_dir, builtin_cache)
 
-    # No custom plugins found - fallback to built-in plugins
-    builtin_dir = Path(__file__).parent / "plugins"
-    builtin_cache = Path(__file__).parent / "cache.json"
+    # Load custom/specified plugins (override built-ins with same name)
+    custom_plugins = get_cached_plugins(plugin_dir, cache_path)
+    result.update(custom_plugins)
 
-    if builtin_dir.exists():
-        return get_cached_plugins(builtin_dir, builtin_cache)
-
-    return plugins
+    return result
