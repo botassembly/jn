@@ -64,6 +64,7 @@ def discover_plugins(plugin_dir: Path) -> Dict[str, PluginMetadata]:
     """Discover all plugins in directory.
 
     Scans for .py files, extracts PEP 723 metadata.
+    Stores paths RELATIVE to plugin_dir for portability.
 
     Args:
         plugin_dir: Directory to scan (e.g., src/jn/plugins/)
@@ -101,9 +102,12 @@ def discover_plugins(plugin_dir: Path) -> Dict[str, PluginMetadata]:
         # Get file mtime
         mtime = py_file.stat().st_mtime
 
+        # Store path RELATIVE to plugin_dir for portability
+        relative_path = py_file.relative_to(plugin_dir)
+
         plugins[name] = PluginMetadata(
             name=name,
-            path=str(py_file),
+            path=str(relative_path),  # Relative path!
             mtime=mtime,
             matches=matches,
             requires_python=metadata.get("requires-python"),
@@ -156,18 +160,20 @@ def get_cached_plugins(
     - If plugin in cache but file deleted, remove from cache
     - If plugin file not in cache, parse and add
 
+    Cache stores RELATIVE paths for portability across machines.
+
     Args:
         plugin_dir: Directory containing plugins
         cache_path: Path to cache.json (can be None)
 
     Returns:
-        Dict mapping plugin name to metadata
+        Dict mapping plugin name to metadata (with absolute paths reconstructed)
     """
     # Load cache
     cache = load_cache(cache_path)
     cached_plugins = cache.get("plugins", {})
 
-    # Discover current plugins
+    # Discover current plugins (returns relative paths)
     current_plugins = discover_plugins(plugin_dir)
 
     # Check for changes
@@ -179,11 +185,14 @@ def get_cached_plugins(
         if name in cached_plugins:
             cached_mtime = cached_plugins[name].get("mtime", 0)
             if meta.mtime <= cached_mtime:
-                # Use cached version
-                result[name] = PluginMetadata(**cached_plugins[name])
+                # Use cached version (reconstruct absolute path)
+                cached_meta = cached_plugins[name].copy()
+                cached_meta["path"] = str(plugin_dir / cached_meta["path"])
+                result[name] = PluginMetadata(**cached_meta)
                 continue
 
-        # New or updated plugin
+        # New or updated plugin - convert relative path to absolute
+        meta.path = str(plugin_dir / meta.path)
         result[name] = meta
         needs_update = True
 
@@ -192,11 +201,14 @@ def get_cached_plugins(
         if name not in current_plugins:
             needs_update = True
 
-    # Update cache if needed
+    # Update cache if needed (store relative paths)
     if needs_update:
-        cache["plugins"] = {
-            name: asdict(meta) for name, meta in result.items()
-        }
+        cache["plugins"] = {}
+        for name, meta in result.items():
+            cache_meta = asdict(meta)
+            # Convert absolute path back to relative for storage
+            cache_meta["path"] = str(Path(meta.path).relative_to(plugin_dir))
+            cache["plugins"][name] = cache_meta
         save_cache(cache_path, cache)
 
     return result
@@ -243,7 +255,11 @@ def get_cached_plugins_with_fallback(
     if fallback_to_builtin:
         builtin_dir = Path(__file__).parent / "plugins"
         if builtin_dir.exists():
-            result = discover_plugins(builtin_dir)
+            builtin_plugins = discover_plugins(builtin_dir)
+            # Convert relative paths to absolute for runtime use
+            for name, meta in builtin_plugins.items():
+                meta.path = str(builtin_dir / meta.path)
+            result = builtin_plugins
 
     # Load custom/specified plugins WITH caching (override built-ins with same name)
     # Custom plugins are in user-writable directories
