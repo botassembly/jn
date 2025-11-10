@@ -2,6 +2,7 @@
 
 import subprocess
 import sys
+from pathlib import Path
 
 import click
 
@@ -17,12 +18,19 @@ def filter(ctx, query):
     Example:
         jn cat data.csv | jn filter '.age > 25'
     """
-    # Find jq plugin
+    # Find jq plugin (try custom dir first, fallback to built-in)
     jq_plugin = ctx.plugin_dir / "filters" / "jq_.py"
 
     if not jq_plugin.exists():
-        click.echo("Error: jq filter plugin not found", err=True)
-        sys.exit(1)
+        # Fallback to built-in
+        builtin_jq = (
+            Path(__file__).parent.parent / "plugins" / "filters" / "jq_.py"
+        )
+        if builtin_jq.exists():
+            jq_plugin = builtin_jq
+        else:
+            click.echo("Error: jq filter plugin not found", err=True)
+            sys.exit(1)
 
     # Run jq filter (inherit stdin/stdout)
     proc = subprocess.Popen(

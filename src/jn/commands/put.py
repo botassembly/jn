@@ -6,7 +6,7 @@ import sys
 import click
 
 from ..context import pass_context
-from ..discovery import get_cached_plugins
+from ..discovery import get_cached_plugins_with_fallback
 from ..registry import build_registry
 
 
@@ -19,8 +19,8 @@ def put(ctx, output_file):
     Example:
         jn cat data.csv | jn put output.json
     """
-    # Load plugins
-    plugins = get_cached_plugins(ctx.plugin_dir, ctx.cache_path)
+    # Load plugins (with fallback to built-in if custom dir is empty)
+    plugins = get_cached_plugins_with_fallback(ctx.plugin_dir, ctx.cache_path)
     registry = build_registry(plugins)
 
     # Resolve output plugin
