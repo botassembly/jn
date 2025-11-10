@@ -159,9 +159,13 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='YAML format plugin - read/write YAML files')
     parser.add_argument(
+        '--test',
+        action='store_true',
+        help='Run self-tests'
+    )
+    parser.add_argument(
         '--mode',
         choices=['read', 'write'],
-        required=True,
         help='Operation mode: read YAML to NDJSON, or write NDJSON to YAML'
     )
     parser.add_argument(
@@ -176,17 +180,15 @@ if __name__ == '__main__':
         action='store_false',
         help='Write as single document (list) instead of multi-document'
     )
-    parser.add_argument(
-        '--test',
-        action='store_true',
-        help='Run self-tests'
-    )
 
     args = parser.parse_args()
 
     if args.test:
         success = test()
         sys.exit(0 if success else 1)
+
+    if not args.mode:
+        parser.error('--mode is required when not running tests')
 
     # Build config
     config = {}

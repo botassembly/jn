@@ -192,9 +192,13 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='JSON format plugin - read/write JSON files')
     parser.add_argument(
+        '--test',
+        action='store_true',
+        help='Run self-tests'
+    )
+    parser.add_argument(
         '--mode',
         choices=['read', 'write'],
-        required=True,
         help='Operation mode: read JSON to NDJSON, or write NDJSON to JSON'
     )
     parser.add_argument(
@@ -213,17 +217,15 @@ if __name__ == '__main__':
         action='store_true',
         help='Sort object keys alphabetically'
     )
-    parser.add_argument(
-        '--test',
-        action='store_true',
-        help='Run self-tests'
-    )
 
     args = parser.parse_args()
 
     if args.test:
         success = test()
         sys.exit(0 if success else 1)
+
+    if not args.mode:
+        parser.error('--mode is required when not running tests')
 
     # Build config
     config = {}
