@@ -169,7 +169,7 @@ Plugins can have deps (PEP 723), but core should be minimal.
 - `spec/ARCHITECTURE.md` - **START HERE** - Full system architecture, plugin patterns, data flow
 - `spec/popen-backpressure.md` - **CRITICAL** - Why Popen > async, memory usage, SIGPIPE
 - `spec/ROADMAP.md` - Feature roadmap, v4.2.0 targets MCP + Cloud APIs
-- `spec/PROFILES.md` - **NEW** - Profile system for API/MCP config (v4.2.0)
+- `spec/API_MCP_DESIGN.md` - **NEW** - API/MCP integration and profile system (v4.2.0)
 - `spec/IMPLEMENTATION_PLAN.md` - Implementation details and patterns
 
 ### Reference Implementations
@@ -221,75 +221,88 @@ Plugins can have deps (PEP 723), but core should be minimal.
 
 ## API & MCP Strategy (v4.2.0 Roadmap)
 
-### Three-Tier Plugin Architecture
+### Two Core Plugins: HTTP and MCP
 
-**Tier 1: Generic REST plugins** (framework provides)
-- `plugins/http/rest_source.py` - GET with auth/pagination/retry
-- `plugins/http/rest_target.py` - POST/PUT/PATCH with batching
-- `src/jn/api_helpers.py` - Auth, pagination, retry utilities
+**HTTP Plugin** (`plugins/http/http.py`)
+- Handles REST API requests (GET, POST, PUT, PATCH, DELETE)
+- Path-based resources: `@github/repos/org/repo/issues`
+- Profile-driven: base_url, headers, auth, timeout, retry
 
-**Tier 2: API-specific plugins** (community creates)
-- `plugins/api/github/issues_source.py` - GitHub-specific logic
-- `plugins/api/<service>/` - One plugin per API resource
-- Uses api_helpers but adds API-specific knowledge
+**MCP Plugin** (`plugins/mcp/mcp.py`)
+- Handles MCP server communication
+- Tool-based resources: `@github:create_issue`
+- Profile-driven: server command, env vars, timeout
 
-**Tier 3: MCP server plugins** (thin wrappers)
-- `plugins/mcp/mcp_executor.py` - Execute MCP tools from NDJSON
-- Uses mcp2py for subprocess MCP server communication
-- Treats MCP as execution environment (like jq filter)
+**No special commands** - `jn cat` and `jn put` work with both via auto-discovery.
 
-### MCP Integration Approach
+### Profile System
 
-**DO:** Treat MCP servers as data sources/filters (code execution model)
-**DON'T:** Load all tool definitions into context (that's for LLMs, not pipelines)
-
-Pattern:
-```python
-# Execute MCP tool, stream results as NDJSON
-jn cat data.ndjson | jn filter mcp --server github --tool create_issue
+**Structure:**
+```
+~/.local/jn/profiles/      # User home (not ~/.jn to avoid pollution)
+  ├─ http/
+  │  ├─ github.json        # Simple: single file
+  │  └─ stripe/            # Complex: nested with overrides
+  │     ├─ config.json     # Base config
+  │     └─ charges.json    # Override for /charges endpoint
+  └─ mcp/
+     ├─ github.json
+     └─ context7/
+        ├─ config.json
+        └─ search.json     # Override for search tool
 ```
 
-**Why?** Aligns with Anthropic's MCP code execution findings:
-- Filters data before passing to next stage
-- Avoids token overhead from tool definitions
-- Maintains JN's streaming model
-- Uses mcp2py for simplicity (handles auth, subprocess)
+**JN_HOME Priority (highest to lowest):**
+1. `--home <path>` (CLI flag)
+2. `$JN_HOME` (environment variable)
+3. `./.jn` (current working directory - project-specific)
+4. `~/.local/jn` (user home - default)
 
-### Sources vs Targets
+**Usage:**
+```bash
+# HTTP (path-based)
+jn cat @github/repos/anthropics/claude-code/issues
+jn put @stripe/customers < data.ndjson
 
-**Sources (GET):** API → NDJSON
-- Handle pagination automatically
-- Stream results incrementally
-- Support query param filtering
+# MCP (tool-based, note the colon)
+jn cat @github:get_issues < args.ndjson
+jn put @context7:ingest < docs.ndjson
 
-**Targets (POST/PUT/PATCH):** NDJSON → API
-- Batch records when API supports it
-- Handle rate limiting/retries
-- Map NDJSON fields to API schema
+# Explicit plugin (when profile exists in multiple)
+jn cat @http/github/repos/...    # Force HTTP
+jn cat @mcp/github:get_issues    # Force MCP
+```
 
-### Common Framework Logic
+### Auto-Discovery
 
-Push to `src/jn/api_helpers.py`:
-- `AuthHelper` - Bearer, API key, basic auth patterns
-- `PaginationHelper` - Offset, cursor, link header pagination
-- `RetryHelper` - Exponential backoff with jitter
-- `BatchHelper` - Group NDJSON records for bulk operations
+**Syntax-based routing:**
+- `/` after profile → HTTP plugin (path-based)
+- `:` after profile → MCP plugin (tool-based)
 
-Keeps plugins simple, reduces copy-paste, maintains zero-dep philosophy.
+**Profile discovery:**
+- Searches `profiles/*/name.json` across all JN_HOME locations
+- Alphabetical priority if multiple plugins have same profile name
+- Warns user, suggests explicit syntax
 
-### Public API Examples for Demos
+### Plugin-Owned Profiles
 
-- **GitHub API** - `github://repos/anthropics/claude-code/issues`
-- **JSONPlaceholder** - `https://jsonplaceholder.typicode.com/posts`
-- **REST Countries** - `https://restcountries.com/v3.1/all`
-- **httpbin.org** - Already in tests!
+Each plugin:
+- Defines its profile schema
+- Validates profiles (optional)
+- Provides templates for `jn profile create`
+- Returns schemas for sources/targets (optional)
 
-### OpenAPI/Swagger Strategy
+Framework just loads and routes - **plugins own their config.**
 
-**DON'T:** Runtime OpenAPI parsing (too complex)
-**DO:** Code generation tool: `jn plugin generate-from-openapi spec.yaml --name stripe`
+### Key Design Principles
 
-Generates focused, simple plugins (not full SDK). Aligns with "agents generate code" philosophy.
+✅ **Simple by default** - Single file profiles for basic cases
+✅ **Powerful when needed** - Nested profiles for per-resource overrides
+✅ **Auto-discovery** - No special commands, syntax hints routing
+✅ **Cascading homes** - Project overrides user, explicit overrides all
+✅ **Duck typing** - Plugins implement capabilities optionally
+
+See `spec/API_MCP_DESIGN.md` for complete design details.
 
 ---
 
