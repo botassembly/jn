@@ -1,0 +1,194 @@
+#!/usr/bin/env -S uv run --script
+"""Parse CSV/TSV files and convert to/from NDJSON."""
+# /// script
+# requires-python = ">=3.11"
+# dependencies = []
+# [tool.jn]
+# matches = [
+#   ".*\\.csv$",
+#   ".*\\.tsv$"
+# ]
+# ///
+
+import sys
+import csv
+import json
+from typing import Iterator, Optional
+
+
+def reads(config: Optional[dict] = None) -> Iterator[dict]:
+    """Read CSV from stdin, yield NDJSON records.
+
+    Config:
+        delimiter: Field delimiter (default: ',')
+        skip_rows: Number of header rows to skip (default: 0)
+
+    Yields:
+        Dict per CSV row with column headers as keys
+    """
+    config = config or {}
+    delimiter = config.get('delimiter', ',')
+    skip_rows = config.get('skip_rows', 0)
+
+    # Skip header rows if requested
+    for _ in range(skip_rows):
+        next(sys.stdin, None)
+
+    # Read CSV
+    reader = csv.DictReader(sys.stdin, delimiter=delimiter)
+
+    for row in reader:
+        yield row
+
+
+def writes(config: Optional[dict] = None) -> None:
+    """Read NDJSON from stdin, write CSV to stdout.
+
+    Config:
+        delimiter: Field delimiter (default: ',')
+        header: Include header row (default: True)
+
+    Reads all records to determine column union, then writes CSV.
+    """
+    config = config or {}
+    delimiter = config.get('delimiter', ',')
+    include_header = config.get('header', True)
+
+    # Collect all records (need to know all keys for CSV header)
+    records = []
+    for line in sys.stdin:
+        line = line.strip()
+        if line:
+            records.append(json.loads(line))
+
+    if not records:
+        # Empty input
+        if include_header:
+            writer = csv.writer(sys.stdout, delimiter=delimiter)
+            writer.writerow([])
+        return
+
+    # Get all unique keys (union, preserving order of first appearance)
+    all_keys = []
+    seen = set()
+    for record in records:
+        for key in record:
+            if key not in seen:
+                all_keys.append(key)
+                seen.add(key)
+
+    # Write CSV
+    writer = csv.DictWriter(
+        sys.stdout,
+        fieldnames=all_keys,
+        delimiter=delimiter,
+        lineterminator='\n'
+    )
+
+    if include_header:
+        writer.writeheader()
+
+    writer.writerows(records)
+
+
+def test() -> bool:
+    """Run self-tests with real data (no mocks).
+
+    Returns:
+        True if all tests pass
+    """
+    from io import StringIO
+
+    print("Testing CSV plugin...", file=sys.stderr)
+
+    # Test 1: Basic CSV read
+    test_input = "name,age\nAlice,30\nBob,25\n"
+    sys.stdin = StringIO(test_input)
+
+    results = list(reads())
+    expected = [
+        {"name": "Alice", "age": "30"},
+        {"name": "Bob", "age": "25"}
+    ]
+
+    if results == expected:
+        print("✓ CSV read test passed", file=sys.stderr)
+    else:
+        print(f"✗ CSV read test failed: {results}", file=sys.stderr)
+        return False
+
+    # Test 2: CSV write
+    sys.stdin = StringIO('{"name":"Alice","age":30}\n{"name":"Bob","age":25}\n')
+    old_stdout = sys.stdout
+    sys.stdout = StringIO()
+
+    writes()
+
+    output = sys.stdout.getvalue()
+    sys.stdout = old_stdout
+
+    expected_output = "name,age\nAlice,30\nBob,25\n"
+
+    if output == expected_output:
+        print("✓ CSV write test passed", file=sys.stderr)
+    else:
+        print(f"✗ CSV write test failed: {repr(output)}", file=sys.stderr)
+        return False
+
+    print("All CSV tests passed!", file=sys.stderr)
+    return True
+
+
+if __name__ == '__main__':
+    import argparse
+
+    parser = argparse.ArgumentParser(description='CSV format plugin - read/write CSV files')
+    parser.add_argument(
+        '--test',
+        action='store_true',
+        help='Run self-tests'
+    )
+    parser.add_argument(
+        '--mode',
+        choices=['read', 'write'],
+        help='Operation mode: read CSV to NDJSON, or write NDJSON to CSV'
+    )
+    parser.add_argument(
+        '--delimiter',
+        default=',',
+        help='Field delimiter (default: comma)'
+    )
+    parser.add_argument(
+        '--skip-rows',
+        type=int,
+        default=0,
+        help='Number of rows to skip when reading'
+    )
+    parser.add_argument(
+        '--no-header',
+        dest='header',
+        action='store_false',
+        help='Skip header row when writing'
+    )
+
+    args = parser.parse_args()
+
+    if args.test:
+        success = test()
+        sys.exit(0 if success else 1)
+
+    if not args.mode:
+        parser.error('--mode is required when not running tests')
+
+    # Build config
+    config = {
+        'delimiter': args.delimiter,
+    }
+
+    if args.mode == 'read':
+        config['skip_rows'] = args.skip_rows
+        for record in reads(config):
+            print(json.dumps(record), flush=True)
+    else:
+        config['header'] = args.header
+        writes(config)
