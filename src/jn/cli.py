@@ -216,9 +216,30 @@ def cmd_filter(args):
         print("Usage: jn filter <jq-expression>", file=sys.stderr)
         sys.exit(1)
 
-    # TODO: Implement jq filter plugin
-    print("Error: jq filter not yet implemented", file=sys.stderr)
-    sys.exit(1)
+    query = args[0]
+
+    # Get jq plugin path
+    plugin_dir = get_plugin_dir()
+    jq_plugin = plugin_dir / 'filters' / 'jq_.py'
+
+    if not jq_plugin.exists():
+        print("Error: jq filter plugin not found", file=sys.stderr)
+        sys.exit(1)
+
+    # Run jq filter with stdin/stdout
+    jq_process = subprocess.Popen(
+        [sys.executable, str(jq_plugin), '--query', query],
+        stdin=None,  # Inherit stdin
+        stdout=None,  # Inherit stdout
+        stderr=subprocess.PIPE
+    )
+
+    stderr_output = jq_process.communicate()[1]
+
+    if jq_process.returncode != 0:
+        error_msg = stderr_output.decode() if stderr_output else "Unknown error"
+        print(f"Filter error: {error_msg}", file=sys.stderr)
+        sys.exit(1)
 
 
 def cmd_head(args):
