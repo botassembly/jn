@@ -1,286 +1,211 @@
-"""Plugin discovery system.
+"""Plugin discovery with timestamp-based caching."""
 
-Scans filesystem for JN plugins and extracts metadata without importing Python modules.
-Uses regex-based parsing of META headers and PEP 723 dependency blocks.
-"""
-
-import os
 import re
+import json
+import tomllib
 from pathlib import Path
-from typing import Dict, List, Optional, Set
-from dataclasses import dataclass, field
+from typing import Dict, Optional, List
+from dataclasses import dataclass, asdict
+
+
+# PEP 723 regex pattern
+PEP723_PATTERN = re.compile(
+    r"(?m)^# /// (?P<type>[a-zA-Z0-9-]+)$\n(?P<content>(^#(| .*)$\n)+)^# ///$"
+)
 
 
 @dataclass
 class PluginMetadata:
-    """Metadata extracted from a plugin file."""
-
+    """Metadata for a discovered plugin."""
     name: str
     path: str
-    type: Optional[str] = None  # source, filter, target
-    handles: List[str] = field(default_factory=list)  # File extensions or URL patterns
-    command: Optional[str] = None  # Shell command name
-    streaming: bool = False
-    dependencies: List[str] = field(default_factory=list)  # PEP 723 dependencies
-    mtime: float = 0.0  # File modification time
-    category: Optional[str] = None  # readers, writers, filters, shell, http
-    description: Optional[str] = None  # Plugin description
-    keywords: List[str] = field(default_factory=list)  # Search keywords
+    mtime: float
+    matches: List[str]
+    requires_python: Optional[str] = None
+    dependencies: List[str] = None
+
+    def __post_init__(self):
+        if self.dependencies is None:
+            self.dependencies = []
 
 
-def get_plugin_paths() -> List[Path]:
-    """Return standard plugin search paths in priority order.
-
-    Priority:
-        1. User plugins: ~/.jn/plugins/
-        2. Project plugins: ./.jn/plugins/
-        3. Package plugins: <package>/plugins/
-        4. System plugins: /usr/local/share/jn/plugins/
-
-    Returns:
-        List of Path objects to search for plugins
-    """
-    paths = []
-
-    # User plugins
-    user_home = Path.home()
-    user_plugins = user_home / '.jn' / 'plugins'
-    if user_plugins.exists():
-        paths.append(user_plugins)
-
-    # Project plugins
-    project_plugins = Path.cwd() / '.jn' / 'plugins'
-    if project_plugins.exists():
-        paths.append(project_plugins)
-
-    # Package plugins (relative to this file)
-    package_root = Path(__file__).parent.parent.parent
-    package_plugins = package_root / 'plugins'
-    if package_plugins.exists():
-        paths.append(package_plugins)
-
-    # System plugins
-    system_plugins = Path('/usr/local/share/jn/plugins')
-    if system_plugins.exists():
-        paths.append(system_plugins)
-
-    return paths
-
-
-def parse_plugin_metadata(file_path: Path) -> Optional[PluginMetadata]:
-    """Extract metadata from plugin file using regex (no imports).
-
-    Parses:
-        - META headers: # META: type=source, handles=[".csv"]
-        - PEP 723 dependencies: # dependencies = ["package>=1.0"]
-        - File modification time
+def parse_pep723(filepath: Path) -> dict:
+    """Extract PEP 723 metadata from Python file.
 
     Args:
-        file_path: Path to plugin .py file
+        filepath: Path to Python plugin file
 
     Returns:
-        PluginMetadata object or None if not a valid plugin
+        Dict with 'dependencies', 'requires-python', and 'tool' sections
     """
-    if not file_path.suffix == '.py':
-        return None
-
     try:
-        content = file_path.read_text(encoding='utf-8')
+        content = filepath.read_text()
     except (IOError, UnicodeDecodeError):
-        return None
+        return {}
 
-    # Extract plugin name from filename
-    name = file_path.stem
+    match = PEP723_PATTERN.search(content)
+    if not match or match.group('type') != 'script':
+        return {}
 
-    # Determine category from directory structure
-    category = None
-    if file_path.parent.name in ('readers', 'writers', 'filters', 'shell', 'http'):
-        category = file_path.parent.name
-
-    # Parse META header
-    # Format: # META: type=source, handles=[".csv", ".tsv"], streaming=true
-    meta_pattern = r'#\s*META:\s*(.+)'
-    meta_match = re.search(meta_pattern, content)
-
-    plugin_type = None
-    handles = []
-    command = None
-    streaming = False
-
-    if meta_match:
-        meta_content = meta_match.group(1)
-
-        # Extract type
-        type_match = re.search(r'type=(\w+)', meta_content)
-        if type_match:
-            plugin_type = type_match.group(1)
-
-        # Extract handles (file extensions or patterns)
-        handles_match = re.search(r'handles=\[(.*?)\]', meta_content)
-        if handles_match:
-            handles_str = handles_match.group(1)
-            # Parse quoted strings
-            handles = re.findall(r'["\']([^"\']+)["\']', handles_str)
-
-        # Extract command
-        command_match = re.search(r'command=["\']([^"\']+)["\']', meta_content)
-        if command_match:
-            command = command_match.group(1)
-
-        # Extract streaming flag
-        streaming_match = re.search(r'streaming=(true|false)', meta_content)
-        if streaming_match:
-            streaming = streaming_match.group(1) == 'true'
-
-    # Parse PEP 723 dependencies
-    # Format: # dependencies = ["package>=1.0", "other"]
-    dependencies = []
-    dep_pattern = r'#\s*dependencies\s*=\s*\[(.*?)\]'
-    dep_match = re.search(dep_pattern, content)
-    if dep_match:
-        dep_str = dep_match.group(1)
-        dependencies = re.findall(r'["\']([^"\']+)["\']', dep_str)
-
-    # Parse KEYWORDS
-    # Format: # KEYWORDS: csv, data, parsing
-    keywords = []
-    keywords_pattern = r'#\s*KEYWORDS:\s*(.+)'
-    keywords_match = re.search(keywords_pattern, content)
-    if keywords_match:
-        keywords_str = keywords_match.group(1).strip()
-        keywords = [k.strip() for k in keywords_str.split(',') if k.strip()]
-
-    # Parse DESCRIPTION (from comment or docstring)
-    # Format: # DESCRIPTION: Read CSV files...
-    description = None
-    desc_pattern = r'#\s*DESCRIPTION:\s*(.+)'
-    desc_match = re.search(desc_pattern, content)
-    if desc_match:
-        description = desc_match.group(1).strip()
-    else:
-        # Try to extract from module docstring (first triple-quoted string)
-        docstring_pattern = r'"""(.+?)"""'
-        docstring_match = re.search(docstring_pattern, content, re.DOTALL)
-        if docstring_match:
-            # Get first line of docstring
-            docstring = docstring_match.group(1).strip()
-            description = docstring.split('\n')[0].strip()
-
-    # Get file modification time
-    mtime = file_path.stat().st_mtime
-
-    return PluginMetadata(
-        name=name,
-        path=str(file_path),
-        type=plugin_type,
-        handles=handles,
-        command=command,
-        streaming=streaming,
-        dependencies=dependencies,
-        mtime=mtime,
-        category=category,
-        description=description,
-        keywords=keywords
+    # Extract TOML content from comments
+    lines = match.group('content').splitlines()
+    toml_content = '\n'.join(
+        line[2:] if line.startswith('# ') else line[1:]
+        for line in lines
     )
 
+    try:
+        return tomllib.loads(toml_content)
+    except Exception:
+        return {}
 
-def discover_plugins(
-    scan_paths: Optional[List[Path]] = None,
-    plugin_types: Optional[Set[str]] = None
-) -> Dict[str, PluginMetadata]:
-    """Discover all plugins in scan paths.
 
-    Recursively scans directories for .py files and extracts metadata.
-    Returns a registry mapping plugin names to metadata.
+def discover_plugins(plugin_dir: Path) -> Dict[str, PluginMetadata]:
+    """Discover all plugins in directory.
+
+    Scans for .py files, extracts PEP 723 metadata.
 
     Args:
-        scan_paths: Paths to scan (default: get_plugin_paths())
-        plugin_types: Filter by plugin types (default: all types)
+        plugin_dir: Directory to scan (e.g., src/jn/plugins/)
 
     Returns:
-        Dict mapping plugin name to PluginMetadata
+        Dict mapping plugin name to metadata
     """
-    if scan_paths is None:
-        scan_paths = get_plugin_paths()
+    plugins = {}
 
-    registry = {}
+    if not plugin_dir.exists():
+        return plugins
 
-    for search_path in scan_paths:
-        if not search_path.exists():
+    # Recursively find all .py files
+    for py_file in plugin_dir.rglob('*.py'):
+        # Skip __init__, test files
+        if py_file.name in ('__init__.py', '__pycache__'):
+            continue
+        if py_file.name.startswith('test_'):
             continue
 
-        # Recursively find all .py files
-        for py_file in search_path.rglob('*.py'):
-            # Skip __init__.py and test files
-            if py_file.name in ('__init__.py', 'conftest.py'):
-                continue
-            if py_file.name.startswith('test_'):
-                continue
+        # Parse PEP 723 metadata
+        metadata = parse_pep723(py_file)
 
-            # Parse metadata
-            metadata = parse_plugin_metadata(py_file)
-            if metadata is None:
-                continue
+        # Extract plugin info
+        tool_jn = metadata.get('tool', {}).get('jn', {})
+        matches = tool_jn.get('matches', [])
 
-            # Filter by type if specified
-            if plugin_types and metadata.type not in plugin_types:
-                continue
+        if not matches:
+            # No matches defined - skip this plugin
+            continue
 
-            # Add to registry (first match wins - priority order)
-            if metadata.name not in registry:
-                registry[metadata.name] = metadata
+        # Plugin name = filename without .py
+        name = py_file.stem
 
-    return registry
+        # Get file mtime
+        mtime = py_file.stat().st_mtime
 
+        plugins[name] = PluginMetadata(
+            name=name,
+            path=str(py_file),
+            mtime=mtime,
+            matches=matches,
+            requires_python=metadata.get('requires-python'),
+            dependencies=metadata.get('dependencies', [])
+        )
 
-def get_plugins_by_extension(extension: str) -> List[PluginMetadata]:
-    """Find all plugins that handle a given file extension.
-
-    Args:
-        extension: File extension (e.g., ".csv", ".json")
-
-    Returns:
-        List of PluginMetadata objects that handle the extension
-    """
-    all_plugins = discover_plugins()
-    matching = []
-
-    for plugin in all_plugins.values():
-        if extension in plugin.handles:
-            matching.append(plugin)
-
-    return matching
+    return plugins
 
 
-def get_plugins_by_command(command: str) -> List[PluginMetadata]:
-    """Find all plugins that wrap a given shell command.
+def load_cache(cache_path: Path) -> dict:
+    """Load plugin cache from JSON file.
 
     Args:
-        command: Shell command name (e.g., "ls", "ps")
+        cache_path: Path to cache.json
 
     Returns:
-        List of PluginMetadata objects for the command
+        Cache dict with 'version', 'plugins', etc.
     """
-    all_plugins = discover_plugins()
-    matching = []
+    if not cache_path.exists():
+        return {'version': '5.0.0', 'plugins': {}}
 
-    for plugin in all_plugins.values():
-        if plugin.command == command:
-            matching.append(plugin)
+    try:
+        with open(cache_path) as f:
+            return json.load(f)
+    except (IOError, json.JSONDecodeError):
+        return {'version': '5.0.0', 'plugins': {}}
 
-    return matching
 
-
-def get_plugins_changed_since(timestamp: float) -> List[PluginMetadata]:
-    """Find all plugins modified after a given timestamp.
-
-    Useful for cache invalidation.
+def save_cache(cache_path: Path, cache: dict) -> None:
+    """Save plugin cache to JSON file.
 
     Args:
-        timestamp: Unix timestamp
+        cache_path: Path to cache.json
+        cache: Cache dict to save
+    """
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(cache_path, 'w') as f:
+        json.dump(cache, f, indent=2)
+
+
+def get_cached_plugins(plugin_dir: Path, cache_path: Path) -> Dict[str, PluginMetadata]:
+    """Get plugins with caching.
+
+    Uses timestamp-based invalidation:
+    - If plugin file mtime > cached mtime, re-parse
+    - If plugin in cache but file deleted, remove from cache
+    - If plugin file not in cache, parse and add
+
+    Args:
+        plugin_dir: Directory containing plugins
+        cache_path: Path to cache.json
 
     Returns:
-        List of PluginMetadata objects modified after timestamp
+        Dict mapping plugin name to metadata
     """
-    all_plugins = discover_plugins()
-    return [p for p in all_plugins.values() if p.mtime > timestamp]
+    # Load cache
+    cache = load_cache(cache_path)
+    cached_plugins = cache.get('plugins', {})
+
+    # Discover current plugins
+    current_plugins = discover_plugins(plugin_dir)
+
+    # Check for changes
+    needs_update = False
+    result = {}
+
+    for name, meta in current_plugins.items():
+        # Check if cached and up-to-date
+        if name in cached_plugins:
+            cached_mtime = cached_plugins[name].get('mtime', 0)
+            if meta.mtime <= cached_mtime:
+                # Use cached version
+                result[name] = PluginMetadata(**cached_plugins[name])
+                continue
+
+        # New or updated plugin
+        result[name] = meta
+        needs_update = True
+
+    # Check for deleted plugins
+    for name in cached_plugins:
+        if name not in current_plugins:
+            needs_update = True
+
+    # Update cache if needed
+    if needs_update:
+        cache['plugins'] = {
+            name: asdict(meta) for name, meta in result.items()
+        }
+        save_cache(cache_path, cache)
+
+    return result
+
+
+def get_plugin_by_name(name: str, plugins: Dict[str, PluginMetadata]) -> Optional[PluginMetadata]:
+    """Find plugin by exact name match.
+
+    Args:
+        name: Plugin name (e.g., 'csv_', 'json_')
+        plugins: Plugin registry
+
+    Returns:
+        PluginMetadata or None
+    """
+    return plugins.get(name)

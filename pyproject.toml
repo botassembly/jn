@@ -4,15 +4,14 @@ build-backend = "hatchling.build"
 
 [project]
 name = "jn"
-description = "JN (Junction): Agent-native ETL with JSON pipelines"
-version = "4.0.0-alpha1"
+description = "JN v5: Agent-native ETL with NDJSON pipelines"
+version = "5.0.0-alpha1"
 readme = "README.md"
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -20,13 +19,14 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Typing :: Typed",
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [
     { name = "Ian Maurer", email = "imaurer@gmail.com"}
 ]
 dependencies = [
     "click>=8.0.0",
+    "ruamel.yaml>=0.18.0",
 ]
 
 [project.optional-dependencies]
@@ -51,7 +51,7 @@ packages = ["src/jn"]
 
 [tool.hatch.build]
 include = [
-    "plugins/**/*.py",
+    "src/jn/**/*.py",
 ]
 
 [tool.black]
@@ -102,12 +102,5 @@ exclude = ["tests/fixtures/"]
 plugins = ["pydantic.mypy"]
 
 [tool.pytest.ini_options]
-addopts = "-q --cov=jn --cov-report=term-missing"
+addopts = "-q"
 testpaths = ["tests"]
-
-[tool.coverage.run]
-source = ["src/jn"]
-branch = true
-
-[tool.coverage.report]
-show_missing = true
