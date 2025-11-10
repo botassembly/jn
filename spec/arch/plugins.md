@@ -10,24 +10,29 @@ JN plugins are **standalone Python scripts** that follow stdin → process → s
 plugins/
 ├── readers/              # Format parsers (csv, json, xlsx, etc.)
 ├── writers/              # Format generators (csv, json, xlsx, etc.)
-├── filters/              # Transformations (jq, etc.)
+├── filters/              # Transformations (jq_filter)
 ├── http/                 # HTTP transports (s3_get, http_get, ftp_get)
 └── shell/                # Shell commands (ls, ps, find, etc.)
 ```
 
 ## Plugin Discovery
 
-**Locations searched (priority order):**
-1. `~/.local/jn/plugins/` (or custom JN_HOME)
-2. `./.jn/plugins/` (project-specific)
-3. `<package>/plugins/` (built-in)
+**Locations searched (priority order - highest to lowest):**
+
+1. `--home <path>` (CLI flag)
+2. `$JN_HOME` (environment variable)
+3. `./.jn/plugins/` (project-specific)
+4. `~/.local/jn/plugins/` (user home)
+5. `<package>/plugins/` (built-in)
+
+**First found wins** - allows CLI/env/project to override user/built-in plugins.
 
 **Discovery method:** Regex parsing of file contents
 - No Python imports needed
 - Fast (~10ms for 20+ plugins)
 - Extracts META headers, PEP 723 deps
 
-## Plugin META Headers
+## Plugin Interface
 
 ```python
 #!/usr/bin/env python3
@@ -38,23 +43,32 @@ plugins/
 # KEYWORDS: csv, data, parsing
 # DESCRIPTION: Read CSV files and output NDJSON
 
-def run(config):
+def run(config: dict) -> Iterator[dict]:
     """Main entry point. Yields NDJSON records."""
-    ...
+    for line in sys.stdin:
+        yield process(line)
+
+def schema() -> dict:
+    """Return JSON schema for output (optional)."""
+    return {"type": "object"}
+
+def test() -> bool:
+    """Run outside-in tests (optional)."""
+    pass
 ```
 
 ## Plugin Types
 
 **Sources** - Read data → output NDJSON
-- Readers: Parse formats (csv_reader, xlsx_reader)
-- HTTP: Fetch from URLs (http_get, s3_get, ftp_get)
-- Shell: Execute commands (ls, ps, find)
+- Readers: Parse formats (csv_reader, xlsx_reader, json_reader, etc.)
+- HTTP: Fetch from URLs (s3_get, http_get, ftp_get)
+- Shell: Execute commands (ls, ps, find, etc.)
 
 **Filters** - Transform NDJSON → NDJSON
-- jq: JSON filtering/transformation
+- jq_filter: JSON filtering/transformation
 
 **Targets** - Read NDJSON → write output
-- Writers: Generate formats (csv_writer, json_writer)
+- Writers: Generate formats (csv_writer, json_writer, xlsx_writer, etc.)
 
 ## Extension-Based Routing
 
@@ -81,116 +95,6 @@ jn cat s3://bucket/file.xlsx  # s3:// → s3_get → xlsx_reader
 jn cat https://api.github.com/repos/org/repo/issues  # http_get
 ```
 
-## Profile System (Planned v4.2.0)
-
-**Design goal:** Support profile-based configuration for APIs, databases, and MCP servers.
-
-**Planned structure:**
-```
-~/.local/jn/profiles/
-├── http/                 # HTTP API profiles
-│   └── github.json      # Connection config + auth
-├── mcp/                  # MCP server profiles
-│   └── github.json
-└── sql/                  # Database profiles
-    └── mydb/
-        ├── config.json
-        └── queries/
-```
-
-**Planned usage:**
-```bash
-# With profile
-jn cat @github/repos/anthropics/claude-code/issues
-
-# Direct URL (still works)
-jn cat https://api.github.com/repos/anthropics/claude-code/issues
-```
-
-See `arch/profiles.md` for complete profile system design.
-
-## Plugin Interface
-
-```python
-#!/usr/bin/env python3
-# /// script
-# dependencies = ["library>=1.0.0"]  # PEP 723
-# ///
-# META: type=source, handles=[".ext"]
-
-def run(config: dict) -> Iterator[dict]:
-    """Main entry point. Yields NDJSON records."""
-    for line in sys.stdin:
-        yield process(line)
-
-def schema() -> dict:
-    """Return JSON schema for output (optional)."""
-    return {"type": "object"}
-
-def examples() -> list:
-    """Return test cases with real data (optional)."""
-    return [...]
-
-def test() -> bool:
-    """Run outside-in tests (optional)."""
-    pass
-```
-
-## Example Plugins
-
-### CSV Reader
-
-```python
-# plugins/readers/csv_reader.py
-# META: type=source, handles=[".csv"]
-
-def run(config):
-    """Read CSV from stdin, yield NDJSON."""
-    import csv
-    reader = csv.DictReader(sys.stdin)
-    for row in reader:
-        yield dict(row)
-```
-
-### HTTP GET
-
-```python
-# plugins/http/http_get.py
-# META: type=source
-
-def run(config):
-    """Fetch from URL, parse JSON."""
-    url = config['url']
-    result = subprocess.run(['curl', '-sL', url], ...)
-    data = json.loads(result.stdout)
-
-    if isinstance(data, list):
-        for item in data:
-            yield item
-    else:
-        yield data
-```
-
-### jq Filter
-
-```python
-# plugins/filters/jq_filter.py
-# META: type=filter
-
-def run(config):
-    """Transform NDJSON with jq."""
-    query = config['query']
-
-    jq_process = subprocess.Popen(
-        ['jq', '-c', query],
-        stdin=sys.stdin,
-        stdout=subprocess.PIPE
-    )
-
-    for line in jq_process.stdout:
-        yield json.loads(line)
-```
-
 ## Custom Plugin Development
 
 Create a new plugin in user's JN_HOME:
@@ -203,12 +107,10 @@ Create a new plugin in user's JN_HOME:
 # ///
 # META: type=source, handles=[".parquet"]
 
-import sys
-import json
-import pyarrow.parquet as pq
-
 def run(config):
     """Read Parquet file, yield NDJSON."""
+    import pyarrow.parquet as pq
+
     filepath = config.get('filepath') or config.get('url')
     table = pq.read_table(filepath)
 
@@ -222,32 +124,28 @@ def run(config):
 jn cat data.parquet  # Automatically uses parquet_reader
 ```
 
-## Registry
+## Profile System (Planned v4.2.0)
 
-The registry (`src/jn/registry.py`) maintains mappings:
+**Design goal:** Support profile-based configuration for APIs, databases, and MCP servers.
 
-```python
-class Registry:
-    def get_plugin_for_extension(self, ext: str) -> str:
-        """Get reader plugin for file extension."""
-        # .csv → csv_reader
+**Planned usage:**
+```bash
+# With profile
+jn cat @github/repos/anthropics/claude-code/issues
 
-    def get_plugin_for_url(self, url: str) -> str:
-        """Get transport plugin for URL scheme."""
-        # s3:// → s3_get
-
-    def get_plugin_for_command(self, cmd: str) -> str:
-        """Get shell plugin for command."""
-        # ls → ls
+# Direct URL (still works)
+jn cat https://api.github.com/repos/anthropics/claude-code/issues
 ```
+
+See `arch/profiles.md` for complete profile system design.
 
 ## Key Principles
 
 - **Standalone scripts** - Can run without framework
 - **Regex discovery** - No imports, fast scanning
+- **Priority-based** - CLI > env > project > user > built-in
 - **Self-documenting** - META headers, inline tests
 - **Language-agnostic** - Any language that uses stdin/stdout
-- **Agent-friendly** - Easy to read, modify, generate
 - **Zero coupling** - Plugins don't know about each other
 
 See also:
