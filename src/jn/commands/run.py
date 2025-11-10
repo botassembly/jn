@@ -1,12 +1,13 @@
 """Run command - shorthand for cat."""
 
 import click
+
 from .cat import cat as cat_cmd
 
 
 @click.command()
-@click.argument('input_file')
-@click.argument('output_file')
+@click.argument("input_file")
+@click.argument("output_file")
 @click.pass_context
 def run(ctx, input_file, output_file):
     """Run pipeline from input to output.

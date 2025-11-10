@@ -1,7 +1,8 @@
 """Pattern matching registry for plugin resolution."""
 
 import re
-from typing import Optional, List, Tuple
+from typing import List, Optional, Tuple
+
 from .discovery import PluginMetadata
 
 
@@ -10,7 +11,9 @@ class PatternRegistry:
 
     def __init__(self):
         """Initialize empty registry."""
-        self.patterns: List[Tuple[re.Pattern, str, int]] = []  # (regex, plugin_name, specificity)
+        self.patterns: List[Tuple[re.Pattern, str, int]] = (
+            []
+        )  # (regex, plugin_name, specificity)
 
     def register_plugin(self, plugin: PluginMetadata) -> None:
         """Register a plugin's patterns.

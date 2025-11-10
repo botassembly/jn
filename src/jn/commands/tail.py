@@ -1,11 +1,12 @@
 """Tail command - last N records."""
 
 import sys
+
 import click
 
 
 @click.command()
-@click.argument('n', type=int, default=10)
+@click.argument("n", type=int, default=10)
 def tail(n):
     """Output last N records from NDJSON stream.
 

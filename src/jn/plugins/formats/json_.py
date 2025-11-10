@@ -11,8 +11,8 @@
 # ]
 # ///
 
-import sys
 import json
+import sys
 from typing import Iterator, Optional
 
 
@@ -43,7 +43,7 @@ def reads(config: Optional[dict] = None) -> Iterator[dict]:
     # JSON array: Starts with [
     # JSON object: Starts with {
 
-    lines = content.split('\n')
+    lines = content.split("\n")
 
     # Check if it's NDJSON (first line is valid JSON)
     if len(lines) > 1:
@@ -57,7 +57,7 @@ def reads(config: Optional[dict] = None) -> Iterator[dict]:
                     if isinstance(obj, dict):
                         yield obj
                     else:
-                        yield {'value': obj}
+                        yield {"value": obj}
             return
         except json.JSONDecodeError:
             pass
@@ -71,13 +71,13 @@ def reads(config: Optional[dict] = None) -> Iterator[dict]:
             if isinstance(item, dict):
                 yield item
             else:
-                yield {'value': item}
+                yield {"value": item}
     elif isinstance(data, dict):
         # Single object
         yield data
     else:
         # Primitive value
-        yield {'value': data}
+        yield {"value": data}
 
 
 def writes(config: Optional[dict] = None) -> None:
@@ -94,9 +94,9 @@ def writes(config: Optional[dict] = None) -> None:
         - object: Single JSON object (only if exactly 1 record)
     """
     config = config or {}
-    output_format = config.get('format', 'array')
-    indent = config.get('indent')
-    sort_keys = config.get('sort_keys', False)
+    output_format = config.get("format", "array")
+    indent = config.get("indent")
+    sort_keys = config.get("sort_keys", False)
 
     # Collect all records
     records = []
@@ -105,23 +105,26 @@ def writes(config: Optional[dict] = None) -> None:
         if line:
             records.append(json.loads(line))
 
-    if output_format == 'ndjson':
+    if output_format == "ndjson":
         # NDJSON: one per line
         for record in records:
             print(json.dumps(record, sort_keys=sort_keys))
 
-    elif output_format == 'array':
+    elif output_format == "array":
         # JSON array
         print(json.dumps(records, indent=indent, sort_keys=sort_keys))
 
-    elif output_format == 'object':
+    elif output_format == "object":
         # Single object (error if more than one record)
         if len(records) == 0:
-            print('{}')
+            print("{}")
         elif len(records) == 1:
             print(json.dumps(records[0], indent=indent, sort_keys=sort_keys))
         else:
-            print(f"Error: Cannot write {len(records)} records as single object", file=sys.stderr)
+            print(
+                f"Error: Cannot write {len(records)} records as single object",
+                file=sys.stderr,
+            )
             sys.exit(1)
 
     else:
@@ -170,7 +173,7 @@ def test() -> bool:
     old_stdout = sys.stdout
     sys.stdout = StringIO()
 
-    writes({'format': 'array'})
+    writes({"format": "array"})
 
     output = sys.stdout.getvalue()
     sys.stdout = old_stdout
@@ -180,42 +183,40 @@ def test() -> bool:
     if json.loads(output) == json.loads(expected_output):
         print("✓ JSON array write test passed", file=sys.stderr)
     else:
-        print(f"✗ JSON write test failed: {repr(output)}", file=sys.stderr)
+        print(f"✗ JSON write test failed: {output!r}", file=sys.stderr)
         return False
 
     print("All JSON tests passed!", file=sys.stderr)
     return True
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description='JSON format plugin - read/write JSON files')
+    parser = argparse.ArgumentParser(
+        description="JSON format plugin - read/write JSON files"
+    )
+    parser.add_argument("--test", action="store_true", help="Run self-tests")
     parser.add_argument(
-        '--test',
-        action='store_true',
-        help='Run self-tests'
+        "--mode",
+        choices=["read", "write"],
+        help="Operation mode: read JSON to NDJSON, or write NDJSON to JSON",
     )
     parser.add_argument(
-        '--mode',
-        choices=['read', 'write'],
-        help='Operation mode: read JSON to NDJSON, or write NDJSON to JSON'
+        "--format",
+        choices=["ndjson", "array", "object"],
+        default="array",
+        help="Output format when writing (default: array)",
     )
     parser.add_argument(
-        '--format',
-        choices=['ndjson', 'array', 'object'],
-        default='array',
-        help='Output format when writing (default: array)'
-    )
-    parser.add_argument(
-        '--indent',
+        "--indent",
         type=int,
-        help='Pretty-print indentation (default: compact)'
+        help="Pretty-print indentation (default: compact)",
     )
     parser.add_argument(
-        '--sort-keys',
-        action='store_true',
-        help='Sort object keys alphabetically'
+        "--sort-keys",
+        action="store_true",
+        help="Sort object keys alphabetically",
     )
 
     args = parser.parse_args()
@@ -225,17 +226,17 @@ if __name__ == '__main__':
         sys.exit(0 if success else 1)
 
     if not args.mode:
-        parser.error('--mode is required when not running tests')
+        parser.error("--mode is required when not running tests")
 
     # Build config
     config = {}
 
-    if args.mode == 'read':
+    if args.mode == "read":
         for record in reads(config):
             print(json.dumps(record), flush=True)
     else:
-        config['format'] = args.format
+        config["format"] = args.format
         if args.indent is not None:
-            config['indent'] = args.indent
-        config['sort_keys'] = args.sort_keys
+            config["indent"] = args.indent
+        config["sort_keys"] = args.sort_keys
         writes(config)

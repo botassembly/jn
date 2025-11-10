@@ -1,15 +1,17 @@
 """Put command - write NDJSON to file."""
 
-import sys
 import subprocess
+import sys
+
 import click
+
 from ..cli import pass_context
 from ..discovery import get_cached_plugins
 from ..registry import build_registry
 
 
 @click.command()
-@click.argument('output_file')
+@click.argument("output_file")
 @pass_context
 def put(ctx, output_file):
     """Read NDJSON from stdin, write to file.
@@ -30,11 +32,11 @@ def put(ctx, output_file):
     output_plugin = plugins[output_plugin_name]
 
     # Write from stdin to file
-    with open(output_file, 'w') as outfile:
+    with open(output_file, "w") as outfile:
         writer = subprocess.Popen(
-            [sys.executable, output_plugin.path, '--mode', 'write'],
+            [sys.executable, output_plugin.path, "--mode", "write"],
             stdout=outfile,
-            stderr=subprocess.PIPE
+            stderr=subprocess.PIPE,
         )
 
         writer.wait()

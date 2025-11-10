@@ -1,20 +1,27 @@
 """Plugin management commands."""
 
-import sys
 import subprocess
+import sys
+
 import click
+
 from ..context import pass_context
 from ..discovery import get_cached_plugins
 
 
-@click.group(context_settings=dict(ignore_unknown_options=True, allow_extra_args=True))
+@click.group(
+    context_settings=dict(ignore_unknown_options=True, allow_extra_args=True)
+)
 def plugin():
     """Manage and inspect plugins."""
     pass
 
 
-@plugin.command(name='call', context_settings=dict(ignore_unknown_options=True, allow_extra_args=True))
-@click.argument('args', nargs=-1, type=click.UNPROCESSED, required=True)
+@plugin.command(
+    name="call",
+    context_settings=dict(ignore_unknown_options=True, allow_extra_args=True),
+)
+@click.argument("args", nargs=-1, type=click.UNPROCESSED, required=True)
 @pass_context
 def call(ctx, args):
     """Call a plugin directly by name.
@@ -67,5 +74,5 @@ def list(ctx):
         return
 
     for name, meta in sorted(plugins.items()):
-        matches = ', '.join(meta.matches) if meta.matches else 'no patterns'
+        matches = ", ".join(meta.matches) if meta.matches else "no patterns"
         click.echo(f"{name:20s} {matches}")

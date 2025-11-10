@@ -1,11 +1,12 @@
 """Head command - first N records."""
 
 import sys
+
 import click
 
 
 @click.command()
-@click.argument('n', type=int, default=10)
+@click.argument("n", type=int, default=10)
 def head(n):
     """Output first N records from NDJSON stream.
 

@@ -1,13 +1,15 @@
 """Filter command - apply jq expressions."""
 
-import sys
 import subprocess
+import sys
+
 import click
+
 from ..cli import pass_context
 
 
 @click.command()
-@click.argument('query')
+@click.argument("query")
 @pass_context
 def filter(ctx, query):
     """Filter NDJSON using jq expression.
@@ -16,7 +18,7 @@ def filter(ctx, query):
         jn cat data.csv | jn filter '.age > 25'
     """
     # Find jq plugin
-    jq_plugin = ctx.plugin_dir / 'filters' / 'jq_.py'
+    jq_plugin = ctx.plugin_dir / "filters" / "jq_.py"
 
     if not jq_plugin.exists():
         click.echo("Error: jq filter plugin not found", err=True)
@@ -24,8 +26,8 @@ def filter(ctx, query):
 
     # Run jq filter (inherit stdin/stdout)
     proc = subprocess.Popen(
-        [sys.executable, str(jq_plugin), '--query', query],
-        stderr=subprocess.PIPE
+        [sys.executable, str(jq_plugin), "--query", query],
+        stderr=subprocess.PIPE,
     )
 
     proc.wait()

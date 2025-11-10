@@ -7,10 +7,10 @@
 # matches = []  # jq doesn't match files, invoked explicitly via 'jn filter'
 # ///
 
-import sys
 import json
-import subprocess
 import shutil
+import subprocess
+import sys
 from typing import Iterator, Optional
 
 
@@ -29,11 +29,14 @@ def filters(config: Optional[dict] = None) -> Iterator[dict]:
     if config is None:
         config = {}
 
-    query = config.get('query', '.')
+    query = config.get("query", ".")
 
     # Check if jq is available
-    if not shutil.which('jq'):
-        print("Error: jq command not found. Install from: https://jqlang.github.io/jq/", file=sys.stderr)
+    if not shutil.which("jq"):
+        print(
+            "Error: jq command not found. Install from: https://jqlang.github.io/jq/",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     # Stream through jq using Popen (automatic backpressure via OS pipes)
@@ -49,11 +52,11 @@ def filters(config: Optional[dict] = None) -> Iterator[dict]:
             input_data = sys.stdin.read()
 
         jq_process = subprocess.Popen(
-            ['jq', '-c', query],  # -c for compact output (NDJSON)
+            ["jq", "-c", query],  # -c for compact output (NDJSON)
             stdin=stdin_source,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True
+            text=True,
         )
 
         # If test mode, write input to jq's stdin
@@ -79,13 +82,13 @@ def filters(config: Optional[dict] = None) -> Iterator[dict]:
                         if isinstance(item, dict):
                             yield item
                         else:
-                            yield {'value': item}
+                            yield {"value": item}
                 else:
                     # Primitive value - wrap it
-                    yield {'value': record}
+                    yield {"value": record}
             except json.JSONDecodeError:
                 # Invalid JSON output from jq - wrap as string
-                yield {'value': line}
+                yield {"value": line}
 
         # Wait for process to complete
         jq_process.wait()
@@ -113,7 +116,7 @@ def test() -> bool:
         True if all tests pass
     """
     # Check if jq is available
-    if not shutil.which('jq'):
+    if not shutil.which("jq"):
         print("⚠ jq not installed, skipping tests", file=sys.stderr)
         print("  Install from: https://jqlang.github.io/jq/", file=sys.stderr)
         return True  # Don't fail if jq not installed
@@ -123,8 +126,10 @@ def test() -> bool:
     print("Testing jq filter plugin...", file=sys.stderr)
 
     # Test 1: Select field
-    sys.stdin = StringIO('{"name":"Alice","age":30}\n{"name":"Bob","age":25}\n')
-    results = list(filters({'query': '.name'}))
+    sys.stdin = StringIO(
+        '{"name":"Alice","age":30}\n{"name":"Bob","age":25}\n'
+    )
+    results = list(filters({"query": ".name"}))
     expected = [{"value": "Alice"}, {"value": "Bob"}]
 
     if results == expected:
@@ -134,8 +139,10 @@ def test() -> bool:
         return False
 
     # Test 2: Filter by condition
-    sys.stdin = StringIO('{"name":"Alice","age":30}\n{"name":"Bob","age":25}\n')
-    results = list(filters({'query': 'select(.age > 25)'}))
+    sys.stdin = StringIO(
+        '{"name":"Alice","age":30}\n{"name":"Bob","age":25}\n'
+    )
+    results = list(filters({"query": "select(.age > 25)"}))
     expected = [{"name": "Alice", "age": 30}]
 
     if results == expected:
@@ -146,7 +153,7 @@ def test() -> bool:
 
     # Test 3: Transform object
     sys.stdin = StringIO('{"name":"Alice","age":30}\n')
-    results = list(filters({'query': '{user: .name, years: .age}'}))
+    results = list(filters({"query": "{user: .name, years: .age}"}))
     expected = [{"user": "Alice", "years": 30}]
 
     if results == expected:
@@ -159,19 +166,15 @@ def test() -> bool:
     return True
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description='jq filter plugin - transform NDJSON streams')
-    parser.add_argument(
-        '--test',
-        action='store_true',
-        help='Run self-tests'
+    parser = argparse.ArgumentParser(
+        description="jq filter plugin - transform NDJSON streams"
     )
+    parser.add_argument("--test", action="store_true", help="Run self-tests")
     parser.add_argument(
-        '--query', '-q',
-        default='.',
-        help='jq query expression (default: .)'
+        "--query", "-q", default=".", help="jq query expression (default: .)"
     )
 
     args = parser.parse_args()
@@ -181,6 +184,6 @@ if __name__ == '__main__':
         sys.exit(0 if success else 1)
 
     # Run filter
-    config = {'query': args.query}
+    config = {"query": args.query}
     for record in filters(config):
         print(json.dumps(record), flush=True)

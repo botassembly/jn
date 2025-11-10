@@ -1,8 +1,9 @@
 """Pytest configuration and shared fixtures."""
 
 import tempfile
-import pytest
 from pathlib import Path
+
+import pytest
 from click.testing import CliRunner
 
 
@@ -34,13 +35,13 @@ def jn_home(tmp_path):
 @pytest.fixture
 def test_data():
     """Provide path to test data directory."""
-    return Path(__file__).parent / 'data'
+    return Path(__file__).parent / "data"
 
 
 @pytest.fixture
 def people_csv(test_data):
     """Provide path to people.csv test file."""
-    return test_data / 'people.csv'
+    return test_data / "people.csv"
 
 
 @pytest.fixture

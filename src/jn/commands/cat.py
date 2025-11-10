@@ -1,16 +1,18 @@
 """Cat command - read files."""
 
-import sys
 import subprocess
+import sys
+
 import click
+
 from ..cli import pass_context
 from ..discovery import get_cached_plugins
 from ..registry import build_registry
 
 
 @click.command()
-@click.argument('input_file')
-@click.argument('output_file', required=False)
+@click.argument("input_file")
+@click.argument("output_file", required=False)
 @pass_context
 def cat(ctx, input_file, output_file):
     """Read file and output NDJSON.
@@ -41,21 +43,21 @@ def cat(ctx, input_file, output_file):
         output_plugin = plugins[output_plugin_name]
 
         # Start reader
-        with open(input_file, 'r') as infile:
+        with open(input_file) as infile:
             reader = subprocess.Popen(
-                [sys.executable, input_plugin.path, '--mode', 'read'],
+                [sys.executable, input_plugin.path, "--mode", "read"],
                 stdin=infile,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
+                stderr=subprocess.PIPE,
             )
 
             # Start writer
-            with open(output_file, 'w') as outfile:
+            with open(output_file, "w") as outfile:
                 writer = subprocess.Popen(
-                    [sys.executable, output_plugin.path, '--mode', 'write'],
+                    [sys.executable, output_plugin.path, "--mode", "write"],
                     stdin=reader.stdout,
                     stdout=outfile,
-                    stderr=subprocess.PIPE
+                    stderr=subprocess.PIPE,
                 )
 
                 # Close reader stdout in parent (for SIGPIPE)
@@ -77,11 +79,11 @@ def cat(ctx, input_file, output_file):
                     sys.exit(1)
     else:
         # Single stage to stdout
-        with open(input_file, 'r') as infile:
+        with open(input_file) as infile:
             reader = subprocess.Popen(
-                [sys.executable, input_plugin.path, '--mode', 'read'],
+                [sys.executable, input_plugin.path, "--mode", "read"],
                 stdin=infile,
-                stderr=subprocess.PIPE
+                stderr=subprocess.PIPE,
             )
 
             reader.wait()

@@ -1,12 +1,12 @@
 """Plugin discovery with timestamp-based caching."""
 
-import re
 import json
-import tomllib
+import re
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Dict, Optional, List
-from dataclasses import dataclass, asdict
+from typing import Dict, List, Optional
 
+import tomllib
 
 # PEP 723 regex pattern
 PEP723_PATTERN = re.compile(
@@ -17,6 +17,7 @@ PEP723_PATTERN = re.compile(
 @dataclass
 class PluginMetadata:
     """Metadata for a discovered plugin."""
+
     name: str
     path: str
     mtime: float
@@ -40,18 +41,17 @@ def parse_pep723(filepath: Path) -> dict:
     """
     try:
         content = filepath.read_text()
-    except (IOError, UnicodeDecodeError):
+    except (OSError, UnicodeDecodeError):
         return {}
 
     match = PEP723_PATTERN.search(content)
-    if not match or match.group('type') != 'script':
+    if not match or match.group("type") != "script":
         return {}
 
     # Extract TOML content from comments
-    lines = match.group('content').splitlines()
-    toml_content = '\n'.join(
-        line[2:] if line.startswith('# ') else line[1:]
-        for line in lines
+    lines = match.group("content").splitlines()
+    toml_content = "\n".join(
+        line[2:] if line.startswith("# ") else line[1:] for line in lines
     )
 
     try:
@@ -77,19 +77,19 @@ def discover_plugins(plugin_dir: Path) -> Dict[str, PluginMetadata]:
         return plugins
 
     # Recursively find all .py files
-    for py_file in plugin_dir.rglob('*.py'):
+    for py_file in plugin_dir.rglob("*.py"):
         # Skip __init__, test files
-        if py_file.name in ('__init__.py', '__pycache__'):
+        if py_file.name in ("__init__.py", "__pycache__"):
             continue
-        if py_file.name.startswith('test_'):
+        if py_file.name.startswith("test_"):
             continue
 
         # Parse PEP 723 metadata
         metadata = parse_pep723(py_file)
 
         # Extract plugin info
-        tool_jn = metadata.get('tool', {}).get('jn', {})
-        matches = tool_jn.get('matches', [])
+        tool_jn = metadata.get("tool", {}).get("jn", {})
+        matches = tool_jn.get("matches", [])
 
         if not matches:
             # No matches defined - skip this plugin
@@ -106,8 +106,8 @@ def discover_plugins(plugin_dir: Path) -> Dict[str, PluginMetadata]:
             path=str(py_file),
             mtime=mtime,
             matches=matches,
-            requires_python=metadata.get('requires-python'),
-            dependencies=metadata.get('dependencies', [])
+            requires_python=metadata.get("requires-python"),
+            dependencies=metadata.get("dependencies", []),
         )
 
     return plugins
@@ -123,13 +123,13 @@ def load_cache(cache_path: Path) -> dict:
         Cache dict with 'version', 'plugins', etc.
     """
     if not cache_path.exists():
-        return {'version': '5.0.0', 'plugins': {}}
+        return {"version": "5.0.0", "plugins": {}}
 
     try:
         with open(cache_path) as f:
             return json.load(f)
-    except (IOError, json.JSONDecodeError):
-        return {'version': '5.0.0', 'plugins': {}}
+    except (OSError, json.JSONDecodeError):
+        return {"version": "5.0.0", "plugins": {}}
 
 
 def save_cache(cache_path: Path, cache: dict) -> None:
@@ -140,11 +140,13 @@ def save_cache(cache_path: Path, cache: dict) -> None:
         cache: Cache dict to save
     """
     cache_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(cache_path, 'w') as f:
+    with open(cache_path, "w") as f:
         json.dump(cache, f, indent=2)
 
 
-def get_cached_plugins(plugin_dir: Path, cache_path: Path) -> Dict[str, PluginMetadata]:
+def get_cached_plugins(
+    plugin_dir: Path, cache_path: Path
+) -> Dict[str, PluginMetadata]:
     """Get plugins with caching.
 
     Uses timestamp-based invalidation:
@@ -161,7 +163,7 @@ def get_cached_plugins(plugin_dir: Path, cache_path: Path) -> Dict[str, PluginMe
     """
     # Load cache
     cache = load_cache(cache_path)
-    cached_plugins = cache.get('plugins', {})
+    cached_plugins = cache.get("plugins", {})
 
     # Discover current plugins
     current_plugins = discover_plugins(plugin_dir)
@@ -173,7 +175,7 @@ def get_cached_plugins(plugin_dir: Path, cache_path: Path) -> Dict[str, PluginMe
     for name, meta in current_plugins.items():
         # Check if cached and up-to-date
         if name in cached_plugins:
-            cached_mtime = cached_plugins[name].get('mtime', 0)
+            cached_mtime = cached_plugins[name].get("mtime", 0)
             if meta.mtime <= cached_mtime:
                 # Use cached version
                 result[name] = PluginMetadata(**cached_plugins[name])
@@ -190,7 +192,7 @@ def get_cached_plugins(plugin_dir: Path, cache_path: Path) -> Dict[str, PluginMe
 
     # Update cache if needed
     if needs_update:
-        cache['plugins'] = {
+        cache["plugins"] = {
             name: asdict(meta) for name, meta in result.items()
         }
         save_cache(cache_path, cache)
@@ -198,7 +200,9 @@ def get_cached_plugins(plugin_dir: Path, cache_path: Path) -> Dict[str, PluginMe
     return result
 
 
-def get_plugin_by_name(name: str, plugins: Dict[str, PluginMetadata]) -> Optional[PluginMetadata]:
+def get_plugin_by_name(
+    name: str, plugins: Dict[str, PluginMetadata]
+) -> Optional[PluginMetadata]:
     """Find plugin by exact name match.
 
     Args:

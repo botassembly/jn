@@ -12,8 +12,8 @@
 # ]
 # ///
 
-import sys
 import json
+import sys
 from typing import Iterator, Optional
 
 from ruamel.yaml import YAML
@@ -49,10 +49,10 @@ def reads(config: Optional[dict] = None) -> Iterator[dict]:
                     if isinstance(item, dict):
                         yield item
                     else:
-                        yield {'value': item}
+                        yield {"value": item}
             else:
                 # Primitive value - wrap in dict
-                yield {'value': doc}
+                yield {"value": doc}
 
 
 def writes(config: Optional[dict] = None) -> None:
@@ -65,8 +65,8 @@ def writes(config: Optional[dict] = None) -> None:
     Reads all records and writes as YAML document(s).
     """
     config = config or {}
-    multi_document = config.get('multi_document', True)
-    indent = config.get('indent', 2)
+    multi_document = config.get("multi_document", True)
+    indent = config.get("indent", 2)
 
     yaml = YAML()
     yaml.indent(mapping=indent, sequence=indent, offset=indent)
@@ -87,7 +87,7 @@ def writes(config: Optional[dict] = None) -> None:
         # Write as multi-document YAML
         for i, record in enumerate(records):
             if i > 0:
-                sys.stdout.write('---\n')
+                sys.stdout.write("---\n")
             yaml.dump(record, sys.stdout)
     else:
         # Single document (or list if multiple records with multi_document=False)
@@ -134,7 +134,9 @@ def test() -> bool:
         return False
 
     # Test 3: Write YAML
-    sys.stdin = StringIO('{"name":"Alice","age":30}\n{"name":"Bob","age":25}\n')
+    sys.stdin = StringIO(
+        '{"name":"Alice","age":30}\n{"name":"Bob","age":25}\n'
+    )
     old_stdout = sys.stdout
     sys.stdout = StringIO()
 
@@ -147,38 +149,36 @@ def test() -> bool:
     if "Alice" in output and "Bob" in output and "---" in output:
         print("✓ YAML write test passed", file=sys.stderr)
     else:
-        print(f"✗ YAML write test failed: {repr(output)}", file=sys.stderr)
+        print(f"✗ YAML write test failed: {output!r}", file=sys.stderr)
         return False
 
     print("All YAML tests passed!", file=sys.stderr)
     return True
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description='YAML format plugin - read/write YAML files')
+    parser = argparse.ArgumentParser(
+        description="YAML format plugin - read/write YAML files"
+    )
+    parser.add_argument("--test", action="store_true", help="Run self-tests")
     parser.add_argument(
-        '--test',
-        action='store_true',
-        help='Run self-tests'
+        "--mode",
+        choices=["read", "write"],
+        help="Operation mode: read YAML to NDJSON, or write NDJSON to YAML",
     )
     parser.add_argument(
-        '--mode',
-        choices=['read', 'write'],
-        help='Operation mode: read YAML to NDJSON, or write NDJSON to YAML'
-    )
-    parser.add_argument(
-        '--indent',
+        "--indent",
         type=int,
         default=2,
-        help='Indentation spaces when writing (default: 2)'
+        help="Indentation spaces when writing (default: 2)",
     )
     parser.add_argument(
-        '--no-multi-document',
-        dest='multi_document',
-        action='store_false',
-        help='Write as single document (list) instead of multi-document'
+        "--no-multi-document",
+        dest="multi_document",
+        action="store_false",
+        help="Write as single document (list) instead of multi-document",
     )
 
     args = parser.parse_args()
@@ -188,15 +188,15 @@ if __name__ == '__main__':
         sys.exit(0 if success else 1)
 
     if not args.mode:
-        parser.error('--mode is required when not running tests')
+        parser.error("--mode is required when not running tests")
 
     # Build config
     config = {}
 
-    if args.mode == 'read':
+    if args.mode == "read":
         for record in reads(config):
             print(json.dumps(record), flush=True)
     else:
-        config['multi_document'] = args.multi_document
-        config['indent'] = args.indent
+        config["multi_document"] = args.multi_document
+        config["indent"] = args.indent
         writes(config)
