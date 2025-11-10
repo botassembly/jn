@@ -39,43 +39,63 @@ def run(config: Optional[dict] = None) -> Iterator[dict]:
         print("Error: jq command not found. Please install jq.", file=sys.stderr)
         sys.exit(1)
 
-    # Read all input as NDJSON
-    input_lines = []
-    for line in sys.stdin:
-        line = line.strip()
-        if line:
-            input_lines.append(line)
-
-    if not input_lines:
-        return
-
-    # Process with jq
-    # We pass NDJSON input and get NDJSON output using -c flag
+    # Stream through jq using Popen (no buffering for GB-scale streams)
     try:
-        # Join input lines with newlines
-        input_data = '\n'.join(input_lines)
+        # Check if stdin is a real file (has fileno) or StringIO (test environment)
+        try:
+            sys.stdin.fileno()
+            # Real stdin - stream directly (production use)
+            stdin_source = sys.stdin
+            input_data = None
+        except (AttributeError, OSError):
+            # StringIO or similar (test environment) - need to read and pipe
+            stdin_source = subprocess.PIPE
+            input_data = sys.stdin.read()
 
-        # Run jq with -c for compact output (NDJSON)
-        result = subprocess.run(
+        jq_process = subprocess.Popen(
             ['jq', '-c', query],
-            input=input_data,
-            capture_output=True,
-            text=True,
-            check=True
+            stdin=stdin_source,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
         )
 
-        # Parse output as NDJSON
-        for line in result.stdout.strip().split('\n'):
+        # If we read input data (test mode), write it to jq's stdin
+        if input_data is not None:
+            jq_process.stdin.write(input_data)
+            jq_process.stdin.close()
+
+        # Stream output line by line (automatic backpressure via OS pipes)
+        for line in jq_process.stdout:
+            line = line.strip()
             if line:
                 try:
                     record = json.loads(line)
-                    yield record
+                    # Wrap primitive values (strings, numbers, etc.) in object
+                    if isinstance(record, dict):
+                        yield record
+                    else:
+                        yield {'value': record}
                 except json.JSONDecodeError:
-                    # If jq returns non-JSON (like strings or numbers), wrap it
+                    # Invalid JSON - wrap raw string
                     yield {'value': line}
 
-    except subprocess.CalledProcessError as e:
-        print(f"jq error: {e.stderr}", file=sys.stderr)
+        # Wait for process to complete
+        jq_process.wait()
+
+        # Check for errors
+        if jq_process.returncode != 0:
+            stderr_data = jq_process.stderr.read()
+            print(f"jq error: {stderr_data}", file=sys.stderr)
+            sys.exit(1)
+
+    except Exception as e:
+        # Clean up process if still running
+        try:
+            jq_process.kill()
+        except:
+            pass
+        print(f"jq error: {e}", file=sys.stderr)
         sys.exit(1)
 
 
