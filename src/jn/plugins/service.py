@@ -151,12 +151,13 @@ def call_plugin(plugin_path: str, args: List[str]) -> int:
         sys.stdin.fileno()  # type: ignore[attr-defined]
         stdin_source = sys.stdin
         input_data = None
-        text_mode = False
+        text_mode = True  # Default to text mode for real file handles
     except (AttributeError, OSError, io.UnsupportedOperation):
-        # Not a real file handle (e.g., Click test runner StringIO)
+        # Not a real file handle (e.g., Click test runner StringIO/BytesIO)
         stdin_source = subprocess.PIPE
         input_data = sys.stdin.read()
-        text_mode = True if isinstance(input_data, str) else False
+        # Determine if input is text or binary
+        text_mode = isinstance(input_data, str)
 
     # Call plugin using UV to ensure dependencies are installed
     # This respects the PEP 723 dependencies in the plugin's script block
@@ -165,16 +166,27 @@ def call_plugin(plugin_path: str, args: List[str]) -> int:
         stdin=stdin_source,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        text=True,
+        text=text_mode,
     )
     if input_data is not None:
-        proc.stdin.write(input_data)  # type: ignore[union-attr]
+        if text_mode:
+            proc.stdin.write(input_data)  # type: ignore[union-attr,arg-type]
+        else:
+            proc.stdin.write(input_data)  # type: ignore[union-attr]
         proc.stdin.close()  # type: ignore[union-attr]
 
     # Pipe plugin stdout to our stdout so Click runner captures it
     assert proc.stdout is not None
-    for line in proc.stdout:
-        sys.stdout.write(line)
+    if text_mode:
+        for line in proc.stdout:
+            sys.stdout.write(line)
+    else:
+        # Binary mode: read chunks and write to stdout.buffer
+        while True:
+            chunk = proc.stdout.read(8192)
+            if not chunk:
+                break
+            sys.stdout.buffer.write(chunk)  # type: ignore[attr-defined]
 
     proc.wait()
     return proc.returncode
