@@ -40,13 +40,14 @@ An AST-based static analysis tool that detects architectural violations in JN co
 ### Components
 
 ```
-jn plugin check [plugin_name]
+jn check [target]
        ↓
-src/jn/cli/commands/plugins/check.py
+src/jn/cli/commands/check.py
        ↓
 src/jn/checker/
   ├── __init__.py
   ├── ast_checker.py        # AST traversal engine
+  ├── scanner.py            # Find files to check (core, plugins, specific)
   ├── rules/
   │   ├── __init__.py
   │   ├── subprocess_rules.py    # Popen/run/capture_output
@@ -59,11 +60,16 @@ src/jn/checker/
 ### Execution Flow
 
 ```
-1. Discovery: Find plugin files or scan core code
-2. Parse: ast.parse(file_contents) → AST tree
-3. Analyze: Walk AST, apply rules
-4. Report: Format violations with line numbers
-5. Exit: 0 if clean, 1 if violations found
+1. Parse target: core | plugins | all | [plugin_name]
+2. Discovery:
+   - core: Find all .py files in src/jn/
+   - plugins: Find all .py in jn_home/plugins/, ~/.local/jn/plugins/, $JN_HOME/plugins/
+   - all: core + plugins
+   - [plugin_name]: Search for specific plugin file
+3. Parse: ast.parse(file_contents) → AST tree (per file)
+4. Analyze: Walk AST, apply rules (per file)
+5. Report: Format violations with line numbers
+6. Exit: 0 if all clean, 1 if any violations
 ```
 
 ## Detection Rules
@@ -332,33 +338,53 @@ Config dict pattern discouraged
 ### Command Structure
 
 ```bash
-# Check specific plugin
-jn plugin check csv_
-
-# Check all plugins
-jn plugin check --all
-
-# Check core code
+# Check core JN code
 jn check core
 
-# Check everything
+# Check all plugins (bundled + user)
+jn check plugins
+
+# Check everything (core + plugins)
 jn check all
 
+# Check specific plugin
+jn check csv_
+jn check jq_
+
 # Verbose output
-jn plugin check csv_ --verbose
+jn check plugins --verbose
 
 # Only specific rules
-jn plugin check csv_ --rules subprocess,backpressure
+jn check plugins --rules subprocess,backpressure
 
 # Output format
-jn plugin check csv_ --format json
+jn check plugins --format json
 ```
+
+### Target Resolution
+
+**`jn check plugins`** scans:
+- `jn_home/plugins/**/*.py` (bundled plugins)
+- `~/.local/jn/plugins/**/*.py` (user plugins)
+- `$JN_HOME/plugins/**/*.py` (project plugins, if set)
+
+**`jn check core`** scans:
+- `src/jn/**/*.py` (all core code)
+
+**`jn check all`** scans:
+- Everything (core + all plugins)
+
+**`jn check csv_`** scans:
+- Finds `csv_.py` in plugin search paths
+- Checks only that file
 
 ### Output Format
 
 **Text (default):**
 ```
-Checking plugin: csv_
+$ jn check csv_
+
+Checking: csv_ (jn_home/plugins/formats/csv_.py)
 
 ✅ Pass: No capture_output found
 ✅ Pass: No missing stdout.close()
@@ -367,7 +393,24 @@ Checking plugin: csv_
 
 ✅ Pass: No broad try-catch blocks
 
-Summary: 1 violation found in csv_
+Summary: 1 violation found
+Exit code: 1
+```
+
+**Multiple plugins:**
+```
+$ jn check plugins
+
+Checking: csv_ (jn_home/plugins/formats/csv_.py)
+  ✅ All checks passed
+
+Checking: jq_ (jn_home/plugins/filters/jq_.py)
+  ✅ All checks passed
+
+Checking: http_ (jn_home/plugins/protocols/http_.py)
+  ❌ 1 violation found
+
+Summary: 2/3 plugins passed, 1 violation total
 Exit code: 1
 ```
 
