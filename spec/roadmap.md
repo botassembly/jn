@@ -42,12 +42,13 @@
 ## Phase 4: Display & Shell Integration
 
 - [ ] [JTBL Renderer Plugin](work/08-jtbl-renderer.md) - Format data as tables
+- [ ] [Table Reading Plugin](work/20-table-reading.md) - Parse HTML/Markdown/ASCII tables to NDJSON
 - [ ] [JC Shell Plugins](work/09-jc-shell-plugins.md) - Vendor ls, ps, df parsers from JC project
 - [ ] [LS Folder Reader](work/14-ls-folder-reader.md) - Read directory contents as NDJSON
 - [ ] [Tail File Follower](work/15-tail-file-follower.md) - Follow log files (tail -f)
 - [ ] [Watchdog File Monitor](work/16-watchdog-monitor.md) - Monitor file/directory changes
 
-**Why:** Human-readable output and real-time system monitoring capabilities.
+**Why:** Human-readable output, table ingestion, and real-time system monitoring capabilities.
 
 ---
 

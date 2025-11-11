@@ -2,134 +2,298 @@
 
 This directory contains detailed design specifications for JN features before implementation.
 
+## Design Philosophy
+
+Designs focus on **why** and **what**, not **how**. Include:
+1. **Overview** - What the feature does and why it's needed
+2. **Core Concepts** - Key architectural decisions
+3. **Examples** - Real-world usage patterns
+4. **Risks & Challenges** - What could go wrong
+5. **Open Questions** - Trade-offs and decisions needed
+
+**Avoid:** Implementation details, code samples, step-by-step instructions
+
+---
+
 ## Phase 0 (Completed ✅)
-- Markdown Format Plugin - Implemented in `jn_home/plugins/formats/markdown_.py`
-- TOML Format Plugin - Implemented in `jn_home/plugins/formats/toml_.py`
-- JQ Profile System - Implemented with built-in filters in `jn_home/profiles/jq/builtin/`
+
+### Implemented
+- **Markdown Format Plugin** - `jn_home/plugins/formats/markdown_.py`
+- **TOML Format Plugin** - `jn_home/plugins/formats/toml_.py`
+- **JQ Profile System** - `jn_home/profiles/jq/builtin/` (pivot, group, stats, etc.)
+- **HTTP Protocol Plugin** - `jn_home/plugins/protocols/http_.py`
+- **Tabulate Display Plugin** - `jn_home/plugins/formats/tabulate_.py`
+- **REST API Profiles** - GenomOncology, GitHub, JSONPlaceholder
+
+---
 
 ## Phase 1 (Design Complete 📋)
 
-### HTTP Protocol Plugin
-**Design:** [http-plugin-design.md](http-plugin-design.md)
+### Core Architecture Documents
 
-HTTP protocol plugin for fetching data from HTTP/HTTPS endpoints with automatic format detection.
+#### [http-design.md](http-design.md)
+HTTP protocol plugin for fetching data from web APIs and remote files.
 
-**Key Features:**
-- GET/POST/PUT/DELETE support
-- Automatic content-type detection (JSON, CSV, NDJSON)
-- Custom headers and authentication
-- Streaming for large responses
-- Integration with profile system
+**Concepts:**
+- Sources (endpoints that emit data)
+- Streaming architecture (constant memory)
+- Format auto-detection
+- Profile integration
 
 **Examples:**
 ```bash
-# Simple GET
-jn cat https://opencode.ai/config.json
-
-# With headers
-jn cat https://api.example.com/data --headers '{"Authorization": "Bearer token"}'
-
-# POST request
-echo '{"query": "test"}' | jn cat https://api.example.com/search --method POST
+jn cat https://api.example.com/data.json
+jn cat @github/repos/owner/repo/issues
 ```
 
-### REST API Profile System
-**Design:** [rest-api-profile-design.md](rest-api-profile-design.md)
+#### [rest-api-profiles.md](rest-api-profiles.md)
+Profile system for REST APIs with clean `@profile/path` syntax.
 
-Profile system for REST APIs providing reusable configs and clean `@profile/path` syntax.
-
-**Key Features:**
-- Base URL and authentication config
-- Path templates with variables
+**Concepts:**
+- Sources (endpoints + method + filters)
+- Hierarchical profiles (`_profile.json` + subfiles)
 - Environment variable substitution
-- Method-based and path-based references
-- Profile discovery and resolution
+- OpenAPI/Swagger auto-generation
 
 **Examples:**
 ```bash
-# Path-based reference
-jn cat @github/repos/microsoft/vscode/issues
-
-# Method-based reference
-jn cat @restful-api:list_objects
-
-# With parameters
-jn cat @api/users/{id} --id 123
+jn cat @genomoncology/alterations?gene=BRAF
+jn cat @genomoncology/annotations | \
+  jn filter '@genomoncology/annotations:pivot-transcripts'
 ```
 
-### OpenAPI Profile Generation
-**Design:** [openapi-profiles-design.md](openapi-profiles-design.md)
+#### [format-design.md](format-design.md)
+Format plugin architecture for bidirectional and display-only formats.
 
-Auto-generate JN profiles from OpenAPI/Swagger specifications with hierarchical organization for large APIs.
-
-**Key Features:**
-- Auto-generate profiles from OpenAPI 3.0 specs
-- Hierarchical subprofile organization (3-level max)
-- Complete auth scheme mapping (Bearer, OAuth2, API Key, Basic)
-- Schema inference from API response examples
-- Profile inheritance with `_profile.json` base config
-- Lazy loading for performance with large APIs
+**Concepts:**
+- Bidirectional formats (CSV, JSON, YAML, TOML)
+- Display formats (tabulate, HTML tables)
+- Streaming vs buffering trade-offs
+- Table reading (future)
 
 **Examples:**
 ```bash
-# Generate from OpenAPI spec
-jn profile generate stripe --from-openapi https://stripe.com/api/openapi.json
-
-# Use generated hierarchical profile
-jn cat @stripe/customers:list --limit 10
-
-# Infer schema from examples
-jn profile infer-schema users --from-examples example*.json
+jn cat data.csv | jn put output.json
+jn cat data.json | jn put --plugin tabulate --tablefmt grid -
 ```
 
-### Usage Examples
-**Document:** [http-usage-examples.md](http-usage-examples.md)
+#### [genomoncology-api.md](genomoncology-api.md)
+Real-world example: GenomOncology Precision Medicine API integration.
 
-Comprehensive real-world examples covering:
-- OpenCode.ai config processing
-- RESTful API Dev workflows
-- GitHub API integration
-- Multi-API pipelines
-- Authentication methods
-- Error handling and debugging
-- Pagination patterns
-- Performance optimization
+**Concepts:**
+- Sources (alterations, annotations, clinical trials)
+- Source-specific filters (pivot transcripts, extract HGVS)
+- API parameter filtering vs JN filtering
+- POST sources for batch operations
+
+**Examples:**
+```bash
+jn cat @genomoncology/alterations?gene=BRAF
+jn cat @genomoncology/annotations | \
+  jn filter '@genomoncology/annotations:pivot-transcripts' | \
+  jn put annotations.csv
+```
+
+---
 
 ## Implementation Status
 
-| Feature | Design | Implementation | Tests | Docs |
-|---------|--------|----------------|-------|------|
-| TOML Format | ✅ | ✅ | ✅ | Partial |
-| Markdown Format | ✅ | ✅ | ✅ | Partial |
-| JQ Profiles | ✅ | ✅ | ✅ | Partial |
-| HTTP Protocol | ✅ | 🔲 | 🔲 | 🔲 |
-| REST API Profiles | ✅ | 🔲 | 🔲 | 🔲 |
-| OpenAPI Profiles | ✅ | 🔲 | 🔲 | 🔲 |
+| Feature | Design | Implementation | Tests | Notes |
+|---------|--------|----------------|-------|-------|
+| **Phase 0** |
+| TOML Format | ✅ | ✅ | ✅ | Complete |
+| Markdown Format | ✅ | ✅ | ✅ | Complete |
+| JQ Profiles | ✅ | ✅ | ✅ | Complete |
+| HTTP Protocol | ✅ | ✅ | ✅ | Complete |
+| Tabulate Display | ✅ | ✅ | ✅ | Complete |
+| REST API Profiles | ✅ | ✅ | ✅ | Complete |
+| **Phase 1** |
+| OpenAPI Generation | ✅ | 🔲 | 🔲 | Design complete |
+| Hierarchical Profiles | ✅ | 🔲 | 🔲 | Design complete |
+| Source-Specific Filters | ✅ | 🔲 | 🔲 | Design complete |
+| Table Reading | ✅ | 🔲 | 🔲 | Added to roadmap |
 
 Legend: ✅ Complete | 🔲 Not Started | ⏳ In Progress
 
-## Design Guidelines
+---
 
-When creating new design documents, include:
+## Sources / Filters / Targets Architecture
 
-1. **Overview** - What the feature does and why it's needed
-2. **Core Design** - Technical architecture and key decisions
-3. **API/Interface** - How users interact with the feature
-4. **Examples** - Real-world usage patterns
-5. **Implementation Details** - Code structure and algorithms
-6. **Testing Strategy** - How to validate the feature
-7. **Integration** - How it works with existing features
-8. **Future Enhancements** - Possible extensions
+### Core Concept
+
+JN pipelines follow a simple model:
+
+```
+SOURCE → filter → filter → filter → TARGET
+```
+
+**Source:** Emits NDJSON data
+- Files: `jn cat data.csv`
+- URLs: `jn cat https://api.example.com/data`
+- Profiles: `jn cat @genomoncology/alterations`
+
+**Filter:** Transforms NDJSON stream
+- JQ filters: `jn filter '.field > 100'`
+- Named filters: `jn filter '@genomoncology/annotations:pivot-transcripts'`
+- Chaining: Multiple filters compose
+
+**Target:** Consumes NDJSON, produces output
+- Files: `jn put output.csv`
+- Stdout: `jn put -`
+- Display: `jn put --plugin tabulate --tablefmt grid -`
+
+### Chaining
+
+Source + Filter = Still a source (conceptually):
+
+```bash
+# These are equivalent "sources" from a pipeline perspective:
+jn cat @genomoncology/alterations
+jn cat @genomoncology/alterations | jn filter '.gene == "BRAF"'
+```
+
+Both emit NDJSON and can pipe to more filters or a target.
+
+---
+
+## Design Documents
+
+### By Topic
+
+**HTTP & APIs:**
+- `http-design.md` - HTTP plugin architecture
+- `rest-api-profiles.md` - Profile system for APIs
+- `genomoncology-api.md` - Real-world API example
+
+**Formats:**
+- `format-design.md` - Format plugin architecture
+
+---
 
 ## Next Steps
 
-1. **Implement HTTP Plugin** - Follow http-plugin-design.md
-2. **Implement REST API Profiles** - Follow rest-api-profile-design.md
-3. **Implement OpenAPI Profile Generation** - Follow openapi-profiles-design.md
-   - OpenAPI 3.0 spec parser
-   - Hierarchical profile generator
-   - Auth scheme mapping
-   - Schema inference with genson
-4. **Create Bundled Profiles** - Add common API profiles (GitHub, Stripe, JSONPlaceholder)
-5. **Write Tests** - Comprehensive test coverage
-6. **Update Documentation** - User-facing docs and examples
+### Phase 1 Implementation Priorities
+
+1. **Hierarchical Profiles**
+   - Implement `_profile.json` inheritance
+   - Subprofile loading and merging
+   - Profile discovery across multiple files
+
+2. **Source-Specific Filters**
+   - Implement pivot-transcripts.jq for GenomOncology
+   - Add filter discovery from profile config
+   - Document filter authoring patterns
+
+3. **OpenAPI Generator**
+   - Parse OpenAPI 3.0 specs
+   - Generate profile structure
+   - Map auth schemes to JN config
+
+4. **Table Reading Plugin**
+   - HTML table parsing (BeautifulSoup)
+   - Markdown table parsing
+   - ASCII table detection (best-effort)
+
+### Phase 2 Exploration
+
+1. **Profile Validation**
+   - Lint profiles for security issues (hardcoded tokens)
+   - JSON schema validation
+   - Required env var detection
+
+2. **Response Caching**
+   - Optional HTTP response caching
+   - Cache invalidation strategies
+   - Profile-based cache config
+
+3. **OAuth Token Refresh**
+   - Automatic token refresh for OAuth2
+   - Token storage and rotation
+   - Security best practices
+
+---
+
+## Design Guidelines
+
+### Focus on Why/What, Not How
+
+**Good:**
+> **Why:** Users shouldn't type the same base URL and auth headers for every request.
+>
+> **What:** Profiles centralize API configuration. Users reference endpoints with `@profile/path`.
+
+**Bad:**
+> ```python
+> def resolve_profile(name):
+>     path = Path(f"{JN_HOME}/profiles/{name}.json")
+>     with open(path) as f:
+>         return json.load(f)
+> ```
+
+### Include Risks & Trade-offs
+
+Every design decision has risks. Document them:
+
+**Example:**
+> **Risk:** Profile name collisions between project/user/bundled.
+>
+> **Mitigation:** Clear precedence (project > user > bundled). Show which loaded with `jn profile info <name>`.
+
+### Provide Real-World Examples
+
+Abstract concepts need concrete usage:
+
+**Bad:**
+> Profiles support environment variable substitution.
+
+**Good:**
+> ```json
+> {
+>   "headers": {
+>     "Authorization": "Token ${GENOMONCOLOGY_API_KEY}"
+>   }
+> }
+> ```
+>
+> ```bash
+> export GENOMONCOLOGY_API_KEY="abc123"
+> jn cat @genomoncology/alterations  # Resolves to "Token abc123"
+> ```
+
+### Ask Open Questions
+
+Designs aren't final. Capture uncertainty:
+
+> **Open Question:** Should profiles cache responses?
+>
+> **Options:**
+> - No caching (simple, predictable)
+> - Optional `--cache` flag
+> - Profile-based cache config
+>
+> **Trade-off:** Convenience vs. stale data risk.
+>
+> **Recommendation:** No caching initially. Add if users request.
+
+---
+
+## Document Organization
+
+**By Scope:**
+- **Core architecture:** http-design.md, format-design.md, rest-api-profiles.md
+- **Real-world examples:** genomoncology-api.md
+- **Feature-specific:** (future docs for specific plugins/profiles)
+
+**Naming Convention:**
+- Broad topics: `{topic}-design.md` (e.g., `http-design.md`)
+- Specific APIs: `{api-name}-api.md` (e.g., `genomoncology-api.md`)
+- Features: `{feature}-{aspect}.md` (e.g., `profile-validation.md`)
+
+---
+
+## Related Documentation
+
+- **Implementation:** See `src/` for code
+- **Roadmap:** See `spec/roadmap.md` for feature timeline
+- **Architecture:** See `spec/arch/` for system design
+
