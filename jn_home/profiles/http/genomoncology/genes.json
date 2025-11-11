@@ -1,5 +1,6 @@
 {
   "path": "/genes",
   "method": "GET",
-  "type": "source"
+  "type": "source",
+  "params": ["gene", "chromosome", "page", "limit"]
 }

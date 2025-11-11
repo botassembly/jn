@@ -1,5 +1,6 @@
 {
   "path": "/therapies",
   "method": "GET",
-  "type": "source"
+  "type": "source",
+  "params": ["alteration", "disease", "therapy_type", "page", "limit"]
 }
