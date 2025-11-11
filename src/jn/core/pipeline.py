@@ -18,6 +18,7 @@ from typing import Dict, Optional, TextIO, Tuple
 from ..plugins.discovery import PluginMetadata, get_cached_plugins_with_fallback
 from ..plugins.registry import build_registry
 from ..profiles.http import resolve_profile_reference, ProfileError
+from ..profiles.jq import resolve_jq_profile, JQProfileError
 
 
 class PipelineError(Exception):
@@ -36,6 +37,22 @@ def _check_uv_available() -> None:
         print("", file=sys.stderr)
         print("More info: https://docs.astral.sh/uv/", file=sys.stderr)
         sys.exit(1)
+
+
+def _check_jq_available() -> None:
+    """Check if jq is available and raise error if not.
+
+    Raises:
+        PipelineError: If jq command not found
+    """
+    if not shutil.which("jq"):
+        raise PipelineError(
+            "jq command not found\n"
+            "Install from: https://jqlang.github.io/jq/\n"
+            "  macOS: brew install jq\n"
+            "  Ubuntu/Debian: apt-get install jq\n"
+            "  Fedora: dnf install jq"
+        )
 
 
 def _load_plugins_and_registry(
@@ -451,23 +468,41 @@ def filter_stream(
     query: str,
     plugin_dir: Path,
     cache_path: Optional[Path],
+    params: Optional[Dict[str, str]] = None,
     input_stream: TextIO = sys.stdin,
     output_stream: TextIO = sys.stdout
 ) -> None:
-    """Filter NDJSON stream using jq expression.
+    """Filter NDJSON stream using jq expression or profile.
 
     Args:
-        query: jq expression
+        query: jq expression or @profile/name reference
         plugin_dir: Plugin directory
         cache_path: Cache file path
+        params: Optional parameters for profile substitution (e.g., {"row": "product"})
         input_stream: Where to read input (default: stdin)
         output_stream: Where to write output (default: stdout)
 
     Raises:
         PipelineError: If jq plugin not found or execution fails
+
+    Examples:
+        # Direct query
+        filter_stream(".", plugin_dir, cache_path)
+
+        # Profile with parameters
+        filter_stream("@analytics/pivot", plugin_dir, cache_path,
+                     params={"row": "product", "col": "month"})
     """
-    # Check UV availability
+    # Check dependencies
     _check_uv_available()
+    _check_jq_available()
+
+    # Resolve profile if query is a reference
+    if query.startswith("@"):
+        try:
+            query = resolve_jq_profile(query, params or {})
+        except JQProfileError as e:
+            raise PipelineError(str(e))
 
     # Load plugins
     plugins, _ = _load_plugins_and_registry(plugin_dir, cache_path)
@@ -478,11 +513,12 @@ def filter_stream(
 
     plugin = plugins["jq_"]
 
-    # Execute filter using UV to respect PEP 723 dependencies
+    # Execute filter - pass query as argument (not --query flag)
+    # Plugin is now simple: just takes query and runs jq
     stdin_source, input_data, _ = _prepare_stdin_for_subprocess(input_stream)
 
     proc = subprocess.Popen(
-        ["uv", "run", "--script", plugin.path, "--query", query],
+        ["uv", "run", "--script", plugin.path, query],
         stdin=stdin_source,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,

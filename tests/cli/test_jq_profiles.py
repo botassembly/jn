@@ -11,15 +11,7 @@ def test_jq_builtin_group_count(invoke):
 {"status":"active"}
 """
     res = invoke(
-        [
-            "plugin",
-            "call",
-            "jq_",
-            "--query",
-            "@builtin/group_count",
-            "--by",
-            "status",
-        ],
+        ["filter", "@builtin/group_count", "-p", "by=status"],
         input_data=ndjson,
     )
 
@@ -49,17 +41,7 @@ def test_jq_builtin_group_sum(invoke):
 {"customer":"Alice","total":75}
 """
     res = invoke(
-        [
-            "plugin",
-            "call",
-            "jq_",
-            "--query",
-            "@builtin/group_sum",
-            "--by",
-            "customer",
-            "--sum",
-            "total",
-        ],
+        ["filter", "@builtin/group_sum", "-p", "by=customer", "-p", "sum=total"],
         input_data=ndjson,
     )
 
@@ -87,7 +69,7 @@ def test_jq_builtin_stats(invoke):
 {"revenue":200}
 """
     res = invoke(
-        ["plugin", "call", "jq_", "--query", "@builtin/stats", "--field", "revenue"],
+        ["filter", "@builtin/stats", "-p", "field=revenue"],
         input_data=ndjson,
     )
 
@@ -109,7 +91,7 @@ def test_jq_builtin_flatten_nested(invoke):
     """Test builtin flatten_nested profile."""
     ndjson = '{"user": {"name": "Alice", "age": 30, "address": {"city": "NYC"}}}\n'
     res = invoke(
-        ["plugin", "call", "jq_", "--query", "@builtin/flatten_nested"],
+        ["filter", "@builtin/flatten_nested"],
         input_data=ndjson,
     )
 
@@ -124,3 +106,26 @@ def test_jq_builtin_flatten_nested(invoke):
     assert flattened["user.age"] == 30
     assert flattened["user.address.city"] == "NYC"
     assert "user" not in flattened or not isinstance(flattened.get("user"), dict)
+
+
+def test_jq_direct_query(invoke):
+    """Test jq with direct query expression (not a profile)."""
+    ndjson = """{"name":"Alice","age":30}
+{"name":"Bob","age":25}
+{"name":"Charlie","age":35}
+"""
+    res = invoke(
+        ["filter", "select(.age > 26)"],
+        input_data=ndjson,
+    )
+
+    assert res.exit_code == 0, f"Command failed with output: {res.output}"
+
+    lines = [l for l in res.output.strip().split("\n") if l]
+    records = [json.loads(line) for line in lines]
+
+    # Should have Alice and Charlie (ages 30 and 35)
+    assert len(records) == 2
+    assert any(r["name"] == "Alice" for r in records)
+    assert any(r["name"] == "Charlie" for r in records)
+    assert not any(r["name"] == "Bob" for r in records)

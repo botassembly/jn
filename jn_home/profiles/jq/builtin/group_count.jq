@@ -1,6 +1,6 @@
 # Count occurrences by key
 # Parameters: by (group key)
-# Usage: jn cat data.json | jn filter '@builtin/group_count' --by status
+# Usage: jn cat data.json | jn filter '@builtin/group_count' -p by=status
 #
 # Example:
 #   Input:  {"status":"active"} (NDJSON - one per line)

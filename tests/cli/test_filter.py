@@ -6,8 +6,8 @@ def test_filter_field_select(invoke, sample_ndjson):
     assert res.exit_code == 0
     lines = [l for l in res.output.strip().split("\n") if l]
     assert len(lines) == 2
-    values = [json.loads(l).get("value") or json.loads(l).get("name") for l in lines]
-    # jq returns primitives which we wrap as {"value": ...}
+    # jq returns raw JSON values (strings, numbers, etc.), not just objects
+    values = [json.loads(l) for l in lines]
     assert values == ["Alice", "Bob"]
 
 

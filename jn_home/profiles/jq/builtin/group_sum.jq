@@ -1,6 +1,6 @@
 # Group by key and sum values
 # Parameters: by (group key), sum (field to sum)
-# Usage: jn cat data.json | jn filter '@builtin/group_sum' --by customer --sum total
+# Usage: jn cat data.json | jn filter '@builtin/group_sum' -p by=customer -p sum=total
 #
 # Example:
 #   Input:  {"customer":"Alice","total":100} (NDJSON - one per line)

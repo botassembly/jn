@@ -1,6 +1,6 @@
 # Basic statistics: min, max, avg, sum, count
 # Parameters: field (field to calculate stats for)
-# Usage: jn cat data.json | jn filter '@builtin/stats' --field revenue
+# Usage: jn cat data.json | jn filter '@builtin/stats' -p field=revenue
 #
 # Example:
 #   Input:  {"revenue":100} (NDJSON - one per line)
