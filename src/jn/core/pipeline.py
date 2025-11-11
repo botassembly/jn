@@ -13,7 +13,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, Optional, TextIO, Tuple
+from typing import Dict, List, Optional, TextIO, Tuple
 
 from ..plugins.discovery import PluginMetadata, get_cached_plugins_with_fallback
 from ..plugins.registry import build_registry
@@ -41,6 +41,28 @@ def _is_binary_format_url(url: str) -> bool:
     from urllib.parse import urlparse
     ext = Path(urlparse(url).path).suffix.lower()
     return ext in _BINARY_FORMATS
+
+
+def _build_curl_command(url: str, headers_json: Optional[str] = None) -> List[str]:
+    """Build curl command with optional headers from profile.
+
+    Args:
+        url: The URL to fetch
+        headers_json: JSON string of headers dict (optional)
+
+    Returns:
+        List of command arguments for curl
+    """
+    cmd = ["curl", "-sL"]
+
+    # Add headers if provided
+    if headers_json:
+        headers = json.loads(headers_json)
+        for key, value in headers.items():
+            cmd.extend(["-H", f"{key}: {value}"])
+
+    cmd.append(url)
+    return cmd
 
 
 def _check_uv_available() -> None:
@@ -214,8 +236,9 @@ def start_reader(
         if _is_binary_format_url(source):
             # Use curl to stream raw bytes directly to format plugin
             # curl streams bytes → format plugin buffers (unavoidable) → streams NDJSON out
+            curl_cmd = _build_curl_command(source, headers_json)
             curl_proc = subprocess.Popen(
-                ["curl", "-sL", source],
+                curl_cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=False  # Binary mode
@@ -481,8 +504,9 @@ def convert(
         curl_proc = None  # Track curl subprocess for cleanup
         if is_url and _is_binary_format_url(source):
             # Use curl to stream raw bytes to format plugin
+            curl_cmd = _build_curl_command(source, headers_json)
             curl_proc = subprocess.Popen(
-                ["curl", "-sL", source],
+                curl_cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=False  # Binary mode
