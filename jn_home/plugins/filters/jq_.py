@@ -21,12 +21,14 @@ if __name__ == "__main__":
     query = sys.argv[1] if len(sys.argv) > 1 else "."
 
     # Run jq with compact output (-c) for NDJSON compatibility
-    # Inherit stdin/stdout for streaming
-    result = subprocess.run(
+    # Use Popen (not run) to ensure concurrent execution and backpressure
+    # Inherit stdin/stdout for streaming - OS handles backpressure through pipes
+    proc = subprocess.Popen(
         ["jq", "-c", query],
         stdin=sys.stdin,
         stdout=sys.stdout,
         stderr=sys.stderr,
     )
 
-    sys.exit(result.returncode)
+    # Wait for jq to complete
+    sys.exit(proc.wait())
