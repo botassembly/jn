@@ -57,6 +57,31 @@ jn cat @restful-api:list_objects
 jn cat @api/users/{id} --id 123
 ```
 
+### OpenAPI Profile Generation
+**Design:** [openapi-profiles-design.md](openapi-profiles-design.md)
+
+Auto-generate JN profiles from OpenAPI/Swagger specifications with hierarchical organization for large APIs.
+
+**Key Features:**
+- Auto-generate profiles from OpenAPI 3.0 specs
+- Hierarchical subprofile organization (3-level max)
+- Complete auth scheme mapping (Bearer, OAuth2, API Key, Basic)
+- Schema inference from API response examples
+- Profile inheritance with `_profile.json` base config
+- Lazy loading for performance with large APIs
+
+**Examples:**
+```bash
+# Generate from OpenAPI spec
+jn profile generate stripe --from-openapi https://stripe.com/api/openapi.json
+
+# Use generated hierarchical profile
+jn cat @stripe/customers:list --limit 10
+
+# Infer schema from examples
+jn profile infer-schema users --from-examples example*.json
+```
+
 ### Usage Examples
 **Document:** [http-usage-examples.md](http-usage-examples.md)
 
@@ -79,6 +104,7 @@ Comprehensive real-world examples covering:
 | JQ Profiles | ✅ | ✅ | ✅ | Partial |
 | HTTP Protocol | ✅ | 🔲 | 🔲 | 🔲 |
 | REST API Profiles | ✅ | 🔲 | 🔲 | 🔲 |
+| OpenAPI Profiles | ✅ | 🔲 | 🔲 | 🔲 |
 
 Legend: ✅ Complete | 🔲 Not Started | ⏳ In Progress
 
@@ -99,6 +125,11 @@ When creating new design documents, include:
 
 1. **Implement HTTP Plugin** - Follow http-plugin-design.md
 2. **Implement REST API Profiles** - Follow rest-api-profile-design.md
-3. **Create Bundled Profiles** - Add common API profiles
-4. **Write Tests** - Comprehensive test coverage
-5. **Update Documentation** - User-facing docs and examples
+3. **Implement OpenAPI Profile Generation** - Follow openapi-profiles-design.md
+   - OpenAPI 3.0 spec parser
+   - Hierarchical profile generator
+   - Auth scheme mapping
+   - Schema inference with genson
+4. **Create Bundled Profiles** - Add common API profiles (GitHub, Stripe, JSONPlaceholder)
+5. **Write Tests** - Comprehensive test coverage
+6. **Update Documentation** - User-facing docs and examples

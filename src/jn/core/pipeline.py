@@ -8,6 +8,7 @@ This module handles the actual execution of data pipelines:
 """
 
 import io
+import json
 import shutil
 import subprocess
 import sys
@@ -16,6 +17,7 @@ from typing import Dict, Optional, TextIO, Tuple
 
 from ..plugins.discovery import PluginMetadata, get_cached_plugins_with_fallback
 from ..plugins.registry import build_registry
+from ..profiles.http import resolve_profile_reference, ProfileError
 
 
 class PipelineError(Exception):
@@ -86,12 +88,12 @@ def start_reader(
     plugin_dir: Path,
     cache_path: Optional[Path]
 ) -> subprocess.Popen:
-    """Start a reader subprocess for a source file.
+    """Start a reader subprocess for a source file or URL.
 
     Returns a Popen object with stdout pipe that can be consumed downstream.
 
     Args:
-        source: Path to source file
+        source: Path to source file or HTTP(S) URL
         plugin_dir: Plugin directory
         cache_path: Cache file path
 
@@ -104,6 +106,16 @@ def start_reader(
     # Check UV availability
     _check_uv_available()
 
+    # Check if source is a profile reference
+    headers_json = None
+    if source.startswith("@"):
+        try:
+            url, headers = resolve_profile_reference(source)
+            source = url  # Replace with resolved URL
+            headers_json = json.dumps(headers)
+        except ProfileError as e:
+            raise PipelineError(f"Profile error: {e}")
+
     # Load plugins and find reader
     plugins, registry = _load_plugins_and_registry(plugin_dir, cache_path)
 
@@ -113,18 +125,40 @@ def start_reader(
 
     plugin = plugins[plugin_name]
 
-    # Start reader subprocess using UV to respect PEP 723 dependencies
-    infile = open(source)
-    proc = subprocess.Popen(
-        ["uv", "run", "--script", plugin.path, "--mode", "read"],
-        stdin=infile,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True
-    )
+    # Check if source is a URL (HTTP protocol plugin)
+    is_url = source.startswith(("http://", "https://"))
 
-    # Attach infile to proc so it gets closed when caller is done
-    proc._jn_infile = infile
+    if is_url:
+        # For URLs, pass as command-line argument to HTTP plugin
+        cmd = ["uv", "run", "--script", plugin.path, "--mode", "read"]
+
+        # Add headers from profile if available
+        if headers_json:
+            cmd.extend(["--headers", headers_json])
+
+        cmd.append(source)
+
+        proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        # No file to attach
+        proc._jn_infile = None
+    else:
+        # For files, open and pass as stdin
+        infile = open(source)
+        proc = subprocess.Popen(
+            ["uv", "run", "--script", plugin.path, "--mode", "read"],
+            stdin=infile,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        # Attach infile to proc so it gets closed when caller is done
+        proc._jn_infile = infile
 
     return proc
 
@@ -135,10 +169,10 @@ def read_source(
     cache_path: Optional[Path],
     output_stream: TextIO = sys.stdout
 ) -> None:
-    """Read a source file and output NDJSON to stream.
+    """Read a source file or URL and output NDJSON to stream.
 
     Args:
-        source: Path to source file
+        source: Path to source file or HTTP(S) URL
         plugin_dir: Plugin directory
         cache_path: Cache file path
         output_stream: Where to write output (default: stdout)
@@ -153,7 +187,10 @@ def read_source(
         output_stream.write(line)
 
     proc.wait()
-    proc._jn_infile.close()
+
+    # Close input file if it exists (URLs don't have one)
+    if proc._jn_infile is not None:
+        proc._jn_infile.close()
 
     if proc.returncode != 0:
         error_msg = proc.stderr.read()
@@ -222,12 +259,12 @@ def convert(
     plugin_dir: Path,
     cache_path: Optional[Path]
 ) -> None:
-    """Convert source file to destination format.
+    """Convert source file or URL to destination format.
 
     Two-stage pipeline: read → write with automatic backpressure.
 
     Args:
-        source: Path to source file
+        source: Path to source file or HTTP(S) URL
         dest: Path to destination file
         plugin_dir: Plugin directory
         cache_path: Cache file path
@@ -237,6 +274,16 @@ def convert(
     """
     # Check UV availability
     _check_uv_available()
+
+    # Check if source is a profile reference
+    headers_json = None
+    if source.startswith("@"):
+        try:
+            url, headers = resolve_profile_reference(source)
+            source = url  # Replace with resolved URL
+            headers_json = json.dumps(headers)
+        except ProfileError as e:
+            raise PipelineError(f"Profile error: {e}")
 
     # Load plugins
     plugins, registry = _load_plugins_and_registry(plugin_dir, cache_path)
@@ -255,15 +302,37 @@ def convert(
 
     writer_plugin = plugins[writer_name]
 
+    # Check if source is a URL
+    is_url = source.startswith(("http://", "https://"))
+
     # Execute two-stage pipeline
-    with open(source) as infile, open(dest, "w") as outfile:
-        # Start reader using UV to respect PEP 723 dependencies
-        reader = subprocess.Popen(
-            ["uv", "run", "--script", reader_plugin.path, "--mode", "read"],
-            stdin=infile,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
+    with open(dest, "w") as outfile:
+        if is_url:
+            # For URLs, pass as command-line argument
+            cmd = ["uv", "run", "--script", reader_plugin.path, "--mode", "read"]
+
+            # Add headers from profile if available
+            if headers_json:
+                cmd.extend(["--headers", headers_json])
+
+            cmd.append(source)
+
+            reader = subprocess.Popen(
+                cmd,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+        else:
+            # For files, open and pass as stdin
+            infile = open(source)
+            reader = subprocess.Popen(
+                ["uv", "run", "--script", reader_plugin.path, "--mode", "read"],
+                stdin=infile,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
 
         # Start writer using UV to respect PEP 723 dependencies
         writer = subprocess.Popen(
@@ -279,6 +348,10 @@ def convert(
         # Wait for both processes
         writer.wait()
         reader.wait()
+
+        # Close input file if it exists (URLs don't have one)
+        if not is_url:
+            infile.close()
 
         # Check for errors
         if writer.returncode != 0:
