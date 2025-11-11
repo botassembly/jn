@@ -8,6 +8,8 @@ This module handles the actual execution of data pipelines:
 """
 
 import io
+import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -15,11 +17,43 @@ from typing import Dict, Optional, TextIO, Tuple
 
 from ..plugins.discovery import PluginMetadata, get_cached_plugins_with_fallback
 from ..plugins.registry import build_registry
+from ..profiles.http import resolve_profile_reference
+from ..profiles.http import ProfileError as HTTPProfileError
+from ..profiles.resolver import resolve_profile, ProfileError
 
 
 class PipelineError(Exception):
     """Error during pipeline execution."""
     pass
+
+
+def _check_uv_available() -> None:
+    """Check if UV is available and exit with helpful message if not."""
+    if not shutil.which("uv"):
+        print("Error: UV is required to run JN plugins", file=sys.stderr)
+        print("", file=sys.stderr)
+        print("Install UV with one of these methods:", file=sys.stderr)
+        print("  curl -LsSf https://astral.sh/uv/install.sh | sh", file=sys.stderr)
+        print("  pip install uv", file=sys.stderr)
+        print("", file=sys.stderr)
+        print("More info: https://docs.astral.sh/uv/", file=sys.stderr)
+        sys.exit(1)
+
+
+def _check_jq_available() -> None:
+    """Check if jq is available and raise error if not.
+
+    Raises:
+        PipelineError: If jq command not found
+    """
+    if not shutil.which("jq"):
+        raise PipelineError(
+            "jq command not found\n"
+            "Install from: https://jqlang.github.io/jq/\n"
+            "  macOS: brew install jq\n"
+            "  Ubuntu/Debian: apt-get install jq\n"
+            "  Fedora: dnf install jq"
+        )
 
 
 def _load_plugins_and_registry(
@@ -37,6 +71,39 @@ def _load_plugins_and_registry(
     plugins = get_cached_plugins_with_fallback(plugin_dir, cache_path)
     registry = build_registry(plugins)
     return plugins, registry
+
+
+def _resolve_plugin_name(plugin_name: str, plugins: Dict[str, PluginMetadata]) -> Optional[str]:
+    """Resolve plugin name with fallback to underscore suffix.
+
+    Strategy:
+    1. Try exact match first (highest priority)
+    2. Try with underscore suffix as fallback
+    3. Return None if neither found
+
+    Args:
+        plugin_name: Plugin name requested by user (e.g., 'csv' or 'csv_')
+        plugins: Dict of available plugins
+
+    Returns:
+        Resolved plugin name, or None if not found
+
+    Examples:
+        - User asks for 'csv', 'csv' exists → returns 'csv'
+        - User asks for 'csv', only 'csv_' exists → returns 'csv_'
+        - User asks for 'csv_', 'csv_' exists → returns 'csv_' (exact match)
+    """
+    # Try exact match first (highest priority)
+    if plugin_name in plugins:
+        return plugin_name
+
+    # Try with underscore suffix as fallback
+    fallback_name = f"{plugin_name}_"
+    if fallback_name in plugins:
+        return fallback_name
+
+    # Not found
+    return None
 
 
 def _prepare_stdin_for_subprocess(
@@ -72,12 +139,12 @@ def start_reader(
     plugin_dir: Path,
     cache_path: Optional[Path]
 ) -> subprocess.Popen:
-    """Start a reader subprocess for a source file.
+    """Start a reader subprocess for a source file or URL.
 
     Returns a Popen object with stdout pipe that can be consumed downstream.
 
     Args:
-        source: Path to source file
+        source: Path to source file or HTTP(S) URL
         plugin_dir: Plugin directory
         cache_path: Cache file path
 
@@ -87,6 +154,19 @@ def start_reader(
     Raises:
         PipelineError: If plugin not found
     """
+    # Check UV availability
+    _check_uv_available()
+
+    # Check if source is a profile reference
+    headers_json = None
+    if source.startswith("@"):
+        try:
+            url, headers = resolve_profile_reference(source)
+            source = url  # Replace with resolved URL
+            headers_json = json.dumps(headers)
+        except HTTPProfileError as e:
+            raise PipelineError(f"Profile error: {e}")
+
     # Load plugins and find reader
     plugins, registry = _load_plugins_and_registry(plugin_dir, cache_path)
 
@@ -96,18 +176,40 @@ def start_reader(
 
     plugin = plugins[plugin_name]
 
-    # Start reader subprocess
-    infile = open(source)
-    proc = subprocess.Popen(
-        [sys.executable, plugin.path, "--mode", "read"],
-        stdin=infile,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True
-    )
+    # Check if source is a URL (HTTP protocol plugin)
+    is_url = source.startswith(("http://", "https://"))
 
-    # Attach infile to proc so it gets closed when caller is done
-    proc._jn_infile = infile
+    if is_url:
+        # For URLs, pass as command-line argument to HTTP plugin
+        cmd = ["uv", "run", "--script", plugin.path, "--mode", "read"]
+
+        # Add headers from profile if available
+        if headers_json:
+            cmd.extend(["--headers", headers_json])
+
+        cmd.append(source)
+
+        proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        # No file to attach
+        proc._jn_infile = None
+    else:
+        # For files, open and pass as stdin
+        infile = open(source)
+        proc = subprocess.Popen(
+            ["uv", "run", "--script", plugin.path, "--mode", "read"],
+            stdin=infile,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        # Attach infile to proc so it gets closed when caller is done
+        proc._jn_infile = infile
 
     return proc
 
@@ -118,10 +220,10 @@ def read_source(
     cache_path: Optional[Path],
     output_stream: TextIO = sys.stdout
 ) -> None:
-    """Read a source file and output NDJSON to stream.
+    """Read a source file or URL and output NDJSON to stream.
 
     Args:
-        source: Path to source file
+        source: Path to source file or HTTP(S) URL
         plugin_dir: Plugin directory
         cache_path: Cache file path
         output_stream: Where to write output (default: stdout)
@@ -136,7 +238,10 @@ def read_source(
         output_stream.write(line)
 
     proc.wait()
-    proc._jn_infile.close()
+
+    # Close input file if it exists (URLs don't have one)
+    if proc._jn_infile is not None:
+        proc._jn_infile.close()
 
     if proc.returncode != 0:
         error_msg = proc.stderr.read()
@@ -147,53 +252,107 @@ def write_destination(
     dest: str,
     plugin_dir: Path,
     cache_path: Optional[Path],
-    input_stream: TextIO = sys.stdin
+    input_stream: TextIO = sys.stdin,
+    plugin_name: Optional[str] = None,
+    plugin_config: Optional[Dict] = None
 ) -> None:
-    """Read NDJSON from stream and write to destination file.
+    """Read NDJSON from stream and write to destination file or stdout.
 
     Args:
-        dest: Path to destination file
+        dest: Path to destination file, or '-'/'stdout' for stdout
         plugin_dir: Plugin directory
         cache_path: Cache file path
         input_stream: Where to read input (default: stdin)
+        plugin_name: Optional explicit plugin name (overrides registry matching)
+        plugin_config: Optional config dict to pass to plugin
 
     Raises:
         PipelineError: If plugin not found or execution fails
     """
-    # Load plugins and find writer
+    # Check UV availability
+    _check_uv_available()
+
+    # Load plugins
     plugins, registry = _load_plugins_and_registry(plugin_dir, cache_path)
 
-    plugin_name = registry.match(dest)
-    if not plugin_name:
-        raise PipelineError(f"No plugin found for {dest}")
+    # Resolve plugin
+    if plugin_name:
+        # Explicit plugin specified - try exact match, then fallback to underscore suffix
+        resolved_name = _resolve_plugin_name(plugin_name, plugins)
+        if not resolved_name:
+            raise PipelineError(
+                f"Plugin '{plugin_name}' not found. "
+                f"Available plugins: {', '.join(sorted(plugins.keys()))}"
+            )
+        plugin = plugins[resolved_name]
+    else:
+        # Auto-detect from destination
+        matched_name = registry.match(dest)
+        if not matched_name:
+            raise PipelineError(f"No plugin found for {dest}")
+        plugin = plugins[matched_name]
 
-    plugin = plugins[plugin_name]
+    # Check if writing to stdout
+    write_to_stdout = dest in ("-", "stdout")
 
-    # Execute writer
-    with open(dest, "w") as outfile:
-        stdin_source, input_data, text_mode = _prepare_stdin_for_subprocess(
-            input_stream
-        )
+    # Build command with config options
+    cmd = ["uv", "run", "--script", plugin.path, "--mode", "write"]
 
+    # Add plugin-specific config args
+    if plugin_config:
+        for key, value in plugin_config.items():
+            cmd.extend([f"--{key}", str(value)])
+
+    # Prepare stdin
+    stdin_source, input_data, text_mode = _prepare_stdin_for_subprocess(input_stream)
+
+    if write_to_stdout:
+        # Write to stdout
         proc = subprocess.Popen(
-            [sys.executable, plugin.path, "--mode", "write"],
+            cmd,
             stdin=stdin_source,
-            stdout=outfile,
+            stdout=sys.stdout,
             stderr=subprocess.PIPE,
             text=text_mode,
         )
+    else:
+        # Write to file
+        with open(dest, "w") as outfile:
+            proc = subprocess.Popen(
+                cmd,
+                stdin=stdin_source,
+                stdout=outfile,
+                stderr=subprocess.PIPE,
+                text=text_mode,
+            )
 
-        if input_data is not None:
-            proc.stdin.write(input_data)  # type: ignore[union-attr]
-            proc.stdin.close()  # type: ignore[union-attr]
+            if input_data is not None:
+                proc.stdin.write(input_data)  # type: ignore[union-attr]
+                proc.stdin.close()  # type: ignore[union-attr]
 
-        proc.wait()
+            proc.wait()
 
-        if proc.returncode != 0:
-            err = proc.stderr.read()
-            if not text_mode and isinstance(err, bytes):
-                err = err.decode()
-            raise PipelineError(f"Writer error: {err}")
+            if proc.returncode != 0:
+                err = proc.stderr.read()
+                if not text_mode and isinstance(err, bytes):
+                    err = err.decode()
+                raise PipelineError(f"Writer error: {err}")
+            return
+
+    # For stdout case
+    if input_data is not None:
+        proc.stdin.write(input_data)  # type: ignore[union-attr]
+        proc.stdin.close()  # type: ignore[union-attr]
+
+    proc.wait()
+
+    if proc.returncode != 0:
+        err = proc.stderr.read()
+        if text_mode:
+            pass  # Already text
+        elif isinstance(err, bytes):
+            err = err.decode()
+        raise PipelineError(f"Writer error: {err}")
 
 
 def convert(
@@ -202,12 +361,12 @@ def convert(
     plugin_dir: Path,
     cache_path: Optional[Path]
 ) -> None:
-    """Convert source file to destination format.
+    """Convert source file or URL to destination format.
 
     Two-stage pipeline: read → write with automatic backpressure.
 
     Args:
-        source: Path to source file
+        source: Path to source file or HTTP(S) URL
         dest: Path to destination file
         plugin_dir: Plugin directory
         cache_path: Cache file path
@@ -215,6 +374,19 @@ def convert(
     Raises:
         PipelineError: If plugin not found or execution fails
     """
+    # Check UV availability
+    _check_uv_available()
+
+    # Check if source is a profile reference
+    headers_json = None
+    if source.startswith("@"):
+        try:
+            url, headers = resolve_profile_reference(source)
+            source = url  # Replace with resolved URL
+            headers_json = json.dumps(headers)
+        except HTTPProfileError as e:
+            raise PipelineError(f"Profile error: {e}")
+
     # Load plugins
     plugins, registry = _load_plugins_and_registry(plugin_dir, cache_path)
 
@@ -232,19 +404,41 @@ def convert(
 
     writer_plugin = plugins[writer_name]
 
-    # Execute two-stage pipeline
-    with open(source) as infile, open(dest, "w") as outfile:
-        # Start reader
-        reader = subprocess.Popen(
-            [sys.executable, reader_plugin.path, "--mode", "read"],
-            stdin=infile,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
+    # Check if source is a URL
+    is_url = source.startswith(("http://", "https://"))
 
-        # Start writer
+    # Execute two-stage pipeline
+    with open(dest, "w") as outfile:
+        if is_url:
+            # For URLs, pass as command-line argument
+            cmd = ["uv", "run", "--script", reader_plugin.path, "--mode", "read"]
+
+            # Add headers from profile if available
+            if headers_json:
+                cmd.extend(["--headers", headers_json])
+
+            cmd.append(source)
+
+            reader = subprocess.Popen(
+                cmd,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+        else:
+            # For files, open and pass as stdin
+            infile = open(source)
+            reader = subprocess.Popen(
+                ["uv", "run", "--script", reader_plugin.path, "--mode", "read"],
+                stdin=infile,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+        # Start writer using UV to respect PEP 723 dependencies
         writer = subprocess.Popen(
-            [sys.executable, writer_plugin.path, "--mode", "write"],
+            ["uv", "run", "--script", writer_plugin.path, "--mode", "write"],
             stdin=reader.stdout,
             stdout=outfile,
             stderr=subprocess.PIPE,
@@ -256,6 +450,10 @@ def convert(
         # Wait for both processes
         writer.wait()
         reader.wait()
+
+        # Close input file if it exists (URLs don't have one)
+        if not is_url:
+            infile.close()
 
         # Check for errors
         if writer.returncode != 0:
@@ -271,21 +469,43 @@ def filter_stream(
     query: str,
     plugin_dir: Path,
     cache_path: Optional[Path],
+    params: Optional[Dict[str, str]] = None,
     input_stream: TextIO = sys.stdin,
     output_stream: TextIO = sys.stdout
 ) -> None:
-    """Filter NDJSON stream using jq expression.
+    """Filter NDJSON stream using jq expression or profile.
 
     Args:
-        query: jq expression
+        query: jq expression or @profile/name reference
         plugin_dir: Plugin directory
         cache_path: Cache file path
+        params: Optional parameters for profile substitution (e.g., {"row": "product"})
         input_stream: Where to read input (default: stdin)
         output_stream: Where to write output (default: stdout)
 
     Raises:
         PipelineError: If jq plugin not found or execution fails
+
+    Examples:
+        # Direct query
+        filter_stream(".", plugin_dir, cache_path)
+
+        # Profile with parameters
+        filter_stream("@analytics/pivot", plugin_dir, cache_path,
+                     params={"row": "product", "col": "month"})
     """
+    # Check dependencies
+    _check_uv_available()
+    _check_jq_available()
+
+    # Resolve profile if query is a reference
+    if query.startswith("@"):
+        try:
+            # Use generic profile resolution - works for any plugin
+            query = resolve_profile(query, plugin_name="jq_", params=params or {})
+        except ProfileError as e:
+            raise PipelineError(str(e))
+
     # Load plugins
     plugins, _ = _load_plugins_and_registry(plugin_dir, cache_path)
 
@@ -295,11 +515,12 @@ def filter_stream(
 
     plugin = plugins["jq_"]
 
-    # Execute filter
+    # Execute filter - pass query as argument (not --query flag)
+    # Plugin is now simple: just takes query and runs jq
     stdin_source, input_data, _ = _prepare_stdin_for_subprocess(input_stream)
 
     proc = subprocess.Popen(
-        [sys.executable, plugin.path, "--query", query],
+        ["uv", "run", "--script", plugin.path, query],
         stdin=stdin_source,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,

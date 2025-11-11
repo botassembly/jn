@@ -1,5 +1,6 @@
 """Plugin business logic and introspection (service façade)."""
 
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -13,6 +14,19 @@ from .discovery import (
     parse_pep723,
 )
 import re
+
+
+def _check_uv_available() -> None:
+    """Check if UV is available and exit with helpful message if not."""
+    if not shutil.which("uv"):
+        print("Error: UV is required to run JN plugins", file=sys.stderr)
+        print("", file=sys.stderr)
+        print("Install UV with one of these methods:", file=sys.stderr)
+        print("  curl -LsSf https://astral.sh/uv/install.sh | sh", file=sys.stderr)
+        print("  pip install uv", file=sys.stderr)
+        print("", file=sys.stderr)
+        print("More info: https://docs.astral.sh/uv/", file=sys.stderr)
+        sys.exit(1)
 
 
 @dataclass
@@ -128,6 +142,9 @@ def find_plugin(plugin_name: str, plugin_dir: Path, cache_path: Optional[Path]) 
 
 def call_plugin(plugin_path: str, args: List[str]) -> int:
     """Call a plugin directly with arguments, piping stdin if needed."""
+    # Check UV availability first
+    _check_uv_available()
+
     # Try to pass through current stdin; if it's not a real file (e.g., Click runner),
     # use PIPE and feed the input content explicitly.
     try:
@@ -141,8 +158,10 @@ def call_plugin(plugin_path: str, args: List[str]) -> int:
         input_data = sys.stdin.read()
         text_mode = True if isinstance(input_data, str) else False
 
+    # Call plugin using UV to ensure dependencies are installed
+    # This respects the PEP 723 dependencies in the plugin's script block
     proc = subprocess.Popen(
-        [sys.executable, plugin_path, *args],
+        ["uv", "run", "--script", plugin_path, *args],
         stdin=stdin_source,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,

@@ -1,0 +1,11 @@
+{
+  "base_url": "https://api.restful-api.dev",
+  "headers": {
+    "Accept": "application/json"
+  },
+  "paths": {
+    "objects": "/objects",
+    "object": "/objects/{id}"
+  },
+  "timeout": 30
+}
