@@ -49,12 +49,9 @@ def parse_pep723(filepath: Path) -> dict:
 
     try:
         return tomllib.loads(toml_content)
-    except Exception:
-        try:
-            relaxed = re.sub(r'"([^"\n]*)"', r"'\1'", toml_content)
-            return tomllib.loads(relaxed)
-        except Exception:
-            return {}
+    except tomllib.TOMLDecodeError:
+        # Can't parse - return empty dict so discovery continues
+        return {}
 
 
 def discover_plugins(plugin_dir: Path) -> Dict[str, PluginMetadata]:
@@ -146,12 +143,9 @@ def get_cached_plugins(plugin_dir: Path, cache_path: Optional[Path]) -> Dict[str
 
 def _builtin_plugins_dir() -> Optional[Path]:
     """Locate the packaged default plugins under jn_home.plugins."""
-    try:
-        pkg = resources.files("jn_home").joinpath("plugins")
-        with resources.as_file(pkg) as p:
-            return Path(p)
-    except Exception:
-        return None
+    pkg = resources.files("jn_home").joinpath("plugins")
+    with resources.as_file(pkg) as p:
+        return Path(p)
 
 
 def get_cached_plugins_with_fallback(

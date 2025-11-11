@@ -15,3 +15,19 @@ def test_tail_from_file(invoke, people_csv):
     lines = [l for l in res.output.strip().split("\n") if l]
     assert len(lines) == 2
 
+
+def test_tail_file_not_found(invoke):
+    """Test tail with non-existent file."""
+    result = invoke(["tail", "/nonexistent/file.csv"])
+    assert result.exit_code == 1
+    assert "Error:" in result.output
+
+
+def test_tail_unsupported_format(invoke, tmp_path):
+    """Test tail with unsupported file format."""
+    unknown_file = tmp_path / "test.unknownext"
+    unknown_file.write_text("some content")
+    result = invoke(["tail", str(unknown_file)])
+    assert result.exit_code == 1
+    assert "Error:" in result.output
+

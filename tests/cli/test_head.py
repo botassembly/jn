@@ -15,3 +15,19 @@ def test_head_from_file(invoke, people_csv):
     lines = [l for l in res.output.strip().split("\n") if l]
     assert len(lines) == 2
 
+
+def test_head_file_not_found(invoke):
+    """Test head with non-existent file."""
+    result = invoke(["head", "/nonexistent/file.csv"])
+    assert result.exit_code == 1
+    assert "Error:" in result.output
+
+
+def test_head_unsupported_format(invoke, tmp_path):
+    """Test head with unsupported file format."""
+    unknown_file = tmp_path / "test.unknownext"
+    unknown_file.write_text("some content")
+    result = invoke(["head", str(unknown_file)])
+    assert result.exit_code == 1
+    assert "Error:" in result.output
+

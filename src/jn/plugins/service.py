@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 import io
 
-from ..discovery import (
+from .discovery import (
     PluginMetadata,
     get_cached_plugins_with_fallback,
     parse_pep723,
@@ -32,48 +32,39 @@ class PluginInfo:
 
 def extract_description(plugin_path: str) -> str:
     """Extract plugin description from module docstring."""
-    try:
-        with open(plugin_path) as f:
-            content = f.read()
-            match = re.search(r'"""(.+?)"""', content, re.DOTALL)
-            if match:
-                lines = match.group(1).strip().split('\n')
-                return lines[0].strip() if lines else ""
-    except Exception:
-        pass
+    with open(plugin_path) as f:
+        content = f.read()
+        match = re.search(r'"""(.+?)"""', content, re.DOTALL)
+        if match:
+            lines = match.group(1).strip().split('\n')
+            return lines[0].strip() if lines else ""
     return ""
 
 
 def detect_plugin_methods(plugin_path: str) -> List[str]:
     """Detect which methods a plugin implements."""
-    try:
-        with open(plugin_path) as f:
-            content = f.read()
-            methods: List[str] = []
-            if re.search(r'^def reads\(', content, re.MULTILINE):
-                methods.append('reads')
-            if re.search(r'^def writes\(', content, re.MULTILINE):
-                methods.append('writes')
-            if re.search(r'^def filters\(', content, re.MULTILINE):
-                methods.append('filters')
-            if re.search(r'^def test\(', content, re.MULTILINE):
-                methods.append('test')
-            return methods
-    except Exception:
-        return []
+    with open(plugin_path) as f:
+        content = f.read()
+        methods: List[str] = []
+        if re.search(r'^def reads\(', content, re.MULTILINE):
+            methods.append('reads')
+        if re.search(r'^def writes\(', content, re.MULTILINE):
+            methods.append('writes')
+        if re.search(r'^def filters\(', content, re.MULTILINE):
+            methods.append('filters')
+        if re.search(r'^def test\(', content, re.MULTILINE):
+            methods.append('test')
+        return methods
 
 
 def extract_method_docstring(plugin_path: str, method_name: str) -> str:
     """Extract first line of method docstring."""
-    try:
-        with open(plugin_path) as f:
-            content = f.read()
-            pattern = rf'^def {method_name}\([^)]*\):[^"]*"""([^"]+)"""'
-            match = re.search(pattern, content, re.MULTILINE | re.DOTALL)
-            if match:
-                return match.group(1).strip().split('\n')[0]
-    except Exception:
-        pass
+    with open(plugin_path) as f:
+        content = f.read()
+        pattern = rf'^def {method_name}\([^)]*\):[^"]*"""([^"]+)"""'
+        match = re.search(pattern, content, re.MULTILINE | re.DOTALL)
+        if match:
+            return match.group(1).strip().split('\n')[0]
     return ""
 
 
@@ -144,7 +135,8 @@ def call_plugin(plugin_path: str, args: List[str]) -> int:
         stdin_source = sys.stdin
         input_data = None
         text_mode = False
-    except Exception:
+    except (AttributeError, OSError, io.UnsupportedOperation):
+        # Not a real file handle (e.g., Click test runner StringIO)
         stdin_source = subprocess.PIPE
         input_data = sys.stdin.read()
         text_mode = True if isinstance(input_data, str) else False
