@@ -1,0 +1,8 @@
+{
+  "base_url": "https://${GENOMONCOLOGY_URL}/api",
+  "headers": {
+    "Authorization": "Token ${GENOMONCOLOGY_API_KEY}",
+    "Accept": "application/json"
+  },
+  "timeout": 60
+}

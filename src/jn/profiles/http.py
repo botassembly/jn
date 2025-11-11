@@ -1,17 +1,23 @@
-"""HTTP Profile System - reusable REST API configurations.
+"""HTTP Profile System - hierarchical REST API configurations.
 
-Profiles provide:
-- Base URLs and authentication
-- Path templates with variables
-- Environment variable substitution
-- Clean @profile/path syntax
+New hierarchical structure:
+  profiles/http/{api_name}/_meta.json      - Connection info (base_url, headers, timeout)
+  profiles/http/{api_name}/{source}.json   - Source definitions (path, method, type)
+
+Example:
+  profiles/http/genomoncology/_meta.json
+  profiles/http/genomoncology/annotations.json
+  profiles/http/genomoncology/alterations.json
+
+Reference format:
+  @genomoncology/annotations → Merges _meta.json + annotations.json
 """
 
 import json
 import os
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 
 class ProfileError(Exception):
@@ -19,113 +25,8 @@ class ProfileError(Exception):
     pass
 
 
-class HTTPProfile:
-    """Represents an HTTP API profile."""
-
-    def __init__(self, name: str, config: dict, profile_path: Path):
-        """Initialize profile.
-
-        Args:
-            name: Profile name
-            config: Profile configuration dict
-            profile_path: Path to profile file
-        """
-        self.name = name
-        self.config = config
-        self.profile_path = profile_path
-
-    @property
-    def base_url(self) -> str:
-        """Get base URL with env var substitution."""
-        url = self.config.get("base_url", "")
-        return self._substitute_env_vars(url)
-
-    @property
-    def headers(self) -> Dict[str, str]:
-        """Get headers with env var substitution."""
-        headers = self.config.get("headers", {})
-        return {k: self._substitute_env_vars(v) for k, v in headers.items()}
-
-    @property
-    def auth(self) -> Optional[Tuple[str, str]]:
-        """Get basic auth tuple if configured."""
-        auth_config = self.config.get("auth", {})
-        if auth_config.get("type") == "basic":
-            username = self._substitute_env_vars(auth_config.get("username", ""))
-            password = self._substitute_env_vars(auth_config.get("password", ""))
-            if username and password:
-                return (username, password)
-        return None
-
-    @property
-    def timeout(self) -> int:
-        """Get timeout in seconds."""
-        return self.config.get("timeout", 30)
-
-    def resolve_path(self, path: str, params: Optional[Dict[str, str]] = None) -> str:
-        """Resolve path with variable substitution.
-
-        Args:
-            path: Path like "/users/{id}" or "/repos"
-            params: Dict of path variables to substitute
-
-        Returns:
-            Full URL with base_url + resolved path
-        """
-        params = params or {}
-
-        # Check if path references a named path template
-        paths = self.config.get("paths", {})
-        if path in paths:
-            path = paths[path]
-
-        # Substitute path variables
-        for key, value in params.items():
-            path = path.replace(f"{{{key}}}", value)
-
-        # Build full URL
-        base = self.base_url.rstrip("/")
-        path = path.lstrip("/")
-        return f"{base}/{path}"
-
-    def _substitute_env_vars(self, value: str) -> str:
-        """Substitute environment variables in string.
-
-        Supports ${VAR} syntax.
-
-        Args:
-            value: String with possible env var references
-
-        Returns:
-            String with env vars substituted
-
-        Raises:
-            ProfileError: If required env var is not set
-        """
-        if not isinstance(value, str):
-            return value
-
-        # Find all ${VAR} patterns
-        pattern = r'\$\{([A-Za-z_][A-Za-z0-9_]*)\}'
-
-        def replace_var(match):
-            var_name = match.group(1)
-            var_value = os.environ.get(var_name)
-            if var_value is None:
-                raise ProfileError(
-                    f"Environment variable {var_name} not set (required by profile {self.name})"
-                )
-            return var_value
-
-        return re.sub(pattern, replace_var, value)
-
-
-def find_profile_paths() -> List[Path]:
-    """Get search paths for profiles (in priority order).
-
-    Returns:
-        List of directories to search for profiles
-    """
+def find_profile_paths() -> list[Path]:
+    """Get search paths for profiles (in priority order)."""
     paths = []
 
     # 1. Project profiles (highest priority)
@@ -139,7 +40,6 @@ def find_profile_paths() -> List[Path]:
         paths.append(user_profile_dir)
 
     # 3. Bundled profiles (lowest priority)
-    # Find JN_HOME
     jn_home = os.environ.get("JN_HOME")
     if jn_home:
         bundled_dir = Path(jn_home) / "profiles" / "http"
@@ -153,70 +53,118 @@ def find_profile_paths() -> List[Path]:
     return paths
 
 
-def load_profile(name: str) -> HTTPProfile:
-    """Load profile by name.
+def substitute_env_vars(value: str) -> str:
+    """Substitute ${VAR} environment variables in string."""
+    if not isinstance(value, str):
+        return value
+
+    pattern = r'\$\{([A-Za-z_][A-Za-z0-9_]*)\}'
+
+    def replace_var(match):
+        var_name = match.group(1)
+        var_value = os.environ.get(var_name)
+        if var_value is None:
+            raise ProfileError(f"Environment variable {var_name} not set")
+        return var_value
+
+    return re.sub(pattern, replace_var, value)
+
+
+def load_hierarchical_profile(api_name: str, source_name: Optional[str] = None) -> dict:
+    """Load hierarchical profile: _meta.json + optional source.json.
 
     Args:
-        name: Profile name (e.g., "github", "stripe")
+        api_name: API name (e.g., "genomoncology")
+        source_name: Optional source name (e.g., "annotations")
 
     Returns:
-        HTTPProfile object
+        Merged profile dict with _meta + source info
 
     Raises:
-        ProfileError: If profile not found or invalid
+        ProfileError: If profile not found
     """
-    # Search for profile in order
-    for search_dir in find_profile_paths():
-        profile_file = search_dir / f"{name}.json"
-        if profile_file.exists():
-            try:
-                config = json.loads(profile_file.read_text())
-                return HTTPProfile(name, config, profile_file)
-            except json.JSONDecodeError as e:
-                raise ProfileError(f"Invalid JSON in profile {name}: {e}")
+    meta = {}
+    source = {}
 
-    raise ProfileError(f"Profile not found: {name}")
+    # Search for profile directory
+    for search_dir in find_profile_paths():
+        api_dir = search_dir / api_name
+
+        if not api_dir.exists():
+            continue
+
+        # Load _meta.json (connection info)
+        meta_file = api_dir / "_meta.json"
+        if meta_file.exists():
+            try:
+                meta = json.loads(meta_file.read_text())
+            except json.JSONDecodeError as e:
+                raise ProfileError(f"Invalid JSON in {meta_file}: {e}")
+
+        # Load source.json if requested
+        if source_name:
+            source_file = api_dir / f"{source_name}.json"
+            if source_file.exists():
+                try:
+                    source = json.loads(source_file.read_text())
+                except json.JSONDecodeError as e:
+                    raise ProfileError(f"Invalid JSON in {source_file}: {e}")
+            elif meta:
+                # _meta exists but source doesn't
+                raise ProfileError(f"Source not found: {api_name}/{source_name}")
+
+        # If we found meta (and optionally source), we're done
+        if meta:
+            break
+
+    if not meta:
+        raise ProfileError(f"Profile not found: {api_name}")
+
+    # Merge _meta + source
+    merged = {**meta, **source}
+    return merged
 
 
 def resolve_profile_reference(reference: str) -> Tuple[str, Dict[str, str]]:
-    """Resolve @profile/path reference to URL.
+    """Resolve @api/source reference to URL and headers.
 
     Args:
-        reference: Profile reference like "@github/repos/owner/repo"
+        reference: Profile reference like "@genomoncology/annotations"
 
     Returns:
         Tuple of (url, headers_dict)
 
     Raises:
-        ProfileError: If profile not found or resolution fails
+        ProfileError: If profile not found
     """
     if not reference.startswith("@"):
         raise ProfileError(f"Invalid profile reference (must start with @): {reference}")
 
-    # Remove @ prefix
-    ref = reference[1:]
-
-    # Split profile name from path
+    # Parse reference: @api_name/source_name
+    ref = reference[1:]  # Remove @
     parts = ref.split("/", 1)
+
     if len(parts) == 1:
-        # Just profile name, no path
-        profile_name = parts[0]
-        path = ""
+        # Just @api_name - load _meta only
+        api_name = parts[0]
+        source_name = None
     else:
-        profile_name, path = parts
+        api_name, source_name = parts
 
     # Load profile
-    profile = load_profile(profile_name)
+    profile = load_hierarchical_profile(api_name, source_name)
 
-    # Extract path variables (e.g., {id})
-    path_vars = {}
-    # For now, we'll handle simple positional substitution
-    # More advanced: parse path template and match
+    # Build URL
+    base_url = substitute_env_vars(profile.get("base_url", ""))
+    path = profile.get("path", "")
 
-    # Resolve to full URL
-    if path:
-        url = profile.resolve_path("/" + path, path_vars)
-    else:
-        url = profile.base_url
+    # Construct full URL
+    base = base_url.rstrip("/")
+    path = path.lstrip("/")
+    url = f"{base}/{path}" if path else base
 
-    return url, profile.headers
+    # Build headers with env var substitution
+    headers = profile.get("headers", {})
+    resolved_headers = {k: substitute_env_vars(v) for k, v in headers.items()}
+
+    return url, resolved_headers
