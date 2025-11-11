@@ -1,407 +1,228 @@
-# HTTP Protocol Plugin - Design Document
+# HTTP Protocol Plugin - Design
 
-## Overview
+## What
 
-HTTP protocol plugin for fetching data from HTTP/HTTPS endpoints. Supports JSON, CSV, and other formats with automatic content-type detection.
+Protocol plugin for fetching data from HTTP/HTTPS endpoints with automatic format detection and streaming support.
 
-## Core Design
+## Why
+
+Enable JN to fetch data from web APIs, remote files, and cloud services. Most modern data sources are accessible via HTTP, making this a critical capability for real-world data pipelines.
+
+## Core Architecture
 
 ### Plugin Type
-**Protocol plugin** with `reads()` function only (no writes - HTTP PUT/POST handled via profiles)
+**Protocol plugin** - `reads()` only (writes via separate profile system for POST/PUT)
 
 ### Pattern Matching
 ```toml
-[tool.jn]
-matches = [
-  "^https?://.*",
-  "^http://.*"
-]
+matches = ["^https?://.*"]
 ```
 
-### Dependencies
-```toml
-dependencies = [
-  "requests>=2.31.0",
-  "urllib3>=2.0.0"
-]
-```
+Matches any URL starting with `http://` or `https://`
 
-## Functionality
+### Key Design Decisions
 
-### 1. Basic GET Request
-```bash
-# Fetch JSON and parse automatically
-jn cat https://opencode.ai/config.json
+**1. Automatic Format Detection**
+Detect response format via:
+- Content-Type header (`application/json`, `text/csv`)
+- URL file extension (`.json`, `.csv`)
+- Manual override (`--format json`)
 
-# Fetch CSV and parse automatically
-jn cat https://example.com/data.csv
+**Why:** Users shouldn't specify format twice. If they fetch `data.csv`, assume CSV.
 
-# Fetch and save raw response
-jn cat https://example.com/image.png --raw | base64
-```
+**2. Streaming Architecture**
+Process responses line-by-line with constant memory, regardless of size.
 
-### 2. Content-Type Detection
-The plugin detects format via:
-1. **Content-Type header** (e.g., `application/json`, `text/csv`)
-2. **URL file extension** (e.g., `.json`, `.csv`, `.xml`)
-3. **--format flag override** (e.g., `--format json`)
+**Why:** Enables processing GB-sized responses without buffering entire file. Early termination (`| head -n 10`) stops download immediately.
 
-### 3. Response Handling
-
-**Automatic parsing flow:**
-```
-HTTP fetch → Detect content type → Parse format → Output NDJSON
-```
-
-**For JSON responses:**
+**3. JSON Array Handling**
+JSON arrays yield one NDJSON record per element:
 ```json
-// Response: {"users": [{"name": "Alice"}, {"name": "Bob"}]}
-// Output NDJSON:
-{"users": [{"name": "Alice"}, {"name": "Bob"}]}
+[{"id": 1}, {"id": 2}]  →  {"id": 1}\n{"id": 2}\n
 ```
 
-**For JSON arrays:**
-```json
-// Response: [{"name": "Alice"}, {"name": "Bob"}]
-// Output NDJSON (one record per array element):
-{"name": "Alice"}
-{"name": "Bob"}
-```
+**Why:** Consistent with NDJSON philosophy - one record per line enables streaming and piping.
 
-**For CSV responses:**
-```csv
-name,age
-Alice,30
-Bob,25
-```
-Output NDJSON:
-```json
-{"name": "Alice", "age": "30"}
-{"name": "Bob", "age": "25"}
-```
+**4. Authentication via Config**
+Headers, auth, and API keys passed as arguments or via profiles.
 
-### 4. Configuration Options
+**Why:** Separates concerns - HTTP plugin handles transport, profiles handle credentials.
 
-```python
-def reads(config: Optional[dict] = None) -> Iterator[dict]:
-    """Fetch HTTP endpoint and parse response to NDJSON.
+## Features
 
-    Config:
-        method: HTTP method (default: 'GET')
-        headers: Dict of HTTP headers
-        params: Dict of query parameters
-        data: Request body (for POST/PUT)
-        auth: Tuple of (username, password) for basic auth
-        timeout: Request timeout in seconds (default: 30)
-        format: Force format detection ('json', 'csv', 'xml', 'text')
-        raw: Output raw bytes without parsing (default: False)
-        follow_redirects: Follow HTTP redirects (default: True)
-        verify_ssl: Verify SSL certificates (default: True)
-    """
-```
+- **Methods:** GET, POST, PUT, DELETE
+- **Auth:** Bearer tokens, Basic auth, API keys, custom headers
+- **Format detection:** JSON, CSV, NDJSON, XML, text
+- **Streaming:** Constant memory for large responses
+- **Error handling:** HTTP errors, timeouts, SSL failures
+- **Profile integration:** `@profile/path` syntax
 
 ## Usage Examples
 
-### Example 1: Fetch JSON API
+### Basic Fetch
 ```bash
-# Simple GET
+# Fetch JSON, auto-detect format
 jn cat https://opencode.ai/config.json
 
-# With query parameters
-jn cat https://api.example.com/users --params '{"status":"active"}'
-
-# Save to file
-jn cat https://api.example.com/data.json | jn put data.csv
+# Fetch CSV, pipe to filter
+jn cat https://example.com/data.csv | jn filter '.revenue > 1000'
 ```
 
-### Example 2: Headers and Authentication
+### With Authentication
 ```bash
-# Custom headers
+# Bearer token
 jn cat https://api.example.com/data \
   --headers '{"Authorization": "Bearer ${API_TOKEN}"}'
 
 # Basic auth
-jn cat https://api.example.com/secure \
-  --auth "user:pass"
+jn cat https://api.example.com/secure --auth "user:pass"
 ```
 
-### Example 3: POST Request
+### POST Request
 ```bash
-# POST JSON data
-jn cat https://api.example.com/search \
-  --method POST \
-  --data '{"query": "test"}' \
-  --headers '{"Content-Type": "application/json"}'
+echo '{"query": "test"}' | \
+  jn cat https://api.example.com/search --method POST
 ```
 
-### Example 4: Format Override
+### Profile-Based (see rest-api-profile-design.md)
 ```bash
-# Force JSON parsing even if Content-Type is wrong
-jn cat https://example.com/data.txt --format json
-
-# Get raw response (no parsing)
-jn cat https://example.com/data.json --raw > response.json
+# Clean syntax, credentials from profile
+jn cat @github/repos/microsoft/vscode/issues
 ```
 
-## Implementation Details
+## Risks & Challenges
 
-### Plugin Structure
-```python
-#!/usr/bin/env -S uv run --script
-# /// script
-# requires-python = ">=3.11"
-# dependencies = [
-#   "requests>=2.31.0"
-# ]
-# [tool.jn]
-# matches = ["^https?://.*"]
-# ///
+### 1. **Format Detection Ambiguity**
+**Risk:** Server returns wrong Content-Type or no extension in URL.
 
-import json
-import sys
-import requests
-from typing import Iterator, Optional
-from urllib.parse import urlparse
+**Mitigation:**
+- Fallback: Attempt JSON parse, then treat as text
+- Allow `--format` override
+- Document common API quirks
 
-def reads(config: Optional[dict] = None) -> Iterator[dict]:
-    """Fetch HTTP endpoint and parse to NDJSON."""
-    config = config or {}
+### 2. **Memory Exhaustion**
+**Risk:** Non-streaming responses (JSON objects) must buffer entire response.
 
-    # Parse URL from stdin (for jn cat URL) or config
-    url = config.get('url') or sys.stdin.read().strip()
+**Mitigation:**
+- Document memory implications for large single JSON objects
+- Recommend NDJSON for large datasets
+- Consider `--max-response-size` flag
 
-    # Request configuration
-    method = config.get('method', 'GET')
-    headers = config.get('headers', {})
-    params = config.get('params', {})
-    data = config.get('data')
-    auth = config.get('auth')
-    timeout = config.get('timeout', 30)
-    verify_ssl = config.get('verify_ssl', True)
+### 3. **Authentication Complexity**
+**Risk:** OAuth 2.0, JWT refresh, API key rotation not supported initially.
 
-    # Make HTTP request
-    response = requests.request(
-        method=method,
-        url=url,
-        headers=headers,
-        params=params,
-        data=data,
-        auth=tuple(auth.split(':', 1)) if isinstance(auth, str) else auth,
-        timeout=timeout,
-        verify=verify_ssl,
-        stream=True
-    )
-    response.raise_for_status()
+**Mitigation:**
+- Phase 1: Basic auth, Bearer tokens, API keys only
+- Phase 2: OAuth flow via profiles
+- Document workarounds (fetch token separately, use as Bearer)
 
-    # Detect format
-    format_type = detect_format(response, url, config)
+### 4. **Rate Limiting**
+**Risk:** Rapid requests trigger API rate limits, causing 429 errors.
 
-    # Parse and yield records
-    if format_type == 'json':
-        yield from parse_json_response(response)
-    elif format_type == 'csv':
-        yield from parse_csv_response(response)
-    elif format_type == 'ndjson':
-        yield from parse_ndjson_response(response)
-    elif format_type == 'raw':
-        # Output raw response as single record with content
-        yield {"url": url, "content": response.text, "status": response.status_code}
-    else:
-        # Unknown format - output as text
-        yield {"url": url, "text": response.text}
+**Mitigation:**
+- Phase 1: User handles rate limiting manually
+- Phase 2: Profile-based rate limit config
+- Document best practices (add delays, respect headers)
 
-def detect_format(response, url, config):
-    """Detect response format from Content-Type, URL, or config."""
-    # Config override
-    if 'format' in config:
-        return config['format']
+### 5. **SSL Certificate Validation**
+**Risk:** Self-signed certs or corporate proxies cause SSL errors.
 
-    # Content-Type header
-    content_type = response.headers.get('Content-Type', '').lower()
-    if 'application/json' in content_type:
-        return 'json'
-    elif 'text/csv' in content_type:
-        return 'csv'
-    elif 'application/x-ndjson' in content_type:
-        return 'ndjson'
+**Mitigation:**
+- Default: Verify SSL (secure)
+- Flag: `--no-verify-ssl` (with warning)
+- Document: When and why to use
 
-    # URL file extension
-    path = urlparse(url).path
-    if path.endswith('.json'):
-        return 'json'
-    elif path.endswith('.csv'):
-        return 'csv'
-    elif path.endswith('.ndjson') or path.endswith('.jsonl'):
-        return 'ndjson'
+### 6. **Large Response Handling**
+**Risk:** Downloading 10GB file when user only needs first 100 records.
 
-    # Default to JSON for APIs
-    return 'json'
+**Mitigation:**
+- Streaming enables early termination
+- SIGPIPE propagates shutdown to HTTP connection
+- Test: `jn cat huge-file.csv | head -n 10` stops download
 
-def parse_json_response(response) -> Iterator[dict]:
-    """Parse JSON response to NDJSON records."""
-    data = response.json()
+### 7. **Binary Content**
+**Risk:** Images, PDFs, ZIP files aren't NDJSON-compatible.
 
-    if isinstance(data, list):
-        # Array of objects - yield each element
-        for item in data:
-            if isinstance(item, dict):
-                yield item
-            else:
-                yield {"value": item}
-    elif isinstance(data, dict):
-        # Single object - yield as-is
-        yield data
-    else:
-        # Primitive value
-        yield {"value": data}
+**Mitigation:**
+- Detect binary content-types
+- Yield single record: `{"url": "...", "content_type": "...", "size": 123}`
+- Document: Use `--raw` flag or redirect to file
 
-def parse_csv_response(response) -> Iterator[dict]:
-    """Parse CSV response to NDJSON records."""
-    import csv
-    import io
+### 8. **Pagination**
+**Risk:** APIs return paginated results, need multiple requests.
 
-    # Read response text and parse as CSV
-    text = response.text
-    reader = csv.DictReader(io.StringIO(text))
+**Mitigation:**
+- Phase 1: Manual pagination (user loops)
+- Phase 2: Profile-based pagination config
+- Document patterns: cursor, offset, page-based
 
-    for row in reader:
-        yield row
+## Open Questions
 
-def parse_ndjson_response(response) -> Iterator[dict]:
-    """Parse NDJSON response (one JSON object per line)."""
-    for line in response.iter_lines(decode_unicode=True):
-        if line.strip():
-            yield json.loads(line)
+1. **Retry Logic:** Should HTTP plugin auto-retry on failure?
+   - Pro: Resilient to transient errors
+   - Con: May hide real issues, delay failures
+   - Decision: Phase 1 no retry, Phase 2 profile-based retry config
+
+2. **Redirect Handling:** Should we follow redirects automatically?
+   - Pro: Matches browser behavior
+   - Con: May leak credentials across domains
+   - Decision: Follow by default, add `--no-follow-redirects` flag
+
+3. **Compression:** Should we handle gzip/brotli automatically?
+   - Pro: Faster downloads
+   - Con: Added dependency (requests handles this)
+   - Decision: Let `requests` library handle automatically
+
+4. **Timeout Defaults:** What's the right default timeout?
+   - 30s: Good for most APIs
+   - 60s: Better for slow endpoints
+   - Decision: 30s default, override via `--timeout`
+
+## Integration Points
+
+### With Profile System
+HTTP plugin resolves `@profile/path` references via profile system:
+```bash
+jn cat @github/repos/owner/repo  # Profile provides base URL + auth
 ```
 
-### CLI Arguments
-```python
-if __name__ == '__main__':
-    import argparse
-
-    parser = argparse.ArgumentParser(description="HTTP protocol plugin")
-    parser.add_argument('url', nargs='?', help='URL to fetch')
-    parser.add_argument('--method', default='GET', help='HTTP method')
-    parser.add_argument('--headers', type=json.loads, help='HTTP headers (JSON)')
-    parser.add_argument('--params', type=json.loads, help='Query parameters (JSON)')
-    parser.add_argument('--data', help='Request body')
-    parser.add_argument('--auth', help='Basic auth (username:password)')
-    parser.add_argument('--timeout', type=int, default=30, help='Timeout in seconds')
-    parser.add_argument('--format', choices=['json', 'csv', 'ndjson', 'raw', 'text'])
-    parser.add_argument('--raw', action='store_true', help='Output raw response')
-    parser.add_argument('--no-verify-ssl', dest='verify_ssl', action='store_false')
-
-    args = parser.parse_args()
-
-    # Build config
-    config = {
-        'url': args.url,
-        'method': args.method,
-        'timeout': args.timeout,
-        'verify_ssl': args.verify_ssl,
-    }
-
-    if args.headers:
-        config['headers'] = args.headers
-    if args.params:
-        config['params'] = args.params
-    if args.data:
-        config['data'] = args.data
-    if args.auth:
-        config['auth'] = args.auth
-    if args.format:
-        config['format'] = args.format
-    if args.raw:
-        config['format'] = 'raw'
-
-    for record in reads(config):
-        print(json.dumps(record), flush=True)
+### With Format Plugins
+HTTP fetches raw data, delegates parsing to format plugins:
+```
+HTTP (fetch) → Format Plugin (parse) → NDJSON
 ```
 
-## Error Handling
+For JSON arrays, HTTP does lightweight parsing to enable streaming.
 
-### HTTP Errors
-```python
-try:
-    response.raise_for_status()
-except requests.HTTPError as e:
-    print(f"HTTP Error {e.response.status_code}: {e.response.text}", file=sys.stderr)
-    sys.exit(1)
-```
+## Success Criteria
 
-### Timeout Handling
-```python
-try:
-    response = requests.get(url, timeout=timeout)
-except requests.Timeout:
-    print(f"Request timeout after {timeout}s", file=sys.stderr)
-    sys.exit(1)
-```
-
-### SSL Errors
-```python
-try:
-    response = requests.get(url, verify=verify_ssl)
-except requests.SSLError as e:
-    print(f"SSL verification failed: {e}", file=sys.stderr)
-    print("Use --no-verify-ssl to disable verification (not recommended)", file=sys.stderr)
-    sys.exit(1)
-```
-
-## Testing Strategy
-
-### Unit Tests
-```python
-def test_http_json_fetch(invoke):
-    """Test fetching JSON from HTTP endpoint."""
-    # Mock HTTP response
-    with responses.RequestsMock() as rsps:
-        rsps.add(responses.GET, 'https://api.example.com/data.json',
-                json={"name": "Alice", "age": 30}, status=200)
-
-        res = invoke(['cat', 'https://api.example.com/data.json'])
-        assert res.exit_code == 0
-        records = [json.loads(line) for line in res.output.strip().split('\n')]
-        assert len(records) == 1
-        assert records[0]['name'] == 'Alice'
-
-def test_http_json_array(invoke):
-    """Test fetching JSON array - should yield one record per element."""
-    with responses.RequestsMock() as rsps:
-        rsps.add(responses.GET, 'https://api.example.com/users.json',
-                json=[{"name": "Alice"}, {"name": "Bob"}], status=200)
-
-        res = invoke(['cat', 'https://api.example.com/users.json'])
-        records = [json.loads(line) for line in res.output.strip().split('\n')]
-        assert len(records) == 2
-        assert records[0]['name'] == 'Alice'
-        assert records[1]['name'] == 'Bob'
-```
-
-## Performance Considerations
-
-1. **Streaming**: Use `response.iter_lines()` for large responses
-2. **Chunked transfer**: Process response in chunks, don't buffer entire response
-3. **Connection pooling**: Reuse HTTP connections when fetching multiple URLs
-4. **Timeout defaults**: Reasonable 30s default to prevent hanging
+- ✅ Fetch JSON, CSV, NDJSON from HTTP endpoints
+- ✅ Stream large responses with constant memory
+- ✅ Support authentication (Bearer, Basic, API key)
+- ✅ Auto-detect formats from Content-Type and URL
+- ✅ Early termination stops download (SIGPIPE)
+- ✅ Clear error messages for common failures
+- ✅ Integration with profile system
 
 ## Future Enhancements
 
-1. **Retry logic** with exponential backoff
-2. **Rate limiting** support
-3. **OAuth 2.0** authentication
-4. **Pagination** handling (cursor, offset, page-based)
-5. **GraphQL** query support
-6. **WebSocket** streaming
-7. **HTTP/2** support
+- **Retry logic** with exponential backoff
+- **OAuth 2.0** authentication flows
+- **Rate limiting** in profiles
+- **Pagination** auto-handling
+- **GraphQL** query support
+- **WebSocket** streaming
+- **HTTP/2** and connection pooling
 
-## Integration with Profile System
+## Dependencies
 
-This plugin integrates with REST API profiles (see rest-api-profile-design.md):
-
-```bash
-# Use HTTP plugin with API profile
-jn cat @github/repos/anthropics/claude-code/issues
-# Resolves to: https://api.github.com/repos/anthropics/claude-code/issues
-# Uses profile's auth headers and base URL
+```toml
+dependencies = [
+  "requests>=2.31.0"  # HTTP client with streaming
+]
 ```
+
+## Related Documents
+
+- [REST API Profile Design](rest-api-profile-design.md) - Profile system for APIs
+- [HTTP Usage Examples](http-usage-examples.md) - Real-world patterns

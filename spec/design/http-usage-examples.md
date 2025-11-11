@@ -1,548 +1,272 @@
-# HTTP Plugin & REST API Profiles - Usage Examples
+# HTTP Plugin & REST API Profiles - Usage Patterns
 
-## Real-World Examples
+Quick reference for common HTTP and profile usage patterns.
 
-### Example 1: OpenCode.ai Config Processing
-
-**Scenario:** Fetch and process OpenCode.ai configuration file
+## Basic HTTP Fetch
 
 ```bash
-# Simple fetch and display
-jn cat https://opencode.ai/config.json | jq .
+# Fetch and display JSON
+jn cat https://opencode.ai/config.json
 
-# Convert to YAML for easier reading
-jn cat https://opencode.ai/config.json | jn put config.yaml
+# Fetch CSV, filter, export
+jn cat https://example.com/data.csv | jn filter '.revenue > 1000' | jn put filtered.json
 
-# Extract specific fields
-jn cat https://opencode.ai/config.json | \
-  jn filter '{
-    version: .version,
-    features: .features | keys,
-    theme: .theme.default
-  }'
-
-# List all enabled features
-jn cat https://opencode.ai/config.json | \
-  jn filter '.features | to_entries | .[] | select(.value == true) | .key'
-
-# Export to CSV
-jn cat https://opencode.ai/config.json | \
-  jn filter '.features | to_entries | .[] | {feature: .key, enabled: .value}' | \
-  jn put features.csv
+# Convert formats
+jn cat https://example.com/data.json | jn put output.yaml
 ```
 
-**With Profile:**
+## Authentication
 
-Create `~/.local/jn/profiles/http/opencode.json`:
-```json
-{
-  "base_url": "https://opencode.ai",
-  "description": "OpenCode.ai - Open source code intelligence",
-  "paths": {
-    "config": "/config.json",
-    "api": "/api",
-    "docs": "/docs"
-  }
-}
-```
-
-Usage:
 ```bash
-# Cleaner syntax
-jn cat @opencode/config.json
+# Bearer token (from environment)
+jn cat https://api.example.com/data \
+  --headers '{"Authorization": "Bearer ${API_TOKEN}"}'
 
-# Get and analyze
-jn cat @opencode/config.json | \
-  jn filter '@builtin/flatten_nested' | \
-  jn put opencode-analysis.csv
+# Basic auth
+jn cat https://api.example.com/secure --auth "user:pass"
+
+# API key in header
+jn cat https://api.example.com/data \
+  --headers '{"X-API-Key": "${API_KEY}"}'
 ```
 
----
+## HTTP Methods
 
-### Example 2: RESTful API Dev - Complete Workflow
-
-**Profile:** `~/.local/jn/profiles/http/restful-api.json`
-```json
-{
-  "base_url": "https://api.restful-api.dev",
-  "description": "RESTful API Dev - Sample REST API for device data",
-  "headers": {
-    "Content-Type": "application/json"
-  },
-  "paths": {
-    "objects": "/objects",
-    "object": "/objects/{id}"
-  },
-  "methods": {
-    "list_all": {
-      "path": "/objects",
-      "method": "GET",
-      "description": "Get all objects"
-    },
-    "get_by_id": {
-      "path": "/objects/{id}",
-      "method": "GET",
-      "description": "Get single object by ID"
-    },
-    "create": {
-      "path": "/objects",
-      "method": "POST",
-      "description": "Create new object"
-    },
-    "update": {
-      "path": "/objects/{id}",
-      "method": "PUT",
-      "description": "Update existing object"
-    },
-    "delete": {
-      "path": "/objects/{id}",
-      "method": "DELETE",
-      "description": "Delete object"
-    }
-  }
-}
-```
-
-#### List All Devices
 ```bash
-# Fetch all objects
-jn cat @restful-api/objects
+# POST with JSON body
+echo '{"query": "test"}' | \
+  jn cat https://api.example.com/search --method POST
 
-# Get specific fields
-jn cat @restful-api/objects | \
-  jn filter '.[] | {id: .id, name: .name}'
+# PUT to update
+echo '{"status": "active"}' | \
+  jn cat https://api.example.com/users/123 --method PUT
 
-# Filter by criteria
-jn cat @restful-api/objects | \
-  jn filter '.[] | select(.data != null and .data.price != null)'
-
-# Export to CSV
-jn cat @restful-api/objects | jn put devices.csv
+# DELETE
+jn cat https://api.example.com/users/123 --method DELETE
 ```
 
-#### Get Specific Device
-```bash
-# Get device with ID 3
-jn cat @restful-api/objects/3
+## Profile Usage
 
-# Get and extract specific data
-jn cat @restful-api/objects/3 | \
-  jn filter '{
-    device: .name,
-    year: .data.year,
-    price: .data.price,
-    cpu: .data["CPU model"]
-  }'
-```
-
-#### Create New Device
-```bash
-# Create new object
-echo '{
-  "name": "Apple MacBook Pro 16",
-  "data": {
-    "year": 2023,
-    "price": 2499.99,
-    "CPU model": "Apple M3 Pro",
-    "Hard disk size": "1 TB SSD"
-  }
-}' | jn http @restful-api/objects --method POST
-
-# Or from file
-jn cat new-device.json | \
-  jn http @restful-api/objects --method POST | \
-  jn put created-device.json
-```
-
-#### Update Existing Device
-```bash
-# Update device 3
-echo '{
-  "name": "Updated Name",
-  "data": {
-    "price": 1999.99
-  }
-}' | jn http @restful-api/objects/3 --method PUT
-```
-
-#### Analytics Pipeline
-```bash
-# Get all devices, analyze pricing
-jn cat @restful-api/objects | \
-  jn filter '@builtin/stats' --field data.price
-
-# Group by year
-jn cat @restful-api/objects | \
-  jn filter '.[] | select(.data.year != null)' | \
-  jn filter '@builtin/group_count' --by data.year | \
-  jn put devices-by-year.csv
-
-# Price analysis
-jn cat @restful-api/objects | \
-  jn filter '.[] | select(.data.price != null) | {
-    name: .name,
-    price: .data.price,
-    year: .data.year
-  }' | \
-  jn filter '@builtin/group_sum' --by year --sum price
-```
-
----
-
-### Example 3: GitHub API Integration
-
-**Profile:** `~/.local/jn/profiles/http/github.json`
+### Setup Profile
+Create `~/.local/jn/profiles/http/github.json`:
 ```json
 {
   "base_url": "https://api.github.com",
-  "description": "GitHub REST API v3",
   "headers": {
-    "Accept": "application/vnd.github+json",
     "Authorization": "Bearer ${GITHUB_TOKEN}",
-    "X-GitHub-Api-Version": "2022-11-28"
-  },
-  "rate_limit": {
-    "requests_per_minute": 60
-  },
-  "paths": {
-    "user": "/user",
-    "repos": "/repos/{owner}/{repo}",
-    "issues": "/repos/{owner}/{repo}/issues",
-    "pulls": "/repos/{owner}/{repo}/pulls"
+    "Accept": "application/vnd.github+json"
   }
 }
 ```
 
-**Setup:**
+### Use Profile
 ```bash
-# Set GitHub token
-export GITHUB_TOKEN="ghp_your_token_here"
+# Path-based access
+jn cat @github/repos/microsoft/vscode/issues
+
+# With path variables
+jn cat @github/users/octocat/repos
+
+# Search with query params
+jn cat '@github/search/repositories?q=language:python&sort=stars'
 ```
 
-**Usage:**
+## Real-World Patterns
+
+### OpenCode.ai Config Analysis
 ```bash
-# Get your user info
-jn cat @github/user
-
-# List repos for a user
-jn cat @github/users/octocat/repos | \
-  jn filter '.[] | {name: .name, stars: .stargazers_count}' | \
-  jn put octocat-repos.csv
-
-# Get repo issues
-jn cat @github/repos/microsoft/vscode/issues | \
-  jn filter '.[] | select(.state == "open") | {
-    number: .number,
-    title: .title,
-    labels: [.labels[].name]
-  }'
-
-# Search repositories
-jn cat '@github/search/repositories?q=language:python+stars:>1000&sort=stars' | \
-  jn filter '.items[] | {name: .full_name, stars: .stargazers_count}' | \
-  jn filter '@builtin/stats' --field stars
+# Fetch and analyze
+jn cat https://opencode.ai/config.json | \
+  jn filter '.features | to_entries | .[] | select(.value)' | \
+  jn put enabled-features.csv
 ```
 
----
-
-### Example 4: Multi-API Data Pipeline
-
-**Scenario:** Aggregate data from multiple APIs
-
-```bash
-# Fetch from multiple sources
-cat sources.txt
-# @restful-api/objects
-# @github/repos/microsoft/vscode
-# https://api.example.com/data.json
-
-# Process each source
-cat sources.txt | while read source; do
-  jn cat "$source" | jn filter '.id = "'"$source"'"'
-done | jn filter '@builtin/group_count' --by source
+### RESTful API Dev Workflow
+Setup profile `~/.local/jn/profiles/http/restful-api.json`:
+```json
+{
+  "base_url": "https://api.restful-api.dev",
+  "paths": {
+    "objects": "/objects",
+    "object": "/objects/{id}"
+  }
+}
 ```
 
-**Complex Pipeline:**
 ```bash
-# 1. Fetch from API
+# List all objects
+jn cat @restful-api/objects
+
+# Get specific object
+jn cat @restful-api/objects/3
+
+# Filter by price
 jn cat @restful-api/objects | \
+  jn filter '.[] | select(.data.price != null) | {name, price: .data.price}'
 
-# 2. Filter and transform
-jn filter '.[] | select(.data.price != null) | {
-  name: .name,
-  price: .data.price,
-  year: .data.year // 2024
-}' | \
+# Price statistics
+jn cat @restful-api/objects | \
+  jn filter '@builtin/stats' --field data.price
 
-# 3. Calculate statistics
-jn filter '@builtin/stats' --field price | \
-
-# 4. Save results
-jn put analysis.json
+# Create new object
+echo '{"name":"iPhone 15","data":{"price":999}}' | \
+  jn cat @restful-api/objects --method POST
 ```
 
----
-
-### Example 5: HTTP Methods Beyond GET
-
-#### POST - Create Resource
+### GitHub API Integration
 ```bash
-# JSON payload
-echo '{"name": "Test", "value": 42}' | \
-  jn cat @api/resources --method POST
+# List user repos
+jn cat @github/users/octocat/repos | \
+  jn filter '.[] | {name, stars: .stargazers_count}' | \
+  jn put repos.csv
 
-# From file
-jn cat data.json | jn cat @api/resources --method POST
+# Get open issues
+jn cat @github/repos/microsoft/vscode/issues | \
+  jn filter '.[] | select(.state == "open")' | \
+  jn filter '@builtin/group_count' --by labels
 ```
 
-#### PUT - Update Resource
+## Multi-API Pipelines
+
 ```bash
-echo '{"value": 100}' | \
-  jn cat @api/resources/123 --method PUT
+# Fetch from multiple APIs
+jn cat @api1/data @api2/data | \
+  jn filter '@builtin/flatten_nested' | \
+  jn put merged.csv
+
+# API to database
+jn cat @source-api/daily-data | \
+  jn filter '@analytics/transform' | \
+  jn put @postgres/metrics_table
 ```
 
-#### DELETE - Remove Resource
+## Performance Patterns
+
+### Streaming Large Files
 ```bash
-jn cat @api/resources/123 --method DELETE
+# Process first 100 records, stop download
+jn cat https://example.com/huge-dataset.csv | head -n 100
+
+# Constant memory regardless of file size
+jn cat https://example.com/10gb-file.csv | \
+  jn filter '.revenue > 1000' | \
+  jn put filtered.csv
 ```
 
-#### Custom Headers
+### Parallel Fetches
 ```bash
-jn cat @api/data \
-  --headers '{"X-Custom-Header": "value", "X-Request-ID": "abc123"}'
+# Fetch multiple URLs in parallel
+cat urls.txt | xargs -P 4 -I {} jn cat {}
+
+# Example urls.txt:
+# @api/users/1
+# @api/users/2
+# @api/users/3
 ```
 
----
-
-### Example 6: Error Handling & Debugging
-
-#### Verbose Mode
+### Caching Responses
 ```bash
-# Show HTTP headers and status
-jn cat https://api.example.com/data --verbose
+# Cache expensive query
+jn cat @api/expensive-query | tee cache.jsonl | jn filter '...'
 
-# Show full request/response
-jn cat @api/endpoint --debug
+# Next time: read from cache
+jn cat cache.jsonl | jn filter '...'
 ```
 
-#### Timeout Configuration
+## Error Handling
+
+### Timeout Control
 ```bash
 # Custom timeout (default 30s)
 jn cat @slow-api/endpoint --timeout 60
 ```
 
-#### SSL/TLS Issues
+### SSL Issues
 ```bash
-# Disable SSL verification (not recommended for production)
-jn cat https://self-signed.badssl.com/ --no-verify-ssl
+# Disable SSL verification (dev/testing only)
+jn cat https://self-signed.example.com/ --no-verify-ssl
 ```
 
-#### Retry Logic
+### Format Override
 ```bash
-# Retry failed requests
-jn cat @unreliable-api/data --retry 3 --retry-delay 2
+# Force JSON parsing
+jn cat https://example.com/data.txt --format json
 ```
 
----
+## Pagination Patterns
 
-### Example 7: Authentication Methods
-
-#### Bearer Token
-```json
-{
-  "headers": {
-    "Authorization": "Bearer ${API_TOKEN}"
-  }
-}
-```
-
-#### Basic Auth
+### Manual Pagination
 ```bash
-jn cat @api/secure --auth "username:password"
-```
-
-#### API Key in Header
-```json
-{
-  "headers": {
-    "X-API-Key": "${API_KEY}"
-  }
-}
-```
-
-#### API Key in Query Parameter
-```bash
-jn cat '@api/data?api_key=${API_KEY}'
-```
-
----
-
-### Example 8: Response Processing
-
-#### JSON Array Responses
-```bash
-# Input: [{"id": 1}, {"id": 2}]
-# Output: Two NDJSON records
-jn cat @api/array-endpoint
-# {"id": 1}
-# {"id": 2}
-```
-
-#### Nested JSON
-```bash
-# Flatten nested structure
-jn cat @api/nested | jn filter '@builtin/flatten_nested'
-```
-
-#### CSV Responses
-```bash
-# Automatically detected and parsed
-jn cat https://example.com/data.csv
-# Outputs NDJSON records, one per CSV row
-```
-
-#### Large Responses
-```bash
-# Stream large responses (constant memory)
-jn cat @api/huge-dataset | head -n 100
-# Processes only first 100 records, stops download
-```
-
----
-
-### Example 9: Pagination Handling
-
-#### Manual Pagination
-```bash
-# Page through results
-for page in {1..5}; do
+# Loop through pages
+for page in {1..10}; do
   jn cat "@api/data?page=$page&limit=100"
 done | jn put all-pages.json
 ```
 
-#### Cursor-based Pagination
+### Cursor-Based
 ```bash
-# Follow next_cursor links
+# Follow cursor links (manual)
 cursor=""
 while true; do
   response=$(jn cat "@api/data?cursor=$cursor")
   echo "$response" | jn filter '.items[]'
-  cursor=$(echo "$response" | jn filter '.next_cursor // empty')
+  cursor=$(echo "$response" | jn filter '.next_cursor // empty' -r)
   [[ -z "$cursor" ]] && break
 done
 ```
 
----
+## Monitoring & Alerting
 
-### Example 10: Real-time Data Monitoring
-
-#### Poll API Periodically
 ```bash
-# Monitor API every 30 seconds
+# Poll API every 30 seconds
 while true; do
-  timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-  jn cat @api/status | jn filter ". + {timestamp: \"$timestamp\"}" | \
+  jn cat @api/status | \
+    jn filter ". + {timestamp: now}" | \
     jn put --append monitoring.jsonl
   sleep 30
 done
-```
 
-#### Alert on Condition
-```bash
-# Alert if error rate > 5%
+# Alert on condition
 jn cat @api/metrics | \
-  jn filter 'select(.error_rate > 5) | {
-    alert: "High error rate",
-    rate: .error_rate,
-    timestamp: now | strftime("%Y-%m-%d %H:%M:%S")
-  }' | \
+  jn filter 'select(.error_rate > 5) | {alert: "High error rate", rate}' | \
   jn put --append alerts.log
 ```
 
----
+## Best Practices
 
-## Performance Tips
-
-1. **Use streaming for large datasets** - JN processes line-by-line with constant memory
-2. **Filter early** - Apply `jn filter` immediately after fetch to reduce data
-3. **Profile reuse** - Store common API configs in profiles
-4. **Parallel fetches** - Use xargs or parallel for multiple URLs
-5. **Cache responses** - Save fetched data locally to avoid repeated API calls
-
-```bash
-# Parallel fetches
-cat urls.txt | xargs -P 4 -I {} jn cat {}
-
-# Cache response
-jn cat @api/expensive-query | tee cache.jsonl | jn filter '...'
-# Next time: jn cat cache.jsonl | jn filter '...'
-```
-
----
+1. **Use environment variables for secrets** - Never hardcode tokens
+2. **Create profiles for frequent APIs** - Reduce repetition
+3. **Profile hierarchy** - Project profiles for team, user for personal
+4. **Stream large datasets** - Don't buffer entire responses
+5. **Handle rate limits** - Add delays between requests if needed
+6. **Cache expensive queries** - Save responses locally
+7. **Validate profiles** - Use `jn profile validate` before use
 
 ## Troubleshooting
 
-### Common Issues
-
-1. **401 Unauthorized** - Check API token/credentials
-2. **403 Forbidden** - Check API permissions or rate limits
-3. **404 Not Found** - Verify URL/endpoint path
-4. **429 Too Many Requests** - Rate limited, slow down requests
-5. **500 Server Error** - API issue, retry later or contact support
-
-### Debug Commands
 ```bash
-# Test profile
+# Test profile connection
 jn profile test github
 
-# Validate profile syntax
-jn profile validate myapi
-
-# Show resolved URL
+# Show resolved URL (dry-run)
 jn cat @api/endpoint --dry-run
 
 # Verbose output
 jn cat @api/data --verbose 2>&1 | tee debug.log
 ```
 
----
+## Common Error Messages
 
-## Best Practices
+| Error | Cause | Solution |
+|-------|-------|----------|
+| `401 Unauthorized` | Invalid/missing token | Check `${TOKEN}` env var |
+| `403 Forbidden` | Insufficient permissions | Verify API key scopes |
+| `404 Not Found` | Wrong URL/endpoint | Check profile base_url |
+| `429 Too Many Requests` | Rate limited | Add delays between requests |
+| `Profile not found` | Typo or missing file | Check `~/.local/jn/profiles/http/` |
+| `Environment variable not set` | Missing `${VAR}` | Export variable: `export API_KEY=...` |
 
-1. **Use environment variables for secrets** - Never hardcode API keys
-2. **Create profiles for frequently used APIs** - DRY principle
-3. **Add descriptions to profiles** - Document what each profile does
-4. **Version control profiles** - Commit to `.jn/profiles/` in your project
-5. **Handle rate limits** - Respect API rate limits, add delays if needed
-6. **Validate responses** - Check for expected fields before processing
-7. **Log errors** - Save error responses for debugging
-8. **Test in development** - Use test/sandbox API endpoints first
+## See Also
 
----
-
-## Integration with Other JN Features
-
-### Combine with JQ Profiles
-```bash
-jn cat @api/data | \
-  jn filter '@analytics/transform' | \
-  jn filter '@builtin/stats' --field revenue
-```
-
-### Chain with Format Plugins
-```bash
-jn cat @api/report.csv | \
-  jn filter '.revenue > 1000' | \
-  jn put summary.xlsx
-```
-
-### Use with Databases
-```bash
-# API → Database
-jn cat @api/daily-data | \
-  jn put @postgres/metrics_table
-
-# Database → API
-jn cat @postgres/users | \
-  jn http @notification-api/send --method POST
-```
+- [HTTP Plugin Design](http-plugin-design.md) - Architecture and decisions
+- [REST API Profile Design](rest-api-profile-design.md) - Profile system details
