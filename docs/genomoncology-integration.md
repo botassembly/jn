@@ -54,7 +54,7 @@ Authorization: Token your-token-here
 
 ```bash
 # Basic fetch
-export GENOMONCOLOGY_API_KEY="e1ec1eb80340ffbef8c9b8baf5312f6250d283bc"
+export GENOMONCOLOGY_API_KEY="your-api-token-here"
 jn cat @genomoncology/alterations | head -n 5
 
 # Extract key fields with JQ filter
@@ -217,7 +217,7 @@ The variant annotations endpoint uses **POST with form data**:
 
 ```bash
 curl -X POST \
-  --header 'Authorization: Token e1ec1eb80340ffbef8c9b8baf5312f6250d283bc' \
+  --header 'Authorization: Token your-api-token-here' \
   -d 'batch=chr7|140453136|A|T|GRCh37&batch=NM_005228.3:c.2239_2241delTTA' \
   'https://pwb-demo.genomoncology.io/api/annotations/match'
 ```
@@ -259,7 +259,7 @@ The GenomOncology API provides OpenAPI schema:
 ```bash
 # Fetch full schema
 jn cat https://pwb-demo.genomoncology.io/api/schema \
-  --headers '{"Authorization": "Token e1ec1eb80340ffbef8c9b8baf5312f6250d283bc"}' \
+  --headers '{"Authorization": "Token your-api-token-here"}' \
   | jn put schema.json
 
 # Extract endpoint paths
@@ -384,7 +384,7 @@ This resolves at runtime from environment variables.
 #!/bin/bash
 # complete-genomoncology-example.sh
 
-export GENOMONCOLOGY_API_KEY="e1ec1eb80340ffbef8c9b8baf5312f6250d283bc"
+export GENOMONCOLOGY_API_KEY="your-api-token-here"
 
 echo "=== GenomOncology Alterations Analysis ==="
 echo ""
