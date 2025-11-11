@@ -36,7 +36,7 @@ Tasks:
 - [x] Add extract-hgvs filter (extract HGVS nomenclature)
 - [x] Add extract-alterations filter refinement
 - [x] Document complete workflows with examples
-- [ ] Test with real API calls (if credentials available)
+- [x] Test with real API calls (pwb-demo.genomoncology.io)
 
 **Dependencies:** None (can work standalone)
 **Deliverables:**
@@ -143,6 +143,25 @@ Tasks:
 - [ ] [MCP Protocol Plugin](work/19-mcp-protocol.md) - Model Context Protocol for AI tool integration
 
 **Why:** Enable JN to function as data source/sink for AI agents and tools.
+
+---
+
+## Future Considerations
+
+Features that may be developed based on user demand or other development efforts that require them:
+
+### Debug and Explain Mode
+**Status:** Design exists (spec/design/debug-explain-mode.md), not prioritized
+**Potential Value:** Transparency into profile resolution, filter transformations, and pipeline execution
+**When to Revisit:** If users request visibility into how JN processes data, or if debugging complex pipelines becomes a pain point
+
+**Proposed Features:**
+- `--explain`: Show profile resolution without executing (which file, parameter substitution)
+- `--debug`: Show sample input/output transformations with before/after examples
+- `--verbose`: Show pipeline structure, process IDs, command lines
+- `--dry-run`: Validate configuration without execution
+
+**Current Position:** Not implementing unless there's clear demand. Prefer to keep JN simple and focused on core ETL functionality.
 
 ---
 
