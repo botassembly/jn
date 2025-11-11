@@ -88,9 +88,7 @@ def test_http_plugin_with_headers(http_plugin):
 
 
 def test_http_plugin_timeout(http_plugin):
-    """Test HTTP plugin with very short timeout (expected to fail for demo)."""
-    # Use a URL that's likely to be slow or a non-existent domain
-    # This test demonstrates timeout handling
+    """Test HTTP plugin with very short timeout - yields error record."""
     url = "https://httpbin.org/delay/10"  # Delays response by 10 seconds
 
     result = subprocess.run(
@@ -105,16 +103,16 @@ def test_http_plugin_timeout(http_plugin):
         timeout=5  # Overall test timeout
     )
 
-    # Should fail with timeout or error
+    # Should exit non-zero (exception at top level)
     assert result.returncode != 0
-    # Accept either timeout or server error (httpbin.org can be flaky)
-    assert ("timeout" in result.stderr.lower() or
-            "timed out" in result.stderr.lower() or
-            "error" in result.stderr.lower())
+    # Should yield error record with timeout info
+    assert ("timeout" in result.stdout.lower() or
+            "timed out" in result.stdout.lower() or
+            "error" in result.stdout.lower())
 
 
 def test_http_plugin_404_error(http_plugin):
-    """Test HTTP plugin with 404 error."""
+    """Test HTTP plugin with 404 error - yields error record."""
     url = "https://jsonplaceholder.typicode.com/users/999999999"
 
     result = subprocess.run(
@@ -124,9 +122,14 @@ def test_http_plugin_404_error(http_plugin):
         timeout=10
     )
 
-    # Should fail with 404 error
-    assert result.returncode != 0
-    assert "404" in result.stderr or "Not Found" in result.stderr
+    # Should exit successfully (errors are data now, not exceptions)
+    assert result.returncode == 0
+    # Should yield error record
+    lines = [line for line in result.stdout.strip().split("\n") if line]
+    assert len(lines) == 1
+    record = json.loads(lines[0])
+    assert record.get("_error") is True
+    assert "404" in str(record) or "Not Found" in str(record)
 
 
 def test_jn_cat_http_url(invoke):

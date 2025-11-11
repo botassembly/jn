@@ -16,189 +16,139 @@
 import json
 import re
 import sys
-from typing import Iterator, Optional
+from typing import Iterator
 
-try:
-    import frontmatter
-    import yaml
-except ImportError as e:
-    print(f"Error: Missing dependency - {e}", file=sys.stderr)
-    sys.exit(1)
+import frontmatter
+import yaml
 
 
-def reads(config: Optional[dict] = None) -> Iterator[dict]:
+def reads(
+    include_frontmatter: bool = True,
+    parse_structure: bool = False,
+) -> Iterator[dict]:
     """Read Markdown from stdin, yield NDJSON records.
 
-    Config:
-        include_frontmatter: Include frontmatter as separate record (default: True)
-        parse_structure: Parse into structured elements vs single doc (default: False)
+    Args:
+        include_frontmatter: Include frontmatter as separate record
+        parse_structure: Parse into structured elements vs single doc
 
     Yields:
         Dict per document element (frontmatter, content)
     """
-    config = config or {}
-    include_frontmatter = config.get("include_frontmatter", True)
-    parse_structure = config.get("parse_structure", False)
-
-    # Read entire markdown file
     content = sys.stdin.read()
-
-    # Parse frontmatter
     post = frontmatter.loads(content)
 
     # Yield frontmatter if present
     if include_frontmatter and post.metadata:
-        yield {"type": "frontmatter", "data": post.metadata}
+        yield {"type": "frontmatter", **post.metadata}
 
-    # For now, yield entire content as single document
-    # TODO: Add structure parsing in future enhancement
+    # Parse structure or yield as single doc
     if parse_structure:
-        # Simple structure parsing - split by headings
-        lines = post.content.split("\n")
-        current_section = None
-        current_text = []
-
-        for line in lines:
-            # Check if heading
-            heading_match = re.match(r"^(#{1,6})\s+(.+)$", line)
-            if heading_match:
-                # Yield previous section if exists
-                if current_section:
-                    yield current_section
-                if current_text:
-                    yield {"type": "paragraph", "text": "\n".join(current_text).strip()}
-                    current_text = []
-
-                # Start new section
-                level = len(heading_match.group(1))
-                text = heading_match.group(2)
-                current_section = {"type": "heading", "level": level, "text": text}
-                yield current_section
-                current_section = None
-            elif line.strip():
-                current_text.append(line)
-            elif current_text:
-                # Empty line - end of paragraph
-                yield {"type": "paragraph", "text": "\n".join(current_text).strip()}
-                current_text = []
-
-        # Yield remaining text
-        if current_text:
-            yield {"type": "paragraph", "text": "\n".join(current_text).strip()}
+        yield from _parse_structure(post.content)
     else:
-        # Yield entire content as single record
-        yield {"type": "document", "content": post.content, "metadata": post.metadata}
+        yield {"type": "content", "content": post.content}
 
 
-def writes(config: Optional[dict] = None) -> None:
+def writes(
+    include_frontmatter: bool = True,
+    default_frontmatter: dict = None,
+) -> None:
     """Read NDJSON from stdin, write Markdown to stdout.
 
-    Config:
-        include_frontmatter: Write frontmatter block (default: True)
-        frontmatter_format: 'yaml' or 'toml' (default: 'yaml')
-
-    Reads structured elements and reconstructs Markdown document.
+    Args:
+        include_frontmatter: Include frontmatter in output
+        default_frontmatter: Default frontmatter fields
     """
-    config = config or {}
-    include_frontmatter = config.get("include_frontmatter", True)
-    frontmatter_format = config.get("frontmatter_format", "yaml")
+    default_frontmatter = default_frontmatter or {}
 
     # Collect all records
     records = []
     for line in sys.stdin:
-        line = line.strip()
-        if line:
-            records.append(json.loads(line))
+        records.append(json.loads(line))
 
-    if not records:
-        return
-
-    # Extract frontmatter if present
-    frontmatter_data = None
-    content_records = []
+    # Separate frontmatter from content
+    fm = default_frontmatter.copy()
+    content_parts = []
 
     for record in records:
         if record.get("type") == "frontmatter":
-            frontmatter_data = record.get("data", {})
+            # Merge frontmatter
+            fm_data = {k: v for k, v in record.items() if k != "type"}
+            fm.update(fm_data)
+        elif record.get("type") == "content":
+            # Add content
+            content_parts.append(record.get("content", ""))
         else:
-            content_records.append(record)
+            # Generic record - add as content
+            content_parts.append(json.dumps(record, indent=2))
 
-    # Write frontmatter
-    if include_frontmatter and frontmatter_data:
-        if frontmatter_format == "yaml":
-            sys.stdout.write("---\n")
-            sys.stdout.write(yaml.dump(frontmatter_data, default_flow_style=False))
-            sys.stdout.write("---\n\n")
-        elif frontmatter_format == "toml":
-            try:
-                import tomli_w
-                sys.stdout.write("+++\n")
-                sys.stdout.write(tomli_w.dumps(frontmatter_data))
-                sys.stdout.write("+++\n\n")
-            except ImportError:
-                print("Error: tomli-w required for TOML frontmatter", file=sys.stderr)
-                sys.exit(1)
+    # Assemble markdown
+    content = "\n\n".join(content_parts)
 
-    # Write content
-    for record in content_records:
-        record_type = record.get("type")
+    if include_frontmatter and fm:
+        # Create frontmatter post
+        post = frontmatter.Post(content, **fm)
+        print(frontmatter.dumps(post))
+    else:
+        # Just content
+        print(content)
 
-        if record_type == "heading":
-            level = record.get("level", 1)
-            text = record.get("text", "")
-            sys.stdout.write(f"{'#' * level} {text}\n\n")
 
-        elif record_type == "paragraph":
-            text = record.get("text", "")
-            sys.stdout.write(f"{text}\n\n")
+def _parse_structure(content: str) -> Iterator[dict]:
+    """Parse markdown into structured elements."""
+    lines = content.split("\n")
+    current_element = {"type": "text", "content": []}
 
-        elif record_type == "document":
-            # Handle single document record
-            content = record.get("content", "")
-            sys.stdout.write(content)
+    for line in lines:
+        # Headers
+        header_match = re.match(r"^(#{1,6})\s+(.+)$", line)
+        if header_match:
+            if current_element["content"]:
+                yield {**current_element, "content": "\n".join(current_element["content"])}
+            level = len(header_match.group(1))
+            yield {"type": "heading", "level": level, "text": header_match.group(2)}
+            current_element = {"type": "text", "content": []}
+            continue
+
+        # Code blocks
+        if line.strip().startswith("```"):
+            if current_element.get("type") == "code":
+                # End code block
+                yield {**current_element, "content": "\n".join(current_element["content"])}
+                current_element = {"type": "text", "content": []}
+            else:
+                # Start code block
+                if current_element["content"]:
+                    yield {**current_element, "content": "\n".join(current_element["content"])}
+                lang = line.strip()[3:].strip()
+                current_element = {"type": "code", "language": lang, "content": []}
+            continue
+
+        # Add line to current element
+        current_element["content"].append(line)
+
+    # Yield final element
+    if current_element["content"]:
+        yield {**current_element, "content": "\n".join(current_element["content"])}
 
 
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(
-        description="Markdown format plugin - read/write Markdown files with frontmatter"
-    )
+    parser = argparse.ArgumentParser(description="Markdown format plugin")
+    parser.add_argument("--mode", required=True, choices=["read", "write"], help="Operation mode")
     parser.add_argument(
-        "--mode",
-        choices=["read", "write"],
-        help="Operation mode: read Markdown to NDJSON, or write NDJSON to Markdown",
+        "--include-frontmatter", action="store_true", default=True, help="Include frontmatter"
     )
-    parser.add_argument(
-        "--no-frontmatter",
-        dest="include_frontmatter",
-        action="store_false",
-        help="Don't include frontmatter when reading/writing",
-    )
-    parser.add_argument(
-        "--parse-structure",
-        action="store_true",
-        help="Parse structure (split by headings)",
-    )
-    parser.add_argument(
-        "--frontmatter-format",
-        choices=["yaml", "toml"],
-        default="yaml",
-        help="Frontmatter format when writing (default: yaml)",
-    )
+    parser.add_argument("--parse-structure", action="store_true", help="Parse structure")
 
     args = parser.parse_args()
 
-    if not args.mode:
-        parser.error("--mode is required")
-
-    # Build config
-    config = {"include_frontmatter": args.include_frontmatter}
-
     if args.mode == "read":
-        config["parse_structure"] = args.parse_structure
-        for record in reads(config):
+        for record in reads(
+            include_frontmatter=args.include_frontmatter,
+            parse_structure=args.parse_structure,
+        ):
             print(json.dumps(record), flush=True)
     else:
-        config["frontmatter_format"] = args.frontmatter_format
-        writes(config)
+        writes(include_frontmatter=args.include_frontmatter)
