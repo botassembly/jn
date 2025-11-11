@@ -1,0 +1,16 @@
+{
+  "base_url": "https://pwb-demo.genomoncology.io/api",
+  "headers": {
+    "Authorization": "Token ${GENOMONCOLOGY_API_KEY}",
+    "Accept": "application/json"
+  },
+  "paths": {
+    "annotations": "/annotations",
+    "annotations_match": "/annotations/match",
+    "alterations": "/alterations",
+    "genes": "/genes",
+    "diseases": "/diseases",
+    "therapies": "/therapies"
+  },
+  "timeout": 60
+}

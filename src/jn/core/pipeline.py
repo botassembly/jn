@@ -201,15 +201,19 @@ def write_destination(
     dest: str,
     plugin_dir: Path,
     cache_path: Optional[Path],
-    input_stream: TextIO = sys.stdin
+    input_stream: TextIO = sys.stdin,
+    plugin_name: Optional[str] = None,
+    plugin_config: Optional[Dict] = None
 ) -> None:
-    """Read NDJSON from stream and write to destination file.
+    """Read NDJSON from stream and write to destination file or stdout.
 
     Args:
-        dest: Path to destination file
+        dest: Path to destination file, or '-'/'stdout' for stdout
         plugin_dir: Plugin directory
         cache_path: Cache file path
         input_stream: Where to read input (default: stdin)
+        plugin_name: Optional explicit plugin name (overrides registry matching)
+        plugin_config: Optional config dict to pass to plugin
 
     Raises:
         PipelineError: If plugin not found or execution fails
@@ -217,40 +221,83 @@ def write_destination(
     # Check UV availability
     _check_uv_available()
 
-    # Load plugins and find writer
+    # Load plugins
     plugins, registry = _load_plugins_and_registry(plugin_dir, cache_path)
 
-    plugin_name = registry.match(dest)
-    if not plugin_name:
-        raise PipelineError(f"No plugin found for {dest}")
+    # Resolve plugin
+    if plugin_name:
+        # Explicit plugin specified
+        if plugin_name not in plugins:
+            raise PipelineError(f"Plugin '{plugin_name}' not found")
+        plugin = plugins[plugin_name]
+    else:
+        # Auto-detect from destination
+        matched_name = registry.match(dest)
+        if not matched_name:
+            raise PipelineError(f"No plugin found for {dest}")
+        plugin = plugins[matched_name]
 
-    plugin = plugins[plugin_name]
+    # Check if writing to stdout
+    write_to_stdout = dest in ("-", "stdout")
 
-    # Execute writer
-    with open(dest, "w") as outfile:
-        stdin_source, input_data, text_mode = _prepare_stdin_for_subprocess(
-            input_stream
-        )
+    # Build command with config options
+    cmd = ["uv", "run", "--script", plugin.path, "--mode", "write"]
 
+    # Add plugin-specific config args
+    if plugin_config:
+        for key, value in plugin_config.items():
+            cmd.extend([f"--{key}", str(value)])
+
+    # Prepare stdin
+    stdin_source, input_data, text_mode = _prepare_stdin_for_subprocess(input_stream)
+
+    if write_to_stdout:
+        # Write to stdout
         proc = subprocess.Popen(
-            ["uv", "run", "--script", plugin.path, "--mode", "write"],
+            cmd,
             stdin=stdin_source,
-            stdout=outfile,
+            stdout=sys.stdout,
             stderr=subprocess.PIPE,
             text=text_mode,
         )
+    else:
+        # Write to file
+        with open(dest, "w") as outfile:
+            proc = subprocess.Popen(
+                cmd,
+                stdin=stdin_source,
+                stdout=outfile,
+                stderr=subprocess.PIPE,
+                text=text_mode,
+            )
 
-        if input_data is not None:
-            proc.stdin.write(input_data)  # type: ignore[union-attr]
-            proc.stdin.close()  # type: ignore[union-attr]
+            if input_data is not None:
+                proc.stdin.write(input_data)  # type: ignore[union-attr]
+                proc.stdin.close()  # type: ignore[union-attr]
 
-        proc.wait()
+            proc.wait()
 
-        if proc.returncode != 0:
-            err = proc.stderr.read()
-            if not text_mode and isinstance(err, bytes):
-                err = err.decode()
-            raise PipelineError(f"Writer error: {err}")
+            if proc.returncode != 0:
+                err = proc.stderr.read()
+                if not text_mode and isinstance(err, bytes):
+                    err = err.decode()
+                raise PipelineError(f"Writer error: {err}")
+            return
+
+    # For stdout case
+    if input_data is not None:
+        proc.stdin.write(input_data)  # type: ignore[union-attr]
+        proc.stdin.close()  # type: ignore[union-attr]
+
+    proc.wait()
+
+    if proc.returncode != 0:
+        err = proc.stderr.read()
+        if text_mode:
+            pass  # Already text
+        elif isinstance(err, bytes):
+            err = err.decode()
+        raise PipelineError(f"Writer error: {err}")
 
 
 def convert(
