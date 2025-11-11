@@ -91,20 +91,38 @@ class StructureChecker(BaseChecker):
         if not pep723:
             return  # Already flagged by check_file
 
+        # Known package-to-module mappings (package name -> module name)
+        PACKAGE_MODULE_MAP = {
+            "pyyaml": "yaml",
+            "ruamel.yaml": "ruamel",
+            "pillow": "PIL",
+            "beautifulsoup4": "bs4",
+            "python-dateutil": "dateutil",
+            "attrs": "attr",
+            "protobuf": "google.protobuf",
+        }
+
         # Get declared dependencies
         declared_deps = set()
         for dep in pep723.get("dependencies", []):
             # Parse dependency (e.g., "requests>=2.31.0" -> "requests")
             pkg_name = dep.split(">=")[0].split("==")[0].split("[")[0].strip()
+
+            # Add the package name itself
+            declared_deps.add(pkg_name)
+
+            # Add known module mapping
+            if pkg_name.lower() in PACKAGE_MODULE_MAP:
+                declared_deps.add(PACKAGE_MODULE_MAP[pkg_name.lower()])
+
             # Normalize package name (e.g., "python-frontmatter" -> "frontmatter")
             if "-" in pkg_name:
                 # Common pattern: python-foo -> import foo
                 parts = pkg_name.split("-")
                 if parts[0] == "python":
                     declared_deps.add(parts[1])
-                # Also add the full name
+                # Also add the full name with underscores
                 declared_deps.add(pkg_name.replace("-", "_"))
-            declared_deps.add(pkg_name)
 
         # Get imports from code
         imports = get_imports(tree)

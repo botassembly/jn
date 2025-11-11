@@ -54,8 +54,7 @@ def writes(config: Optional[dict] = None) -> None:
     If merge=False, only writes first record (TOML is single-document).
     """
     if tomli_w is None:
-        print("Error: tomli-w package required for writing TOML", file=sys.stderr)
-        sys.exit(1)
+        raise ImportError("tomli-w package required for writing TOML")
 
     config = config or {}
     merge = config.get("merge", True)

@@ -20,6 +20,17 @@ from ruamel.yaml import YAML
 
 
 def reads(config: Optional[dict] = None) -> Iterator[dict]:
+    """Read YAML from stdin, yield NDJSON records.
+
+    Supports multi-document YAML files. Each document is yielded as a separate record.
+    List items are unwrapped and yielded individually.
+
+    Args:
+        config: Configuration dict (currently unused)
+
+    Yields:
+        Dict per YAML document or list item
+    """
     config = config or {}
     yaml = YAML()
     yaml.preserve_quotes = True
@@ -38,6 +49,13 @@ def reads(config: Optional[dict] = None) -> Iterator[dict]:
 
 
 def writes(config: Optional[dict] = None) -> None:
+    """Read NDJSON from stdin, write YAML to stdout.
+
+    Args:
+        config: Configuration dict with options:
+            - multi_document: Write multiple records as separate YAML documents (default: True)
+            - indent: Indentation spaces (default: 2)
+    """
     config = config or {}
     multi_document = config.get("multi_document", True)
     indent = config.get("indent", 2)
