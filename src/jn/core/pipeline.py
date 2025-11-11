@@ -7,6 +7,7 @@ This module handles the actual execution of data pipelines:
 - Managing pipeline stages
 """
 
+import io
 import subprocess
 import sys
 from pathlib import Path
@@ -60,7 +61,8 @@ def _prepare_stdin_for_subprocess(
     try:
         input_stream.fileno()  # type: ignore[attr-defined]
         return input_stream, None, False
-    except Exception:
+    except (AttributeError, OSError, io.UnsupportedOperation):
+        # Not a real file handle (e.g., Click test runner StringIO)
         input_data = input_stream.read()
         text_mode = isinstance(input_data, str)
         return subprocess.PIPE, input_data, text_mode

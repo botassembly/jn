@@ -27,19 +27,24 @@ def filters(config: Optional[dict] = None) -> Iterator[dict]:
         )
         sys.exit(1)
     try:
+        # Check if stdin is a real file handle (has fileno)
         try:
             sys.stdin.fileno()
             stdin_source = sys.stdin
             input_data = None
-        except Exception:
+        except (AttributeError, OSError, io.UnsupportedOperation):
+            # stdin is not a real file (e.g., Click test runner StringIO)
             stdin_source = subprocess.PIPE
             input_data = sys.stdin.read()
+
         jq_process = subprocess.Popen(
             ["jq", "-c", query], stdin=stdin_source, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
         )
+
         if input_data is not None:
             jq_process.stdin.write(input_data)
             jq_process.stdin.close()
+
         for line in jq_process.stdout:
             line = line.strip()
             if not line:
@@ -58,14 +63,23 @@ def filters(config: Optional[dict] = None) -> Iterator[dict]:
                     yield {"value": record}
             except json.JSONDecodeError:
                 yield {"value": line}
+
         jq_process.wait()
         if jq_process.returncode != 0:
             stderr_data = jq_process.stderr.read()
             print(f"jq error: {stderr_data}", file=sys.stderr)
             sys.exit(1)
-    except Exception as e:
-        with contextlib.suppress(BaseException):
-            jq_process.kill()
+
+    except (subprocess.SubprocessError, BrokenPipeError, IOError) as e:
+        # Try to clean up jq process, but don't mask the error
+        try:
+            if jq_process.poll() is None:  # Only kill if still running
+                jq_process.kill()
+                jq_process.wait(timeout=1)
+        except (ProcessLookupError, TimeoutError, NameError):
+            # Process already dead, won't die, or jq_process not yet defined
+            pass
+
         print(f"jq error: {e}", file=sys.stderr)
         sys.exit(1)
 
