@@ -27,6 +27,22 @@ class PipelineError(Exception):
     pass
 
 
+# Binary formats that require buffering (cannot be streamed)
+# BACKPRESSURE EXCEPTION: These formats MUST buffer complete input before parsing
+# - XLSX/XLSM: ZIP archives, central directory at EOF, requires random access
+# - PDF: Cross-reference table at EOF, requires random access
+# - ZIP/GZ: Compression requires full context
+# - Parquet: Columnar format with footer metadata
+_BINARY_FORMATS = {'.xlsx', '.xlsm', '.pdf', '.zip', '.gz', '.parquet'}
+
+
+def _is_binary_format_url(url: str) -> bool:
+    """Check if URL points to a binary format that needs curl streaming."""
+    from urllib.parse import urlparse
+    ext = Path(urlparse(url).path).suffix.lower()
+    return ext in _BINARY_FORMATS
+
+
 def _check_uv_available() -> None:
     """Check if UV is available and exit with helpful message if not."""
     if not shutil.which("uv"):
@@ -174,26 +190,15 @@ def start_reader(
     is_url = source.startswith(("http://", "https://"))
 
     if is_url:
-        # For URLs, match by file extension first for binary formats
-        # This ensures .xlsx URLs use xlsx_ plugin, not http_ plugin
-        from urllib.parse import urlparse
-        ext = Path(urlparse(source).path).suffix.lower()
-
-        # Binary formats that cannot be streamed (ZIP-based, compressed, or require random access)
-        # BACKPRESSURE EXCEPTION: These formats MUST buffer the complete input before parsing
-        # - XLSX/XLSM: ZIP archives, central directory at EOF, requires random access
-        # - PDF: Cross-reference table at EOF, requires random access
-        # - ZIP/GZ: Compression requires full context
-        # - Parquet: Columnar format with footer metadata
-        binary_formats = {'.xlsx', '.xlsm', '.pdf', '.zip', '.gz', '.parquet'}
-
-        if ext in binary_formats:
-            # Match by extension to get format plugin (e.g., xlsx_)
+        # For binary format URLs, match by extension to get format plugin (e.g., xlsx_)
+        # For text formats, use http_ plugin
+        if _is_binary_format_url(source):
+            from urllib.parse import urlparse
+            ext = Path(urlparse(source).path).suffix.lower()
             plugin_name = registry.match(f"file{ext}")
             if not plugin_name:
                 raise PipelineError(f"No plugin found for {ext} format")
         else:
-            # Use http_ plugin for text formats (JSON, CSV, etc.)
             plugin_name = registry.match(source)
             if not plugin_name:
                 raise PipelineError(f"No plugin found for {source}")
@@ -206,10 +211,7 @@ def start_reader(
     plugin = plugins[plugin_name]
 
     if is_url:
-        ext = Path(urlparse(source).path).suffix.lower()
-        binary_formats = {'.xlsx', '.xlsm', '.pdf', '.zip', '.gz', '.parquet'}
-
-        if ext in binary_formats:
+        if _is_binary_format_url(source):
             # Use curl to stream raw bytes directly to format plugin
             # curl streams bytes → format plugin buffers (unavoidable) → streams NDJSON out
             curl_proc = subprocess.Popen(
@@ -454,19 +456,12 @@ def convert(
     is_url = source.startswith(("http://", "https://"))
 
     # Resolve reader - for URLs with binary formats, match by extension
-    if is_url:
+    if is_url and _is_binary_format_url(source):
         from urllib.parse import urlparse
         ext = Path(urlparse(source).path).suffix.lower()
-        binary_formats = {'.xlsx', '.xlsm', '.pdf', '.zip', '.gz', '.parquet'}
-
-        if ext in binary_formats:
-            reader_name = registry.match(f"file{ext}")
-            if not reader_name:
-                raise PipelineError(f"No plugin found for {ext} format")
-        else:
-            reader_name = registry.match(source)
-            if not reader_name:
-                raise PipelineError(f"No plugin found for {source}")
+        reader_name = registry.match(f"file{ext}")
+        if not reader_name:
+            raise PipelineError(f"No plugin found for {ext} format")
     else:
         reader_name = registry.match(source)
         if not reader_name:
@@ -484,47 +479,41 @@ def convert(
     # Execute two-stage pipeline
     with open(dest, "w") as outfile:
         curl_proc = None  # Track curl subprocess for cleanup
-        if is_url:
-            # Detect binary formats that need raw byte streaming
-            from urllib.parse import urlparse
-            ext = Path(urlparse(source).path).suffix.lower()
-            binary_formats = {'.xlsx', '.xlsm', '.pdf', '.zip', '.gz', '.parquet'}
+        if is_url and _is_binary_format_url(source):
+            # Use curl to stream raw bytes to format plugin
+            curl_proc = subprocess.Popen(
+                ["curl", "-sL", source],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=False  # Binary mode
+            )
 
-            if ext in binary_formats:
-                # Use curl to stream raw bytes to format plugin
-                curl_proc = subprocess.Popen(
-                    ["curl", "-sL", source],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=False  # Binary mode
-                )
+            reader = subprocess.Popen(
+                ["uv", "run", "--script", reader_plugin.path, "--mode", "read"],
+                stdin=curl_proc.stdout,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            # Close curl's stdout in parent for SIGPIPE
+            curl_proc.stdout.close()
+        elif is_url:
+            # Text formats: use http_ plugin
+            cmd = ["uv", "run", "--script", reader_plugin.path, "--mode", "read"]
 
-                reader = subprocess.Popen(
-                    ["uv", "run", "--script", reader_plugin.path, "--mode", "read"],
-                    stdin=curl_proc.stdout,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True
-                )
-                # Close curl's stdout in parent for SIGPIPE
-                curl_proc.stdout.close()
-            else:
-                # Text formats: use http_ plugin
-                cmd = ["uv", "run", "--script", reader_plugin.path, "--mode", "read"]
+            # Add headers from profile if available
+            if headers_json:
+                cmd.extend(["--headers", headers_json])
 
-                # Add headers from profile if available
-                if headers_json:
-                    cmd.extend(["--headers", headers_json])
+            cmd.append(source)
 
-                cmd.append(source)
-
-                reader = subprocess.Popen(
-                    cmd,
-                    stdin=subprocess.DEVNULL,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True
-                )
+            reader = subprocess.Popen(
+                cmd,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
         else:
             # For files, open and pass as stdin
             infile = open(source)
