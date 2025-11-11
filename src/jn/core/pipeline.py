@@ -17,8 +17,9 @@ from typing import Dict, Optional, TextIO, Tuple
 
 from ..plugins.discovery import PluginMetadata, get_cached_plugins_with_fallback
 from ..plugins.registry import build_registry
-from ..profiles.http import resolve_profile_reference, ProfileError
-from ..profiles.jq import resolve_jq_profile, JQProfileError
+from ..profiles.http import resolve_profile_reference
+from ..profiles.http import ProfileError as HTTPProfileError
+from ..profiles.resolver import resolve_profile, ProfileError
 
 
 class PipelineError(Exception):
@@ -163,7 +164,7 @@ def start_reader(
             url, headers = resolve_profile_reference(source)
             source = url  # Replace with resolved URL
             headers_json = json.dumps(headers)
-        except ProfileError as e:
+        except HTTPProfileError as e:
             raise PipelineError(f"Profile error: {e}")
 
     # Load plugins and find reader
@@ -383,7 +384,7 @@ def convert(
             url, headers = resolve_profile_reference(source)
             source = url  # Replace with resolved URL
             headers_json = json.dumps(headers)
-        except ProfileError as e:
+        except HTTPProfileError as e:
             raise PipelineError(f"Profile error: {e}")
 
     # Load plugins
@@ -500,8 +501,9 @@ def filter_stream(
     # Resolve profile if query is a reference
     if query.startswith("@"):
         try:
-            query = resolve_jq_profile(query, params or {})
-        except JQProfileError as e:
+            # Use generic profile resolution - works for any plugin
+            query = resolve_profile(query, plugin_name="jq_", params=params or {})
+        except ProfileError as e:
             raise PipelineError(str(e))
 
     # Load plugins
