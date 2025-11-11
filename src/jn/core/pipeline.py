@@ -10,16 +10,60 @@ This module handles the actual execution of data pipelines:
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional, TextIO
-import io
+from typing import Dict, Optional, TextIO, Tuple
 
 from ..discovery import get_cached_plugins_with_fallback
 from ..registry import build_registry
+from ..plugins.discovery import PluginMetadata
 
 
 class PipelineError(Exception):
     """Error during pipeline execution."""
     pass
+
+
+def _load_plugins_and_registry(
+    plugin_dir: Path, cache_path: Optional[Path]
+) -> Tuple[Dict[str, PluginMetadata], object]:
+    """Load plugins and build registry (helper to reduce duplication).
+
+    Args:
+        plugin_dir: Plugin directory
+        cache_path: Cache file path
+
+    Returns:
+        Tuple of (plugins dict, registry object)
+    """
+    plugins = get_cached_plugins_with_fallback(plugin_dir, cache_path)
+    registry = build_registry(plugins)
+    return plugins, registry
+
+
+def _prepare_stdin_for_subprocess(
+    input_stream: TextIO,
+) -> Tuple[object, Optional[str], bool]:
+    """Prepare stdin for subprocess (file handle or PIPE with data).
+
+    Some environments (e.g., Click test runner) provide non-file streams.
+    This helper detects whether we can pass the stream directly to subprocess
+    or need to read it and feed via PIPE.
+
+    Args:
+        input_stream: Input stream to prepare
+
+    Returns:
+        Tuple of (stdin_source, input_data, text_mode)
+        - stdin_source: Either the stream itself or subprocess.PIPE
+        - input_data: None if stream, or data string if PIPE
+        - text_mode: True if text data, False if bytes
+    """
+    try:
+        input_stream.fileno()  # type: ignore[attr-defined]
+        return input_stream, None, False
+    except Exception:
+        input_data = input_stream.read()
+        text_mode = isinstance(input_data, str)
+        return subprocess.PIPE, input_data, text_mode
 
 
 def start_reader(
@@ -43,8 +87,7 @@ def start_reader(
         PipelineError: If plugin not found
     """
     # Load plugins and find reader
-    plugins = get_cached_plugins_with_fallback(plugin_dir, cache_path)
-    registry = build_registry(plugins)
+    plugins, registry = _load_plugins_and_registry(plugin_dir, cache_path)
 
     plugin_name = registry.match(source)
     if not plugin_name:
@@ -117,8 +160,7 @@ def write_destination(
         PipelineError: If plugin not found or execution fails
     """
     # Load plugins and find writer
-    plugins = get_cached_plugins_with_fallback(plugin_dir, cache_path)
-    registry = build_registry(plugins)
+    plugins, registry = _load_plugins_and_registry(plugin_dir, cache_path)
 
     plugin_name = registry.match(dest)
     if not plugin_name:
@@ -128,17 +170,9 @@ def write_destination(
 
     # Execute writer
     with open(dest, "w") as outfile:
-        # Some environments provide a non-file stdin (e.g., Click runner)
-        # If input_stream lacks fileno(), feed data via PIPE.
-        try:
-            input_stream.fileno()  # type: ignore[attr-defined]
-            stdin_source = input_stream
-            input_data = None
-            text_mode = False
-        except Exception:
-            stdin_source = subprocess.PIPE
-            input_data = input_stream.read()
-            text_mode = True if isinstance(input_data, str) else False
+        stdin_source, input_data, text_mode = _prepare_stdin_for_subprocess(
+            input_stream
+        )
 
         proc = subprocess.Popen(
             [sys.executable, plugin.path, "--mode", "write"],
@@ -181,8 +215,7 @@ def convert(
         PipelineError: If plugin not found or execution fails
     """
     # Load plugins
-    plugins = get_cached_plugins_with_fallback(plugin_dir, cache_path)
-    registry = build_registry(plugins)
+    plugins, registry = _load_plugins_and_registry(plugin_dir, cache_path)
 
     # Resolve reader
     reader_name = registry.match(source)
@@ -253,7 +286,7 @@ def filter_stream(
         PipelineError: If jq plugin not found or execution fails
     """
     # Load plugins
-    plugins = get_cached_plugins_with_fallback(plugin_dir, cache_path)
+    plugins, _ = _load_plugins_and_registry(plugin_dir, cache_path)
 
     # Find jq filter plugin
     if "jq_" not in plugins:
@@ -262,16 +295,7 @@ def filter_stream(
     plugin = plugins["jq_"]
 
     # Execute filter
-    # Handle non-file stdin by feeding via PIPE
-    try:
-        input_stream.fileno()  # type: ignore[attr-defined]
-        stdin_source = input_stream
-        input_data = None
-        text_mode = False
-    except Exception:
-        stdin_source = subprocess.PIPE
-        input_data = input_stream.read()
-        text_mode = True if isinstance(input_data, str) else False
+    stdin_source, input_data, _ = _prepare_stdin_for_subprocess(input_stream)
 
     proc = subprocess.Popen(
         [sys.executable, plugin.path, "--query", query],
