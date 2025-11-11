@@ -96,10 +96,10 @@ def start_reader(
 
     plugin = plugins[plugin_name]
 
-    # Start reader subprocess
+    # Start reader subprocess using UV to respect PEP 723 dependencies
     infile = open(source)
     proc = subprocess.Popen(
-        [sys.executable, plugin.path, "--mode", "read"],
+        ["uv", "run", "--script", plugin.path, "--mode", "read"],
         stdin=infile,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -176,7 +176,7 @@ def write_destination(
         )
 
         proc = subprocess.Popen(
-            [sys.executable, plugin.path, "--mode", "write"],
+            ["uv", "run", "--script", plugin.path, "--mode", "write"],
             stdin=stdin_source,
             stdout=outfile,
             stderr=subprocess.PIPE,
@@ -234,17 +234,17 @@ def convert(
 
     # Execute two-stage pipeline
     with open(source) as infile, open(dest, "w") as outfile:
-        # Start reader
+        # Start reader using UV to respect PEP 723 dependencies
         reader = subprocess.Popen(
-            [sys.executable, reader_plugin.path, "--mode", "read"],
+            ["uv", "run", "--script", reader_plugin.path, "--mode", "read"],
             stdin=infile,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
 
-        # Start writer
+        # Start writer using UV to respect PEP 723 dependencies
         writer = subprocess.Popen(
-            [sys.executable, writer_plugin.path, "--mode", "write"],
+            ["uv", "run", "--script", writer_plugin.path, "--mode", "write"],
             stdin=reader.stdout,
             stdout=outfile,
             stderr=subprocess.PIPE,
@@ -295,11 +295,11 @@ def filter_stream(
 
     plugin = plugins["jq_"]
 
-    # Execute filter
+    # Execute filter using UV to respect PEP 723 dependencies
     stdin_source, input_data, _ = _prepare_stdin_for_subprocess(input_stream)
 
     proc = subprocess.Popen(
-        [sys.executable, plugin.path, "--query", query],
+        ["uv", "run", "--script", plugin.path, "--query", query],
         stdin=stdin_source,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,

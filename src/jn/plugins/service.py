@@ -141,8 +141,10 @@ def call_plugin(plugin_path: str, args: List[str]) -> int:
         input_data = sys.stdin.read()
         text_mode = True if isinstance(input_data, str) else False
 
+    # Call plugin using UV to ensure dependencies are installed
+    # This respects the PEP 723 dependencies in the plugin's script block
     proc = subprocess.Popen(
-        [sys.executable, plugin_path, *args],
+        ["uv", "run", "--script", plugin_path, *args],
         stdin=stdin_source,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
