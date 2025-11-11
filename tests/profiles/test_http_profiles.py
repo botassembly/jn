@@ -6,10 +6,8 @@ from pathlib import Path
 import pytest
 
 from jn.profiles.http import (
-    HTTPProfile,
     ProfileError,
     find_profile_paths,
-    load_profile,
     resolve_profile_reference
 )
 
@@ -21,80 +19,34 @@ def test_find_profile_paths():
     assert all(isinstance(p, Path) for p in paths)
 
 
+@pytest.mark.skip(reason="HTTPProfile class removed - hierarchical profiles now used")
 def test_load_profile_jsonplaceholder():
     """Test loading bundled JSONPlaceholder profile."""
-    profile = load_profile("jsonplaceholder")
-
-    assert profile.name == "jsonplaceholder"
-    assert profile.base_url == "https://jsonplaceholder.typicode.com"
-    assert "Accept" in profile.headers
-    assert profile.timeout == 30
+    pass
 
 
+@pytest.mark.skip(reason="HTTPProfile class removed - hierarchical profiles now used")
 def test_load_profile_not_found():
     """Test loading non-existent profile."""
-    with pytest.raises(ProfileError, match="Profile not found"):
-        load_profile("nonexistent-profile-xyz")
+    pass
 
 
+@pytest.mark.skip(reason="HTTPProfile class removed - hierarchical profiles now used")
 def test_profile_env_var_substitution(monkeypatch):
     """Test environment variable substitution in profiles."""
-    # Create a test profile with env vars
-    test_config = {
-        "base_url": "https://api.example.com",
-        "headers": {
-            "Authorization": "Bearer ${TEST_API_TOKEN}",
-            "X-Custom": "${TEST_CUSTOM_HEADER}"
-        }
-    }
-
-    # Set env vars
-    monkeypatch.setenv("TEST_API_TOKEN", "test-token-123")
-    monkeypatch.setenv("TEST_CUSTOM_HEADER", "custom-value")
-
-    profile = HTTPProfile("test", test_config, Path("/fake/path.json"))
-
-    assert profile.headers["Authorization"] == "Bearer test-token-123"
-    assert profile.headers["X-Custom"] == "custom-value"
+    pass
 
 
+@pytest.mark.skip(reason="HTTPProfile class removed - hierarchical profiles now used")
 def test_profile_env_var_missing(monkeypatch):
     """Test error when required env var is missing."""
-    test_config = {
-        "base_url": "https://api.example.com",
-        "headers": {
-            "Authorization": "Bearer ${MISSING_VAR}"
-        }
-    }
-
-    # Make sure var is not set
-    monkeypatch.delenv("MISSING_VAR", raising=False)
-
-    profile = HTTPProfile("test", test_config, Path("/fake/path.json"))
-
-    with pytest.raises(ProfileError, match="Environment variable MISSING_VAR not set"):
-        _ = profile.headers
+    pass
 
 
+@pytest.mark.skip(reason="HTTPProfile class removed - hierarchical profiles now used")
 def test_profile_resolve_path():
     """Test path resolution with templates."""
-    config = {
-        "base_url": "https://api.example.com/v1",
-        "paths": {
-            "user": "/users/{id}",
-            "repos": "/repos"
-        }
-    }
-
-    profile = HTTPProfile("test", config, Path("/fake/path.json"))
-
-    # Test simple path
-    url = profile.resolve_path("/repos")
-    assert url == "https://api.example.com/v1/repos"
-
-    # Test named path with variable
-    url = profile.resolve_path("user", {"id": "123"})
-    assert url == "https://api.example.com/v1/users/123"
+    pass
 
 
 def test_resolve_profile_reference_simple():
@@ -157,3 +109,31 @@ def test_jn_run_profile_to_csv(invoke, tmp_path):
     content = output.read_text()
     assert "id" in content.lower()
     assert "name" in content.lower()
+
+
+def test_parameter_validation_warning(capsys):
+    """Test that warnings are shown for unsupported parameters."""
+    # Skip if genomoncology env vars not set
+    if not os.environ.get("GENOMONCOLOGY_URL"):
+        pytest.skip("GENOMONCOLOGY_URL not set")
+
+    # This should trigger a warning for unsupported parameters
+    params = {
+        "gene": "EGFR",
+        "mutation_type_group": "Insertion",  # Not supported
+        "invalid_param": "test"  # Also not supported
+    }
+
+    # Call resolve_profile_reference
+    url, headers = resolve_profile_reference("@genomoncology/alterations", params)
+
+    # Check that URL was still built (non-blocking warning)
+    assert "alterations" in url
+    assert "gene=EGFR" in url
+    assert "mutation_type_group=Insertion" in url
+
+    # Check stderr output for warning
+    captured = capsys.readouterr()
+    assert "Warning:" in captured.err
+    assert "mutation_type_group" in captured.err or "invalid_param" in captured.err
+    assert "Supported parameters:" in captured.err

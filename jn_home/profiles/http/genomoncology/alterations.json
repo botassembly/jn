@@ -2,5 +2,17 @@
   "path": "/alterations",
   "method": "GET",
   "type": "source",
-  "params": ["gene", "mutation_type", "biomarker", "page", "limit"]
+  "params": ["gene", "mutation_type", "biomarker", "page", "limit"],
+  "description": "Genetic alterations database (55,000+ entries)",
+  "notes": [
+    "mutation_type uses full type names (e.g., 'Insertion - In frame', 'Substitution - Missense')",
+    "mutation_type_group is NOT a query parameter - it's only available in the response",
+    "To filter by mutation_type_group, fetch data first then use JN filters",
+    "limit parameter may be ignored by the API - use JQ limit() filter for guaranteed limiting"
+  ],
+  "examples": [
+    "jn cat @genomoncology/alterations -p gene=EGFR",
+    "jn cat @genomoncology/alterations -p gene=BRAF -p mutation_type='Substitution - Missense'",
+    "jn cat @genomoncology/alterations -p gene=EGFR | jn filter '@genomoncology/extract-alterations' | jn filter 'select(.mutation_type_group == \"Insertion\")'"
+  ]
 }

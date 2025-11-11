@@ -155,6 +155,23 @@ def resolve_profile_reference(reference: str, params: Optional[Dict] = None) -> 
     # Load profile
     profile = load_hierarchical_profile(api_name, source_name)
 
+    # Validate params against profile's allowed params (if defined)
+    if params and "params" in profile:
+        allowed_params = set(profile["params"])
+        provided_params = set(params.keys())
+        invalid_params = provided_params - allowed_params
+
+        if invalid_params:
+            import sys
+            invalid_list = ", ".join(sorted(invalid_params))
+            allowed_list = ", ".join(sorted(allowed_params))
+            print(
+                f"Warning: Parameters {invalid_list} are not supported by {reference}.\n"
+                f"Supported parameters: {allowed_list}\n"
+                f"The API may ignore unsupported parameters.",
+                file=sys.stderr
+            )
+
     # Build URL
     base_url = substitute_env_vars(profile.get("base_url", ""))
     path = profile.get("path", "")
