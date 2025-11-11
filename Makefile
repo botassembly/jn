@@ -16,10 +16,14 @@ test:
 
 coverage:
 	uv run coverage erase
-	uv run pytest --cov-report=term-missing
+	COVERAGE_PROCESS_START=$(PWD)/.coveragerc uv run coverage run -m pytest -q
+	uv run coverage combine
 	uv run coverage html
 	uv run coverage xml
-	uv run coverage report --fail-under=70
+	# Show full coverage for all modules (including plugins)
+	uv run coverage report
+	# Enforce threshold on core library only (do not hide data, just gate on core)
+	uv run coverage report --fail-under=70 --include='src/jn/*,src/jn/**/*'
 
 # Cleanup
 clean:

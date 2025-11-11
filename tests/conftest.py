@@ -5,12 +5,27 @@ from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
+from jn.cli import cli
 
 
 @pytest.fixture
 def cli_runner():
     """Provide Click CLI test runner."""
     return CliRunner()
+
+
+@pytest.fixture
+def invoke(cli_runner):
+    """Helper to invoke the CLI with args and optional input.
+
+    Usage:
+        result = invoke(["cat", "file.csv"])  # returns click.Result
+        result = invoke(["run", "in.csv", "out.json"])  # exit_code, output, etc.
+    """
+    def _invoke(args, input_data=None):
+        return cli_runner.invoke(cli, args, input=input_data)
+
+    return _invoke
 
 
 @pytest.fixture

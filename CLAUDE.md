@@ -98,12 +98,18 @@ jn cat data.csv | jn filter '.revenue > 1000' | jn put filtered.json
 ```
 jn/
 ├── src/jn/              # Core framework
-│   ├── cli.py           # CLI entry point
+│   ├── cli/             # CLI entry and subcommands
+│   │   ├── main.py      # CLI entry point
+│   │   ├── commands/    # cat, put, filter, head, tail, run
+│   │   └── plugins/     # plugin subcommands (list, info, call, test)
 │   ├── context.py       # JN_HOME, paths
-│   ├── discovery.py     # Plugin discovery with caching
-│   ├── registry.py      # Pattern matching
-│   ├── commands/        # cat, put, filter, head, tail, plugin, run
-│   └── plugins/         # Built-in plugins
+│   ├── discovery.py     # Plugin discovery (re-export)
+│   ├── registry.py      # Pattern matching (re-export)
+│   ├── core/            # pipeline + streaming
+│   └── plugins/         # plugin system logic (discovery/registry/service)
+│
+├── jn_home/             # Bundled default plugins (lowest priority)
+│   └── plugins/
 │       ├── formats/     # csv_.py, json_.py, yaml_.py
 │       └── filters/     # jq_.py
 │
@@ -174,7 +180,7 @@ if __name__ == '__main__':
 - Duck typing (`reads`/`writes` functions)
 - Framework passes `--mode` flag
 
-**See:** `src/jn/plugins/formats/csv_.py` for complete example
+**See:** `jn_home/plugins/formats/csv_.py` for complete example
 
 ### 3. NDJSON is the Universal Format
 
@@ -224,7 +230,7 @@ python csv_.py --mode=read < input.csv | python json_.py --mode=write > output.j
 ## Common Patterns
 
 ### Two-Stage Pipeline
-See `src/jn/commands/cat.py` for complete implementation:
+See `src/jn/core/pipeline.py` (convert) and `src/jn/cli/commands/run.py`:
 - Load plugins with fallback
 - Resolve input/output plugins via registry
 - Start reader and writer as Popen subprocesses
@@ -232,17 +238,17 @@ See `src/jn/commands/cat.py` for complete implementation:
 - Wait for both processes
 
 ### Filter Pipeline
-See `src/jn/commands/filter.py`:
+See `src/jn/cli/commands/filter.py`:
 - Find plugin (custom dir → fallback to built-in)
 - Run as Popen (inherit stdin/stdout for chaining)
 - Wait and check returncode
 
 ### Direct Plugin Invocation
 ```python
-# Test plugins directly without framework
-plugin_path = Path("src/jn/plugins/formats/csv_.py")
+# Test plugins directly without framework (bundled defaults)
+plugin_path = Path("jn_home/plugins/formats/csv_.py")
 result = subprocess.run([sys.executable, str(plugin_path), "--mode", "read"],
-                       stdin=f, capture_output=True, text=True)
+                        stdin=f, capture_output=True, text=True)
 ```
 
 ---
@@ -274,10 +280,10 @@ All stages run simultaneously!
 - `spec/roadmap.md` - Development roadmap
 
 **For code examples:**
-- `src/jn/commands/cat.py` - Pipeline execution with Popen
-- `src/jn/discovery.py` - Plugin discovery and caching
-- `src/jn/plugins/formats/csv_.py` - Example format plugin
-- `src/jn/plugins/filters/jq_.py` - Example filter (wraps jq CLI)
+- `src/jn/cli/commands/run.py` - Pipeline orchestration
+- `src/jn/discovery.py` - Plugin discovery (re-export)
+- `jn_home/plugins/formats/csv_.py` - Example format plugin
+- `jn_home/plugins/filters/jq_.py` - Example filter (wraps jq CLI)
 
 ---
 

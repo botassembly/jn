@@ -20,7 +20,6 @@ from .plugins import (
     find_plugin,
     infer_plugin_type,
     list_plugins,
-    run_plugin_test,
 )
 from .streaming import head, tail
 
@@ -36,7 +35,6 @@ __all__ = [
     "PluginInfo",
     "list_plugins",
     "find_plugin",
-    "run_plugin_test",
     "call_plugin",
     "infer_plugin_type",
     # Streaming

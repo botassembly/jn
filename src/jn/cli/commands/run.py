@@ -4,8 +4,8 @@ import sys
 
 import click
 
-from ..context import pass_context
-from ..core.pipeline import PipelineError, convert
+from ...context import pass_context
+from ...core.pipeline import PipelineError, convert
 
 
 @click.command()
@@ -30,3 +30,4 @@ def run(ctx, input_file, output_file):
     except FileNotFoundError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
+

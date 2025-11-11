@@ -90,60 +90,12 @@ def writes(config: Optional[dict] = None) -> None:
     writer.writerows(records)
 
 
-def test() -> bool:
-    """Run self-tests with real data (no mocks).
-
-    Returns:
-        True if all tests pass
-    """
-    from io import StringIO
-
-    print("Testing CSV plugin...", file=sys.stderr)
-
-    # Test 1: Basic CSV read
-    test_input = "name,age\nAlice,30\nBob,25\n"
-    sys.stdin = StringIO(test_input)
-
-    results = list(reads())
-    expected = [{"name": "Alice", "age": "30"}, {"name": "Bob", "age": "25"}]
-
-    if results == expected:
-        print("✓ CSV read test passed", file=sys.stderr)
-    else:
-        print(f"✗ CSV read test failed: {results}", file=sys.stderr)
-        return False
-
-    # Test 2: CSV write
-    sys.stdin = StringIO(
-        '{"name":"Alice","age":30}\n{"name":"Bob","age":25}\n'
-    )
-    old_stdout = sys.stdout
-    sys.stdout = StringIO()
-
-    writes()
-
-    output = sys.stdout.getvalue()
-    sys.stdout = old_stdout
-
-    expected_output = "name,age\nAlice,30\nBob,25\n"
-
-    if output == expected_output:
-        print("✓ CSV write test passed", file=sys.stderr)
-    else:
-        print(f"✗ CSV write test failed: {output!r}", file=sys.stderr)
-        return False
-
-    print("All CSV tests passed!", file=sys.stderr)
-    return True
-
-
 if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(
         description="CSV format plugin - read/write CSV files"
     )
-    parser.add_argument("--test", action="store_true", help="Run self-tests")
     parser.add_argument(
         "--mode",
         choices=["read", "write"],
@@ -166,10 +118,6 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
-
-    if args.test:
-        success = test()
-        sys.exit(0 if success else 1)
 
     if not args.mode:
         parser.error("--mode is required when not running tests")

@@ -47,11 +47,12 @@ dev = [
 jn = "jn.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/jn"]
+packages = ["src/jn", "jn_home"]
 
 [tool.hatch.build]
 include = [
     "src/jn/**/*.py",
+    "jn_home/**/*.py",
 ]
 
 [tool.black]
@@ -87,7 +88,7 @@ ignore = [
 "src/jn/drivers/shell.py" = ["S602"]
 "src/jn/cli/main.py" = ["E402"]
 "src/jn/commands/*.py" = ["S603"]
-"src/jn/plugins/filters/jq_.py" = ["S603","S607","S110"]
+"jn_home/plugins/filters/jq_.py" = ["S603","S607","S110"]
 
 [tool.mypy]
 python_version = "3.10"

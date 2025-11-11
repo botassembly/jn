@@ -6,6 +6,7 @@ from pathlib import Path
 import click
 
 from ..context import JNContext
+from ..config.home import resolve_home
 
 
 @click.group(
@@ -19,27 +20,21 @@ def cli(ctx, home):
     """JN - Agent-native ETL with NDJSON pipelines."""
     ctx.ensure_object(JNContext)
 
-    # Determine JN_HOME priority: --home > $JN_HOME > default
-    if home:
-        ctx.obj.home = Path(home)
-    elif "JN_HOME" in os.environ:
-        ctx.obj.home = Path(os.environ["JN_HOME"])
-    else:
-        ctx.obj.home = None  # Use built-in plugins
-
-    # Set paths
-    if ctx.obj.home:
-        ctx.obj.plugin_dir = ctx.obj.home / "plugins"
-        ctx.obj.cache_path = ctx.obj.home / "cache.json"
-    else:
-        # Use built-in plugins (up two levels from cli/main.py to jn/)
-        ctx.obj.plugin_dir = Path(__file__).parent.parent / "plugins"
-        ctx.obj.cache_path = Path(__file__).parent.parent / "cache.json"
+    # Resolve plugin home and paths once
+    paths = resolve_home(home)
+    ctx.obj.home = paths.home_dir
+    ctx.obj.plugin_dir = paths.plugin_dir
+    ctx.obj.cache_path = paths.cache_path
 
 
 # Register commands at module level so tests can import cli with commands attached
-from ..commands import cat, filter, head, put, run, tail
-from .plugin import plugin
+from .commands.cat import cat
+from .commands.put import put
+from .commands.run import run
+from .commands.filter import filter
+from .commands.head import head
+from .commands.tail import tail
+from .plugins import plugin
 
 cli.add_command(cat)
 cli.add_command(put)

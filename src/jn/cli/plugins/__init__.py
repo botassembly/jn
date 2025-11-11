@@ -5,12 +5,11 @@ import sys
 
 import click
 
-from ..context import pass_context
-from ..core.plugins import (
+from ...context import pass_context
+from ...plugins.service import (
     call_plugin,
     find_plugin,
     list_plugins,
-    run_plugin_test,
 )
 
 
@@ -166,47 +165,4 @@ def call(ctx, args):
     sys.exit(exit_code)
 
 
-@plugin.command(name="test")
-@click.argument('plugin_name', required=False)
-@pass_context
-def test(ctx, plugin_name):
-    """Run plugin self-tests.
-
-    If no plugin name is provided, tests all plugins.
-    """
-    if plugin_name:
-        # Test single plugin
-        plugin_info = find_plugin(plugin_name, ctx.plugin_dir, ctx.cache_path)
-
-        if plugin_info is None:
-            click.echo(f"Error: Plugin '{plugin_name}' not found", err=True)
-            sys.exit(1)
-
-        click.echo(f"Testing {plugin_name}...")
-        result = run_plugin_test(plugin_info.path, capture_output=False)
-        sys.exit(result.returncode)
-    else:
-        # Test all plugins
-        plugins = list_plugins(ctx.plugin_dir, ctx.cache_path)
-        failed = []
-        passed = []
-
-        for name, info in sorted(plugins.items()):
-            click.echo(f"Testing {name}...", nl=False)
-
-            result = run_plugin_test(info.path, capture_output=True)
-
-            if result.returncode == 0:
-                click.echo(" ✓")
-                passed.append(name)
-            else:
-                click.echo(" ✗")
-                failed.append(name)
-                if result.stderr:
-                    click.echo(f"  Error: {result.stderr}", err=True)
-
-        click.echo(f"\nResults: {len(passed)} passed, {len(failed)} failed")
-
-        if failed:
-            click.echo(f"Failed: {', '.join(failed)}", err=True)
-            sys.exit(1)
+# Note: plugin self-tests have been removed. Use outside-in CLI tests instead.

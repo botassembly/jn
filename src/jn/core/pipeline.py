@@ -11,6 +11,7 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Optional, TextIO
+import io
 
 from ..discovery import get_cached_plugins_with_fallback
 from ..registry import build_registry
@@ -127,18 +128,37 @@ def write_destination(
 
     # Execute writer
     with open(dest, "w") as outfile:
+        # Some environments provide a non-file stdin (e.g., Click runner)
+        # If input_stream lacks fileno(), feed data via PIPE.
+        try:
+            input_stream.fileno()  # type: ignore[attr-defined]
+            stdin_source = input_stream
+            input_data = None
+            text_mode = False
+        except Exception:
+            stdin_source = subprocess.PIPE
+            input_data = input_stream.read()
+            text_mode = True if isinstance(input_data, str) else False
+
         proc = subprocess.Popen(
             [sys.executable, plugin.path, "--mode", "write"],
-            stdin=input_stream,
+            stdin=stdin_source,
             stdout=outfile,
             stderr=subprocess.PIPE,
+            text=text_mode,
         )
+
+        if input_data is not None:
+            proc.stdin.write(input_data)  # type: ignore[union-attr]
+            proc.stdin.close()  # type: ignore[union-attr]
 
         proc.wait()
 
         if proc.returncode != 0:
-            error_msg = proc.stderr.read().decode()
-            raise PipelineError(f"Writer error: {error_msg}")
+            err = proc.stderr.read()
+            if not text_mode and isinstance(err, bytes):
+                err = err.decode()
+            raise PipelineError(f"Writer error: {err}")
 
 
 def convert(
@@ -242,15 +262,36 @@ def filter_stream(
     plugin = plugins["jq_"]
 
     # Execute filter
+    # Handle non-file stdin by feeding via PIPE
+    try:
+        input_stream.fileno()  # type: ignore[attr-defined]
+        stdin_source = input_stream
+        input_data = None
+        text_mode = False
+    except Exception:
+        stdin_source = subprocess.PIPE
+        input_data = input_stream.read()
+        text_mode = True if isinstance(input_data, str) else False
+
     proc = subprocess.Popen(
         [sys.executable, plugin.path, "--query", query],
-        stdin=input_stream,
-        stdout=output_stream,
+        stdin=stdin_source,
+        stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        text=True,
     )
+
+    if input_data is not None:
+        proc.stdin.write(input_data)  # type: ignore[union-attr]
+        proc.stdin.close()  # type: ignore[union-attr]
+
+    # Stream output to provided output_stream to respect Click runner
+    assert proc.stdout is not None
+    for line in proc.stdout:
+        output_stream.write(line)
 
     proc.wait()
 
     if proc.returncode != 0:
-        error_msg = proc.stderr.read().decode()
-        raise PipelineError(f"Filter error: {error_msg}")
+        err = proc.stderr.read()
+        raise PipelineError(f"Filter error: {err}")
