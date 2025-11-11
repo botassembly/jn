@@ -5,8 +5,7 @@ from pathlib import Path
 
 import click
 
-from ..context import JNContext
-from ..config.home import resolve_home
+from ..context import JNContext, resolve_home
 
 
 @click.group(

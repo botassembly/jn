@@ -13,9 +13,8 @@ import sys
 from pathlib import Path
 from typing import Dict, Optional, TextIO, Tuple
 
-from ..discovery import get_cached_plugins_with_fallback
-from ..registry import build_registry
-from ..plugins.discovery import PluginMetadata
+from ..plugins.discovery import PluginMetadata, get_cached_plugins_with_fallback
+from ..plugins.registry import build_registry
 
 
 class PipelineError(Exception):

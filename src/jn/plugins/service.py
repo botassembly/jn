@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 import io
 
-from ..discovery import (
+from .discovery import (
     PluginMetadata,
     get_cached_plugins_with_fallback,
     parse_pep723,
