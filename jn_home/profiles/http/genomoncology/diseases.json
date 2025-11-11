@@ -1,5 +1,6 @@
 {
   "path": "/diseases",
   "method": "GET",
-  "type": "source"
+  "type": "source",
+  "params": ["disease", "page", "limit"]
 }
