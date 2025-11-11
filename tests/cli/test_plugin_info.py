@@ -27,7 +27,7 @@ def test_plugin_info_with_dependencies_and_python_version(invoke, tmp_path):
 # requires-python = ">=3.12"
 # dependencies = ["pandas>=2.0", "numpy>=1.20"]
 # [tool.jn]
-# matches = [".*\\.wd$"]
+# matches = ['.*\\.wd$']
 # ///
 """Plugin with dependencies."""
 
@@ -83,7 +83,7 @@ def test_plugin_info_write_only_plugin(invoke, tmp_path):
 # requires-python = ">=3.11"
 # dependencies = []
 # [tool.jn]
-# matches = [".*\\.wo$"]
+# matches = ['.*\\.wo$']
 # ///
 
 def writes(config=None):
@@ -107,10 +107,10 @@ def test_plugin_info_read_only_plugin(invoke, tmp_path):
 # requires-python = ">=3.11"
 # dependencies = []
 # [tool.jn]
-# matches = [".*\\.ro$"]
+# matches = ['.*\\.ro$']
 # ///
 
-def reads(config=None):
+def reads(config=none):
     pass
 '''
     )

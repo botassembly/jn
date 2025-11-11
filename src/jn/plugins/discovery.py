@@ -50,13 +50,8 @@ def parse_pep723(filepath: Path) -> dict:
     try:
         return tomllib.loads(toml_content)
     except tomllib.TOMLDecodeError:
-        # Try relaxed parsing (replace double quotes with single quotes)
-        try:
-            relaxed = re.sub(r'"([^"\n]*)"', r"'\1'", toml_content)
-            return tomllib.loads(relaxed)
-        except tomllib.TOMLDecodeError:
-            # Can't parse - return empty dict so discovery continues
-            return {}
+        # Can't parse - return empty dict so discovery continues
+        return {}
 
 
 def discover_plugins(plugin_dir: Path) -> Dict[str, PluginMetadata]:

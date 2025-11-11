@@ -22,7 +22,7 @@ def test_plugin_list_json_and_custom_merge(invoke, tmp_path):
 # requires-python = ">=3.11"
 # dependencies = []
 # [tool.jn]
-# matches = [".*\\.custom$"]
+# matches = ['.*\\.custom$']
 # ///
 
 def reads(config=None):
@@ -61,7 +61,7 @@ def test_plugin_list_with_plugin_without_description(invoke, tmp_path):
 # requires-python = ">=3.11"
 # dependencies = []
 # [tool.jn]
-# matches = [".*\\.nd1$", ".*\\.nd2$", ".*\\.nd3$"]
+# matches = ['.*\\.nd1$', '.*\\.nd2$', '.*\\.nd3$']
 # ///
 
 def reads(config=None):
