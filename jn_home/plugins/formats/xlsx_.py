@@ -24,7 +24,6 @@ def reads(config: Optional[dict] = None) -> Iterator[dict]:
     Config:
         sheet: Sheet name or index (default: 0 for first sheet)
         skip_rows: Number of rows to skip before header (default: 0)
-        header_row: Row number to use as header (default: 1, first row after skips)
 
     Yields:
         Dict per Excel row with column headers as keys
@@ -34,7 +33,6 @@ def reads(config: Optional[dict] = None) -> Iterator[dict]:
     config = config or {}
     sheet_selector = config.get("sheet", 0)
     skip_rows = config.get("skip_rows", 0)
-    header_row = config.get("header_row", 1)
 
     # Read binary data from stdin
     xlsx_data = sys.stdin.buffer.read()
@@ -80,14 +78,10 @@ def reads(config: Optional[dict] = None) -> Iterator[dict]:
         record = {}
         for i, col_name in enumerate(header):
             value = row[i] if i < len(row) else None
-            # Convert cell value to JSON-serializable type
-            if value is not None:
-                # Handle datetime objects
-                if hasattr(value, 'isoformat'):
-                    value = value.isoformat()
-                record[col_name] = value
-            else:
-                record[col_name] = None
+            # Convert datetime objects to ISO format
+            if value is not None and hasattr(value, 'isoformat'):
+                value = value.isoformat()
+            record[col_name] = value
 
         yield record
 
@@ -103,7 +97,6 @@ def writes(config: Optional[dict] = None) -> None:
     Reads all records to create workbook, then writes binary XLSX.
     """
     import openpyxl
-    from openpyxl.utils import get_column_letter
 
     config = config or {}
     sheet_name = config.get("sheet", "Sheet1")
@@ -173,12 +166,6 @@ if __name__ == "__main__":
         default=0,
         help="Number of rows to skip before header when reading",
     )
-    parser.add_argument(
-        "--header-row",
-        type=int,
-        default=1,
-        help="Row number to use as header when reading (default: 1)",
-    )
 
     args = parser.parse_args()
 
@@ -196,8 +183,8 @@ if __name__ == "__main__":
             config["sheet"] = args.sheet
 
     if args.mode == "read":
-        config["skip_rows"] = args.skip_rows
-        config["header_row"] = args.header_row
+        if args.skip_rows:
+            config["skip_rows"] = args.skip_rows
         for record in reads(config):
             print(json.dumps(record), flush=True)
     else:
