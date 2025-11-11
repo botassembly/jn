@@ -9,6 +9,8 @@
 # matches = [
 #   ".*\\.table$",
 #   ".*\\.tbl$",
+#   "^-$",
+#   "^stdout$"
 # ]
 # ///
 
@@ -79,27 +81,32 @@ def _parse_value(value: str):
     value = value.strip()
 
     # Handle empty/null
-    if not value or value.lower() in ("null", "none", ""):
+    if not value or value.lower() in ("null", "none"):
         return None
 
     # Handle boolean
-    if value.lower() == "true":
+    value_lower = value.lower()
+    if value_lower == "true":
         return True
-    if value.lower() == "false":
+    if value_lower == "false":
         return False
 
     # Handle numbers
     try:
-        # Try int first
         if "." not in value and "e" not in value.lower():
             return int(value)
-        # Try float
         return float(value)
     except ValueError:
-        pass
+        return value
 
-    # Return as string
-    return value
+
+def _strip_edges(values: list[str]) -> list[str]:
+    """Remove one leading/trailing empty string from list (from pipes)."""
+    if values and values[0] == "":
+        values = values[1:]
+    if values and values[-1] == "":
+        values = values[:-1]
+    return values
 
 
 def _parse_pipe_table(lines: list[str]) -> Iterator[dict]:
@@ -145,13 +152,8 @@ def _parse_pipe_table(lines: list[str]) -> Iterator[dict]:
         if re.match(r"^\s*\|[\s\-:|]+\|\s*$", line):
             continue
 
-        # Split by pipes and strip each value
-        values = [v.strip() for v in line.split("|")]
-        # Remove leading/trailing empty strings (from leading/trailing pipes)
-        if values and values[0] == "":
-            values = values[1:]
-        if values and values[-1] == "":
-            values = values[:-1]
+        # Split by pipes, strip, and remove leading/trailing empty strings
+        values = _strip_edges([v.strip() for v in line.split("|")])
 
         # Match values to headers
         if len(values) >= len(headers):
@@ -216,13 +218,8 @@ def _parse_grid_table(lines: list[str]) -> Iterator[dict]:
         if "|" not in line and "│" not in line:
             continue
 
-        # Split by | or │ and strip each value
-        values = [v.strip() for v in re.split(r"[|│]", line)]
-        # Remove leading/trailing empty strings (from leading/trailing separators)
-        if values and values[0] == "":
-            values = values[1:]
-        if values and values[-1] == "":
-            values = values[:-1]
+        # Split by | or │, strip, and remove leading/trailing empty strings
+        values = _strip_edges([v.strip() for v in re.split(r"[|│]", line)])
 
         # Match values to headers
         if len(values) >= len(headers):
