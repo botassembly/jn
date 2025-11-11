@@ -8,6 +8,7 @@ This module handles the actual execution of data pipelines:
 """
 
 import io
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -20,6 +21,19 @@ from ..plugins.registry import build_registry
 class PipelineError(Exception):
     """Error during pipeline execution."""
     pass
+
+
+def _check_uv_available() -> None:
+    """Check if UV is available and exit with helpful message if not."""
+    if not shutil.which("uv"):
+        print("Error: UV is required to run JN plugins", file=sys.stderr)
+        print("", file=sys.stderr)
+        print("Install UV with one of these methods:", file=sys.stderr)
+        print("  curl -LsSf https://astral.sh/uv/install.sh | sh", file=sys.stderr)
+        print("  pip install uv", file=sys.stderr)
+        print("", file=sys.stderr)
+        print("More info: https://docs.astral.sh/uv/", file=sys.stderr)
+        sys.exit(1)
 
 
 def _load_plugins_and_registry(
@@ -87,6 +101,9 @@ def start_reader(
     Raises:
         PipelineError: If plugin not found
     """
+    # Check UV availability
+    _check_uv_available()
+
     # Load plugins and find reader
     plugins, registry = _load_plugins_and_registry(plugin_dir, cache_path)
 
@@ -160,6 +177,9 @@ def write_destination(
     Raises:
         PipelineError: If plugin not found or execution fails
     """
+    # Check UV availability
+    _check_uv_available()
+
     # Load plugins and find writer
     plugins, registry = _load_plugins_and_registry(plugin_dir, cache_path)
 
@@ -215,6 +235,9 @@ def convert(
     Raises:
         PipelineError: If plugin not found or execution fails
     """
+    # Check UV availability
+    _check_uv_available()
+
     # Load plugins
     plugins, registry = _load_plugins_and_registry(plugin_dir, cache_path)
 
@@ -286,6 +309,9 @@ def filter_stream(
     Raises:
         PipelineError: If jq plugin not found or execution fails
     """
+    # Check UV availability
+    _check_uv_available()
+
     # Load plugins
     plugins, _ = _load_plugins_and_registry(plugin_dir, cache_path)
 
