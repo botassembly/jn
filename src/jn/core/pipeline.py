@@ -55,6 +55,39 @@ def _load_plugins_and_registry(
     return plugins, registry
 
 
+def _resolve_plugin_name(plugin_name: str, plugins: Dict[str, PluginMetadata]) -> Optional[str]:
+    """Resolve plugin name with fallback to underscore suffix.
+
+    Strategy:
+    1. Try exact match first (highest priority)
+    2. Try with underscore suffix as fallback
+    3. Return None if neither found
+
+    Args:
+        plugin_name: Plugin name requested by user (e.g., 'csv' or 'csv_')
+        plugins: Dict of available plugins
+
+    Returns:
+        Resolved plugin name, or None if not found
+
+    Examples:
+        - User asks for 'csv', 'csv' exists → returns 'csv'
+        - User asks for 'csv', only 'csv_' exists → returns 'csv_'
+        - User asks for 'csv_', 'csv_' exists → returns 'csv_' (exact match)
+    """
+    # Try exact match first (highest priority)
+    if plugin_name in plugins:
+        return plugin_name
+
+    # Try with underscore suffix as fallback
+    fallback_name = f"{plugin_name}_"
+    if fallback_name in plugins:
+        return fallback_name
+
+    # Not found
+    return None
+
+
 def _prepare_stdin_for_subprocess(
     input_stream: TextIO,
 ) -> Tuple[object, Optional[str], bool]:
@@ -226,10 +259,14 @@ def write_destination(
 
     # Resolve plugin
     if plugin_name:
-        # Explicit plugin specified
-        if plugin_name not in plugins:
-            raise PipelineError(f"Plugin '{plugin_name}' not found")
-        plugin = plugins[plugin_name]
+        # Explicit plugin specified - try exact match, then fallback to underscore suffix
+        resolved_name = _resolve_plugin_name(plugin_name, plugins)
+        if not resolved_name:
+            raise PipelineError(
+                f"Plugin '{plugin_name}' not found. "
+                f"Available plugins: {', '.join(sorted(plugins.keys()))}"
+            )
+        plugin = plugins[resolved_name]
     else:
         # Auto-detect from destination
         matched_name = registry.match(dest)

@@ -66,7 +66,7 @@ jn cat @genomoncology/alterations | \
 jn cat @genomoncology/alterations | \
   jn filter '@genomoncology/extract-alterations' | \
   head -n 10 | \
-  jn put --plugin tabulate_ --tablefmt grid -
+  jn put --plugin tabulate --tablefmt grid -
 ```
 
 **Output:**
@@ -87,7 +87,7 @@ jn cat @genomoncology/alterations | \
 # Get EGFR alterations
 jn cat @genomoncology/alterations?gene=EGFR | \
   jn filter '.results[] | {gene, name, mutation_type}' | \
-  jn put --plugin tabulate_ -
+  jn put --plugin tabulate -
 ```
 
 ### 3. Save to CSV
@@ -116,15 +116,32 @@ The tabulate plugin formats NDJSON as **pretty tables for human viewing**. Unlik
 **Yes!** The `--plugin` flag enables explicit plugin selection, bypassing file extension matching:
 
 ```bash
-jn put --plugin tabulate_ -        # Use tabulate plugin, write to stdout
-jn put --plugin tabulate_ stdout   # Same thing (alternative syntax)
-jn put --plugin csv_ output.txt    # Use CSV plugin even for .txt file
+jn put --plugin tabulate -        # Use tabulate plugin, write to stdout
+jn put --plugin tabulate stdout   # Same thing (alternative syntax)
+jn put --plugin csv output.txt    # Use CSV plugin even for .txt file
 ```
 
 **Why this works:**
-1. **Explicit plugin** (`--plugin tabulate_`) overrides registry matching
+1. **Explicit plugin** (`--plugin tabulate`) overrides registry matching
 2. **Stdout destinations** (`-` or `stdout`) skip file creation
 3. **Plugin config** (e.g., `--tablefmt grid`) passes args to plugin
+
+**Plugin Name Resolution:**
+
+JN uses a smart fallback strategy for plugin names:
+1. **Exact match first** - If you ask for `csv` and there's a plugin named `csv`, use it
+2. **Underscore fallback** - If no exact match, try `csv_` (the actual plugin names)
+3. **User-friendly** - You can use either `tabulate` or `tabulate_`, both work!
+
+```bash
+# All of these work:
+jn put --plugin tabulate -      # Resolves to tabulate_
+jn put --plugin tabulate_ -     # Direct match
+jn put --plugin csv output.csv  # Resolves to csv_
+jn put --plugin csv_ output.csv # Direct match
+```
+
+This means you can use clean names without worrying about trailing underscores!
 
 ### Is Tabulate a Format?
 
@@ -143,11 +160,11 @@ jn put --plugin csv_ output.txt    # Use CSV plugin even for .txt file
 
 ```bash
 # Different table styles
-jn cat data.json | jn put --plugin tabulate_ --tablefmt simple -
-jn cat data.json | jn put --plugin tabulate_ --tablefmt grid -
-jn cat data.json | jn put --plugin tabulate_ --tablefmt fancy_grid -
-jn cat data.json | jn put --plugin tabulate_ --tablefmt psql -
-jn cat data.json | jn put --plugin tabulate_ --tablefmt markdown -
+jn cat data.json | jn put --plugin tabulate --tablefmt simple -
+jn cat data.json | jn put --plugin tabulate --tablefmt grid -
+jn cat data.json | jn put --plugin tabulate --tablefmt fancy_grid -
+jn cat data.json | jn put --plugin tabulate --tablefmt psql -
+jn cat data.json | jn put --plugin tabulate --tablefmt markdown -
 ```
 
 **Available formats:**
@@ -271,7 +288,7 @@ jn cat schema.json | \
 # Find all BRAF V600E-related alterations
 jn cat @genomoncology/alterations?name=BRAF+V600E | \
   jn filter '.results[]' | \
-  jn put --plugin tabulate_ --tablefmt grid -
+  jn put --plugin tabulate --tablefmt grid -
 ```
 
 ### 2. Gene Analysis
@@ -290,7 +307,7 @@ jn cat @genomoncology/alterations?gene=EGFR | \
 jn cat @genomoncology/alterations | \
   jn filter '@genomoncology/extract-alterations' | \
   head -n 20 | \
-  jn put --plugin tabulate_ --tablefmt simple -
+  jn put --plugin tabulate --tablefmt simple -
 ```
 
 ### 4. Multi-stage Pipeline
@@ -301,7 +318,7 @@ jn cat @genomoncology/alterations | \
   jn filter '.results[] | select(.mutation_type_group == "Missense")' | \
   jn filter '{gene, aa_change, biomarkers: .biomarkers[0]}' | \
   head -n 25 | \
-  jn put --plugin tabulate_ --tablefmt psql -
+  jn put --plugin tabulate --tablefmt psql -
 ```
 
 ---
@@ -313,8 +330,8 @@ jn cat @genomoncology/alterations | \
 **Yes!** The `--plugin` flag explicitly specifies which plugin to use:
 
 ```bash
-jn put --plugin tabulate_ -      # Tabulate to stdout
-jn put --plugin csv_ output.txt  # CSV even for .txt
+jn put --plugin tabulate -      # Tabulate to stdout
+jn put --plugin csv output.txt  # CSV even for .txt
 ```
 
 ### 2. Is tabulate a "format" like CSV/JSON/TOML?
@@ -331,7 +348,7 @@ It's more accurate to call it a **"renderer"** or **"presenter"** than a traditi
 **Three approaches:**
 
 1. **Pattern matching** - Tabulate plugin matches `^-$` and `^stdout$`
-2. **Explicit plugin** - Use `--plugin tabulate_` flag
+2. **Explicit plugin** - Use `--plugin tabulate` flag
 3. **Auto-detection** - When dest is `-`, prefer display formats
 
 All three work! The `--plugin` flag is most explicit and recommended.
@@ -376,7 +393,7 @@ echo "Fetching FGF3 alterations..."
 jn cat @genomoncology/alterations | \
   jn filter '.results[] | select(.gene == "FGF3") | {gene, name, mutation_type, aa_change}' | \
   head -n 15 | \
-  jn put --plugin tabulate_ --tablefmt grid -
+  jn put --plugin tabulate --tablefmt grid -
 
 echo ""
 echo "=== Saving to CSV for further analysis ==="
