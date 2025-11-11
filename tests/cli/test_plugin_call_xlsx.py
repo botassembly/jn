@@ -168,3 +168,31 @@ def test_plugin_xlsx_read_empty_rows_direct():
 
     lines = [l for l in result.stdout.decode().strip().split("\n") if l]
     assert len(lines) == 2  # Empty row should be skipped
+
+
+def test_plugin_xlsx_write_via_jn_plugin_call(invoke):
+    """Test binary XLSX output via 'jn plugin call' command."""
+    ndjson = '{"name":"Alice","age":30}\n{"name":"Bob","age":25}\n'
+
+    # Call via jn plugin call command (tests binary output handling in service.py)
+    result = invoke(["plugin", "call", "xlsx_", "--mode", "write"], input_data=ndjson)
+
+    assert result.exit_code == 0, f"Failed: {result.output}"
+
+    # Verify output is valid XLSX
+    import openpyxl
+
+    # Get binary output from result
+    xlsx_bytes = result.stdout_bytes if hasattr(result, 'stdout_bytes') else result.output.encode('latin-1')
+    workbook = openpyxl.load_workbook(io.BytesIO(xlsx_bytes))
+    sheet = workbook.active
+
+    # Check header
+    assert sheet.cell(row=1, column=1).value == "name"
+    assert sheet.cell(row=1, column=2).value == "age"
+
+    # Check data
+    assert sheet.cell(row=2, column=1).value == "Alice"
+    assert sheet.cell(row=2, column=2).value == 30
+    assert sheet.cell(row=3, column=1).value == "Bob"
+    assert sheet.cell(row=3, column=2).value == 25
