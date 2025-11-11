@@ -27,3 +27,19 @@ def test_cat_then_put_pipeline(invoke, people_csv, tmp_path):
     assert len(data) == 5
     assert data[0]["name"] == "Alice"
 
+
+def test_cat_file_not_found(invoke):
+    """Test cat with non-existent file."""
+    result = invoke(["cat", "/nonexistent/file.csv"])
+    assert result.exit_code == 1
+    assert "Error:" in result.output
+
+
+def test_cat_unsupported_format(invoke, tmp_path):
+    """Test cat with unsupported file format (no matching plugin)."""
+    unknown_file = tmp_path / "test.unknownext"
+    unknown_file.write_text("some content")
+    result = invoke(["cat", str(unknown_file)])
+    assert result.exit_code == 1
+    assert "Error:" in result.output
+

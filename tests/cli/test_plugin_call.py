@@ -13,3 +13,19 @@ def test_plugin_call_csv_read(invoke, people_csv):
     first = json.loads(lines[0])
     assert first["name"] == "Alice"
 
+
+def test_plugin_call_no_args(invoke):
+    """Test plugin call with no arguments (missing plugin name)."""
+    result = invoke(["plugin", "call"])
+    # Click returns exit code 2 for missing required arguments
+    assert result.exit_code == 2
+    assert "Missing argument" in result.output or "Error" in result.output
+
+
+def test_plugin_call_not_found(invoke):
+    """Test plugin call with non-existent plugin."""
+    result = invoke(["plugin", "call", "nonexistent_plugin", "--mode", "read"])
+    assert result.exit_code == 1
+    assert "Error: Plugin 'nonexistent_plugin' not found" in result.output
+    assert "Available plugins:" in result.output
+
