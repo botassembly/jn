@@ -92,11 +92,11 @@ def test_mcp_plugin_has_clean_interface(mcp_plugin):
 
 # Integration tests using test fixture profiles
 # These test the full pipeline: CLI → plugin → profile system
-# Note: MCP profiles are in tests/fixtures (not bundled), set via conftest.py
+# Note: MCP profiles are in tests/jn_home (not bundled), set via conftest.py
 
 def test_mcp_profile_biomcp_exists():
-    """Test that BioMCP profile exists in test fixtures."""
-    biomcp_meta = Path(__file__).parent.parent / "fixtures" / "profiles" / "mcp" / "biomcp" / "_meta.json"
+    """Test that BioMCP profile exists in test jn_home."""
+    biomcp_meta = Path(__file__).parent.parent / "jn_home" / "profiles" / "mcp" / "biomcp" / "_meta.json"
     assert biomcp_meta.exists(), f"BioMCP profile not found at {biomcp_meta}"
 
     meta = json.loads(biomcp_meta.read_text())
@@ -105,8 +105,8 @@ def test_mcp_profile_biomcp_exists():
 
 
 def test_mcp_profile_context7_exists():
-    """Test that Context7 profile exists in test fixtures."""
-    context7_meta = Path(__file__).parent.parent / "fixtures" / "profiles" / "mcp" / "context7" / "_meta.json"
+    """Test that Context7 profile exists in test jn_home."""
+    context7_meta = Path(__file__).parent.parent / "jn_home" / "profiles" / "mcp" / "context7" / "_meta.json"
     assert context7_meta.exists(), f"Context7 profile not found at {context7_meta}"
 
     meta = json.loads(context7_meta.read_text())
