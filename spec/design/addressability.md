@@ -19,32 +19,86 @@ JN uses a **universal addressing system** where everything is addressable: files
 
 ---
 
-## Address Syntax
+## Addressing Operators
 
 JN addresses use two operators:
 
 | Operator | Purpose | Example |
 |----------|---------|---------|
-| `~` | **Format override** | `-~csv`, `file.txt~json` |
-| `?` | **Parameters/config** | `?gene=BRAF`, `?delimiter=;` |
+| `~` | **Format override** | `-~csv`, `file.txt~json`, `-~table.grid` |
+| `?` | **Parameters** | `?gene=BRAF`, `?delimiter=;`, `?tablefmt=grid` |
 
-**Combined:**
+**Syntax:**
+```
+address[~format][?parameters]
+```
+
+**Examples:**
 ```bash
--~csv?delimiter=;              # Override to CSV with semicolon delimiter
-file.txt~table?fmt=grid        # Override to table format with grid style
+file.csv                       # Auto-detect format from extension
+file.txt~csv                   # Override: treat as CSV
+-~csv?delimiter=;              # Override: CSV, params: semicolon delimiter
+@api/source?gene=BRAF          # Profile with query parameters
+```
+
+---
+
+## Format Override: The `~` Operator
+
+**Purpose:** Override auto-detected format (which plugin to use)
+
+**Common overrides:**
+```bash
+# Force specific format
+file.txt~csv                   # Treat text file as CSV
+data.unknown~json              # Parse unknown extension as JSON
+-~csv                          # Parse stdin as CSV
+-~table.grid                   # Output stdout as grid table
+
+# Format variants (shorthands)
+-~table.grid                   # Equivalent to -~table?tablefmt=grid
+-~table.markdown               # Equivalent to -~table?tablefmt=markdown
+-~table.html                   # Equivalent to -~table?tablefmt=html
+```
+
+**When to use:**
+- File has wrong/no extension
+- Stdin/stdout with known format
+- Force specific output style
+- Try different parser
+
+---
+
+## Parameters: The `?` Operator
+
+**Purpose:** Pass parameters to profiles and plugin configuration
+
+**Parameters go to both:**
+- **Profile parameters** - API query params, search filters
+- **Plugin configuration** - Format options, output styling
+
+**Examples:**
+```bash
+# Profile parameters
+@genomoncology/alterations?gene=BRAF&limit=10
+
+# Plugin configuration
+-~csv?delimiter=;
+-~table?tablefmt=grid&maxcolwidths=20
+
+# Combined (profile + plugin both receive params)
+@api/source?limit=100          # Both profile and plugin get limit=100
 ```
 
 ---
 
 ## Address Types
 
-JN supports five types of addresses:
-
-### 1. Files
+### Files
 **Syntax:** `path/to/file.ext[~format][?config]`
 
 ```bash
-# Auto-detected format (from extension)
+# Auto-detected format
 jn cat data.csv
 jn cat /absolute/path/data.json
 jn cat ./relative/data.yaml
@@ -54,15 +108,16 @@ jn cat data.txt~csv                    # Force CSV parsing
 jn cat data.unknown~json               # Treat as JSON
 
 # Format override + config
-jn cat data.csv~csv?delimiter=tab      # TSV with tab delimiter
-jn put output.txt~json?indent=4        # JSON with indentation
+jn cat data.csv~csv?delimiter=;        # Semicolon-separated
+jn cat data.tsv~csv?delimiter=\t       # Tab-separated (TSV)
+jn put output.txt~json?indent=4        # Pretty JSON
 ```
 
-**Why:** Standard file paths, format override when auto-detection isn't right.
+**Auto-detection:** File extension determines format (`.csv` → CSV plugin, `.json` → JSON plugin)
 
 ---
 
-### 2. Protocol URLs
+### Protocol URLs
 **Syntax:** `protocol://path[?params]`
 
 ```bash
@@ -74,197 +129,131 @@ jn cat "https://api.example.com/data.json?key=value"
 jn cat "s3://bucket/key.json"
 jn cat "s3://bucket/data.csv?region=us-west-2"
 
-# Gmail
+# Gmail (protocol plugin)
 jn cat "gmail://me/messages?from=boss&is=unread"
 
 # FTP
 jn cat "ftp://server/path/file.xlsx"
 ```
 
+**Note:** The `?params` in protocol URLs are part of the URL itself (standard URL query string), not JN operators.
+
 **Two-stage resolution:**
 1. **Protocol** detected (`http://` → HTTP plugin)
-2. **Format** detected (`.csv` extension → CSV plugin)
-
-**For binary formats** (XLSX, PDF, Parquet):
-```
-http://example.com/data.xlsx
-  → curl downloads bytes
-  → XLSX plugin parses
-  → NDJSON stream
-```
-
-**For text formats** (JSON, CSV, NDJSON):
-```
-http://example.com/data.json
-  → HTTP plugin downloads and parses
-  → NDJSON stream
-```
-
-**Why:** Standard URL syntax everyone knows. Protocols are explicit and unambiguous.
+2. **Format** detected (`.csv` extension → CSV plugin for binary formats)
 
 ---
 
-### 3. Profile References
-**Syntax:** `@api/source[?params]`
+### Profile References
+**Syntax:** `@profile/component[?params]`
 
-Profiles are **named configurations** for APIs, databases, and services. They abstract authentication, base URLs, and endpoint structure.
+Profiles are **named configurations** for APIs, databases, and services.
 
+**Pattern:** `@profile/component`
+- `profile` - Plugin or profile namespace (e.g., `genomoncology`, `gmail`, `stripe`)
+- `component` - Source or target name (e.g., `alterations`, `inbox`, `orders`)
+
+**Examples:**
 ```bash
 # HTTP API profiles
 jn cat "@genomoncology/alterations?gene=BRAF&limit=10"
 jn cat "@github/repos?org=anthropics"
 jn cat "@stripe/customers?created_after=2024-01-01"
 
-# Gmail profile (friendlier than protocol URL)
+# Gmail profile (wraps gmail:// protocol)
 jn cat "@gmail/inbox?from=boss&newer_than=7d"
 
 # Database profiles
 jn cat "@warehouse/orders?status=pending"
-jn cat "@analytics/revenue?year=2024"
 ```
 
-**Profile resolution:**
+**How it works:**
 ```
 @genomoncology/alterations?gene=BRAF
   ↓
 Load: profiles/http/genomoncology/_meta.json (connection config)
-      + profiles/http/genomoncology/alterations.json (endpoint config)
+      + profiles/http/genomoncology/alterations.json (source config)
   ↓
-Resolve to: https://pwb-demo.genomoncology.io/api/alterations?gene=BRAF
+Resolve to: https://api.genomoncology.io/api/alterations?gene=BRAF
   ↓
 HTTP plugin fetches data
 ```
 
-**Why profiles?**
-- **Simplicity:** `@api/source` vs full URL with auth headers
-- **Reusability:** Same config across many queries
-- **Security:** Credentials in config files, not command line
-- **Discovery:** Agents can list and explore available profiles
+**Profile ambiguity resolution:**
+- If profile name is unique → `@inbox` works
+- If multiple profiles have `inbox` → Must specify: `@gmail/inbox`, `@exchange/inbox`
+- If unclear → Error with suggestions
 
 ---
 
-### 4. Stdin/Stdout
-**Syntax:** `-[~format][?config]` or `stdin`/`stdout`
+### Stdin/Stdout
+**Syntax:** `-[~format][?config]`
 
 ```bash
-# Auto-detect format (tries JSON/NDJSON)
+# Auto-detect (tries JSON/NDJSON)
 echo '{"a":1}' | jn cat - | jn put output.json
 
 # Force format
 cat data.csv | jn cat "-~csv" | jn put output.json
-cat data.tsv | jn cat "-~csv?delimiter=tab"
+cat data.tsv | jn cat "-~csv?delimiter=\t"
 
-# Write to stdout
-jn cat data.csv | jn put -                     # NDJSON
-jn cat data.csv | jn put "-~table"             # Default table
-jn cat data.csv | jn put "-~table.grid"        # Grid style table
-jn cat data.csv | jn put "-~json?indent=2"     # Pretty JSON
+# Stdout formats
+jn cat data.json | jn put -                          # NDJSON (default)
+jn cat data.csv | jn put "-~table"                   # Simple table
+jn cat data.csv | jn put "-~table.grid"              # Grid table
+jn cat data.json | jn put "-~json?indent=2"          # Pretty JSON
 ```
 
-**Special formats:**
-```bash
-# Table output (display-only)
--~table              # Default table (simple)
--~table.grid         # Grid borders
--~table.markdown     # Markdown format
--~table.html         # HTML table
-
-# With config
--~table?fmt=grid&width=20&index=true
-```
-
-**Why:** Standard Unix convention (`-` means stdin/stdout). `~` makes format explicit.
+**Why `-` is special:**
+- Standard Unix convention (stdin/stdout)
+- Needs format hint when auto-detection fails
+- Can use shorthand variants (`.grid`, `.markdown`)
 
 ---
 
-### 5. Plugin References
-**Syntax:** `@plugin` (no slash)
+### Plugin References
+**Syntax:** `@plugin` (no slash) or `--plugin @plugin`
 
-Direct plugin invocation when you want to bypass auto-detection.
-
-```bash
-# Force specific plugin
-jn cat data.csv | jn put - --plugin @json
-jn cat data.csv | jn put - --plugin @table
-```
-
-**Resolution order:**
-1. Check if profile exists (`@something/name`)
-2. If not, check if plugin exists (`@something`)
-
-**Why:** Explicit control when auto-detection isn't right.
-
----
-
-## Format Override: The `~` Operator
-
-**Purpose:** Override auto-detected format
-
-**When to use:**
-- File has wrong/no extension: `data.txt~csv`
-- Stdin with known format: `-~csv`
-- Force output format: `output.txt~json`
-- Try different parser: `data.unknown~yaml`
-
-**Syntax:**
-```
-address~format[?config]
-```
+**Used when:**
+- Profile reference ambiguous
+- Want to explicitly invoke plugin
+- Bypass profile system
 
 **Examples:**
 ```bash
-# Files
-data.txt~csv                   # Parse as CSV
-input.bin~json                 # Parse as JSON
-output.log~table.grid          # Write as table
+# Via --plugin flag
+jn cat data.csv | jn put - --plugin @json
+jn cat data.csv | jn put - --plugin @table
 
-# Stdin/stdout
--~csv                          # Parse stdin as CSV
--~table.markdown               # Format stdout as markdown table
--~json?indent=4                # Pretty-print JSON
-
-# Combined with parameters
--~csv?delimiter=;              # CSV with semicolon
--~table?fmt=grid&width=30      # Grid table, 30 char columns
+# Standalone (if no profile collision)
+jn cat "@json" < data.json     # Would look for "json" profile first
 ```
+
+**Resolution order:**
+1. Check if `@name/component` profile exists
+2. If not, check if `@name` plugin exists
+3. Error if neither found
+
+**Difference from profiles:**
+- Profiles: `@namespace/component` (has slash)
+- Plugins: `@name` (no slash)
 
 ---
 
-## Configuration: The `?` Operator
+## Plugin Configuration
 
-**Purpose:** Pass parameters and configuration
-
-**Two uses:**
-1. **Profile parameters** (for `@profile/source`)
-2. **Plugin configuration** (for formats)
-
-### Profile Parameters
-
-```bash
-# API query parameters
-jn cat "@genomoncology/alterations?gene=BRAF&mutation_type=Missense&limit=10"
-
-# Multiple values for same key
-jn cat "@api/data?tag=urgent&tag=bug&tag=security"
-
-# Gmail search
-jn cat "@gmail/inbox?from=boss&has=attachment&newer_than=7d"
-```
-
-### Plugin Configuration
-
-**CSV options:**
+### CSV Options
 ```bash
 # Delimiter
 -~csv?delimiter=;              # Semicolon
--~csv?delimiter=tab            # Tab-separated
--~csv?delimiter=|              # Pipe-separated
+-~csv?delimiter=\t             # Tab (TSV)
+-~csv?delimiter=|              # Pipe
 
-# Header control
-output.csv?header=false        # No header row
+# Headers
+output.csv?header=false        # Omit header row
 ```
 
-**JSON options:**
+### JSON Options
 ```bash
 # Indentation
 output.json?indent=4           # 4-space indent
@@ -272,36 +261,38 @@ output.json?indent=2           # 2-space indent
 -~json?indent=0                # Compact (no indent)
 ```
 
-**Table options:**
+### Table Options
 ```bash
-# Format/style
--~table?fmt=grid               # Grid borders
--~table?fmt=simple             # Simple format
--~table?fmt=markdown           # Markdown table
--~table?fmt=html               # HTML table
+# Format/style (tablefmt parameter)
+-~table?tablefmt=grid               # Grid borders
+-~table?tablefmt=simple             # Simple format
+-~table?tablefmt=markdown           # Markdown table
+-~table?tablefmt=html               # HTML table
 
-# Column width
--~table?width=20               # Max 20 chars per column
--~table?width=30               # Max 30 chars per column
+# Shorthand (equivalent to tablefmt)
+-~table.grid                        # Same as ?tablefmt=grid
+-~table.markdown                    # Same as ?tablefmt=markdown
 
-# Row index
--~table?index=true             # Show row numbers
--~table?index=false            # Hide row numbers
+# Column width (maxcolwidths parameter)
+-~table?maxcolwidths=20             # Max 20 chars per column
+-~table?maxcolwidths=30             # Max 30 chars per column
 
-# Alignment
--~table?numalign=right         # Right-align numbers
--~table?stralign=center        # Center-align strings
+# Row index (showindex parameter)
+-~table?showindex=true              # Show row numbers
+-~table?showindex=false             # Hide row numbers
+
+# Alignment (global)
+-~table?numalign=right              # Right-align all numbers
+-~table?numalign=decimal            # Decimal align (default)
+-~table?stralign=left               # Left-align all strings (default)
+-~table?stralign=center             # Center-align all strings
 
 # Combined
--~table?fmt=grid&width=20&index=true&numalign=right
+-~table?tablefmt=grid&maxcolwidths=20&showindex=true&numalign=right
 ```
 
-**Shortened names:**
-- `fmt` - table format/style (was `tablefmt`)
-- `width` - column width (was `maxcolwidths`)
-- `index` - show row index (was `showindex`)
-- `numalign` - number alignment (same)
-- `stralign` - string alignment (same)
+**Available table formats:**
+`plain`, `simple`, `grid`, `fancy_grid`, `pipe`, `orgtbl`, `github`, `jira`, `presto`, `pretty`, `psql`, `rst`, `mediawiki`, `html`, `latex`, `latex_raw`, `latex_booktabs`, `tsv`, `rounded_grid`, `heavy_grid`, `mixed_grid`, `double_grid`, `outline`, `simple_outline`, `rounded_outline`, `heavy_outline`, `mixed_outline`, `double_outline`
 
 ---
 
@@ -334,8 +325,6 @@ jn cat \
 - Concatenated in order
 - One output stream
 
-**Why:** Essential for agent workflows. Agents need to combine data from multiple sources naturally.
-
 ---
 
 ## Examples by Use Case
@@ -350,7 +339,7 @@ jn cat data.csv | jn put output.json
 jn cat "@genomoncology/alterations?gene=BRAF&mutation_type=Missense&limit=100"
 ```
 
-### Multi-Source Data Aggregation
+### Multi-Source Aggregation
 ```bash
 jn cat \
   local/sales-*.csv \
@@ -359,7 +348,7 @@ jn cat \
   | jn put combined.json
 ```
 
-### Stdin Processing with Format Override
+### Stdin with Format Override
 ```bash
 curl https://api.example.com/data.csv | jn cat "-~csv" | jn filter '.revenue > 1000'
 ```
@@ -367,7 +356,7 @@ curl https://api.example.com/data.csv | jn cat "-~csv" | jn filter '.revenue > 1
 ### Table Output for Humans
 ```bash
 jn cat "@warehouse/orders?status=pending" | jn put "-~table.grid"
-jn cat data.json | jn put "-~table?fmt=markdown&width=30"
+jn cat data.json | jn put "-~table?tablefmt=markdown&maxcolwidths=30"
 ```
 
 ### Gmail to CSV
@@ -375,17 +364,29 @@ jn cat data.json | jn put "-~table?fmt=markdown&width=30"
 jn cat "@gmail/inbox?from=boss&has=attachment&newer_than=7d" | jn put emails.csv
 ```
 
-### S3 to Local with Format Override
+### Complex Delimiters
+```bash
+# Semicolon CSV
+cat data.txt | jn cat "-~csv?delimiter=;" | jn put output.json
+
+# Pipe-delimited
+cat data.txt | jn cat "-~csv?delimiter=|" | jn put output.json
+
+# Tab-separated (TSV)
+cat data.tsv | jn cat "-~csv?delimiter=\t" | jn put output.json
+```
+
+### S3 to Local with Override
 ```bash
 jn cat "s3://mybucket/data.log~json" | jn put local-copy.json
 ```
 
-### Complex Filter Pipeline
+### Filter Pipeline
 ```bash
 jn cat sales.json \
   | jn filter '@builtin/pivot?row=product&col=month&value=revenue' \
   | jn filter '.total > 10000' \
-  | jn put "-~table?fmt=markdown"
+  | jn put "-~table?tablefmt=markdown"
 ```
 
 ---
@@ -393,27 +394,33 @@ jn cat sales.json \
 ## Summary
 
 **Universal Addressing Syntax:**
-
 ```
-address[~format][?config]
+address[~format][?parameters]
 
 Where address is:
-  - file.ext              → Local file
-  - protocol://path       → Protocol URL
-  - @api/source           → Profile reference
-  - @plugin               → Plugin reference
-  - -                     → Stdin/stdout
+  file.ext              # Local file
+  protocol://path       # Protocol URL
+  @profile/component    # Profile reference
+  @plugin               # Plugin reference
+  -                     # Stdin/stdout
 
 Where ~format is:
-  - csv, json, yaml       → Format plugins
-  - table, table.grid     → Display formats
+  csv, json, yaml       # Format plugins
+  table, table.grid     # Display formats (shorthand)
 
-Where ?config is:
-  - key=value&key2=value2 → Parameters/configuration
+Where ?parameters is:
+  key=value&key2=value2 # Parameters for profiles and plugins
 ```
 
-**Operators:**
-- **`~`** - Format override (which plugin)
-- **`?`** - Parameters/config (how to process)
+**Two Operators:**
+- **`~`** - Format override (which plugin to use)
+- **`?`** - Parameters (passed to both profile and plugin)
 
-**Result:** Clean, composable addressing with distinct operators for different purposes.
+**Key Points:**
+- Format override comes before parameters: `file~format?params`
+- Parameters go to BOTH profile and plugin (no priority)
+- Shorthand formats: `-~table.grid` = `-~table?tablefmt=grid`
+- Use actual delimiter characters: `;`, `|`, `\t`
+- Profile syntax: `@profile/component` or just `@profile` if unique
+
+**Result:** Clean, composable addressing with distinct operators for format vs configuration.
