@@ -63,23 +63,18 @@ def writes(config: Optional[dict] = None) -> None:
             records.append(json.loads(line))
     if output_format == "ndjson":
         for record in records:
-            print(json.dumps(record, sort_keys=sort_keys))
+            print(json.dumps(record, sort_keys=sort_keys), flush=True)
     elif output_format == "array":
-        print(json.dumps(records, indent=indent, sort_keys=sort_keys))
+        print(json.dumps(records, indent=indent, sort_keys=sort_keys), flush=True)
     elif output_format == "object":
         if len(records) == 0:
-            print("{}")
+            print("{}", flush=True)
         elif len(records) == 1:
-            print(json.dumps(records[0], indent=indent, sort_keys=sort_keys))
+            print(json.dumps(records[0], indent=indent, sort_keys=sort_keys), flush=True)
         else:
-            print(
-                f"Error: Cannot write {len(records)} records as single object",
-                file=sys.stderr,
-            )
-            sys.exit(1)
+            raise ValueError(f"Cannot write {len(records)} records as single object")
     else:
-        print(f"Error: Unknown format '{output_format}'", file=sys.stderr)
-        sys.exit(1)
+        raise ValueError(f"Unknown format '{output_format}'")
 
 
 if __name__ == "__main__":
