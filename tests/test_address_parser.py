@@ -235,22 +235,45 @@ class TestProtocolUrls:
     """Test protocol URL parsing."""
 
     def test_http_with_query_string(self):
-        """Test HTTP URL with query string."""
+        """Test HTTP URL with query string - query is part of URL."""
         addr = parse_address("http://example.com/data.json?key=value")
-        assert addr.base == "http://example.com/data.json"
-        assert addr.parameters == {"key": "value"}
+        # Query string is part of the URL for protocols, not JN parameters
+        assert addr.base == "http://example.com/data.json?key=value"
+        assert addr.parameters == {}
+        assert addr.type == "protocol"
+
+    def test_http_with_token(self):
+        """Test HTTP URL with API token - critical for API calls."""
+        addr = parse_address("http://api.example.com/data?token=abc123")
+        # Token must be preserved in URL
+        assert addr.base == "http://api.example.com/data?token=abc123"
+        assert addr.parameters == {}
 
     def test_s3_with_region(self):
         """Test S3 URL with region parameter."""
         addr = parse_address("s3://bucket/key.json?region=us-west-2")
-        assert addr.base == "s3://bucket/key.json"
-        assert addr.parameters == {"region": "us-west-2"}
+        # Region is part of S3 URL, not JN parameter
+        assert addr.base == "s3://bucket/key.json?region=us-west-2"
+        assert addr.parameters == {}
 
     def test_gmail_protocol_with_search(self):
         """Test Gmail protocol URL with search parameters."""
         addr = parse_address("gmail://me/messages?from=boss&is=unread")
-        assert addr.base == "gmail://me/messages"
-        assert addr.parameters == {"from": "boss", "is": "unread"}
+        # Search params are part of gmail:// URL, not JN parameters
+        assert addr.base == "gmail://me/messages?from=boss&is=unread"
+        assert addr.parameters == {}
+
+    def test_https_with_multiple_params(self):
+        """Test HTTPS URL with multiple query parameters."""
+        addr = parse_address(
+            "https://api.example.com/v1/data?token=xyz&format=json&limit=100"
+        )
+        # All params preserved in URL
+        assert (
+            addr.base
+            == "https://api.example.com/v1/data?token=xyz&format=json&limit=100"
+        )
+        assert addr.parameters == {}
 
 
 class TestEdgeCases:

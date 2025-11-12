@@ -49,17 +49,26 @@ def parse_address(raw: str) -> Address:
 
     raw = raw.strip()
 
-    # Step 1: Extract parameters (everything after ?)
+    # Step 1: Check if this is a protocol URL
+    # Protocol URLs contain :// and their query strings are part of the URL
+    is_protocol_url = "://" in raw
+
+    # Step 2: Extract JN parameters (everything after ?)
+    # For protocol URLs, keep query string as part of the URL
     parameters: Dict[str, str] = {}
-    if "?" in raw:
+    if "?" in raw and not is_protocol_url:
+        # Non-protocol: split on ? to get JN parameters
         addr_part, query_string = raw.split("?", 1)
         parameters = _parse_query_string(query_string)
     else:
+        # Protocol URL: keep full URL with query string
         addr_part = raw
 
-    # Step 2: Extract format override (everything after ~)
+    # Step 3: Extract format override (everything after ~)
     format_override = None
-    if "~" in addr_part:
+    if "~" in addr_part and not is_protocol_url:
+        # Only parse ~ for non-protocol addresses
+        # Protocols can't have format overrides (they determine their own format)
         base, format_str = addr_part.rsplit("~", 1)  # rsplit to get last ~
         if not format_str:
             raise ValueError(f"Format override cannot be empty: {raw}")
@@ -67,17 +76,17 @@ def parse_address(raw: str) -> Address:
         # Check for shorthand format (e.g., "table.grid")
         if "." in format_str:
             format_override, variant = format_str.split(".", 1)
-            # Expand shorthand based on format
+            # Expand shorthand
             parameters.update(_expand_shorthand(format_override, variant))
         else:
             format_override = format_str
     else:
         base = addr_part
 
-    # Step 3: Determine address type
+    # Step 4: Determine address type
     addr_type = _determine_type(base)
 
-    # Step 4: Validate address
+    # Step 5: Validate address
     _validate_address(base, format_override, parameters, addr_type)
 
     return Address(
