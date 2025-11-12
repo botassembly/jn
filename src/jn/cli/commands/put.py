@@ -1,7 +1,6 @@
 """Put command - write NDJSON to file."""
 
 import io
-import shutil
 import subprocess
 import sys
 
@@ -9,6 +8,7 @@ import click
 
 from ...addressing import AddressResolutionError, AddressResolver, parse_address
 from ...context import pass_context
+from ..helpers import check_uv_available
 
 
 @click.command()
@@ -38,16 +38,7 @@ def put(ctx, output_file):
         jn cat data.json | jn put "output.csv?delimiter=;&header=false"
     """
     try:
-        # Check UV availability
-        if not shutil.which("uv"):
-            click.echo(
-                "Error: UV is required to run JN plugins\n"
-                "Install: curl -LsSf https://astral.sh/uv/install.sh | sh\n"
-                "Or: pip install uv\n"
-                "More info: https://docs.astral.sh/uv/",
-                err=True,
-            )
-            sys.exit(1)
+        check_uv_available()
 
         # Parse address
         addr = parse_address(output_file)
@@ -125,8 +116,5 @@ def put(ctx, output_file):
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
     except FileNotFoundError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-    except Exception as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)

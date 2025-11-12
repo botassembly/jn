@@ -1,7 +1,7 @@
 """Run command - convenience for source to dest conversion."""
 
 import json
-import shutil
+
 import subprocess
 import sys
 
@@ -9,6 +9,7 @@ import click
 
 from ...addressing import AddressResolutionError, AddressResolver, parse_address
 from ...context import pass_context
+from ..helpers import check_uv_available
 
 
 @click.command()
@@ -35,16 +36,7 @@ def run(ctx, input_file, output_file):
         jn run data.json "output.json?indent=4"        # Pretty JSON output
     """
     try:
-        # Check UV availability
-        if not shutil.which("uv"):
-            click.echo(
-                "Error: UV is required to run JN plugins\n"
-                "Install: curl -LsSf https://astral.sh/uv/install.sh | sh\n"
-                "Or: pip install uv\n"
-                "More info: https://docs.astral.sh/uv/",
-                err=True,
-            )
-            sys.exit(1)
+        check_uv_available()
 
         # Parse addresses
         input_addr = parse_address(input_file)
@@ -190,8 +182,5 @@ def run(ctx, input_file, output_file):
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
     except FileNotFoundError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-    except Exception as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)

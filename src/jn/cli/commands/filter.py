@@ -1,7 +1,6 @@
 """Filter command - apply jq expressions."""
 
 import io
-import shutil
 import subprocess
 import sys
 
@@ -10,18 +9,13 @@ import click
 from ...addressing import parse_address
 from ...context import pass_context
 from ...profiles.resolver import ProfileError, resolve_profile
+from ..helpers import check_jq_available, check_uv_available
 
 
 @click.command()
 @click.argument("query")
-@click.option(
-    "--param",
-    "-p",
-    multiple=True,
-    help="Profile parameter (format: key=value, can be used multiple times). Deprecated: use query string syntax instead.",
-)
 @pass_context
-def filter(ctx, query, param):
+def filter(ctx, query):
     """Filter NDJSON using jq expression or profile.
 
     QUERY can be either:
@@ -34,59 +28,23 @@ def filter(ctx, query, param):
         # Direct jq expression
         jn cat data.csv | jn filter '.age > 25'
 
-        # Profile with query string parameters (recommended)
+        # Profile with query string parameters
         jn cat data.csv | jn filter '@analytics/pivot?row=product&col=month'
-
-        # Profile with --param flags (deprecated but supported)
-        jn cat data.csv | jn filter '@analytics/pivot' -p row=product -p col=month
     """
     try:
-        # Check jq availability
-        if not shutil.which("jq"):
-            click.echo(
-                "Error: jq command not found\n"
-                "Install from: https://jqlang.github.io/jq/\n"
-                "  macOS: brew install jq\n"
-                "  Ubuntu/Debian: apt-get install jq\n"
-                "  Fedora: dnf install jq",
-                err=True,
-            )
-            sys.exit(1)
-
-        # Check UV availability
-        if not shutil.which("uv"):
-            click.echo(
-                "Error: UV is required to run JN plugins\n"
-                "Install: curl -LsSf https://astral.sh/uv/install.sh | sh\n"
-                "Or: pip install uv\n"
-                "More info: https://docs.astral.sh/uv/",
-                err=True,
-            )
-            sys.exit(1)
+        check_jq_available()
+        check_uv_available()
 
         # If query starts with @, it's a profile or plugin reference
         if query.startswith("@"):
             # Parse as address to extract parameters
             addr = parse_address(query)
 
-            # Merge --param flags with query string parameters
-            params = {}
-            for p in param:
-                if "=" not in p:
-                    click.echo(
-                        f"Error: Invalid parameter format '{p}'. Use: key=value",
-                        err=True,
-                    )
-                    sys.exit(1)
-                key, value = p.split("=", 1)
-                params[key] = value
-
-            # Query string parameters take precedence
-            params.update(addr.parameters)
-
             # Resolve profile to get actual jq query
             try:
-                query = resolve_profile(addr.base, plugin_name="jq_", params=params)
+                query = resolve_profile(
+                    addr.base, plugin_name="jq_", params=addr.parameters
+                )
             except ProfileError as e:
                 click.echo(f"Error: {e}", err=True)
                 sys.exit(1)
@@ -140,7 +98,4 @@ def filter(ctx, query, param):
 
     except ValueError as e:
         click.echo(f"Error: Invalid address syntax: {e}", err=True)
-        sys.exit(1)
-    except Exception as e:
-        click.echo(f"Error: {e}", err=True)
         sys.exit(1)

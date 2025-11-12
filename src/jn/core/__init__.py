@@ -1,19 +1,16 @@
 """JN core business logic.
 
 This module contains all business logic separated from CLI presentation:
-- pipeline: Data pipeline execution and subprocess management
+- pipeline: Pipeline error types (deprecated, functions removed)
 - plugins: Plugin discovery and introspection
 - streaming: NDJSON stream utilities (head, tail, etc.)
+
+Note: Pipeline functions (read_source, write_destination, convert, filter_stream) have
+been removed in favor of the addressability system. CLI commands now use AddressResolver
+directly for cleaner architecture.
 """
 
-from .pipeline import (
-    PipelineError,
-    convert,
-    filter_stream,
-    read_source,
-    start_reader,
-    write_destination,
-)
+from .pipeline import PipelineError
 from .plugins import (
     PluginInfo,
     call_plugin,
@@ -26,11 +23,6 @@ from .streaming import head, tail
 __all__ = [
     # Pipeline
     "PipelineError",
-    "start_reader",
-    "read_source",
-    "write_destination",
-    "convert",
-    "filter_stream",
     # Plugins
     "PluginInfo",
     "list_plugins",
