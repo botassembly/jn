@@ -6,9 +6,9 @@ Supports two whitelisting mechanisms:
 """
 
 import re
-from pathlib import Path
-from typing import Dict, List, Set, Optional
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, List, Optional, Set
 
 try:
     import tomllib  # Python 3.11+
@@ -19,6 +19,7 @@ except ImportError:
 @dataclass
 class WhitelistEntry:
     """A single whitelist entry."""
+
     file_pattern: str  # Glob pattern or specific file
     rule: str  # Rule name or '*' for all
     lines: Optional[List[int]] = None  # Specific lines, None = all lines
@@ -35,7 +36,9 @@ class Whitelist:
             config_path: Path to .jncheck.toml (default: search from cwd)
         """
         self.entries: List[WhitelistEntry] = []
-        self.inline_ignores: Dict[str, Dict[int, Set[str]]] = {}  # file -> line -> rules
+        self.inline_ignores: Dict[str, Dict[int, Set[str]]] = (
+            {}
+        )  # file -> line -> rules
 
         # Load config file
         if config_path is None:
@@ -75,12 +78,14 @@ class Whitelist:
         try:
             data = tomllib.loads(config_path.read_text())
             for entry in data.get("whitelist", []):
-                self.entries.append(WhitelistEntry(
-                    file_pattern=entry["file"],
-                    rule=entry.get("rule", "*"),
-                    lines=entry.get("lines"),
-                    reason=entry.get("reason")
-                ))
+                self.entries.append(
+                    WhitelistEntry(
+                        file_pattern=entry["file"],
+                        rule=entry.get("rule", "*"),
+                        lines=entry.get("lines"),
+                        reason=entry.get("reason"),
+                    )
+                )
         except Exception as e:
             # Don't fail checker if config is invalid
             print(f"Warning: Failed to load .jncheck.toml: {e}")
@@ -112,17 +117,19 @@ class Whitelist:
         """
         for line_num, line in enumerate(source.splitlines(), start=1):
             # Look for jn:ignore comments
-            match = re.search(r'#\s*jn:ignore(?:\[([^\]]+)\])?(?::\s*(.+))?', line)
+            match = re.search(
+                r"#\s*jn:ignore(?:\[([^\]]+)\])?(?::\s*(.+))?", line
+            )
             if match:
                 rules_str = match.group(1)
                 # reason = match.group(2)  # Could be used for reporting
 
                 if rules_str:
                     # Specific rules
-                    rules = {r.strip() for r in rules_str.split(',')}
+                    rules = {r.strip() for r in rules_str.split(",")}
                 else:
                     # All rules
-                    rules = {'*'}
+                    rules = {"*"}
 
                 self.add_inline_ignore(file_path, line_num, rules)
 
@@ -141,7 +148,7 @@ class Whitelist:
         if file_path in self.inline_ignores:
             if line in self.inline_ignores[file_path]:
                 ignored_rules = self.inline_ignores[file_path][line]
-                if '*' in ignored_rules or rule in ignored_rules:
+                if "*" in ignored_rules or rule in ignored_rules:
                     return True
 
         # Check config file entries
@@ -151,7 +158,7 @@ class Whitelist:
                 continue
 
             # Match rule
-            if entry.rule != '*' and entry.rule != rule:
+            if entry.rule != "*" and entry.rule != rule:
                 continue
 
             # Match line (if specified)
@@ -211,22 +218,22 @@ class Whitelist:
                         return True
 
                     # Try with ** glob expansion
-                    if '**' in pattern_str:
-                        regex_pattern = pattern_str.replace('**/', '.*?/')
-                        regex_pattern = regex_pattern.replace('**', '.*?')
-                        regex_pattern = regex_pattern.replace('*', '[^/]*')
-                        regex_pattern = regex_pattern.replace('?', '.')
-                        regex_pattern = f'^{regex_pattern}$'
+                    if "**" in pattern_str:
+                        regex_pattern = pattern_str.replace("**/", ".*?/")
+                        regex_pattern = regex_pattern.replace("**", ".*?")
+                        regex_pattern = regex_pattern.replace("*", "[^/]*")
+                        regex_pattern = regex_pattern.replace("?", ".")
+                        regex_pattern = f"^{regex_pattern}$"
                         if re.match(regex_pattern, relative_path):
                             return True
 
         # Try with ** glob (recursive) on original path
-        if '**' in pattern_str:
+        if "**" in pattern_str:
             # Convert ** to regex
-            regex_pattern = pattern_str.replace('**/', '.*?/')
-            regex_pattern = regex_pattern.replace('**', '.*?')
-            regex_pattern = regex_pattern.replace('*', '[^/]*')
-            regex_pattern = regex_pattern.replace('?', '.')
+            regex_pattern = pattern_str.replace("**/", ".*?/")
+            regex_pattern = regex_pattern.replace("**", ".*?")
+            regex_pattern = regex_pattern.replace("*", "[^/]*")
+            regex_pattern = regex_pattern.replace("?", ".")
             if re.search(regex_pattern, file_path_str):
                 return True
 
@@ -238,7 +245,9 @@ class Whitelist:
 
         return False
 
-    def get_reason(self, file_path: str, rule: str, line: int) -> Optional[str]:
+    def get_reason(
+        self, file_path: str, rule: str, line: int
+    ) -> Optional[str]:
         """Get whitelist reason for a violation.
 
         Args:
@@ -252,7 +261,7 @@ class Whitelist:
         for entry in self.entries:
             if not self._matches_pattern(file_path, entry.file_pattern):
                 continue
-            if entry.rule != '*' and entry.rule != rule:
+            if entry.rule != "*" and entry.rule != rule:
                 continue
             if entry.lines is not None and line not in entry.lines:
                 continue

@@ -47,7 +47,9 @@ def invoke(cli_runner):
     def _invoke(args, input_data=None):
         result = cli_runner.invoke(cli, args, input=input_data)
         # Ensure output_bytes is available for binary output access
-        if not hasattr(result, 'output_bytes') and hasattr(result, 'stdout_bytes'):
+        if not hasattr(result, "output_bytes") and hasattr(
+            result, "stdout_bytes"
+        ):
             result.output_bytes = result.stdout_bytes
         return result
 

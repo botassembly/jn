@@ -26,6 +26,7 @@ from typing import Dict, Optional, Tuple
 
 class ProfileError(Exception):
     """Error in profile resolution."""
+
     pass
 
 
@@ -49,7 +50,12 @@ def find_profile_paths() -> list[Path]:
         bundled_dir = Path(jn_home) / "profiles" / "mcp"
     else:
         # Fallback: relative to this file
-        bundled_dir = Path(__file__).parent.parent.parent.parent / "jn_home" / "profiles" / "mcp"
+        bundled_dir = (
+            Path(__file__).parent.parent.parent.parent
+            / "jn_home"
+            / "profiles"
+            / "mcp"
+        )
 
     if bundled_dir.exists():
         paths.append(bundled_dir)
@@ -62,7 +68,7 @@ def substitute_env_vars(value: str) -> str:
     if not isinstance(value, str):
         return value
 
-    pattern = r'\$\{([A-Za-z_][A-Za-z0-9_]*)\}'
+    pattern = r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}"
 
     def replace_var(match):
         var_name = match.group(1)
@@ -86,7 +92,9 @@ def substitute_env_vars_recursive(data):
         return data
 
 
-def load_hierarchical_profile(server_name: str, tool_or_resource: Optional[str] = None) -> dict:
+def load_hierarchical_profile(
+    server_name: str, tool_or_resource: Optional[str] = None
+) -> dict:
     """Load hierarchical MCP profile: _meta.json + optional tool/resource.json.
 
     Args:
@@ -173,8 +181,7 @@ def list_server_tools(server_name: str) -> list[str]:
 
 
 def resolve_profile_reference(
-    reference: str,
-    params: Optional[Dict] = None
+    reference: str, params: Optional[Dict] = None
 ) -> Tuple[str, Dict]:
     """Resolve @server/tool reference to server config and operation.
 
@@ -195,7 +202,9 @@ def resolve_profile_reference(
         ProfileError: If profile not found
     """
     if not reference.startswith("@"):
-        raise ProfileError(f"Invalid profile reference (must start with @): {reference}")
+        raise ProfileError(
+            f"Invalid profile reference (must start with @): {reference}"
+        )
 
     # Parse reference: @server_name/tool or @server_name?query
     ref = reference[1:]  # Remove @
@@ -205,7 +214,11 @@ def resolve_profile_reference(
         server_part, query_part = ref.split("?", 1)
         # Parse query string
         from urllib.parse import parse_qs
-        query_params = {k: v[0] if len(v) == 1 else v for k, v in parse_qs(query_part).items()}
+
+        query_params = {
+            k: v[0] if len(v) == 1 else v
+            for k, v in parse_qs(query_part).items()
+        }
     else:
         server_part = ref
         query_params = {}

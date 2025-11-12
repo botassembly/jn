@@ -1,4 +1,5 @@
 """CLI integration tests for XLSX plugin using jn cat command."""
+
 import io
 import json
 import tempfile
@@ -23,7 +24,9 @@ def test_jn_cat_xlsx_file(invoke):
     sheet.cell(row=3, column=2, value=0.75)
 
     # Save to temp file
-    with tempfile.NamedTemporaryFile(mode='wb', suffix='.xlsx', delete=False) as f:
+    with tempfile.NamedTemporaryFile(
+        mode="wb", suffix=".xlsx", delete=False
+    ) as f:
         workbook.save(f.name)
         temp_path = f.name
 
@@ -59,11 +62,15 @@ def test_jn_cat_xlsx_then_put_csv(invoke):
     sheet.cell(row=3, column=1, value="Bob")
     sheet.cell(row=3, column=2, value=87)
 
-    with tempfile.NamedTemporaryFile(mode='wb', suffix='.xlsx', delete=False) as f:
+    with tempfile.NamedTemporaryFile(
+        mode="wb", suffix=".xlsx", delete=False
+    ) as f:
         workbook.save(f.name)
         xlsx_path = f.name
 
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".csv", delete=False
+    ) as f:
         csv_path = f.name
 
     try:
@@ -101,7 +108,9 @@ def test_jn_cat_xlsx_multisheet(invoke):
     sheet2.cell(row=1, column=1, value="stock")
     sheet2.cell(row=2, column=1, value=100)
 
-    with tempfile.NamedTemporaryFile(mode='wb', suffix='.xlsx', delete=False) as f:
+    with tempfile.NamedTemporaryFile(
+        mode="wb", suffix=".xlsx", delete=False
+    ) as f:
         workbook.save(f.name)
         temp_path = f.name
 
@@ -131,7 +140,9 @@ def test_jn_cat_xlsx_empty_rows(invoke):
     sheet.cell(row=4, column=1, value="Second")
     sheet.cell(row=4, column=2, value=20)
 
-    with tempfile.NamedTemporaryFile(mode='wb', suffix='.xlsx', delete=False) as f:
+    with tempfile.NamedTemporaryFile(
+        mode="wb", suffix=".xlsx", delete=False
+    ) as f:
         workbook.save(f.name)
         temp_path = f.name
 
@@ -152,7 +163,9 @@ def test_jn_put_xlsx(invoke):
     """Test writing XLSX file using jn put command."""
     ndjson = '{"city":"NYC","population":8336817}\n{"city":"LA","population":3979576}\n'
 
-    with tempfile.NamedTemporaryFile(mode='wb', suffix='.xlsx', delete=False) as f:
+    with tempfile.NamedTemporaryFile(
+        mode="wb", suffix=".xlsx", delete=False
+    ) as f:
         xlsx_path = f.name
 
     try:
@@ -181,11 +194,15 @@ def test_jn_run_csv_to_xlsx(invoke):
     """Test converting CSV to XLSX using jn run command."""
     csv_content = "country,capital\nFrance,Paris\nJapan,Tokyo\n"
 
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".csv", delete=False
+    ) as f:
         f.write(csv_content)
         csv_path = f.name
 
-    with tempfile.NamedTemporaryFile(mode='wb', suffix='.xlsx', delete=False) as f:
+    with tempfile.NamedTemporaryFile(
+        mode="wb", suffix=".xlsx", delete=False
+    ) as f:
         xlsx_path = f.name
 
     try:

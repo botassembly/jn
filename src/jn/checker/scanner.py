@@ -86,4 +86,6 @@ def find_single_plugin(plugin_name: str, search_dirs: List[Path]) -> Path:
     if not plugin_name.endswith("_"):
         return find_single_plugin(f"{plugin_name}_", search_dirs)
 
-    raise FileNotFoundError(f"Plugin '{plugin_name}' not found in {search_dirs}")
+    raise FileNotFoundError(
+        f"Plugin '{plugin_name}' not found in {search_dirs}"
+    )

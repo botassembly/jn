@@ -7,23 +7,26 @@ from typing import Optional
 
 class Severity(Enum):
     """Violation severity levels."""
-    ERROR = "error"      # Phase 1: Block PRs
+
+    ERROR = "error"  # Phase 1: Block PRs
     WARNING = "warning"  # Phase 2: Should fix
-    INFO = "info"        # Phase 3: Nice to have
+    INFO = "info"  # Phase 3: Nice to have
 
 
 @dataclass
 class Violation:
     """Represents a single checker violation."""
 
-    rule: str              # Rule identifier (e.g., "missing_flush")
-    severity: Severity     # Error/Warning/Info
-    message: str           # Human-readable message
-    file_path: str         # Absolute path to file
-    line: int             # Line number (1-indexed)
-    column: int = 0       # Column number (0-indexed)
-    fix: Optional[str] = None      # Suggested fix
-    reference: Optional[str] = None  # Reference to docs (e.g., "spec/arch/backpressure.md:18")
+    rule: str  # Rule identifier (e.g., "missing_flush")
+    severity: Severity  # Error/Warning/Info
+    message: str  # Human-readable message
+    file_path: str  # Absolute path to file
+    line: int  # Line number (1-indexed)
+    column: int = 0  # Column number (0-indexed)
+    fix: Optional[str] = None  # Suggested fix
+    reference: Optional[str] = (
+        None  # Reference to docs (e.g., "spec/arch/backpressure.md:18")
+    )
 
     def __str__(self) -> str:
         """Format violation for display."""
@@ -54,7 +57,9 @@ class CheckResult:
     @property
     def warning_count(self) -> int:
         """Count WARNING violations."""
-        return sum(1 for v in self.violations if v.severity == Severity.WARNING)
+        return sum(
+            1 for v in self.violations if v.severity == Severity.WARNING
+        )
 
     @property
     def info_count(self) -> int:

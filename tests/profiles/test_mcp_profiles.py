@@ -1,17 +1,18 @@
 """Tests for MCP profile system."""
+
 import pytest
 
 from jn.profiles.mcp import (
     ProfileError,
-    load_hierarchical_profile,
     list_server_tools,
+    load_hierarchical_profile,
     resolve_profile_reference,
     substitute_env_vars,
     substitute_env_vars_recursive,
 )
 
-
 # Environment variable substitution tests
+
 
 def test_substitute_env_vars(monkeypatch):
     """Test environment variable substitution."""
@@ -23,7 +24,9 @@ def test_substitute_env_vars(monkeypatch):
 def test_substitute_env_vars_missing(monkeypatch):
     """Test error when env var is missing."""
     monkeypatch.delenv("MISSING_VAR", raising=False)
-    with pytest.raises(ProfileError, match="Environment variable MISSING_VAR not set"):
+    with pytest.raises(
+        ProfileError, match="Environment variable MISSING_VAR not set"
+    ):
         substitute_env_vars("Value: ${MISSING_VAR}")
 
 
@@ -35,7 +38,7 @@ def test_substitute_env_vars_recursive(monkeypatch):
     data = {
         "url": "${URL}/v1",
         "headers": {"Authorization": "Bearer ${API_KEY}"},
-        "list": ["${URL}", "static"]
+        "list": ["${URL}", "static"],
     }
 
     result = substitute_env_vars_recursive(data)
@@ -46,6 +49,7 @@ def test_substitute_env_vars_recursive(monkeypatch):
 
 
 # Profile loading tests
+
 
 def test_load_hierarchical_profile():
     """Test loading profile with _meta.json."""
@@ -80,6 +84,7 @@ def test_list_server_tools():
 
 
 # Profile reference resolution tests
+
 
 def test_resolve_simple_reference():
     """Test @server resolves to list_resources operation."""
@@ -130,8 +135,7 @@ def test_resolve_with_resource():
 def test_resolve_with_params_dict():
     """Test params dict merges with URL query params."""
     server_config, operation = resolve_profile_reference(
-        "@biomcp/search",
-        params={"gene": "TP53"}
+        "@biomcp/search", params={"gene": "TP53"}
     )
 
     assert operation["params"]["gene"] == "TP53"

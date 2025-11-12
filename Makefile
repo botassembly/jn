@@ -10,6 +10,9 @@ check:
 	@uv run ruff check --fix src/jn tests
 	@uv run ruff check src/jn tests
 	@uv run lint-imports --config importlinter.ini || true
+	@echo "Validating plugins and core with 'jn check'"
+	@uv run python -m jn.cli.main check plugins --format summary
+	@uv run python -m jn.cli.main check core --format summary
 
 test:
 	uv run pytest -q
@@ -20,10 +23,8 @@ coverage:
 	uv run coverage combine
 	uv run coverage html
 	uv run coverage xml
-	# Show full coverage for all modules (including plugins)
-	uv run coverage report
-	# Enforce threshold on core library only (do not hide data, just gate on core)
-	uv run coverage report --fail-under=70 --include='src/jn/*,src/jn/**/*'
+	# Single, authoritative coverage report (core only per .coveragerc)
+	uv run coverage report --fail-under=70
 
 # Cleanup
 clean:

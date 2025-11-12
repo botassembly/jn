@@ -52,7 +52,9 @@ def filter(ctx, query):
         # Find jq plugin
         from ...plugins.discovery import get_cached_plugins_with_fallback
 
-        plugins = get_cached_plugins_with_fallback(ctx.plugin_dir, ctx.cache_path)
+        plugins = get_cached_plugins_with_fallback(
+            ctx.plugin_dir, ctx.cache_path
+        )
 
         if "jq_" not in plugins:
             click.echo("Error: jq filter plugin not found", err=True)
