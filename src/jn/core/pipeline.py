@@ -576,11 +576,21 @@ def convert(
 
         # Check for errors
         if writer.returncode != 0:
-            error_msg = writer.stderr.read().decode()
+            error_msg = writer.stderr.read()
+            if isinstance(error_msg, bytes):
+                try:
+                    error_msg = error_msg.decode()
+                except Exception:
+                    pass
             raise PipelineError(f"Writer error: {error_msg}")
 
         if reader.returncode != 0:
-            error_msg = reader.stderr.read().decode()
+            error_msg = reader.stderr.read()
+            if isinstance(error_msg, bytes):
+                try:
+                    error_msg = error_msg.decode()
+                except Exception:
+                    pass
             raise PipelineError(f"Reader error: {error_msg}")
 
 
