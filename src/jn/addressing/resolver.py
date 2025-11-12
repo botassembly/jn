@@ -117,8 +117,22 @@ class AddressResolver:
 
         # Case 3: Profile reference
         if address.type == "profile":
-            # Profiles always use HTTP plugin (for now)
-            return self._find_plugin_by_name("http")
+            # Determine plugin from profile namespace
+            # Extract namespace: @namespace/component → namespace
+            namespace = address.base[1:].split("/")[0]  # Remove @ and get first part
+
+            # Map known profile namespaces to plugins
+            # Gmail profiles (@gmail/...) → gmail plugin
+            # HTTP API profiles (@genomoncology/..., etc.) → http plugin
+            # Future: MCP profiles (@mcp/...) → mcp plugin
+
+            # Try to find plugin by namespace first
+            try:
+                return self._find_plugin_by_name(namespace)
+            except AddressResolutionError:
+                # Namespace doesn't match a plugin name
+                # Default to HTTP plugin for API profiles
+                return self._find_plugin_by_name("http")
 
         # Case 4: Direct plugin reference
         if address.type == "plugin":
@@ -301,13 +315,48 @@ class AddressResolver:
         for key, value in parameters.items():
             # Try to convert to appropriate type
             if value.lower() in ("true", "false"):
+                # Boolean
                 config[key] = value.lower() == "true"
-            elif value.isdigit():
-                config[key] = int(value)
+            elif self._is_number(value):
+                # Numeric (int or float)
+                if "." in value or "e" in value.lower():
+                    config[key] = float(value)
+                else:
+                    config[key] = int(value)
             else:
+                # String
                 config[key] = value
 
         return config
+
+    def _is_number(self, value: str) -> bool:
+        """Check if string represents a number (int, float, or scientific notation).
+
+        Args:
+            value: String to check
+
+        Returns:
+            True if value is a valid number
+
+        Examples:
+            >>> _is_number("123")
+            True
+            >>> _is_number("-456")
+            True
+            >>> _is_number("3.14")
+            True
+            >>> _is_number("-2.5")
+            True
+            >>> _is_number("1e6")
+            True
+            >>> _is_number("abc")
+            False
+        """
+        try:
+            float(value)
+            return True
+        except ValueError:
+            return False
 
     def _resolve_url_and_headers(
         self, address: Address
@@ -329,8 +378,29 @@ class AddressResolver:
             # Parameters are part of the URL or will be passed to the plugin
             return address.base, None
 
-        # Profile references: resolve via HTTP profile system
+        # Profile references: resolve via appropriate profile system
         if address.type == "profile":
+            # Determine which profile system based on namespace
+            namespace = address.base[1:].split("/")[0]
+
+            # Gmail profiles
+            if namespace == "gmail":
+                try:
+                    from ..profiles.gmail import (
+                        GmailProfileError,
+                        resolve_gmail_reference,
+                    )
+
+                    url = resolve_gmail_reference(
+                        address.base, address.parameters or None
+                    )
+                    return url, None  # Gmail doesn't use headers
+                except GmailProfileError as e:
+                    raise AddressResolutionError(
+                        f"Gmail profile resolution failed: {e}"
+                    )
+
+            # HTTP API profiles (default)
             try:
                 url, headers = resolve_profile_reference(
                     address.base, address.parameters or None

@@ -1,12 +1,14 @@
 """Put command - write NDJSON to file."""
 
+import io
+import shutil
+import subprocess
 import sys
 
 import click
 
-from ...addressing import parse_address
+from ...addressing import AddressResolutionError, AddressResolver, parse_address
 from ...context import pass_context
-from ...core.pipeline import PipelineError, write_destination
 
 
 @click.command()
@@ -36,30 +38,95 @@ def put(ctx, output_file):
         jn cat data.json | jn put "output.csv?delimiter=;&header=false"
     """
     try:
+        # Check UV availability
+        if not shutil.which("uv"):
+            click.echo(
+                "Error: UV is required to run JN plugins\n"
+                "Install: curl -LsSf https://astral.sh/uv/install.sh | sh\n"
+                "Or: pip install uv\n"
+                "More info: https://docs.astral.sh/uv/",
+                err=True,
+            )
+            sys.exit(1)
+
         # Parse address
         addr = parse_address(output_file)
 
-        # Build plugin config from parameters
-        plugin_config = addr.parameters if addr.parameters else None
+        # Create resolver and resolve address
+        resolver = AddressResolver(ctx.plugin_dir, ctx.cache_path)
+        resolved = resolver.resolve(addr, mode="write")
 
-        # Determine plugin name from format override
-        plugin_name = addr.format_override if addr.format_override else None
+        # Build command
+        cmd = ["uv", "run", "--script", resolved.plugin_path, "--mode", "write"]
 
-        # Write destination
-        write_destination(
-            addr.base,
-            ctx.plugin_dir,
-            ctx.cache_path,
-            input_stream=sys.stdin,
-            plugin_name=plugin_name,
-            plugin_config=plugin_config,
-        )
+        # Add configuration parameters
+        for key, value in resolved.config.items():
+            cmd.extend([f"--{key}", str(value)])
+
+        # Prepare stdin for subprocess
+        try:
+            sys.stdin.fileno()
+            stdin_source = sys.stdin
+            input_data = None
+            text_mode = True
+        except (AttributeError, OSError, io.UnsupportedOperation):
+            # Not a real file handle (e.g., Click test runner)
+            input_data = sys.stdin.read()
+            stdin_source = subprocess.PIPE
+            text_mode = isinstance(input_data, str)
+
+        # Determine output destination
+        write_to_stdout = addr.type == "stdio"
+
+        if write_to_stdout:
+            # Write to stdout
+            proc = subprocess.Popen(
+                cmd,
+                stdin=stdin_source,
+                stdout=sys.stdout,
+                stderr=subprocess.PIPE,
+                text=text_mode,
+            )
+
+            if input_data is not None:
+                proc.stdin.write(input_data)
+                proc.stdin.close()
+
+            proc.wait()
+        else:
+            # Write to file
+            with open(addr.base, "w") as outfile:
+                proc = subprocess.Popen(
+                    cmd,
+                    stdin=stdin_source,
+                    stdout=outfile,
+                    stderr=subprocess.PIPE,
+                    text=text_mode,
+                )
+
+                if input_data is not None:
+                    proc.stdin.write(input_data)
+                    proc.stdin.close()
+
+                proc.wait()
+
+        # Check for errors
+        if proc.returncode != 0:
+            err = proc.stderr.read()
+            if not text_mode and isinstance(err, bytes):
+                err = err.decode()
+            click.echo(f"Error: Writer error: {err}", err=True)
+            sys.exit(1)
+
     except ValueError as e:
         click.echo(f"Error: Invalid address syntax: {e}", err=True)
         sys.exit(1)
-    except PipelineError as e:
+    except AddressResolutionError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
     except FileNotFoundError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)

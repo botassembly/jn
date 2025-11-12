@@ -1,12 +1,14 @@
 """Cat command - read files and output NDJSON."""
 
+import json
+import shutil
+import subprocess
 import sys
 
 import click
 
-from ...addressing import parse_address
+from ...addressing import AddressResolutionError, AddressResolver, parse_address
 from ...context import pass_context
-from ...core.pipeline import PipelineError, read_source
 
 
 @click.command()
@@ -36,26 +38,82 @@ def cat(ctx, input_file):
         jn cat "s3://bucket/data.csv"
     """
     try:
+        # Check UV availability
+        if not shutil.which("uv"):
+            click.echo(
+                "Error: UV is required to run JN plugins\n"
+                "Install: curl -LsSf https://astral.sh/uv/install.sh | sh\n"
+                "Or: pip install uv\n"
+                "More info: https://docs.astral.sh/uv/",
+                err=True,
+            )
+            sys.exit(1)
+
         # Parse address
         addr = parse_address(input_file)
 
-        # Extract parameters for profile resolution
-        params = addr.parameters if addr.parameters else None
+        # Create resolver and resolve address
+        resolver = AddressResolver(ctx.plugin_dir, ctx.cache_path)
+        resolved = resolver.resolve(addr, mode="read")
 
-        # Read source
-        read_source(
-            addr.base,
-            ctx.plugin_dir,
-            ctx.cache_path,
-            output_stream=sys.stdout,
-            params=params,
+        # Build command
+        cmd = ["uv", "run", "--script", resolved.plugin_path, "--mode", "read"]
+
+        # Add configuration parameters
+        for key, value in resolved.config.items():
+            cmd.extend([f"--{key}", str(value)])
+
+        # Determine input source
+        if resolved.url:
+            # Protocol or profile - pass URL as argument
+            if resolved.headers:
+                cmd.extend(["--headers", json.dumps(resolved.headers)])
+            cmd.append(resolved.url)
+            stdin_source = subprocess.DEVNULL
+            infile = None
+        elif addr.type == "stdio":
+            # Stdin
+            stdin_source = sys.stdin
+            infile = None
+        else:
+            # File - open and pass as stdin
+            infile = open(addr.base, "r")
+            stdin_source = infile
+
+        # Execute plugin
+        proc = subprocess.Popen(
+            cmd,
+            stdin=stdin_source,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
         )
+
+        # Stream output
+        for line in proc.stdout:
+            sys.stdout.write(line)
+
+        proc.wait()
+
+        # Close file if opened
+        if infile:
+            infile.close()
+
+        # Check for errors
+        if proc.returncode != 0:
+            error_msg = proc.stderr.read()
+            click.echo(f"Error: Reader error: {error_msg}", err=True)
+            sys.exit(1)
+
     except ValueError as e:
         click.echo(f"Error: Invalid address syntax: {e}", err=True)
         sys.exit(1)
-    except PipelineError as e:
+    except AddressResolutionError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
     except FileNotFoundError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
