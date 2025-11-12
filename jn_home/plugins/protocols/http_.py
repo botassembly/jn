@@ -24,10 +24,13 @@ FORMAT_DETECT = {
     "application/json": "json",
     "application/x-ndjson": "ndjson",
     "text/csv": "csv",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
     ".json": "json",
     ".jsonl": "ndjson",
     ".csv": "csv",
     ".tsv": "csv",
+    ".xlsx": "xlsx",
+    ".xlsm": "xlsx",
 }
 
 
@@ -112,6 +115,7 @@ def reads(
         "csv": lambda: [
             {"content": response.text, "content_type": "text/csv", "url": url}
         ],
+        "xlsx": lambda: _parse_xlsx(response, url),
         "text": lambda: [
             {"content": response.text, "content_type": content_type, "url": url}
         ],
@@ -149,6 +153,55 @@ def _parse_ndjson(response: requests.Response) -> Iterator[dict]:
             yield json.loads(line)
         except json.JSONDecodeError as e:
             yield error_record("ndjson_decode_error", str(e), line=line[:100])
+
+
+def _parse_xlsx(response: requests.Response, url: str) -> Iterator[dict]:
+    """Parse XLSX response by invoking XLSX plugin."""
+    import subprocess
+    from pathlib import Path
+
+    # Find XLSX plugin relative to this file
+    # This file is in jn_home/plugins/protocols/http_.py
+    # XLSX plugin is in jn_home/plugins/formats/xlsx_.py
+    http_plugin_path = Path(__file__).resolve()
+    xlsx_plugin_path = http_plugin_path.parent.parent / "formats" / "xlsx_.py"
+
+    if not xlsx_plugin_path.exists():
+        yield error_record(
+            "plugin_not_found",
+            f"XLSX plugin not found at {xlsx_plugin_path}",
+            url=url,
+        )
+        return
+
+    try:
+        # Invoke XLSX plugin with binary content
+        proc = subprocess.Popen(
+            ["uv", "run", "--script", str(xlsx_plugin_path), "--mode", "read"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=False,  # Binary mode for stdin
+        )
+
+        # Write binary content to plugin and close stdin
+        stdout_data, stderr_data = proc.communicate(input=response.content)
+
+        if proc.returncode != 0:
+            error_msg = stderr_data.decode() if stderr_data else "Unknown error"
+            yield error_record("xlsx_parse_error", error_msg, url=url)
+            return
+
+        # Parse NDJSON output from plugin
+        for line in stdout_data.decode().strip().split("\n"):
+            if line:
+                try:
+                    yield json.loads(line)
+                except json.JSONDecodeError as e:
+                    yield error_record("xlsx_output_error", str(e), url=url)
+
+    except Exception as e:
+        yield error_record("xlsx_plugin_error", str(e), url=url)
 
 
 if __name__ == "__main__":
@@ -222,5 +275,6 @@ if __name__ == "__main__":
         ):
             print(json.dumps(record), flush=True)
     except requests.exceptions.RequestException as e:
+        # Errors are data, not exceptions - yield error record and exit successfully
         print(json.dumps(error_record("request_exception", str(e), url=args.url)), flush=True)
-        sys.exit(1)
+        sys.exit(0)
