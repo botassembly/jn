@@ -1,0 +1,32 @@
+{
+  "type": "source",
+  "description": "Unread messages",
+  "defaults": {
+    "is": "unread"
+  },
+  "params": [
+    "from",
+    "to",
+    "subject",
+    "in",
+    "has",
+    "after",
+    "before",
+    "newer_than",
+    "older_than"
+  ],
+  "examples": [
+    {
+      "description": "All unread messages",
+      "command": "jn cat @gmail/unread"
+    },
+    {
+      "description": "Unread from specific sender",
+      "command": "jn cat @gmail/unread -p from=boss@company.com"
+    },
+    {
+      "description": "Unread from last 7 days",
+      "command": "jn cat @gmail/unread -p newer_than=7d"
+    }
+  ]
+}
