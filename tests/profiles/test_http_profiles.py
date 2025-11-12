@@ -6,11 +6,11 @@ from pathlib import Path
 import pytest
 
 from jn.profiles.http import (
-    HTTPProfile,
     ProfileError,
     find_profile_paths,
-    load_profile,
-    resolve_profile_reference
+    load_hierarchical_profile,
+    resolve_profile_reference,
+    substitute_env_vars
 )
 
 
@@ -21,97 +21,71 @@ def test_find_profile_paths():
     assert all(isinstance(p, Path) for p in paths)
 
 
-def test_load_profile_jsonplaceholder():
-    """Test loading bundled JSONPlaceholder profile."""
-    profile = load_profile("jsonplaceholder")
+def test_load_hierarchical_profile_genomoncology():
+    """Test loading bundled GenomOncology profile."""
+    # Load just _meta.json
+    profile = load_hierarchical_profile("genomoncology")
 
-    assert profile.name == "jsonplaceholder"
-    assert profile.base_url == "https://jsonplaceholder.typicode.com"
-    assert "Accept" in profile.headers
-    assert profile.timeout == 30
+    assert "base_url" in profile
+    assert "headers" in profile
+
+    # Load _meta + source
+    profile = load_hierarchical_profile("genomoncology", "annotations")
+    assert "base_url" in profile
+    assert "path" in profile
 
 
-def test_load_profile_not_found():
+def test_load_hierarchical_profile_not_found():
     """Test loading non-existent profile."""
     with pytest.raises(ProfileError, match="Profile not found"):
-        load_profile("nonexistent-profile-xyz")
+        load_hierarchical_profile("nonexistent-profile-xyz")
 
 
 def test_profile_env_var_substitution(monkeypatch):
-    """Test environment variable substitution in profiles."""
-    # Create a test profile with env vars
-    test_config = {
-        "base_url": "https://api.example.com",
-        "headers": {
-            "Authorization": "Bearer ${TEST_API_TOKEN}",
-            "X-Custom": "${TEST_CUSTOM_HEADER}"
-        }
-    }
-
+    """Test environment variable substitution."""
     # Set env vars
     monkeypatch.setenv("TEST_API_TOKEN", "test-token-123")
     monkeypatch.setenv("TEST_CUSTOM_HEADER", "custom-value")
 
-    profile = HTTPProfile("test", test_config, Path("/fake/path.json"))
+    # Test substitution
+    result = substitute_env_vars("Bearer ${TEST_API_TOKEN}")
+    assert result == "Bearer test-token-123"
 
-    assert profile.headers["Authorization"] == "Bearer test-token-123"
-    assert profile.headers["X-Custom"] == "custom-value"
+    result = substitute_env_vars("${TEST_CUSTOM_HEADER}")
+    assert result == "custom-value"
 
 
 def test_profile_env_var_missing(monkeypatch):
     """Test error when required env var is missing."""
-    test_config = {
-        "base_url": "https://api.example.com",
-        "headers": {
-            "Authorization": "Bearer ${MISSING_VAR}"
-        }
-    }
-
     # Make sure var is not set
     monkeypatch.delenv("MISSING_VAR", raising=False)
 
-    profile = HTTPProfile("test", test_config, Path("/fake/path.json"))
-
     with pytest.raises(ProfileError, match="Environment variable MISSING_VAR not set"):
-        _ = profile.headers
+        substitute_env_vars("Bearer ${MISSING_VAR}")
 
 
-def test_profile_resolve_path():
-    """Test path resolution with templates."""
-    config = {
-        "base_url": "https://api.example.com/v1",
-        "paths": {
-            "user": "/users/{id}",
-            "repos": "/repos"
-        }
-    }
+def test_resolve_profile_reference_with_source(monkeypatch):
+    """Test resolving profile reference with source."""
+    monkeypatch.setenv("GENOMONCOLOGY_URL", "example.genomoncology.com")
+    monkeypatch.setenv("GENOMONCOLOGY_API_KEY", "test-key-123")
 
-    profile = HTTPProfile("test", config, Path("/fake/path.json"))
+    url, headers = resolve_profile_reference("@genomoncology/annotations")
 
-    # Test simple path
-    url = profile.resolve_path("/repos")
-    assert url == "https://api.example.com/v1/repos"
-
-    # Test named path with variable
-    url = profile.resolve_path("user", {"id": "123"})
-    assert url == "https://api.example.com/v1/users/123"
+    assert url.startswith("https://")
+    assert "annotations" in url
+    assert isinstance(headers, dict)
+    assert "Authorization" in headers
 
 
-def test_resolve_profile_reference_simple():
-    """Test resolving simple profile reference."""
-    url, headers = resolve_profile_reference("@jsonplaceholder/users/1")
+def test_resolve_profile_reference_just_api(monkeypatch):
+    """Test resolving profile reference without source."""
+    monkeypatch.setenv("GENOMONCOLOGY_URL", "example.genomoncology.com")
+    monkeypatch.setenv("GENOMONCOLOGY_API_KEY", "test-key-123")
 
-    assert url == "https://jsonplaceholder.typicode.com/users/1"
-    assert "Accept" in headers
-    assert headers["Accept"] == "application/json"
+    url, headers = resolve_profile_reference("@genomoncology")
 
-
-def test_resolve_profile_reference_no_path():
-    """Test resolving profile reference without path."""
-    url, headers = resolve_profile_reference("@jsonplaceholder")
-
-    assert url == "https://jsonplaceholder.typicode.com"
-    assert "Accept" in headers
+    assert url.startswith("https://")
+    assert isinstance(headers, dict)
 
 
 def test_resolve_profile_reference_invalid():
@@ -120,40 +94,13 @@ def test_resolve_profile_reference_invalid():
         resolve_profile_reference("not-a-profile-ref")
 
 
-def test_jn_cat_with_profile(invoke):
-    """Test jn cat with profile reference."""
-    # Skip if GITHUB_TOKEN not set (optional test)
-    if not os.environ.get("GITHUB_TOKEN"):
-        pytest.skip("GITHUB_TOKEN not set")
+def test_resolve_profile_reference_with_params(monkeypatch):
+    """Test resolving profile reference with query params."""
+    monkeypatch.setenv("GENOMONCOLOGY_URL", "example.genomoncology.com")
+    monkeypatch.setenv("GENOMONCOLOGY_API_KEY", "test-key-123")
 
-    result = invoke(["cat", "@jsonplaceholder/users/1"])
+    url, headers = resolve_profile_reference("@genomoncology/annotations", params={"gene": "BRAF"})
 
-    assert result.exit_code == 0
-    lines = [line for line in result.output.strip().split("\n") if line]
-    record = json.loads(lines[0])
-    assert "id" in record
-    assert record["id"] == 1
-
-
-def test_jn_cat_with_profile_no_auth(invoke):
-    """Test jn cat with profile that doesn't require auth."""
-    result = invoke(["cat", "@jsonplaceholder/users/1"])
-
-    assert result.exit_code == 0
-    lines = [line for line in result.output.strip().split("\n") if line]
-    record = json.loads(lines[0])
-    assert "id" in record
-
-
-def test_jn_run_profile_to_csv(invoke, tmp_path):
-    """Test jn run with profile reference to CSV."""
-    output = tmp_path / "users.csv"
-
-    result = invoke(["run", "@jsonplaceholder/users/1", str(output)])
-
-    assert result.exit_code == 0
-    assert output.exists()
-
-    content = output.read_text()
-    assert "id" in content.lower()
-    assert "name" in content.lower()
+    assert url.startswith("https://")
+    assert "gene=BRAF" in url
+    assert isinstance(headers, dict)

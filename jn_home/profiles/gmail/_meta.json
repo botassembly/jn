@@ -1,0 +1,18 @@
+{
+  "description": "Gmail API for reading email messages",
+  "auth_type": "oauth2",
+  "scopes": [
+    "https://www.googleapis.com/auth/gmail.readonly"
+  ],
+  "token_path": "~/.jn/gmail-token.json",
+  "credentials_path": "~/.jn/gmail-credentials.json",
+  "sources": {
+    "messages": "All messages (use -p to filter)",
+    "inbox": "Messages in inbox",
+    "unread": "Unread messages",
+    "starred": "Starred messages",
+    "sent": "Sent messages",
+    "drafts": "Draft messages",
+    "attachments": "Messages with attachments"
+  }
+}

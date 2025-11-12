@@ -19,6 +19,7 @@ from ..plugins.discovery import PluginMetadata, get_cached_plugins_with_fallback
 from ..plugins.registry import build_registry
 from ..profiles.http import resolve_profile_reference
 from ..profiles.http import ProfileError as HTTPProfileError
+from ..profiles.gmail import resolve_gmail_reference, GmailProfileError
 from ..profiles.resolver import resolve_profile, ProfileError
 
 
@@ -200,22 +201,31 @@ def start_reader(
     # Check if source is a profile reference
     headers_json = None
     if source.startswith("@"):
-        try:
-            url, headers = resolve_profile_reference(source, params)
-            source = url  # Replace with resolved URL
-            headers_json = json.dumps(headers)
-        except HTTPProfileError as e:
-            raise PipelineError(f"Profile error: {e}")
+        # Route to appropriate profile resolver
+        if source.startswith("@gmail/"):
+            try:
+                source = resolve_gmail_reference(source, params)
+                # Gmail doesn't use headers
+            except GmailProfileError as e:
+                raise PipelineError(f"Gmail profile error: {e}")
+        else:
+            # HTTP/other profiles
+            try:
+                url, headers = resolve_profile_reference(source, params)
+                source = url  # Replace with resolved URL
+                headers_json = json.dumps(headers)
+            except HTTPProfileError as e:
+                raise PipelineError(f"Profile error: {e}")
 
     # Load plugins and find reader
     plugins, registry = _load_plugins_and_registry(plugin_dir, cache_path)
 
-    # Check if source is a URL (HTTP protocol plugin)
-    is_url = source.startswith(("http://", "https://"))
+    # Check if source is a URL (HTTP or Gmail protocol plugin)
+    is_url = source.startswith(("http://", "https://", "gmail://"))
 
     if is_url:
         # For binary format URLs, match by extension to get format plugin (e.g., xlsx_)
-        # For text formats, use http_ plugin
+        # For text formats, use http_ or gmail_ plugin
         if _is_binary_format_url(source):
             from urllib.parse import urlparse
             ext = Path(urlparse(source).path).suffix.lower()
@@ -260,10 +270,10 @@ def start_reader(
             proc._jn_curl = curl_proc
             proc._jn_infile = None
         else:
-            # Text/JSON formats: use http_ plugin for smart parsing
+            # Text/JSON formats: use http_ or gmail_ plugin for smart parsing
             cmd = ["uv", "run", "--script", plugin.path, "--mode", "read"]
 
-            # Add headers from profile if available
+            # Add headers from profile if available (HTTP only)
             if headers_json:
                 cmd.extend(["--headers", headers_json])
 
