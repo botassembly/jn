@@ -34,4 +34,3 @@ def build_registry(plugins: dict) -> PatternRegistry:
     for plugin in plugins.values():
         registry.register_plugin(plugin)
     return registry
-

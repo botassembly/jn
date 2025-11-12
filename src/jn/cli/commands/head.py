@@ -11,7 +11,14 @@ from ...core.streaming import head as stream_head
 
 @click.command()
 @click.argument("source", required=False)
-@click.option("-n", "--lines", "n", type=int, default=10, help="Number of lines to output")
+@click.option(
+    "-n",
+    "--lines",
+    "n",
+    type=int,
+    default=10,
+    help="Number of lines to output",
+)
 @pass_context
 def head(ctx, source, n):
     """Output first N records from NDJSON stream.
@@ -48,4 +55,3 @@ def head(ctx, source, n):
     except FileNotFoundError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
-

@@ -30,4 +30,3 @@ def run(ctx, input_file, output_file):
     except FileNotFoundError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
-

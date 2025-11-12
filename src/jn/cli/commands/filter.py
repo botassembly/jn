@@ -11,9 +11,10 @@ from ...core.pipeline import PipelineError, filter_stream
 @click.command()
 @click.argument("query")
 @click.option(
-    "--param", "-p",
+    "--param",
+    "-p",
     multiple=True,
-    help="Profile parameter (format: key=value, can be used multiple times)"
+    help="Profile parameter (format: key=value, can be used multiple times)",
 )
 @pass_context
 def filter(ctx, query, param):
@@ -35,7 +36,10 @@ def filter(ctx, query, param):
         params = {}
         for p in param:
             if "=" not in p:
-                click.echo(f"Error: Invalid parameter format '{p}'. Use: key=value", err=True)
+                click.echo(
+                    f"Error: Invalid parameter format '{p}'. Use: key=value",
+                    err=True,
+                )
                 sys.exit(1)
             key, value = p.split("=", 1)
             params[key] = value
@@ -47,7 +51,7 @@ def filter(ctx, query, param):
             ctx.cache_path,
             params=params if params else None,
             input_stream=sys.stdin,
-            output_stream=sys.stdout
+            output_stream=sys.stdout,
         )
     except PipelineError as e:
         click.echo(f"Error: {e}", err=True)

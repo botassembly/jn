@@ -74,4 +74,3 @@ def reads(config=None):
     # Should show fallback description with patterns
     assert "nodesc" in res.output
     assert "Matches:" in res.output
-

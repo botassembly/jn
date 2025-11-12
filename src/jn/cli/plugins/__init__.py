@@ -26,8 +26,13 @@ def plugin(ctx):
 
 
 @plugin.command(name="list")
-@click.option('--format', 'output_format', type=click.Choice(['text', 'json']),
-              default='text', help='Output format')
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["text", "json"]),
+    default="text",
+    help="Output format",
+)
 @pass_context
 def list_cmd(ctx, output_format):
     """List all available plugins."""
@@ -37,16 +42,16 @@ def list_cmd(ctx, output_format):
         click.echo("No plugins found")
         return
 
-    if output_format == 'json':
+    if output_format == "json":
         # Machine-readable output
         output = {}
         for name, info in sorted(plugins.items()):
             output[name] = {
-                'path': info.path,
-                'type': info.plugin_type,
-                'description': info.description,
-                'methods': info.methods,
-                'matches': info.matches,
+                "path": info.path,
+                "type": info.plugin_type,
+                "description": info.description,
+                "methods": info.methods,
+                "matches": info.matches,
             }
         click.echo(json.dumps(output, indent=2))
     else:
@@ -63,11 +68,11 @@ def list_cmd(ctx, output_format):
 
             click.echo(f"{name:{max_name_len}}  {description}")
 
-        click.echo(f"\nUse 'jn plugin info <name>' for detailed information")
+        click.echo("\nUse 'jn plugin info <name>' for detailed information")
 
 
 @plugin.command(name="info")
-@click.argument('plugin_name')
+@click.argument("plugin_name")
 @pass_context
 def info(ctx, plugin_name):
     """Show detailed information about a plugin."""
@@ -77,7 +82,9 @@ def info(ctx, plugin_name):
         # Get available plugins for error message
         plugins = list_plugins(ctx.plugin_dir, ctx.cache_path)
         click.echo(f"Error: Plugin '{plugin_name}' not found", err=True)
-        click.echo(f"Available plugins: {', '.join(sorted(plugins.keys()))}", err=True)
+        click.echo(
+            f"Available plugins: {', '.join(sorted(plugins.keys()))}", err=True
+        )
         sys.exit(1)
 
     # Display info
@@ -87,7 +94,7 @@ def info(ctx, plugin_name):
     if plugin_info.description:
         click.echo(f"Description: {plugin_info.description}")
 
-    click.echo(f"\nMethods:")
+    click.echo("\nMethods:")
     if plugin_info.methods:
         for method in plugin_info.methods:
             doc = plugin_info.method_docs.get(method, "")
@@ -98,33 +105,43 @@ def info(ctx, plugin_name):
     else:
         click.echo("  (none detected)")
 
-    click.echo(f"\nMatches:")
+    click.echo("\nMatches:")
     for pattern in plugin_info.matches:
         click.echo(f"  {pattern}")
 
-    click.echo(f"\nSchema: Variable (NDJSON output)")
+    click.echo("\nSchema: Variable (NDJSON output)")
 
     if plugin_info.dependencies:
-        click.echo(f"\nDependencies:")
+        click.echo("\nDependencies:")
         for dep in plugin_info.dependencies:
             click.echo(f"  {dep}")
     else:
-        click.echo(f"\nDependencies: (none)")
+        click.echo("\nDependencies: (none)")
 
     if plugin_info.requires_python:
         click.echo(f"Requires Python: {plugin_info.requires_python}")
 
     # Show usage examples
-    click.echo(f"\nUsage:")
-    if 'reads' in plugin_info.methods and 'writes' in plugin_info.methods:
-        click.echo(f"  jn cat input.ext                    # Read using {plugin_info.name}")
-        click.echo(f"  echo '{{}}' | jn put output.ext     # Write using {plugin_info.name}")
-    elif 'reads' in plugin_info.methods:
-        click.echo(f"  jn cat source                       # Read using {plugin_info.name}")
-    elif 'writes' in plugin_info.methods:
-        click.echo(f"  echo '{{}}' | jn put output         # Write using {plugin_info.name}")
-    elif 'filters' in plugin_info.methods:
-        click.echo(f"  jn cat data.json | jn plugin call {plugin_info.name} [args]")
+    click.echo("\nUsage:")
+    if "reads" in plugin_info.methods and "writes" in plugin_info.methods:
+        click.echo(
+            f"  jn cat input.ext                    # Read using {plugin_info.name}"
+        )
+        click.echo(
+            f"  echo '{{}}' | jn put output.ext     # Write using {plugin_info.name}"
+        )
+    elif "reads" in plugin_info.methods:
+        click.echo(
+            f"  jn cat source                       # Read using {plugin_info.name}"
+        )
+    elif "writes" in plugin_info.methods:
+        click.echo(
+            f"  echo '{{}}' | jn put output         # Write using {plugin_info.name}"
+        )
+    elif "filters" in plugin_info.methods:
+        click.echo(
+            f"  jn cat data.json | jn plugin call {plugin_info.name} [args]"
+        )
 
 
 @plugin.command(
@@ -157,7 +174,9 @@ def call(ctx, args):
     if plugin_info is None:
         plugins = list_plugins(ctx.plugin_dir, ctx.cache_path)
         click.echo(f"Error: Plugin '{name}' not found", err=True)
-        click.echo(f"Available plugins: {', '.join(sorted(plugins.keys()))}", err=True)
+        click.echo(
+            f"Available plugins: {', '.join(sorted(plugins.keys()))}", err=True
+        )
         sys.exit(1)
 
     # Call plugin

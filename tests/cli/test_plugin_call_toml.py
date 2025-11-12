@@ -12,7 +12,9 @@ version = "1.0.0"
 click = ">=8.0"
 ruamel-yaml = ">=0.18.0"
 """
-    res = invoke(["plugin", "call", "toml_", "--mode", "read"], input_data=toml_content)
+    res = invoke(
+        ["plugin", "call", "toml_", "--mode", "read"], input_data=toml_content
+    )
     assert res.exit_code == 0
     lines = [l for l in res.output.strip().split("\n") if l]
     assert len(lines) == 1
@@ -25,7 +27,9 @@ ruamel-yaml = ">=0.18.0"
 def test_plugin_call_toml_write(invoke):
     """Test writing NDJSON to TOML."""
     ndjson = '{"project": {"name": "jn", "version": "1.0.0"}}\n'
-    res = invoke(["plugin", "call", "toml_", "--mode", "write"], input_data=ndjson)
+    res = invoke(
+        ["plugin", "call", "toml_", "--mode", "write"], input_data=ndjson
+    )
     assert res.exit_code == 0
     output = res.output.strip()
     assert "[project]" in output
@@ -36,7 +40,9 @@ def test_plugin_call_toml_write(invoke):
 def test_plugin_call_toml_merge(invoke):
     """Test merging multiple NDJSON records into TOML."""
     ndjson = '{"project": {"name": "jn"}}\n{"project": {"version": "1.0.0"}}\n'
-    res = invoke(["plugin", "call", "toml_", "--mode", "write"], input_data=ndjson)
+    res = invoke(
+        ["plugin", "call", "toml_", "--mode", "write"], input_data=ndjson
+    )
     assert res.exit_code == 0
     output = res.output.strip()
     assert "[project]" in output

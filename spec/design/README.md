@@ -94,6 +94,35 @@ jn cat @genomoncology/annotations | \
   jn put annotations.csv
 ```
 
+#### [openapi-integration-ideas.md](openapi-integration-ideas.md)
+20 ideas for enhancing JN with OpenAPI/Swagger specs and reverse-engineering techniques.
+
+**Concepts:**
+- Automatic profile generation from OpenAPI
+- Parameter validation and auto-completion
+- Response schema validation
+- Reverse-engineering OpenAPI for non-spec APIs
+- Agent and human benefits
+
+**Key Ideas:**
+- Generate profiles: `jn profile generate --from-openapi`
+- Validate parameters before API calls
+- Auto-complete parameter names
+- Infer schemas from examples (GenSON library)
+- LLM-powered documentation scraping
+
+**Examples:**
+```bash
+# Generate profile from OpenAPI spec
+jn profile generate genomoncology --from-openapi https://api.genomoncology.io/schema
+
+# Reverse-engineer from samples
+jn profile reverse-engineer example-api --from-samples data/*.json
+
+# Use auto-completed parameters
+jn cat @genomoncology/alterations -p <TAB>  # Shows: gene, mutation_type, ...
+```
+
 ---
 
 ## Implementation Status

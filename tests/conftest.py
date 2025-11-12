@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
+
 from jn.cli import cli
 
 
@@ -26,6 +27,7 @@ def invoke(cli_runner):
     Click's CliRunner automatically handles both text and binary input.
     Binary output can be accessed via result.output_bytes or result.stdout_bytes.
     """
+
     def _invoke(args, input_data=None):
         result = cli_runner.invoke(cli, args, input=input_data)
         # Ensure output_bytes is available for binary output access

@@ -21,13 +21,12 @@ from typing import Dict, Optional
 
 class ProfileError(Exception):
     """Error resolving plugin profile."""
+
     pass
 
 
 def resolve_profile(
-    profile_ref: str,
-    plugin_name: str,
-    params: Optional[Dict[str, str]] = None
+    profile_ref: str, plugin_name: str, params: Optional[Dict[str, str]] = None
 ) -> str:
     """Resolve @profile/name reference for any plugin.
 
@@ -99,15 +98,22 @@ def resolve_profile(
     # 2. Project profiles (if JN_HOME is set)
     if "JN_HOME" in os.environ:
         search_bases.append(
-            Path(os.environ["JN_HOME"]) / "profiles" / plugin_dir / profile_path
+            Path(os.environ["JN_HOME"])
+            / "profiles"
+            / plugin_dir
+            / profile_path
         )
 
     # 3. Bundled profiles (relative to this module)
     # This file is in src/jn/profiles/resolver.py
     # Bundled profiles are in jn_home/profiles/
     # Navigate up to find jn_home/
-    package_root = Path(__file__).parent.parent.parent.parent  # Up to repo root
-    bundled_base = package_root / "jn_home" / "profiles" / plugin_dir / profile_path
+    package_root = Path(
+        __file__
+    ).parent.parent.parent.parent  # Up to repo root
+    bundled_base = (
+        package_root / "jn_home" / "profiles" / plugin_dir / profile_path
+    )
     search_bases.append(bundled_base)
 
     # Search for profile file with any extension
@@ -126,7 +132,9 @@ def resolve_profile(
 
     if not profile_file:
         # Format error message with search locations
-        search_list = "\n".join(f"  - {pattern}" for pattern in searched_patterns)
+        search_list = "\n".join(
+            f"  - {pattern}" for pattern in searched_patterns
+        )
         raise ProfileError(
             f"Profile not found: {profile_ref} (for plugin '{plugin_name}')\n"
             f"Searched for:\n{search_list}"
@@ -139,7 +147,8 @@ def resolve_profile(
     # This is generic and works for many file formats (.jq, .sql, .py, etc.)
     # Note: Some formats (like JSON) don't support # comments, so this is optional
     content_lines = [
-        line for line in content.split("\n")
+        line
+        for line in content.split("\n")
         if not line.strip().startswith("#")
     ]
     content = "\n".join(content_lines).strip()

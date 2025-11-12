@@ -22,6 +22,7 @@ from typing import Dict, Optional, Tuple
 
 class ProfileError(Exception):
     """Error in profile resolution."""
+
     pass
 
 
@@ -45,7 +46,12 @@ def find_profile_paths() -> list[Path]:
         bundled_dir = Path(jn_home) / "profiles" / "http"
     else:
         # Fallback: relative to this file
-        bundled_dir = Path(__file__).parent.parent.parent.parent / "jn_home" / "profiles" / "http"
+        bundled_dir = (
+            Path(__file__).parent.parent.parent.parent
+            / "jn_home"
+            / "profiles"
+            / "http"
+        )
 
     if bundled_dir.exists():
         paths.append(bundled_dir)
@@ -58,7 +64,7 @@ def substitute_env_vars(value: str) -> str:
     if not isinstance(value, str):
         return value
 
-    pattern = r'\$\{([A-Za-z_][A-Za-z0-9_]*)\}'
+    pattern = r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}"
 
     def replace_var(match):
         var_name = match.group(1)
@@ -70,7 +76,9 @@ def substitute_env_vars(value: str) -> str:
     return re.sub(pattern, replace_var, value)
 
 
-def load_hierarchical_profile(api_name: str, source_name: Optional[str] = None) -> dict:
+def load_hierarchical_profile(
+    api_name: str, source_name: Optional[str] = None
+) -> dict:
     """Load hierarchical profile: _meta.json + optional source.json.
 
     Args:
@@ -111,7 +119,9 @@ def load_hierarchical_profile(api_name: str, source_name: Optional[str] = None) 
                     raise ProfileError(f"Invalid JSON in {source_file}: {e}")
             elif meta:
                 # _meta exists but source doesn't
-                raise ProfileError(f"Source not found: {api_name}/{source_name}")
+                raise ProfileError(
+                    f"Source not found: {api_name}/{source_name}"
+                )
 
         # If we found meta (and optionally source), we're done
         if meta:
@@ -125,7 +135,9 @@ def load_hierarchical_profile(api_name: str, source_name: Optional[str] = None) 
     return merged
 
 
-def resolve_profile_reference(reference: str, params: Optional[Dict] = None) -> Tuple[str, Dict[str, str]]:
+def resolve_profile_reference(
+    reference: str, params: Optional[Dict] = None
+) -> Tuple[str, Dict[str, str]]:
     """Resolve @api/source reference to URL and headers.
 
     Args:
@@ -139,7 +151,9 @@ def resolve_profile_reference(reference: str, params: Optional[Dict] = None) -> 
         ProfileError: If profile not found
     """
     if not reference.startswith("@"):
-        raise ProfileError(f"Invalid profile reference (must start with @): {reference}")
+        raise ProfileError(
+            f"Invalid profile reference (must start with @): {reference}"
+        )
 
     # Parse reference: @api_name/source_name
     ref = reference[1:]  # Remove @
@@ -155,6 +169,24 @@ def resolve_profile_reference(reference: str, params: Optional[Dict] = None) -> 
     # Load profile
     profile = load_hierarchical_profile(api_name, source_name)
 
+    # Validate params against profile's allowed params (if defined)
+    if params and "params" in profile:
+        allowed_params = set(profile["params"])
+        provided_params = set(params.keys())
+        invalid_params = provided_params - allowed_params
+
+        if invalid_params:
+            import sys
+
+            invalid_list = ", ".join(sorted(invalid_params))
+            allowed_list = ", ".join(sorted(allowed_params))
+            print(
+                f"Warning: Parameters {invalid_list} are not supported by {reference}.\n"
+                f"Supported parameters: {allowed_list}\n"
+                f"The API may ignore unsupported parameters.",
+                file=sys.stderr,
+            )
+
     # Build URL
     base_url = substitute_env_vars(profile.get("base_url", ""))
     path = profile.get("path", "")
@@ -167,6 +199,7 @@ def resolve_profile_reference(reference: str, params: Optional[Dict] = None) -> 
     # Add query params if provided
     if params:
         from urllib.parse import urlencode
+
         # doseq=True handles list values (multiple params with same key)
         query_string = urlencode(params, doseq=True)
         url = f"{url}?{query_string}"

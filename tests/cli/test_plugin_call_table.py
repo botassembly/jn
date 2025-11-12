@@ -4,7 +4,10 @@ import json
 def test_plugin_call_table_write_grid(invoke):
     """Test writing NDJSON to grid table format."""
     ndjson = '{"name":"Alice","age":30,"score":95.5}\n{"name":"Bob","age":25,"score":87.2}\n'
-    res = invoke(["plugin", "call", "table_", "--mode", "write", "--tablefmt", "grid"], input_data=ndjson)
+    res = invoke(
+        ["plugin", "call", "table_", "--mode", "write", "--tablefmt", "grid"],
+        input_data=ndjson,
+    )
     assert res.exit_code == 0
     output = res.output
     # Grid format has borders
@@ -16,7 +19,10 @@ def test_plugin_call_table_write_grid(invoke):
 def test_plugin_call_table_write_pipe(invoke):
     """Test writing NDJSON to pipe (markdown) table format."""
     ndjson = '{"name":"Alice","age":30}\n{"name":"Bob","age":25}\n'
-    res = invoke(["plugin", "call", "table_", "--mode", "write", "--tablefmt", "pipe"], input_data=ndjson)
+    res = invoke(
+        ["plugin", "call", "table_", "--mode", "write", "--tablefmt", "pipe"],
+        input_data=ndjson,
+    )
     assert res.exit_code == 0
     output = res.output
     # Pipe format uses |
@@ -28,7 +34,10 @@ def test_plugin_call_table_write_pipe(invoke):
 def test_plugin_call_table_write_html(invoke):
     """Test writing NDJSON to HTML table format."""
     ndjson = '{"name":"Alice","age":30}\n{"name":"Bob","age":25}\n'
-    res = invoke(["plugin", "call", "table_", "--mode", "write", "--tablefmt", "html"], input_data=ndjson)
+    res = invoke(
+        ["plugin", "call", "table_", "--mode", "write", "--tablefmt", "html"],
+        input_data=ndjson,
+    )
     assert res.exit_code == 0
     output = res.output
     # HTML format has tags
@@ -45,7 +54,10 @@ def test_plugin_call_table_read_pipe(invoke):
 | Alice | 30  |
 | Bob   | 25  |
 """
-    res = invoke(["plugin", "call", "table_", "--mode", "read", "--format", "pipe"], input_data=table)
+    res = invoke(
+        ["plugin", "call", "table_", "--mode", "read", "--format", "pipe"],
+        input_data=table,
+    )
     assert res.exit_code == 0
     lines = [l for l in res.output.strip().split("\n") if l]
     assert len(lines) == 2
@@ -64,7 +76,10 @@ def test_plugin_call_table_read_grid(invoke):
 | Bob   | 25  |
 +-------+-----+
 """
-    res = invoke(["plugin", "call", "table_", "--mode", "read", "--format", "grid"], input_data=table)
+    res = invoke(
+        ["plugin", "call", "table_", "--mode", "read", "--format", "grid"],
+        input_data=table,
+    )
     assert res.exit_code == 0
     lines = [l for l in res.output.strip().split("\n") if l]
     assert len(lines) == 2
@@ -82,7 +97,10 @@ def test_plugin_call_table_read_html(invoke):
 <tr><td>Bob</td><td>25</td></tr>
 </table>
 """
-    res = invoke(["plugin", "call", "table_", "--mode", "read", "--format", "html"], input_data=table)
+    res = invoke(
+        ["plugin", "call", "table_", "--mode", "read", "--format", "html"],
+        input_data=table,
+    )
     assert res.exit_code == 0
     lines = [l for l in res.output.strip().split("\n") if l]
     assert len(lines) == 2
@@ -97,17 +115,27 @@ def test_plugin_call_table_roundtrip_grid(invoke):
     original_ndjson = '{"name":"Alice","age":30,"score":95.5}\n{"name":"Bob","age":25,"score":87.2}\n'
 
     # Write to grid table
-    res1 = invoke(["plugin", "call", "table_", "--mode", "write", "--tablefmt", "grid"], input_data=original_ndjson)
+    res1 = invoke(
+        ["plugin", "call", "table_", "--mode", "write", "--tablefmt", "grid"],
+        input_data=original_ndjson,
+    )
     assert res1.exit_code == 0
     table_output = res1.output
 
     # Read back from grid table
-    res2 = invoke(["plugin", "call", "table_", "--mode", "read", "--format", "grid"], input_data=table_output)
+    res2 = invoke(
+        ["plugin", "call", "table_", "--mode", "read", "--format", "grid"],
+        input_data=table_output,
+    )
     assert res2.exit_code == 0
 
     # Parse both original and round-trip results
-    original_records = [json.loads(line) for line in original_ndjson.strip().split("\n")]
-    roundtrip_records = [json.loads(line) for line in res2.output.strip().split("\n") if line]
+    original_records = [
+        json.loads(line) for line in original_ndjson.strip().split("\n")
+    ]
+    roundtrip_records = [
+        json.loads(line) for line in res2.output.strip().split("\n") if line
+    ]
 
     # Verify same number of records
     assert len(roundtrip_records) == len(original_records)
@@ -124,17 +152,27 @@ def test_plugin_call_table_roundtrip_pipe(invoke):
     original_ndjson = '{"name":"Alice","age":30}\n{"name":"Bob","age":25}\n'
 
     # Write to pipe table
-    res1 = invoke(["plugin", "call", "table_", "--mode", "write", "--tablefmt", "pipe"], input_data=original_ndjson)
+    res1 = invoke(
+        ["plugin", "call", "table_", "--mode", "write", "--tablefmt", "pipe"],
+        input_data=original_ndjson,
+    )
     assert res1.exit_code == 0
     table_output = res1.output
 
     # Read back from pipe table
-    res2 = invoke(["plugin", "call", "table_", "--mode", "read", "--format", "pipe"], input_data=table_output)
+    res2 = invoke(
+        ["plugin", "call", "table_", "--mode", "read", "--format", "pipe"],
+        input_data=table_output,
+    )
     assert res2.exit_code == 0
 
     # Parse both original and round-trip results
-    original_records = [json.loads(line) for line in original_ndjson.strip().split("\n")]
-    roundtrip_records = [json.loads(line) for line in res2.output.strip().split("\n") if line]
+    original_records = [
+        json.loads(line) for line in original_ndjson.strip().split("\n")
+    ]
+    roundtrip_records = [
+        json.loads(line) for line in res2.output.strip().split("\n") if line
+    ]
 
     # Verify same number of records
     assert len(roundtrip_records) == len(original_records)
@@ -150,17 +188,27 @@ def test_plugin_call_table_roundtrip_html(invoke):
     original_ndjson = '{"name":"Alice","age":30}\n{"name":"Bob","age":25}\n'
 
     # Write to HTML table
-    res1 = invoke(["plugin", "call", "table_", "--mode", "write", "--tablefmt", "html"], input_data=original_ndjson)
+    res1 = invoke(
+        ["plugin", "call", "table_", "--mode", "write", "--tablefmt", "html"],
+        input_data=original_ndjson,
+    )
     assert res1.exit_code == 0
     table_output = res1.output
 
     # Read back from HTML table
-    res2 = invoke(["plugin", "call", "table_", "--mode", "read", "--format", "html"], input_data=table_output)
+    res2 = invoke(
+        ["plugin", "call", "table_", "--mode", "read", "--format", "html"],
+        input_data=table_output,
+    )
     assert res2.exit_code == 0
 
     # Parse both original and round-trip results
-    original_records = [json.loads(line) for line in original_ndjson.strip().split("\n")]
-    roundtrip_records = [json.loads(line) for line in res2.output.strip().split("\n") if line]
+    original_records = [
+        json.loads(line) for line in original_ndjson.strip().split("\n")
+    ]
+    roundtrip_records = [
+        json.loads(line) for line in res2.output.strip().split("\n") if line
+    ]
 
     # Verify same number of records
     assert len(roundtrip_records) == len(original_records)
@@ -174,14 +222,22 @@ def test_plugin_call_table_roundtrip_html(invoke):
 def test_plugin_call_table_data_types(invoke):
     """Test that data types are preserved in round-trip."""
     # Test various data types
-    original_ndjson = '{"str":"hello","int":42,"float":3.14,"bool":true,"null":null}\n'
+    original_ndjson = (
+        '{"str":"hello","int":42,"float":3.14,"bool":true,"null":null}\n'
+    )
 
     # Write to grid table
-    res1 = invoke(["plugin", "call", "table_", "--mode", "write", "--tablefmt", "grid"], input_data=original_ndjson)
+    res1 = invoke(
+        ["plugin", "call", "table_", "--mode", "write", "--tablefmt", "grid"],
+        input_data=original_ndjson,
+    )
     assert res1.exit_code == 0
 
     # Read back
-    res2 = invoke(["plugin", "call", "table_", "--mode", "read", "--format", "grid"], input_data=res1.output)
+    res2 = invoke(
+        ["plugin", "call", "table_", "--mode", "read", "--format", "grid"],
+        input_data=res1.output,
+    )
     assert res2.exit_code == 0
 
     # Parse result
@@ -201,7 +257,9 @@ def test_plugin_call_table_auto_detect_pipe(invoke):
 |-------|-----|
 | Alice | 30  |
 """
-    res = invoke(["plugin", "call", "table_", "--mode", "read"], input_data=table)
+    res = invoke(
+        ["plugin", "call", "table_", "--mode", "read"], input_data=table
+    )
     assert res.exit_code == 0
     record = json.loads(res.output.strip())
     assert record["name"] == "Alice"
@@ -216,7 +274,9 @@ def test_plugin_call_table_auto_detect_grid(invoke):
 | Alice | 30  |
 +-------+-----+
 """
-    res = invoke(["plugin", "call", "table_", "--mode", "read"], input_data=table)
+    res = invoke(
+        ["plugin", "call", "table_", "--mode", "read"], input_data=table
+    )
     assert res.exit_code == 0
     record = json.loads(res.output.strip())
     assert record["name"] == "Alice"
@@ -229,7 +289,9 @@ def test_plugin_call_table_auto_detect_html(invoke):
 <tr><td>Alice</td><td>30</td></tr>
 </table>
 """
-    res = invoke(["plugin", "call", "table_", "--mode", "read"], input_data=table)
+    res = invoke(
+        ["plugin", "call", "table_", "--mode", "read"], input_data=table
+    )
     assert res.exit_code == 0
     record = json.loads(res.output.strip())
     assert record["name"] == "Alice"
@@ -238,7 +300,18 @@ def test_plugin_call_table_auto_detect_html(invoke):
 def test_plugin_call_table_fancy_grid(invoke):
     """Test fancy grid format with box-drawing characters."""
     ndjson = '{"name":"Alice","age":30}\n'
-    res = invoke(["plugin", "call", "table_", "--mode", "write", "--tablefmt", "fancy_grid"], input_data=ndjson)
+    res = invoke(
+        [
+            "plugin",
+            "call",
+            "table_",
+            "--mode",
+            "write",
+            "--tablefmt",
+            "fancy_grid",
+        ],
+        input_data=ndjson,
+    )
     assert res.exit_code == 0
     output = res.output
     # Fancy grid uses box-drawing characters
@@ -249,7 +322,18 @@ def test_plugin_call_table_fancy_grid(invoke):
 def test_plugin_call_table_github_format(invoke):
     """Test GitHub-flavored markdown table format."""
     ndjson = '{"name":"Alice","age":30}\n{"name":"Bob","age":25}\n'
-    res = invoke(["plugin", "call", "table_", "--mode", "write", "--tablefmt", "github"], input_data=ndjson)
+    res = invoke(
+        [
+            "plugin",
+            "call",
+            "table_",
+            "--mode",
+            "write",
+            "--tablefmt",
+            "github",
+        ],
+        input_data=ndjson,
+    )
     assert res.exit_code == 0
     output = res.output
     # GitHub format is pipe-based

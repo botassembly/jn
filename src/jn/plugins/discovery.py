@@ -1,13 +1,13 @@
 """Plugin discovery with timestamp-based caching (logic module)."""
 
-from dataclasses import asdict, dataclass
-from pathlib import Path
-from typing import Dict, List, Optional
 import json
 import re
-import tomllib
+from dataclasses import asdict, dataclass
 from importlib import resources
+from pathlib import Path
+from typing import Dict, List, Optional
 
+import tomllib
 
 # PEP 723 regex pattern
 PEP723_PATTERN = re.compile(
@@ -105,7 +105,9 @@ def save_cache(cache_path: Optional[Path], cache: dict) -> None:
         json.dump(cache, f, indent=2)
 
 
-def get_cached_plugins(plugin_dir: Path, cache_path: Optional[Path]) -> Dict[str, PluginMetadata]:
+def get_cached_plugins(
+    plugin_dir: Path, cache_path: Optional[Path]
+) -> Dict[str, PluginMetadata]:
     cache = load_cache(cache_path)
     cached_plugins = cache.get("plugins", {})
     current_plugins = discover_plugins(plugin_dir)
@@ -149,7 +151,9 @@ def _builtin_plugins_dir() -> Optional[Path]:
 
 
 def get_cached_plugins_with_fallback(
-    plugin_dir: Path, cache_path: Optional[Path], fallback_to_builtin: bool = True
+    plugin_dir: Path,
+    cache_path: Optional[Path],
+    fallback_to_builtin: bool = True,
 ) -> Dict[str, PluginMetadata]:
     result: Dict[str, PluginMetadata] = {}
 
@@ -166,6 +170,8 @@ def get_cached_plugins_with_fallback(
     return result
 
 
-def get_plugin_by_name(name: str, plugins: Dict[str, PluginMetadata]) -> Optional[PluginMetadata]:
+def get_plugin_by_name(
+    name: str, plugins: Dict[str, PluginMetadata]
+) -> Optional[PluginMetadata]:
     """Find plugin by exact name match in a mapping."""
     return plugins.get(name)

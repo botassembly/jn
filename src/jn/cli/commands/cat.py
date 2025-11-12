@@ -12,9 +12,10 @@ from ...core.pipeline import PipelineError, read_source
 @click.command()
 @click.argument("input_file")
 @click.option(
-    "--param", "-p",
+    "--param",
+    "-p",
     multiple=True,
-    help="Profile parameter (format: key=value, can be used multiple times)"
+    help="Profile parameter (format: key=value, can be used multiple times)",
 )
 @pass_context
 def cat(ctx, input_file, param):
@@ -45,7 +46,10 @@ def cat(ctx, input_file, param):
         # Parse -p parameters and merge (override query string)
         for p in param:
             if "=" not in p:
-                click.echo(f"Error: Invalid parameter format '{p}'. Use: key=value", err=True)
+                click.echo(
+                    f"Error: Invalid parameter format '{p}'. Use: key=value",
+                    err=True,
+                )
                 sys.exit(1)
             key, value = p.split("=", 1)
 
@@ -63,7 +67,7 @@ def cat(ctx, input_file, param):
             ctx.plugin_dir,
             ctx.cache_path,
             output_stream=sys.stdout,
-            params=params if params else None
+            params=params if params else None,
         )
     except PipelineError as e:
         click.echo(f"Error: {e}", err=True)

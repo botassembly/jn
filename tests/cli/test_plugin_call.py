@@ -5,7 +5,9 @@ from pathlib import Path
 def test_plugin_call_csv_read(invoke, people_csv):
     # Call the csv_ plugin directly via plugin subcommand
     with open(people_csv) as f:
-        res = invoke(["plugin", "call", "csv_", "--mode", "read"], input_data=f.read())
+        res = invoke(
+            ["plugin", "call", "csv_", "--mode", "read"], input_data=f.read()
+        )
 
     assert res.exit_code == 0
     lines = [l for l in res.output.strip().split("\n") if l]
@@ -28,4 +30,3 @@ def test_plugin_call_not_found(invoke):
     assert result.exit_code == 1
     assert "Error: Plugin 'nonexistent_plugin' not found" in result.output
     assert "Available plugins:" in result.output
-
