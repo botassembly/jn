@@ -1,9 +1,28 @@
 # Gmail Protocol Plugin
 
-**Status:** ✅ COMPLETE
+**Status:** ✅ PLUGIN COMPLETE - ⚠️ FRAMEWORK INTEGRATION PENDING
 **Type:** Protocol Plugin
 **Effort:** Medium (2-3 days)
 **Priority:** High (enables email data workflows)
+
+## ⚠️ Important: Dependencies
+
+**The Gmail plugin is complete but requires framework infrastructure that is NOT yet implemented:**
+
+The plugin is designed to work with the `-p` parameter pattern (`jn cat @gmail/inbox -p from=boss`), which is documented in `spec/design/api-parameter-patterns.md` but **not yet implemented** in the JN CLI.
+
+**Current State:**
+- ✅ Plugin works standalone: `uv run --script gmail_.py --mode read --from boss@company.com`
+- ❌ Framework integration blocked: `jn cat @gmail/inbox -p from=boss` requires `-p` CLI support
+
+**Required Before Integration:**
+1. Implement `-p/--param` in `src/jn/cli/commands/cat.py`
+2. Update profile resolution to pass parameters to plugins
+3. Add Gmail-specific profile resolver (or extend HTTP resolver)
+
+See `spec/design/api-parameter-patterns.md` Implementation Checklist for details.
+
+**Workaround:** Plugin can be used directly via CLI until framework support is added.
 
 ## Overview
 

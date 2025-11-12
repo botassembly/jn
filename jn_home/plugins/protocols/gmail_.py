@@ -245,7 +245,6 @@ def reads(
 
         # Paginate through results
         page_token = None
-        message_count = 0
 
         while True:
             # List messages
@@ -282,7 +281,6 @@ def reads(
 
                     # Parse and yield
                     yield parse_message(msg, format=format)
-                    message_count += 1
 
                 except HttpError as e:
                     yield error_record(
@@ -301,9 +299,6 @@ def reads(
 
     except HttpError as e:
         yield error_record("gmail_api_error", f"Gmail API error: {str(e)}")
-
-    except Exception as e:
-        yield error_record("unexpected_error", f"Unexpected error: {str(e)}")
 
 
 if __name__ == "__main__":
