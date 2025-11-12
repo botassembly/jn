@@ -10,11 +10,26 @@ from ..violation import Severity
 class StructureChecker(BaseChecker):
     """Check plugin structure requirements."""
 
+    def __init__(self, file_path, source, is_plugin: bool = True):
+        """Initialize structure checker.
+
+        Args:
+            file_path: Path to file
+            source: Source code
+            is_plugin: Whether this is a plugin file (vs framework code)
+        """
+        super().__init__(file_path, source)
+        self.is_plugin = is_plugin
+
     def check_file(self) -> None:
         """Check file-level structure (shebang, PEP 723, docstring)."""
         lines = self.source.splitlines()
 
-        # Check 1: UV shebang (line 1)
+        # Skip plugin-specific checks for framework code
+        if not self.is_plugin:
+            return
+
+        # Check 1: UV shebang (line 1) - PLUGINS ONLY
         if not lines:
             self.add_violation(
                 rule="missing_shebang",
@@ -35,7 +50,7 @@ class StructureChecker(BaseChecker):
                 reference="spec/design/plugin-specification.md (Required Components)"
             )
 
-        # Check 2: PEP 723 block
+        # Check 2: PEP 723 block - PLUGINS ONLY
         pep723 = parse_pep723(self.source)
         if not pep723:
             self.add_violation(
@@ -48,7 +63,7 @@ class StructureChecker(BaseChecker):
             )
             return
 
-        # Check 3: PEP 723 required fields
+        # Check 3: PEP 723 required fields - PLUGINS ONLY
         if "requires-python" not in pep723:
             self.add_violation(
                 rule="missing_requires_python",
@@ -66,7 +81,7 @@ class StructureChecker(BaseChecker):
                 fix="Add: dependencies = []"
             )
 
-        # Check 4: [tool.jn] section
+        # Check 4: [tool.jn] section - PLUGINS ONLY
         tool_jn = pep723.get("tool", {}).get("jn", {})
         if not tool_jn:
             self.add_violation(
@@ -87,6 +102,10 @@ class StructureChecker(BaseChecker):
 
     def check_dependencies(self, tree: ast.AST) -> None:
         """Check that all imports are declared in PEP 723 dependencies."""
+        # Skip dependency checking for framework code (no PEP 723 required)
+        if not self.is_plugin:
+            return
+
         pep723 = parse_pep723(self.source)
         if not pep723:
             return  # Already flagged by check_file
