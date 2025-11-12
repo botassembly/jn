@@ -1,6 +1,7 @@
 """Put command - write NDJSON to file."""
 
 import io
+import json
 import subprocess
 import sys
 
@@ -66,10 +67,27 @@ def put(ctx, output_file):
             stdin_source = subprocess.PIPE
             text_mode = isinstance(input_data, str)
 
-        # Determine output destination
-        write_to_stdout = addr.type == "stdio"
+        # Determine output destination and add URL/headers if needed
+        if resolved.url:
+            # Protocol or profile destination - pass URL to plugin
+            if resolved.headers:
+                cmd.extend(["--headers", json.dumps(resolved.headers)])
+            cmd.append(resolved.url)
 
-        if write_to_stdout:
+            proc = subprocess.Popen(
+                cmd,
+                stdin=stdin_source,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=text_mode,
+            )
+
+            if input_data is not None:
+                proc.stdin.write(input_data)
+                proc.stdin.close()
+
+            proc.wait()
+        elif addr.type == "stdio":
             # Write to stdout
             proc = subprocess.Popen(
                 cmd,
@@ -85,7 +103,7 @@ def put(ctx, output_file):
 
             proc.wait()
         else:
-            # Write to file
+            # Write to local file
             with open(addr.base, "w") as outfile:
                 proc = subprocess.Popen(
                     cmd,

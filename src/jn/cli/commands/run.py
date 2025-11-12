@@ -92,10 +92,53 @@ def run(ctx, input_file, output_file):
         for key, value in output_resolved.config.items():
             writer_cmd.extend([f"--{key}", str(value)])
 
-        # Determine writer output destination
-        write_to_stdout = output_addr.type == "stdio"
+        # Add URL/headers for protocol/profile destinations
+        if output_resolved.url:
+            if output_resolved.headers:
+                writer_cmd.extend(["--headers", json.dumps(output_resolved.headers)])
+            writer_cmd.append(output_resolved.url)
 
-        if write_to_stdout:
+        # Determine writer output destination
+        if output_resolved.url:
+            # Protocol or profile destination - plugin handles remote write
+            reader = subprocess.Popen(
+                reader_cmd,
+                stdin=reader_stdin,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+            writer = subprocess.Popen(
+                writer_cmd,
+                stdin=reader.stdout,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+            # Close reader stdout in parent (critical for SIGPIPE)
+            reader.stdout.close()
+
+            # Wait for both processes
+            writer.wait()
+            reader.wait()
+
+            # Close input file if opened
+            if infile:
+                infile.close()
+
+            # Check for errors
+            if writer.returncode != 0:
+                error_msg = writer.stderr.read()
+                click.echo(f"Error: Writer error: {error_msg}", err=True)
+                sys.exit(1)
+
+            if reader.returncode != 0:
+                error_msg = reader.stderr.read()
+                click.echo(f"Error: Reader error: {error_msg}", err=True)
+                sys.exit(1)
+        elif output_addr.type == "stdio":
             # Execute two-stage pipeline: reader → writer → stdout
             reader = subprocess.Popen(
                 reader_cmd,
