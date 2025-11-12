@@ -60,7 +60,8 @@ def test_mcp_plugin_profile_not_found(mcp_plugin):
 
     record = json.loads(lines[0])
     assert record.get("_error") is True
-    assert "profile_error" in record.get("type", "")
+    # Error type changed to "resolution_error" after vendoring
+    assert "resolution_error" in record.get("type", "")
 
 
 def test_mcp_plugin_matches_profile_pattern(mcp_plugin):
@@ -72,6 +73,9 @@ def test_mcp_plugin_matches_profile_pattern(mcp_plugin):
     assert "matches" in content
     assert "^@[a-zA-Z0-9_-]+" in content
 
+    # Should match naked MCP URI pattern (double-escaped in JSON)
+    assert '"^mcp\\\\+[a-z]+://"' in content
+
     # Should NOT match legacy patterns
     assert "^mcp://" not in content
 
@@ -80,14 +84,39 @@ def test_mcp_plugin_has_clean_interface(mcp_plugin):
     """Test that plugin has clean reads/writes interface."""
     content = mcp_plugin.read_text()
 
-    # Should have reads and writes
+    # Should have reads, writes, and inspects
     assert "def reads(url: str, **params)" in content
     assert "def writes(url: str | None = None, **config)" in content
+    assert "def inspects(url: str, **config)" in content
 
-    # Should NOT have legacy functions
-    assert "parse_mcp_url" not in content
-    assert "load_server_config" not in content
-    assert "HAS_PROFILE_SYSTEM" not in content
+    # Should have naked URI parsing
+    assert "def parse_naked_mcp_uri(uri: str)" in content
+
+    # Should NOT have framework imports
+    assert "from jn.profiles.mcp import" not in content
+    assert "sys.path.insert" not in content  # No sys.path hacks
+
+    # Should have vendored profile resolver
+    assert "class ProfileError(Exception):" in content
+    assert "def resolve_profile_reference(" in content
+    assert "def find_profile_paths()" in content
+
+
+def test_mcp_plugin_inspect_mode(mcp_plugin):
+    """Test that plugin supports inspect mode."""
+    result = subprocess.run(
+        ["uv", "run", "--script", str(mcp_plugin), "--help"],
+        capture_output=True,
+        text=True
+    )
+    assert result.returncode == 0
+    assert "inspect" in result.stdout
+
+
+# Unit tests for naked URI parsing
+# Note: Direct function tests are skipped because the plugin requires the 'mcp'
+# package which is only available via PEP 723 when run with 'uv run --script'.
+# The naked URI functionality is tested via integration tests below.
 
 
 # Integration tests using test fixture profiles

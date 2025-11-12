@@ -10,15 +10,15 @@
 ## Table of Contents
 
 1. [Executive Summary](#executive-summary)
-2. [What is MCP?](#what-is-mcp)
-3. [Current Implementation](#current-implementation)
-4. [The Versioning Problem](#the-versioning-problem)
-5. [Plugin Discovery Contract](#plugin-discovery-contract)
-6. [Naked Protocol Access](#naked-protocol-access)
-7. [Generic Discovery Flow](#generic-discovery-flow)
-8. [Schema Change Detection](#schema-change-detection)
-9. [Profile System](#profile-system)
-10. [Implementation Strategy](#implementation-strategy)
+2. [Current State Assessment](#current-state-assessment)
+3. [What is MCP?](#what-is-mcp)
+4. [Naked MCP Access (Priority)](#naked-mcp-access-priority)
+5. [Inspect Command](#inspect-command)
+6. [Self-Contained Plugin Refactor](#self-contained-plugin-refactor)
+7. [Future: Plugin Discovery Contract](#future-plugin-discovery-contract)
+8. [Future: Generic Discovery Flow](#future-generic-discovery-flow)
+9. [Future: Schema Versioning](#future-schema-versioning)
+10. [Implementation Roadmap](#implementation-roadmap)
 
 ---
 
@@ -28,19 +28,106 @@
 - ✅ MCP client works (read/write to MCP servers)
 - ✅ Profile-based access functional
 - ✅ Both local (uvx) and remote (npx) MCPs supported
-- ❌ No naked protocol access (profiles required)
-- ❌ No discovery contract (plugins can't expose what's discoverable)
-- ❌ No generic profile discovery flow
-- ❌ No schema versioning/change detection
+- ❌ **BROKEN:** Plugin violates self-containment (imports `jn.profiles.mcp`)
+- ❌ No naked protocol access (profiles required = chicken-and-egg)
+- ❌ No inspect command for listing tools/resources
 
-**Key Challenge:** Services (MCPs, APIs, S3) can change without versioning, breaking profiles. Need generic discovery system that works for all plugins.
+**Immediate Priority (Work Ticket #23):**
+1. **Naked MCP URIs** - Access servers without profiles: `mcp+uvx://package/command?params`
+2. **Inspect command** - List tools/resources: `jn inspect "mcp+uvx://..."`
+3. **Vendor profile resolver** - Remove framework imports (~255 LOC into mcp_.py)
+4. **Cat/head/tail support** - Call tools directly with naked URIs
 
-**Proposed Solution - Plugin Discovery Contract:**
-1. **Plugin contract** - Add `explores()`, `validates()`, `versions()` functions to plugins
-2. **Naked URIs** - Access services without profiles for exploration
-3. **Generic discovery** - `jn profile explore @ref` calls plugin's explore function
-4. **Schema hashing** - Plugin defines how to version/detect changes
-5. **Profile management** - Generic commands work for all plugins (MCP, HTTP, S3, etc.)
+**Future Work (Later Tickets):**
+1. **Profile creation helpers** - Commands/templates for creating profiles
+2. **Generic plugin contract** - explores()/validates()/versions() for all plugins
+3. **Schema versioning** - Hash-based change detection
+4. **Profile management** - Generic discovery system for MCP, HTTP, S3, etc.
+
+**Key Insight:** Focus on naked access FIRST. Prove it works. Generalize LATER.
+
+---
+
+## Current State Assessment
+
+### What Works Today
+
+**File:** `jn_home/plugins/protocols/mcp_.py`
+
+**Functionality:**
+- ✅ Connects to MCP servers via stdio transport
+- ✅ Calls tools with parameters
+- ✅ Reads resources
+- ✅ Lists tools/resources dynamically
+- ✅ Batch writes (reuses connection)
+- ✅ Proper cleanup (no resource leaks)
+- ✅ Works with both local (uvx) and remote (npx) MCPs
+
+**Tests:**
+- ✅ 8 plugin tests passing
+- ✅ 14 profile tests passing
+
+### What's Broken
+
+**Problem 1: Violates Self-Containment Rule**
+
+**Current imports:**
+```python
+from mcp import ClientSession, StdioServerParameters  # OK - external dep
+from mcp.client.stdio import stdio_client              # OK - external dep
+
+from jn.profiles.mcp import resolve_profile_reference, ProfileError  # BROKEN - framework import
+```
+
+**Why this is bad:**
+- Plugin can't run standalone (requires JN framework installed)
+- Violates PEP 723 self-contained script principle
+- Not portable - can't copy plugin elsewhere and run
+- Breaks clean plugin/framework boundary
+
+**Assessment:** The profile resolver (~255 LOC in `src/jn/profiles/mcp.py`) should be vendored into the plugin.
+
+**Problem 2: Chicken-and-Egg (No Naked Access)**
+
+**Current flow:**
+1. Must create profile manually (`_meta.json` + tool definitions)
+2. Then can use MCP server: `jn cat "@biomcp/search?gene=BRAF"`
+
+**Missing:**
+- Can't inspect MCP server before creating profile
+- Can't call tools without profile
+- Can't explore what's available
+
+**Needed:**
+- Naked URI support: `jn inspect "mcp+uvx://biomcp-python/biomcp?command=run"`
+- Direct tool calls: `jn cat "mcp+uvx://...&tool=search&gene=BRAF"`
+
+**Problem 3: No Inspect Command**
+
+**Current workaround:**
+```bash
+jn cat "@biomcp?list=tools"  # Only works if profile exists
+```
+
+**Need:**
+```bash
+jn inspect "mcp+uvx://..."  # Works WITHOUT profile
+```
+
+**Terminology:** "inspect" is MCP ecosystem standard (not "explore").
+
+### Resolution Strategy
+
+**Recommended:** Vendor profile resolver into plugin (single-file or multi-file in same directory).
+
+**Tradeoff:**
+- ✅ Plugin becomes self-contained
+- ✅ Portable and runs independently
+- ✅ Honors plugin contract
+- ❌ ~255 LOC duplicated
+- ❌ Changes to core resolver won't auto-sync
+
+**Decision:** Accept duplication for self-containment. This is the right architectural choice.
 
 ---
 
@@ -94,6 +181,450 @@
 - **stdio** - Standard input/output (most common, JN uses this)
 - **HTTP/SSE** - HTTP with Server-Sent Events
 - **WebSocket** - Real-time bidirectional
+
+---
+
+## Naked MCP Access (Priority)
+
+### Goal
+
+Enable MCP server access WITHOUT pre-existing profiles for exploration and experimentation.
+
+### Proposed URI Syntax
+
+**Format:** `mcp+{launcher}://{package}[/{command}]?{params}`
+
+**Supported launchers:**
+- `uvx` - UV tool runner (Python MCPs)
+- `npx` - NPM package executor (Node MCPs)
+- `python` - Direct Python script
+- `node` - Direct Node script
+
+**Examples:**
+```bash
+# UVX launcher (most common for Python MCPs)
+mcp+uvx://biomcp-python/biomcp?command=run&tool=search&gene=BRAF
+
+# NPX launcher (most common for Node MCPs)
+mcp+npx://@upstash/context7-mcp@latest?tool=search&library=fastapi
+
+# Python launcher (local script)
+mcp+python://./my_server.py?tool=fetch_data&id=123
+
+# Node launcher (local script)
+mcp+node://./server.js?tool=analyze&file=data.csv
+```
+
+### URI Parsing
+
+**Implementation approach:**
+
+```python
+def parse_naked_mcp_uri(uri: str) -> tuple[dict, dict]:
+    """Parse mcp+{launcher}://{package}?{params}.
+
+    Returns:
+        (server_config, tool_params)
+    """
+    # Split protocol
+    protocol, rest = uri.split("://", 1)
+    launcher = protocol.split("+")[1]  # "uvx", "npx", "python", "node"
+
+    # Split package/path and query
+    if "?" in rest:
+        package_path, query_string = rest.split("?", 1)
+        params = parse_qs(query_string)
+    else:
+        package_path = rest
+        params = {}
+
+    # Build server config based on launcher
+    if launcher == "uvx":
+        # mcp+uvx://biomcp-python/biomcp?command=run
+        parts = package_path.split("/")
+        command = params.pop("command", ["run"])[0]
+        return {
+            "command": "uv",
+            "args": ["run", "--with", parts[0], parts[1], command],
+            "transport": "stdio"
+        }, params
+
+    elif launcher == "npx":
+        # mcp+npx://@upstash/context7-mcp@latest
+        return {
+            "command": "npx",
+            "args": ["-y", package_path],
+            "transport": "stdio"
+        }, params
+
+    elif launcher == "python":
+        # mcp+python://./my_server.py
+        return {
+            "command": "python",
+            "args": [package_path],
+            "transport": "stdio"
+        }, params
+
+    elif launcher == "node":
+        # mcp+node://./server.js
+        return {
+            "command": "node",
+            "args": [package_path],
+            "transport": "stdio"
+        }, params
+
+    else:
+        raise ValueError(f"Unsupported launcher: {launcher}")
+```
+
+### Integration with reads()
+
+**Update MCP plugin to handle both naked URIs and profiles:**
+
+```python
+def reads(url: str, **params) -> Iterator[dict]:
+    """Read from MCP - supports naked URIs and profile references."""
+
+    if url.startswith("mcp+"):
+        # Naked URI: parse directly
+        server_config, tool_params = parse_naked_mcp_uri(url)
+        tool_params.update(params)  # Merge with kwargs
+
+        # Extract operation from params
+        if "tool" in tool_params:
+            operation = {
+                "type": "call_tool",
+                "tool": tool_params.pop("tool")[0],
+                "params": {k: v[0] if isinstance(v, list) else v
+                          for k, v in tool_params.items()}
+            }
+        elif "resource" in tool_params:
+            operation = {
+                "type": "read_resource",
+                "resource": tool_params.pop("resource")[0]
+            }
+        elif "list" in tool_params:
+            list_type = tool_params.pop("list")[0]
+            operation = {
+                "type": "list_tools" if list_type == "tools" else "list_resources"
+            }
+        else:
+            # Default: list resources
+            operation = {"type": "list_resources"}
+
+    else:
+        # Profile reference: resolve as before (vendored function)
+        server_config, operation = resolve_profile_reference(url, params)
+
+    # Execute operation (existing logic)
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        results = loop.run_until_complete(
+            execute_mcp_operation(server_config, operation)
+        )
+        yield from results
+    except Exception as e:
+        yield error_record("mcp_error", str(e))
+    finally:
+        loop.close()
+```
+
+### Usage Examples
+
+**Inspect tools:**
+```bash
+jn inspect "mcp+uvx://biomcp-python/biomcp?command=run"
+```
+
+**Call tool:**
+```bash
+jn cat "mcp+uvx://biomcp-python/biomcp?command=run&tool=search&gene=BRAF"
+```
+
+**First 10 results:**
+```bash
+jn head "mcp+uvx://biomcp-python/biomcp?command=run&tool=search&gene=BRAF"
+```
+
+**Pipe through filters:**
+```bash
+jn cat "mcp+uvx://..." | jn filter '.text | contains("Phase 3")' | jn put results.json
+```
+
+---
+
+## Inspect Command
+
+### Purpose
+
+List tools and resources available from an MCP server without requiring a profile.
+
+### Terminology
+
+**"Inspect"** is MCP ecosystem standard (used by MCP CLI tools), not "explore" (generic term).
+
+### Command Signature
+
+```bash
+jn inspect <uri> [--format json|text]
+```
+
+**Examples:**
+```bash
+# Inspect via naked URI (no profile required)
+jn inspect "mcp+uvx://biomcp-python/biomcp?command=run"
+
+# Inspect via profile reference (once profiles exist)
+jn inspect "@biomcp"
+
+# JSON output (for LLM/scripting)
+jn inspect "mcp+uvx://..." --format json
+
+# Text output (for humans, default)
+jn inspect "mcp+uvx://..." --format text
+```
+
+### Implementation
+
+**Add to MCP plugin:**
+
+```python
+def inspects(url: str, **config) -> dict:
+    """List tools and resources from MCP server.
+
+    This is the 'inspect' operation - shows what's available.
+    Does NOT require a pre-existing profile.
+    """
+    if url.startswith("mcp+"):
+        server_config, _ = parse_naked_mcp_uri(url)
+    else:
+        server_config, _ = resolve_profile_reference(url, {})
+
+    # Connect to MCP server
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    try:
+        server_params = StdioServerParameters(
+            command=server_config["command"],
+            args=server_config.get("args", []),
+            env=server_config.get("env"),
+        )
+
+        read_stream, write_stream = await stdio_client(server_params)
+        session = ClientSession(read_stream, write_stream)
+
+        await session.initialize()
+
+        # List tools and resources
+        tools_result = await session.list_tools()
+        resources_result = await session.list_resources()
+
+        return {
+            "server": extract_server_name(url),
+            "transport": "stdio",
+            "tools": [
+                {
+                    "name": tool.name,
+                    "description": getattr(tool, "description", None),
+                    "inputSchema": tool.inputSchema
+                }
+                for tool in tools_result.tools
+            ],
+            "resources": [
+                {
+                    "uri": resource.uri,
+                    "name": resource.name,
+                    "description": getattr(resource, "description", None),
+                    "mimeType": getattr(resource, "mimeType", None)
+                }
+                for resource in resources_result.resources
+            ]
+        }
+    finally:
+        # Cleanup
+        loop.close()
+```
+
+**Add CLI command:** `src/jn/cli/commands/inspect.py`
+
+```python
+import click
+import json
+
+@click.command()
+@click.argument('url')
+@click.option('--format', type=click.Choice(['json', 'text']), default='text')
+def inspect(url, format):
+    """Inspect tools and resources available from a source.
+
+    Works with MCP servers (and potentially other services in the future).
+
+    Examples:
+        jn inspect "mcp+uvx://biomcp-python/biomcp?command=run"
+        jn inspect "@biomcp"  (once profile exists)
+    """
+    from jn.plugins.service import get_plugin_for_url
+
+    # Find appropriate plugin
+    plugin = get_plugin_for_url(url)
+
+    # Check if plugin supports inspection
+    if not hasattr(plugin, 'inspects'):
+        click.echo(f"Error: Plugin does not support inspection", err=True)
+        return 1
+
+    # Call plugin's inspect function
+    result = plugin.inspects(url)
+
+    if format == 'json':
+        click.echo(json.dumps(result, indent=2))
+    else:
+        # Pretty text output
+        click.echo(f"\nServer: {result['server']}")
+        click.echo(f"Transport: {result['transport']}\n")
+
+        click.echo(f"Tools ({len(result['tools'])}):")
+        for tool in result['tools']:
+            desc = tool.get('description', 'No description')
+            click.echo(f"  {tool['name']}: {desc}")
+
+            if tool.get('inputSchema'):
+                props = tool['inputSchema'].get('properties', {})
+                required = tool['inputSchema'].get('required', [])
+                if props:
+                    click.echo(f"    Parameters:")
+                    for param, schema in props.items():
+                        req = " (required)" if param in required else ""
+                        click.echo(f"      {param}{req}: {schema.get('description', '')}")
+
+        click.echo(f"\nResources ({len(result['resources'])}):")
+        for resource in result['resources']:
+            desc = resource.get('description', 'No description')
+            click.echo(f"  {resource['name']}: {desc}")
+            click.echo(f"    URI: {resource['uri']}")
+```
+
+### Output Examples
+
+**JSON output:**
+```json
+{
+  "server": "biomcp",
+  "transport": "stdio",
+  "tools": [
+    {
+      "name": "search",
+      "description": "Search biomedical resources",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "gene": {
+            "type": "string",
+            "description": "Gene symbol (e.g., BRAF, TP53)"
+          },
+          "disease": {
+            "type": "string",
+            "description": "Disease or condition name"
+          }
+        },
+        "required": ["gene"]
+      }
+    }
+  ],
+  "resources": []
+}
+```
+
+**Text output:**
+```
+Server: biomcp
+Transport: stdio
+
+Tools (3):
+  search: Search biomedical resources
+    Parameters:
+      gene (required): Gene symbol (e.g., BRAF, TP53)
+      disease: Disease or condition name
+  trial_search: Search clinical trials
+    Parameters:
+      gene (required): Gene symbol
+      phase: Trial phase (PHASE1, PHASE2, PHASE3)
+  variant_search: Search genomic variants
+    Parameters:
+      gene (required): Gene symbol
+      significance: Pathogenic, benign, etc.
+
+Resources (0):
+```
+
+---
+
+## Self-Contained Plugin Refactor
+
+### Current Problem
+
+**File:** `jn_home/plugins/protocols/mcp_.py`
+
+**Problematic import:**
+```python
+from jn.profiles.mcp import resolve_profile_reference, ProfileError
+```
+
+**Why bad:**
+- Couples plugin to framework internals
+- Plugin can't run standalone
+- Violates PEP 723 self-contained script principle
+- Not portable
+
+### Solution: Vendor Profile Resolver
+
+**Copy ~255 LOC from `src/jn/profiles/mcp.py` into `mcp_.py`:**
+
+**Functions to vendor:**
+1. `ProfileError` class
+2. `find_profile_paths()` - Search project/.jn, user/~/.local, bundled/JN_HOME
+3. `substitute_env_vars()` / `substitute_env_vars_recursive()` - Expand ${VAR}
+4. `load_hierarchical_profile()` - Merge _meta.json + tool.json
+5. `list_server_tools()` - List tools in profile directory
+6. `resolve_profile_reference()` - Parse @server/tool?query
+
+**Implementation options:**
+
+**Option 1: Single-file plugin (recommended)**
+- Copy all functions into `mcp_.py`
+- Keep as one PEP 723 script
+- Pros: Simple, self-contained
+- Cons: Large file (~500 LOC total)
+
+**Option 2: Multi-file in same directory**
+- Main: `mcp_.py` (PEP 723 script)
+- Helper: `mcp_profiles.py` (no PEP 723, local import)
+- Pros: Cleaner organization
+- Cons: Slightly more complex
+
+**Recommendation:** Single-file for simplicity.
+
+### After Refactor
+
+**No framework imports:**
+```python
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+
+# All profile resolver logic is now in this file (vendored)
+```
+
+**Plugin becomes truly self-contained:**
+```bash
+# Can run standalone with uv
+uv run --script jn_home/plugins/protocols/mcp_.py --mode read "@biomcp/search?gene=BRAF"
+```
+
+**Remove from plugin checker whitelist:**
+- No more `framework_import` warning
+- No more `missing_dependency ('jn')` warning
 
 ---
 
