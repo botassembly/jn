@@ -113,3 +113,96 @@ def test_jn_cat_xlsx_multisheet(invoke):
         assert record["item"] == "Widget"
     finally:
         Path(temp_path).unlink()
+
+
+def test_jn_cat_xlsx_empty_rows(invoke):
+    """Test that empty rows are skipped when reading XLSX."""
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+
+    # Header
+    sheet.cell(row=1, column=1, value="name")
+    sheet.cell(row=1, column=2, value="value")
+
+    # Data with empty row in middle
+    sheet.cell(row=2, column=1, value="First")
+    sheet.cell(row=2, column=2, value=10)
+    # Row 3 is completely empty
+    sheet.cell(row=4, column=1, value="Second")
+    sheet.cell(row=4, column=2, value=20)
+
+    with tempfile.NamedTemporaryFile(mode='wb', suffix='.xlsx', delete=False) as f:
+        workbook.save(f.name)
+        temp_path = f.name
+
+    try:
+        result = invoke(["cat", temp_path])
+        assert result.exit_code == 0
+
+        lines = [l for l in result.output.strip().split("\n") if l]
+        assert len(lines) == 2  # Empty row should be skipped
+
+        assert json.loads(lines[0])["name"] == "First"
+        assert json.loads(lines[1])["name"] == "Second"
+    finally:
+        Path(temp_path).unlink()
+
+
+def test_jn_put_xlsx(invoke):
+    """Test writing XLSX file using jn put command."""
+    ndjson = '{"city":"NYC","population":8336817}\n{"city":"LA","population":3979576}\n'
+
+    with tempfile.NamedTemporaryFile(mode='wb', suffix='.xlsx', delete=False) as f:
+        xlsx_path = f.name
+
+    try:
+        # Write XLSX
+        result = invoke(["put", xlsx_path], input_data=ndjson)
+        assert result.exit_code == 0, f"Failed with: {result.output}"
+
+        # Verify XLSX content
+        workbook = openpyxl.load_workbook(xlsx_path)
+        sheet = workbook.active
+
+        # Check header
+        assert sheet.cell(row=1, column=1).value == "city"
+        assert sheet.cell(row=1, column=2).value == "population"
+
+        # Check data
+        assert sheet.cell(row=2, column=1).value == "NYC"
+        assert sheet.cell(row=2, column=2).value == 8336817
+        assert sheet.cell(row=3, column=1).value == "LA"
+        assert sheet.cell(row=3, column=2).value == 3979576
+    finally:
+        Path(xlsx_path).unlink(missing_ok=True)
+
+
+def test_jn_run_csv_to_xlsx(invoke):
+    """Test converting CSV to XLSX using jn run command."""
+    csv_content = "country,capital\nFrance,Paris\nJapan,Tokyo\n"
+
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+        f.write(csv_content)
+        csv_path = f.name
+
+    with tempfile.NamedTemporaryFile(mode='wb', suffix='.xlsx', delete=False) as f:
+        xlsx_path = f.name
+
+    try:
+        # Convert CSV → XLSX
+        result = invoke(["run", csv_path, xlsx_path])
+        assert result.exit_code == 0, f"Failed with: {result.output}"
+
+        # Verify XLSX content
+        workbook = openpyxl.load_workbook(xlsx_path)
+        sheet = workbook.active
+
+        assert sheet.cell(row=1, column=1).value == "country"
+        assert sheet.cell(row=1, column=2).value == "capital"
+        assert sheet.cell(row=2, column=1).value == "France"
+        assert sheet.cell(row=2, column=2).value == "Paris"
+        assert sheet.cell(row=3, column=1).value == "Japan"
+        assert sheet.cell(row=3, column=2).value == "Tokyo"
+    finally:
+        Path(csv_path).unlink()
+        Path(xlsx_path).unlink(missing_ok=True)
