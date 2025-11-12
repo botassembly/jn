@@ -1,36 +1,82 @@
 # OpenAPI/Swagger Integration for JN
 
-## The Problem
+## The Reality Check
 
-APIs with OpenAPI specs contain rich metadata (parameters, types, descriptions, examples) that could enhance JN profiles. But huge APIs (100+ endpoints) could generate overwhelming profile directories.
+I fetched the actual GenomOncology OpenAPI spec. Here's what we're dealing with:
 
-**Reality Check:**
-```bash
-# GenomOncology might have 50+ endpoints
-jn profile generate genomoncology --from-openapi
+**The Numbers:**
+- **227 endpoints** total
+- We currently use **6 endpoints** (2.6%)
+- Auto-generating everything = **227 JSON files** ❌
 
-# Creates 50+ files in ~/.local/jn/profiles/http/genomoncology/
-# Overwhelming? Maybe. Useful? Depends.
+**The Mapping Problem:**
+
+OpenAPI paths don't map cleanly to our profile names:
+
+```
+OpenAPI Path                              Our Current Name        Auto-Generated Name
+/api/alterations/                      →  alterations.json        alterations.json ✓
+/api/trials/                           →  clinical_trials.json    trials.json ✗
+/api/annotations/match                 →  (doesn't exist yet)     annotations_match.json
+/api/alterations/suggest               →  (doesn't exist)         alterations_suggest.json
+/api/users/{pk}/alert_configs          →  (doesn't exist)         users_pk_alert_configs.json ✗
 ```
 
-## Solution: Selective Generation
+**Natural Grouping:**
 
-Don't generate everything - let users pick what they need:
+The API has logical clusters:
+- `users/` (27 endpoints)
+- `annotations/` (20 endpoints)
+- `cases/` (18 endpoints)
+- `trials/` (17 endpoints)
+- `therapies/` (12 endpoints)
+- `alterations/` (9 endpoints)
 
+## Solution: Hierarchical + Selective
+
+Generate a hierarchical structure that mirrors the API, but **only for endpoints you actually use**:
+
+```
+genomoncology/
+├── _meta.json
+├── alterations.json              # GET /api/alterations/
+├── alterations/                  # Sub-endpoints (generated on-demand)
+│   ├── actionability.json        # GET /api/alterations/actionability
+│   ├── suggest.json              # GET /api/alterations/suggest
+│   └── validate.json             # GET /api/alterations/validate
+├── annotations.json              # GET /api/annotations/
+├── annotations/
+│   └── match.json                # POST /api/annotations/match (we use this!)
+├── trials.json                   # GET /api/trials/ (note: was clinical_trials!)
+└── trials/
+    ├── matches.json              # POST /api/trials/matches
+    └── suggest.json              # GET /api/trials/suggest
+```
+
+**Usage:**
 ```bash
-# Generate specific endpoints only
-jn profile generate genomoncology \
-  --from-openapi https://api.genomoncology.io/schema \
-  --endpoints "alterations,annotations,clinical_trials"
+# Main endpoints (current behavior)
+jn cat @genomoncology/alterations
 
-# Or generate all, but store in single file for browsing
-jn profile generate genomoncology \
-  --from-openapi https://api.genomoncology.io/schema \
-  --preview > genomoncology-all-endpoints.json
+# Sub-endpoints (new hierarchical syntax)
+jn cat @genomoncology/alterations/suggest -p gene=BRAF
+jn cat @genomoncology/annotations/match --method POST < variants.txt
+```
 
-# Then cherry-pick endpoints to actually install
-jn profile install genomoncology/alterations
-jn profile install genomoncology/annotations
+**Generation:**
+```bash
+# Selective: only generate what you specify
+jn profile generate genomoncology \
+  --from-openapi <url> \
+  --endpoints "alterations,annotations,trials"
+
+# Browse first, install later
+jn profile browse genomoncology --from-openapi <url>
+# Shows interactive list, pick with arrow keys
+
+# Lazy: generate on first use
+jn cat @genomoncology/alterations/suggest
+# Prompts: "Endpoint not found. Generate from OpenAPI? [Y/n]"
 ```
 
 ---
@@ -241,43 +287,95 @@ jn profile learn genomoncology
 
 ## Scale Considerations
 
-### Problem: Huge APIs
+### The Real Problem
 
-Some APIs have 100+ endpoints. Generating profiles for all creates clutter.
+GenomOncology has **227 endpoints**. If we auto-generated everything:
 
-### Solutions:
-
-**1. Selective Generation**
 ```bash
-# Only generate what you need
-jn profile generate api --endpoints "users,posts,comments"
-```
-
-**2. Lazy Loading**
-```bash
-# Generate on-demand when first used
-jn cat @api/rare-endpoint
-# Prompts: "Profile not found. Generate from OpenAPI spec? [Y/n]"
-```
-
-**3. Preview Before Install**
-```bash
-# Browse all endpoints without installing
-jn profile browse api --from-openapi <url>
-# Interactive picker: arrow keys to select, space to mark, enter to install
-```
-
-**4. Hierarchical Grouping**
-```
 genomoncology/
-├── _meta.json (5 lines)
-├── core/        # Frequently used
-│   ├── alterations.json
-│   └── annotations.json
-└── admin/       # Rarely used
-    ├── users.json
-    └── audit_logs.json
+├── alterations.json
+├── alterations_actionability.json
+├── alterations_biomarker_bridge.json
+├── alterations_canonical_alterations_suggest.json
+├── alterations_case_alterations_suggest.json
+... (222 more files) ❌
 ```
+
+This would be:
+- **Overwhelming** to navigate
+- **Wasteful** (we only use 2.6% of endpoints)
+- **Confusing** (unclear naming like `alterations_canonical_alterations_suggest.json`)
+
+### Solutions
+
+**1. Selective Generation (Recommended)**
+
+Only generate what you specify:
+```bash
+jn profile generate genomoncology \
+  --from-openapi <url> \
+  --endpoints "alterations,annotations,trials"
+
+# Creates only:
+# - alterations.json
+# - annotations.json
+# - trials.json (not clinical_trials!)
+```
+
+**2. Hierarchical Sub-Endpoints**
+
+Main endpoints are files, sub-endpoints are directories:
+```bash
+genomoncology/
+├── alterations.json              # Main
+├── alterations/
+│   ├── suggest.json              # Sub-endpoint
+│   └── validate.json
+├── annotations.json              # Main
+└── annotations/
+    └── match.json                # Sub-endpoint
+```
+
+Usage:
+```bash
+jn cat @genomoncology/alterations              # Main
+jn cat @genomoncology/alterations/suggest      # Sub
+```
+
+**3. Lazy Loading**
+
+Generate on first use:
+```bash
+jn cat @genomoncology/alterations/suggest
+
+# First time: Prompts "Endpoint not found. Generate from OpenAPI? [Y/n]"
+# Generates: genomoncology/alterations/suggest.json
+# Subsequent uses: Just works
+```
+
+**4. Interactive Browse**
+
+Explore before committing:
+```bash
+jn profile browse genomoncology --from-openapi <url>
+
+# Shows:
+# ┌─ GenomOncology API (227 endpoints) ─┐
+# │ [✓] alterations        (9 endpoints)│
+# │ [ ] annotations       (20 endpoints)│
+# │ [ ] users             (27 endpoints)│
+# │ [✓] trials            (17 endpoints)│
+# └─────────────────────────────────────┘
+#
+# Arrow keys to navigate, Space to select, Enter to generate
+```
+
+### Recommendation
+
+For huge APIs:
+1. **Start minimal** - Generate only core endpoints (alterations, annotations)
+2. **Add on-demand** - Use lazy loading for rare endpoints
+3. **Group logically** - Use hierarchical structure for related endpoints
 
 ---
 
