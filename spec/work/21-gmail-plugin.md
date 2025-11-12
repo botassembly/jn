@@ -1,32 +1,27 @@
 # Gmail Protocol Plugin
 
-**Status:** ✅ PLUGIN COMPLETE - ⚠️ FRAMEWORK INTEGRATION PENDING
+**Status:** ✅ COMPLETE (Plugin + Framework Integration)
 **Type:** Protocol Plugin
 **Effort:** Medium (2-3 days)
 **Priority:** High (enables email data workflows)
 
-## ⚠️ Important: Dependencies
-
-**The Gmail plugin is complete but requires framework infrastructure that is NOT yet implemented:**
-
-The plugin is designed to work with the `-p` parameter pattern (`jn cat @gmail/inbox -p from=boss`), which is documented in `spec/design/api-parameter-patterns.md` but **not yet implemented** in the JN CLI.
-
-**Current State:**
-- ✅ Plugin works standalone: `uv run --script gmail_.py --mode read --from boss@company.com`
-- ❌ Framework integration blocked: `jn cat @gmail/inbox -p from=boss` requires `-p` CLI support
-
-**Required Before Integration:**
-1. Implement `-p/--param` in `src/jn/cli/commands/cat.py`
-2. Update profile resolution to pass parameters to plugins
-3. Add Gmail-specific profile resolver (or extend HTTP resolver)
-
-See `spec/design/api-parameter-patterns.md` Implementation Checklist for details.
-
-**Workaround:** Plugin can be used directly via CLI until framework support is added.
-
 ## Overview
 
-Read Gmail messages via the Gmail API with OAuth2 authentication and powerful server-side search filtering. All Gmail search operators are supported via the `-p` parameter pattern, pushing filters down to Google's servers for optimal performance.
+Read Gmail messages via the Gmail API with OAuth2 authentication and powerful server-side search filtering. All Gmail search operators are supported via query string syntax in profile references, pushing filters down to Google's servers for optimal performance.
+
+**Usage:**
+```bash
+# Query string syntax (recommended)
+jn cat "@gmail/inbox?from=boss&is=unread"
+
+# Alternative: -p parameters
+jn cat @gmail/inbox -p from=boss -p is=unread
+
+# Mixed approach
+jn cat "@gmail/inbox?from=boss" -p newer_than=7d
+```
+
+See `spec/design/profile-query-strings.md` for full details on the query string pattern.
 
 ## Motivation
 

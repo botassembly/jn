@@ -19,6 +19,7 @@ from ..plugins.discovery import PluginMetadata, get_cached_plugins_with_fallback
 from ..plugins.registry import build_registry
 from ..profiles.http import resolve_profile_reference
 from ..profiles.http import ProfileError as HTTPProfileError
+from ..profiles.gmail import resolve_gmail_reference, GmailProfileError
 from ..profiles.resolver import resolve_profile, ProfileError
 
 
@@ -162,12 +163,21 @@ def start_reader(
     # Check if source is a profile reference
     headers_json = None
     if source.startswith("@"):
-        try:
-            url, headers = resolve_profile_reference(source, params)
-            source = url  # Replace with resolved URL
-            headers_json = json.dumps(headers)
-        except HTTPProfileError as e:
-            raise PipelineError(f"Profile error: {e}")
+        # Route to appropriate profile resolver
+        if source.startswith("@gmail/"):
+            try:
+                source = resolve_gmail_reference(source, params)
+                # Gmail doesn't use headers
+            except GmailProfileError as e:
+                raise PipelineError(f"Gmail profile error: {e}")
+        else:
+            # HTTP/other profiles
+            try:
+                url, headers = resolve_profile_reference(source, params)
+                source = url  # Replace with resolved URL
+                headers_json = json.dumps(headers)
+            except HTTPProfileError as e:
+                raise PipelineError(f"Profile error: {e}")
 
     # Load plugins and find reader
     plugins, registry = _load_plugins_and_registry(plugin_dir, cache_path)
@@ -178,14 +188,14 @@ def start_reader(
 
     plugin = plugins[plugin_name]
 
-    # Check if source is a URL (HTTP protocol plugin)
-    is_url = source.startswith(("http://", "https://"))
+    # Check if source is a URL (HTTP or Gmail protocol plugin)
+    is_url = source.startswith(("http://", "https://", "gmail://"))
 
     if is_url:
-        # For URLs, pass as command-line argument to HTTP plugin
+        # For URLs, pass as command-line argument to protocol plugin
         cmd = ["uv", "run", "--script", plugin.path, "--mode", "read"]
 
-        # Add headers from profile if available
+        # Add headers from profile if available (HTTP only)
         if headers_json:
             cmd.extend(["--headers", headers_json])
 

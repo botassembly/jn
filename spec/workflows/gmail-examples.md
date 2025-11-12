@@ -34,6 +34,29 @@ jn cat @gmail/inbox | head -n 1
 # Subsequent runs use cached token automatically
 ```
 
+## Parameter Syntax
+
+Gmail supports two ways to pass search parameters:
+
+**1. Query String (Recommended)**
+```bash
+jn cat "@gmail/inbox?from=boss&is=unread"
+jn cat "@gmail/attachments?filename=pdf&newer_than=7d"
+```
+
+**2. -p Parameters (Alternative)**
+```bash
+jn cat @gmail/inbox -p from=boss -p is=unread
+jn cat @gmail/attachments -p filename=pdf -p newer_than=7d
+```
+
+**3. Mixed (Query String + -p)**
+```bash
+jn cat "@gmail/inbox?from=boss" -p is=unread -p newer_than=7d
+```
+
+Both syntaxes work identically. Query strings are more concise; `-p` is easier for scripting.
+
 ## Basic Usage
 
 ### Read All Messages

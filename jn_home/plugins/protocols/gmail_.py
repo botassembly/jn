@@ -303,11 +303,11 @@ def reads(
 
 if __name__ == "__main__":
     import argparse
+    from urllib.parse import parse_qs, urlparse
 
     parser = argparse.ArgumentParser(description="Gmail protocol plugin")
     parser.add_argument("--mode", choices=["read"], help="Operation mode")
-    parser.add_argument("url", nargs="?", help="Gmail URL (e.g., gmail://me/messages)")
-    parser.add_argument("--user-id", default="me", help="Gmail user ID")
+    parser.add_argument("url", nargs="?", help="Gmail URL (e.g., gmail://me/messages?from=boss&is=unread)")
     parser.add_argument("--max-results", type=int, default=500, help="Max results per page")
     parser.add_argument("--include-spam-trash", action="store_true", help="Include spam/trash")
     parser.add_argument(
@@ -316,70 +316,45 @@ if __name__ == "__main__":
         default="full",
         help="Message format",
     )
-    parser.add_argument("--label-ids", help="Comma-separated label IDs")
     parser.add_argument("--token-path", help="Path to OAuth token file")
     parser.add_argument("--credentials-path", help="Path to OAuth credentials file")
-
-    # Gmail search parameters (all optional, passed through to query)
-    # These will be built into the 'q' parameter
-    parser.add_argument("--from", dest="from_", help="From email/name")
-    parser.add_argument("--to", help="To email/name")
-    parser.add_argument("--subject", help="Subject keywords")
-    parser.add_argument("--cc", help="CC email/name")
-    parser.add_argument("--bcc", help="BCC email/name")
-    parser.add_argument("--has", help="Attachment type (attachment, drive, pdf, etc.)")
-    parser.add_argument("--filename", help="Attachment filename")
-    parser.add_argument("--is", help="Message status (starred, unread, important, etc.)")
-    parser.add_argument("--in", dest="in_", help="Folder (inbox, spam, trash)")
-    parser.add_argument("--label", help="Label name")
-    parser.add_argument("--after", help="After date (YYYY/MM/DD)")
-    parser.add_argument("--before", help="Before date (YYYY/MM/DD)")
-    parser.add_argument("--newer-than", help="Newer than relative (7d, 1m, 1y)")
-    parser.add_argument("--older-than", help="Older than relative (7d, 1m, 1y)")
-    parser.add_argument("--size", help="Size in bytes")
-    parser.add_argument("--larger", help="Larger than size")
-    parser.add_argument("--smaller", help="Smaller than size")
 
     args = parser.parse_args()
 
     if not args.mode:
         parser.error("--mode is required")
 
-    # Build params dict from CLI args
-    params = {}
-    param_mapping = {
-        "from_": "from",
-        "to": "to",
-        "subject": "subject",
-        "cc": "cc",
-        "bcc": "bcc",
-        "has": "has",
-        "filename": "filename",
-        "is": "is",
-        "in_": "in",
-        "label": "label",
-        "after": "after",
-        "before": "before",
-        "newer_than": "newer_than",
-        "older_than": "older_than",
-        "size": "size",
-        "larger": "larger",
-        "smaller": "smaller",
-    }
+    if not args.url:
+        parser.error("URL is required")
 
-    for arg_name, param_name in param_mapping.items():
-        value = getattr(args, arg_name, None)
-        if value:
-            params[param_name] = value
+    # Parse gmail:// URL
+    # Expected format: gmail://user_id/endpoint?from=boss&is=unread
+    parsed = urlparse(args.url)
+
+    if parsed.scheme != "gmail":
+        print(json.dumps(error_record("invalid_url", f"URL must start with gmail://, got: {args.url}")), flush=True)
+        sys.exit(1)
+
+    # Extract user_id from netloc (e.g., "me" from gmail://me/messages)
+    user_id = parsed.netloc or "me"
+
+    # Parse query string into params dict
+    # parse_qs returns lists for each key, flatten single values
+    params = {}
+    if parsed.query:
+        parsed_params = parse_qs(parsed.query)
+        for key, values in parsed_params.items():
+            # If only one value, use it directly; otherwise keep as list
+            params[key] = values[0] if len(values) == 1 else values
 
     # Call reads() and output NDJSON
     try:
         for record in reads(
-            user_id=args.user_id,
+            user_id=user_id,
             max_results=args.max_results,
             include_spam_trash=args.include_spam_trash,
             format=args.format,
-            label_ids=args.label_ids,
+            label_ids=None,  # Could add to URL if needed
             token_path=args.token_path,
             credentials_path=args.credentials_path,
             **params,
