@@ -19,6 +19,7 @@ Examples:
 """
 
 from .parser import parse_address
+from .resolver import AddressResolutionError, AddressResolver
 from .types import Address, AddressType, ResolvedAddress
 
 __all__ = [
@@ -26,4 +27,6 @@ __all__ = [
     "Address",
     "AddressType",
     "ResolvedAddress",
+    "AddressResolver",
+    "AddressResolutionError",
 ]
