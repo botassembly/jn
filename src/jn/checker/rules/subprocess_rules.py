@@ -59,6 +59,18 @@ class SubprocessChecker(BaseChecker):
                 reference="spec/arch/backpressure.md:357-373"
             )
 
+        # Check 2b: sys.stdin.buffer.read() without size argument (buffers entire input)
+        if self._is_stdin_buffer_read_all(node):
+            self.add_violation(
+                rule="stdin_buffer_read",
+                severity=Severity.ERROR,
+                message="Reading entire stdin into memory (defeats streaming backpressure)",
+                line=node.lineno,
+                column=node.col_offset,
+                fix="Stream line-by-line: for line in sys.stdin (or whitelist if format requires buffering)",
+                reference="spec/arch/backpressure.md"
+            )
+
         # Check 3: print without flush=True in NDJSON context
         if self._is_print_json_dumps(node):
             has_flush = any(
@@ -206,6 +218,30 @@ class SubprocessChecker(BaseChecker):
         # Check if it's .stdout.read()
         if isinstance(node.func.value, ast.Attribute):
             return node.func.value.attr == "stdout"
+        return False
+
+    def _is_stdin_buffer_read_all(self, node: ast.Call) -> bool:
+        """Check if call is sys.stdin.buffer.read() without size argument.
+
+        This detects the anti-pattern of reading entire stdin into memory,
+        which defeats streaming backpressure. Some formats (XLSX, PDF) legitimately
+        require this and should be whitelisted.
+        """
+        if not isinstance(node.func, ast.Attribute):
+            return False
+        if node.func.attr != "read":
+            return False
+        if len(node.args) > 0:  # Has size argument, OK
+            return False
+
+        # Check if it's sys.stdin.buffer.read()
+        # Pattern: Attribute(attr='read', value=Attribute(attr='buffer', value=Attribute(attr='stdin', value=Name(id='sys'))))
+        if isinstance(node.func.value, ast.Attribute):
+            if node.func.value.attr == "buffer":
+                if isinstance(node.func.value.value, ast.Attribute):
+                    if node.func.value.value.attr == "stdin":
+                        if isinstance(node.func.value.value.value, ast.Name):
+                            return node.func.value.value.value.id == "sys"
         return False
 
     def _is_print_json_dumps(self, node: ast.Call) -> bool:
