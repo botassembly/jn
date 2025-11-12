@@ -13,7 +13,7 @@ def test_jq_builtin_group_count(invoke):
 {"status":"active"}
 """
     res = invoke(
-        ["filter", "@builtin/group_count", "-p", "by=status"],
+        ["filter", "@builtin/group_count?by=status"],
         input_data=ndjson,
     )
 
@@ -45,14 +45,7 @@ def test_jq_builtin_group_sum(invoke):
 {"customer":"Alice","total":75}
 """
     res = invoke(
-        [
-            "filter",
-            "@builtin/group_sum",
-            "-p",
-            "by=customer",
-            "-p",
-            "sum=total",
-        ],
+        ["filter", "@builtin/group_sum?by=customer&sum=total"],
         input_data=ndjson,
     )
 
@@ -80,7 +73,7 @@ def test_jq_builtin_stats(invoke):
 {"revenue":200}
 """
     res = invoke(
-        ["filter", "@builtin/stats", "-p", "field=revenue"],
+        ["filter", "@builtin/stats?field=revenue"],
         input_data=ndjson,
     )
 

@@ -23,10 +23,8 @@ def is_plugin_file(file_path: Path) -> bool:
     path_str = str(file_path)
     # Plugins are in jn_home/plugins/ or custom plugin directories
     # Framework code is in src/jn/
-    return (
-        "jn_home/plugins/" in path_str
-        or ("/plugins/" in path_str
-        and "src/jn/" not in path_str)
+    return "jn_home/plugins/" in path_str or (
+        "/plugins/" in path_str and "src/jn/" not in path_str
     )
 
 
