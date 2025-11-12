@@ -175,7 +175,8 @@ def _prepare_stdin_for_subprocess(
 def start_reader(
     source: str,
     plugin_dir: Path,
-    cache_path: Optional[Path]
+    cache_path: Optional[Path],
+    params: Optional[Dict] = None
 ) -> subprocess.Popen:
     """Start a reader subprocess for a source file or URL.
 
@@ -185,6 +186,7 @@ def start_reader(
         source: Path to source file or HTTP(S) URL
         plugin_dir: Plugin directory
         cache_path: Cache file path
+        params: Optional parameters for profile resolution (e.g., {"gene": "BRAF"})
 
     Returns:
         subprocess.Popen with stdout=PIPE (text mode)
@@ -199,7 +201,7 @@ def start_reader(
     headers_json = None
     if source.startswith("@"):
         try:
-            url, headers = resolve_profile_reference(source)
+            url, headers = resolve_profile_reference(source, params)
             source = url  # Replace with resolved URL
             headers_json = json.dumps(headers)
         except HTTPProfileError as e:
@@ -296,7 +298,8 @@ def read_source(
     source: str,
     plugin_dir: Path,
     cache_path: Optional[Path],
-    output_stream: TextIO = sys.stdout
+    output_stream: TextIO = sys.stdout,
+    params: Optional[Dict] = None
 ) -> None:
     """Read a source file or URL and output NDJSON to stream.
 
@@ -305,11 +308,12 @@ def read_source(
         plugin_dir: Plugin directory
         cache_path: Cache file path
         output_stream: Where to write output (default: stdout)
+        params: Optional parameters for profile resolution (e.g., {"gene": "BRAF"})
 
     Raises:
         PipelineError: If plugin not found or execution fails
     """
-    proc = start_reader(source, plugin_dir, cache_path)
+    proc = start_reader(source, plugin_dir, cache_path, params)
 
     # Copy stdout to output_stream
     for line in proc.stdout:
@@ -466,7 +470,7 @@ def convert(
     headers_json = None
     if source.startswith("@"):
         try:
-            url, headers = resolve_profile_reference(source)
+            url, headers = resolve_profile_reference(source, params=None)
             source = url  # Replace with resolved URL
             headers_json = json.dumps(headers)
         except HTTPProfileError as e:

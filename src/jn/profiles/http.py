@@ -125,11 +125,12 @@ def load_hierarchical_profile(api_name: str, source_name: Optional[str] = None) 
     return merged
 
 
-def resolve_profile_reference(reference: str) -> Tuple[str, Dict[str, str]]:
+def resolve_profile_reference(reference: str, params: Optional[Dict] = None) -> Tuple[str, Dict[str, str]]:
     """Resolve @api/source reference to URL and headers.
 
     Args:
         reference: Profile reference like "@genomoncology/annotations"
+        params: Optional query parameters like {"gene": "BRAF", "mutation_type": "Missense"}
 
     Returns:
         Tuple of (url, headers_dict)
@@ -162,6 +163,13 @@ def resolve_profile_reference(reference: str) -> Tuple[str, Dict[str, str]]:
     base = base_url.rstrip("/")
     path = path.lstrip("/")
     url = f"{base}/{path}" if path else base
+
+    # Add query params if provided
+    if params:
+        from urllib.parse import urlencode
+        # doseq=True handles list values (multiple params with same key)
+        query_string = urlencode(params, doseq=True)
+        url = f"{url}?{query_string}"
 
     # Build headers with env var substitution
     headers = profile.get("headers", {})

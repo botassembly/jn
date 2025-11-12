@@ -1,5 +1,6 @@
 {
   "path": "/clinical_trials",
   "method": "GET",
-  "type": "source"
+  "type": "source",
+  "params": ["alteration", "disease", "status", "phase", "page", "limit"]
 }
