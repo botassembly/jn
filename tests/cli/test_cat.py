@@ -42,4 +42,3 @@ def test_cat_unsupported_format(invoke, tmp_path):
     result = invoke(["cat", str(unknown_file)])
     assert result.exit_code == 1
     assert "Error:" in result.output
-

@@ -1,4 +1,5 @@
 """Tests for HTTP protocol plugin."""
+
 import json
 import subprocess
 import sys
@@ -10,7 +11,13 @@ import pytest
 @pytest.fixture
 def http_plugin():
     """Path to HTTP plugin."""
-    return Path(__file__).parent.parent.parent / "jn_home" / "plugins" / "protocols" / "http_.py"
+    return (
+        Path(__file__).parent.parent.parent
+        / "jn_home"
+        / "plugins"
+        / "protocols"
+        / "http_.py"
+    )
 
 
 def test_http_plugin_fetch_json(http_plugin):
@@ -22,7 +29,7 @@ def test_http_plugin_fetch_json(http_plugin):
         ["uv", "run", "--script", str(http_plugin), "--mode", "read", url],
         capture_output=True,
         text=True,
-        timeout=10
+        timeout=10,
     )
 
     assert result.returncode == 0, f"HTTP plugin failed: {result.stderr}"
@@ -47,7 +54,7 @@ def test_http_plugin_fetch_json_array(http_plugin):
         ["uv", "run", "--script", str(http_plugin), "--mode", "read", url],
         capture_output=True,
         text=True,
-        timeout=10
+        timeout=10,
     )
 
     assert result.returncode == 0, f"HTTP plugin failed: {result.stderr}"
@@ -69,14 +76,19 @@ def test_http_plugin_with_headers(http_plugin):
 
     result = subprocess.run(
         [
-            "uv", "run", "--script", str(http_plugin),
-            "--mode", "read",
-            "--headers", '{"Accept": "application/json"}',
-            url
+            "uv",
+            "run",
+            "--script",
+            str(http_plugin),
+            "--mode",
+            "read",
+            "--headers",
+            '{"Accept": "application/json"}',
+            url,
         ],
         capture_output=True,
         text=True,
-        timeout=10
+        timeout=10,
     )
 
     assert result.returncode == 0, f"HTTP plugin failed: {result.stderr}"
@@ -93,22 +105,29 @@ def test_http_plugin_timeout(http_plugin):
 
     result = subprocess.run(
         [
-            "uv", "run", "--script", str(http_plugin),
-            "--mode", "read",
-            "--timeout", "1",  # 1 second timeout
-            url
+            "uv",
+            "run",
+            "--script",
+            str(http_plugin),
+            "--mode",
+            "read",
+            "--timeout",
+            "1",  # 1 second timeout
+            url,
         ],
         capture_output=True,
         text=True,
-        timeout=5  # Overall test timeout
+        timeout=5,  # Overall test timeout
     )
 
     # Should exit non-zero (exception at top level)
     assert result.returncode != 0
     # Should yield error record with timeout info
-    assert ("timeout" in result.stdout.lower() or
-            "timed out" in result.stdout.lower() or
-            "error" in result.stdout.lower())
+    assert (
+        "timeout" in result.stdout.lower()
+        or "timed out" in result.stdout.lower()
+        or "error" in result.stdout.lower()
+    )
 
 
 def test_http_plugin_404_error(http_plugin):
@@ -119,7 +138,7 @@ def test_http_plugin_404_error(http_plugin):
         ["uv", "run", "--script", str(http_plugin), "--mode", "read", url],
         capture_output=True,
         text=True,
-        timeout=10
+        timeout=10,
     )
 
     # Should exit successfully (errors are data now, not exceptions)

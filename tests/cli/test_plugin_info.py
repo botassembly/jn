@@ -78,7 +78,7 @@ def test_plugin_info_write_only_plugin(invoke, tmp_path):
     (home / "plugins").mkdir(parents=True)
     write_plugin = home / "plugins" / "writeonly.py"
     write_plugin.write_text(
-        '''#!/usr/bin/env python3
+        """#!/usr/bin/env python3
 # /// script
 # requires-python = ">=3.11"
 # dependencies = []
@@ -88,7 +88,7 @@ def test_plugin_info_write_only_plugin(invoke, tmp_path):
 
 def writes(config=None):
     pass
-'''
+"""
     )
 
     res = invoke(["--home", str(home), "plugin", "info", "writeonly"])
@@ -102,7 +102,7 @@ def test_plugin_info_read_only_plugin(invoke, tmp_path):
     (home / "plugins").mkdir(parents=True)
     read_plugin = home / "plugins" / "readonly.py"
     read_plugin.write_text(
-        '''#!/usr/bin/env python3
+        """#!/usr/bin/env python3
 # /// script
 # requires-python = ">=3.11"
 # dependencies = []
@@ -112,10 +112,9 @@ def test_plugin_info_read_only_plugin(invoke, tmp_path):
 
 def reads(config=none):
     pass
-'''
+"""
     )
 
     res = invoke(["--home", str(home), "plugin", "info", "readonly"])
     assert res.exit_code == 0
     assert "jn cat source" in res.output or "Read using" in res.output
-

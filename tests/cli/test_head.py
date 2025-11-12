@@ -30,4 +30,3 @@ def test_head_unsupported_format(invoke, tmp_path):
     result = invoke(["head", str(unknown_file)])
     assert result.exit_code == 1
     assert "Error:" in result.output
-

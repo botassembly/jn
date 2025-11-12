@@ -30,4 +30,3 @@ def test_tail_unsupported_format(invoke, tmp_path):
     result = invoke(["tail", str(unknown_file)])
     assert result.exit_code == 1
     assert "Error:" in result.output
-

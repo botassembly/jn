@@ -15,15 +15,19 @@ import sys
 from pathlib import Path
 from typing import Dict, Optional, TextIO, Tuple
 
-from ..plugins.discovery import PluginMetadata, get_cached_plugins_with_fallback
+from ..plugins.discovery import (
+    PluginMetadata,
+    get_cached_plugins_with_fallback,
+)
 from ..plugins.registry import build_registry
-from ..profiles.http import resolve_profile_reference
 from ..profiles.http import ProfileError as HTTPProfileError
-from ..profiles.resolver import resolve_profile, ProfileError
+from ..profiles.http import resolve_profile_reference
+from ..profiles.resolver import ProfileError, resolve_profile
 
 
 class PipelineError(Exception):
     """Error during pipeline execution."""
+
     pass
 
 
@@ -33,7 +37,10 @@ def _check_uv_available() -> None:
         print("Error: UV is required to run JN plugins", file=sys.stderr)
         print("", file=sys.stderr)
         print("Install UV with one of these methods:", file=sys.stderr)
-        print("  curl -LsSf https://astral.sh/uv/install.sh | sh", file=sys.stderr)
+        print(
+            "  curl -LsSf https://astral.sh/uv/install.sh | sh",
+            file=sys.stderr,
+        )
         print("  pip install uv", file=sys.stderr)
         print("", file=sys.stderr)
         print("More info: https://docs.astral.sh/uv/", file=sys.stderr)
@@ -73,7 +80,9 @@ def _load_plugins_and_registry(
     return plugins, registry
 
 
-def _resolve_plugin_name(plugin_name: str, plugins: Dict[str, PluginMetadata]) -> Optional[str]:
+def _resolve_plugin_name(
+    plugin_name: str, plugins: Dict[str, PluginMetadata]
+) -> Optional[str]:
     """Resolve plugin name with fallback to underscore suffix.
 
     Strategy:
@@ -138,7 +147,7 @@ def start_reader(
     source: str,
     plugin_dir: Path,
     cache_path: Optional[Path],
-    params: Optional[Dict] = None
+    params: Optional[Dict] = None,
 ) -> subprocess.Popen:
     """Start a reader subprocess for a source file or URL.
 
@@ -196,7 +205,7 @@ def start_reader(
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True
+            text=True,
         )
         # No file to attach
         proc._jn_infile = None
@@ -208,7 +217,7 @@ def start_reader(
             stdin=infile,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True
+            text=True,
         )
         # Attach infile to proc so it gets closed when caller is done
         proc._jn_infile = infile
@@ -221,7 +230,7 @@ def read_source(
     plugin_dir: Path,
     cache_path: Optional[Path],
     output_stream: TextIO = sys.stdout,
-    params: Optional[Dict] = None
+    params: Optional[Dict] = None,
 ) -> None:
     """Read a source file or URL and output NDJSON to stream.
 
@@ -258,7 +267,7 @@ def write_destination(
     cache_path: Optional[Path],
     input_stream: TextIO = sys.stdin,
     plugin_name: Optional[str] = None,
-    plugin_config: Optional[Dict] = None
+    plugin_config: Optional[Dict] = None,
 ) -> None:
     """Read NDJSON from stream and write to destination file or stdout.
 
@@ -308,7 +317,9 @@ def write_destination(
             cmd.extend([f"--{key}", str(value)])
 
     # Prepare stdin
-    stdin_source, input_data, text_mode = _prepare_stdin_for_subprocess(input_stream)
+    stdin_source, input_data, text_mode = _prepare_stdin_for_subprocess(
+        input_stream
+    )
 
     if write_to_stdout:
         # Write to stdout
@@ -360,10 +371,7 @@ def write_destination(
 
 
 def convert(
-    source: str,
-    dest: str,
-    plugin_dir: Path,
-    cache_path: Optional[Path]
+    source: str, dest: str, plugin_dir: Path, cache_path: Optional[Path]
 ) -> None:
     """Convert source file or URL to destination format.
 
@@ -415,7 +423,14 @@ def convert(
     with open(dest, "w") as outfile:
         if is_url:
             # For URLs, pass as command-line argument
-            cmd = ["uv", "run", "--script", reader_plugin.path, "--mode", "read"]
+            cmd = [
+                "uv",
+                "run",
+                "--script",
+                reader_plugin.path,
+                "--mode",
+                "read",
+            ]
 
             # Add headers from profile if available
             if headers_json:
@@ -428,13 +443,20 @@ def convert(
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                text=True
+                text=True,
             )
         else:
             # For files, open and pass as stdin
             infile = open(source)
             reader = subprocess.Popen(
-                ["uv", "run", "--script", reader_plugin.path, "--mode", "read"],
+                [
+                    "uv",
+                    "run",
+                    "--script",
+                    reader_plugin.path,
+                    "--mode",
+                    "read",
+                ],
                 stdin=infile,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -475,7 +497,7 @@ def filter_stream(
     cache_path: Optional[Path],
     params: Optional[Dict[str, str]] = None,
     input_stream: TextIO = sys.stdin,
-    output_stream: TextIO = sys.stdout
+    output_stream: TextIO = sys.stdout,
 ) -> None:
     """Filter NDJSON stream using jq expression or profile.
 
@@ -506,7 +528,9 @@ def filter_stream(
     if query.startswith("@"):
         try:
             # Use generic profile resolution - works for any plugin
-            query = resolve_profile(query, plugin_name="jq_", params=params or {})
+            query = resolve_profile(
+                query, plugin_name="jq_", params=params or {}
+            )
         except ProfileError as e:
             raise PipelineError(str(e))
 

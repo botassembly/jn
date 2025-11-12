@@ -1,7 +1,0 @@
-{
-  "base_url": "https://jsonplaceholder.typicode.com",
-  "headers": {
-    "Accept": "application/json"
-  },
-  "timeout": 30
-}

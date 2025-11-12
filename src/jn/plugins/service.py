@@ -1,19 +1,18 @@
 """Plugin business logic and introspection (service façade)."""
 
+import io
+import re
 import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional
-import io
 
 from .discovery import (
     PluginMetadata,
     get_cached_plugins_with_fallback,
-    parse_pep723,
 )
-import re
 
 
 def _check_uv_available() -> None:
@@ -22,7 +21,10 @@ def _check_uv_available() -> None:
         print("Error: UV is required to run JN plugins", file=sys.stderr)
         print("", file=sys.stderr)
         print("Install UV with one of these methods:", file=sys.stderr)
-        print("  curl -LsSf https://astral.sh/uv/install.sh | sh", file=sys.stderr)
+        print(
+            "  curl -LsSf https://astral.sh/uv/install.sh | sh",
+            file=sys.stderr,
+        )
         print("  pip install uv", file=sys.stderr)
         print("", file=sys.stderr)
         print("More info: https://docs.astral.sh/uv/", file=sys.stderr)
@@ -50,7 +52,7 @@ def extract_description(plugin_path: str) -> str:
         content = f.read()
         match = re.search(r'"""(.+?)"""', content, re.DOTALL)
         if match:
-            lines = match.group(1).strip().split('\n')
+            lines = match.group(1).strip().split("\n")
             return lines[0].strip() if lines else ""
     return ""
 
@@ -60,14 +62,14 @@ def detect_plugin_methods(plugin_path: str) -> List[str]:
     with open(plugin_path) as f:
         content = f.read()
         methods: List[str] = []
-        if re.search(r'^def reads\(', content, re.MULTILINE):
-            methods.append('reads')
-        if re.search(r'^def writes\(', content, re.MULTILINE):
-            methods.append('writes')
-        if re.search(r'^def filters\(', content, re.MULTILINE):
-            methods.append('filters')
-        if re.search(r'^def test\(', content, re.MULTILINE):
-            methods.append('test')
+        if re.search(r"^def reads\(", content, re.MULTILINE):
+            methods.append("reads")
+        if re.search(r"^def writes\(", content, re.MULTILINE):
+            methods.append("writes")
+        if re.search(r"^def filters\(", content, re.MULTILINE):
+            methods.append("filters")
+        if re.search(r"^def test\(", content, re.MULTILINE):
+            methods.append("test")
         return methods
 
 
@@ -78,27 +80,29 @@ def extract_method_docstring(plugin_path: str, method_name: str) -> str:
         pattern = rf'^def {method_name}\([^)]*\):[^"]*"""([^"]+)"""'
         match = re.search(pattern, content, re.MULTILINE | re.DOTALL)
         if match:
-            return match.group(1).strip().split('\n')[0]
+            return match.group(1).strip().split("\n")[0]
     return ""
 
 
 def infer_plugin_type(methods: List[str]) -> str:
     """Infer plugin type from available methods."""
-    has_reads = 'reads' in methods
-    has_writes = 'writes' in methods
-    has_filters = 'filters' in methods
+    has_reads = "reads" in methods
+    has_writes = "writes" in methods
+    has_filters = "filters" in methods
 
     if has_reads and has_writes:
-        return 'format'
+        return "format"
     elif has_filters:
-        return 'filter'
+        return "filter"
     elif has_reads:
-        return 'protocol'
+        return "protocol"
     else:
-        return 'unknown'
+        return "unknown"
 
 
-def get_plugin_info(plugin_name: str, plugin_meta: PluginMetadata) -> 'PluginInfo':
+def get_plugin_info(
+    plugin_name: str, plugin_meta: PluginMetadata
+) -> "PluginInfo":
     """Get detailed plugin information."""
     description = extract_description(plugin_meta.path)
     methods = detect_plugin_methods(plugin_meta.path)
@@ -123,7 +127,9 @@ def get_plugin_info(plugin_name: str, plugin_meta: PluginMetadata) -> 'PluginInf
     )
 
 
-def list_plugins(plugin_dir: Path, cache_path: Optional[Path]) -> Dict[str, PluginInfo]:
+def list_plugins(
+    plugin_dir: Path, cache_path: Optional[Path]
+) -> Dict[str, PluginInfo]:
     """List all available plugins with their information."""
     plugins = get_cached_plugins_with_fallback(plugin_dir, cache_path)
     result: Dict[str, PluginInfo] = {}
@@ -132,7 +138,9 @@ def list_plugins(plugin_dir: Path, cache_path: Optional[Path]) -> Dict[str, Plug
     return result
 
 
-def find_plugin(plugin_name: str, plugin_dir: Path, cache_path: Optional[Path]) -> Optional[PluginInfo]:
+def find_plugin(
+    plugin_name: str, plugin_dir: Path, cache_path: Optional[Path]
+) -> Optional[PluginInfo]:
     """Find a specific plugin by name."""
     plugins = get_cached_plugins_with_fallback(plugin_dir, cache_path)
     if plugin_name not in plugins:

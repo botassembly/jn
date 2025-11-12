@@ -12,9 +12,10 @@ def test_plugin_call_csv_read(invoke):
 
 def test_plugin_call_csv_write(invoke):
     ndjson = '{"name":"Alice","age":30}\n{"name":"Bob","age":25}\n'
-    res = invoke(["plugin", "call", "csv_", "--mode", "write"], input_data=ndjson)
+    res = invoke(
+        ["plugin", "call", "csv_", "--mode", "write"], input_data=ndjson
+    )
     assert res.exit_code == 0
     out = res.output.strip().splitlines()
     assert out[0] == "name,age"
     assert "Alice,30" in out[1]
-
