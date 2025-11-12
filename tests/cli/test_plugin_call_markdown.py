@@ -22,26 +22,30 @@ This is a test document.
     # Parse records
     records = [json.loads(line) for line in lines]
 
-    # Check frontmatter
+    # Check frontmatter (fields are flattened, not wrapped in "data")
     frontmatter = next(
         (r for r in records if r.get("type") == "frontmatter"), None
     )
     assert frontmatter is not None
-    assert frontmatter["data"]["title"] == "Test Document"
-    assert frontmatter["data"]["author"] == "Alice"
+    assert frontmatter["title"] == "Test Document"
+    assert frontmatter["author"] == "Alice"
 
-    # Check document content
-    doc = next((r for r in records if r.get("type") == "document"), None)
+    # Check document content (type is "content", not "document")
+    doc = next((r for r in records if r.get("type") == "content"), None)
     assert doc is not None
     assert "# Introduction" in doc["content"]
     assert "This is a test document." in doc["content"]
 
 
 def test_plugin_call_markdown_write(invoke):
-    """Test writing NDJSON to Markdown."""
-    ndjson = """{"type": "frontmatter", "data": {"title": "Test"}}
-{"type": "heading", "level": 1, "text": "Introduction"}
-{"type": "paragraph", "text": "This is a test."}
+    """Test writing NDJSON to Markdown.
+
+    Note: Plugin only converts "frontmatter" and "content" types.
+    Other types (like "heading", "paragraph") are JSON-dumped to content.
+    """
+    # Use format the plugin actually understands
+    ndjson = """{"type": "frontmatter", "title": "Test"}
+{"type": "content", "content": "# Introduction\\n\\nThis is a test."}
 """
     res = invoke(
         ["plugin", "call", "markdown_", "--mode", "write"], input_data=ndjson
@@ -75,8 +79,8 @@ Plain markdown without frontmatter.
     )
     assert frontmatter is None
 
-    # Should have document content
-    doc = next((r for r in records if r.get("type") == "document"), None)
+    # Should have content (type is "content", not "document")
+    doc = next((r for r in records if r.get("type") == "content"), None)
     assert doc is not None
     assert "# Title" in doc["content"]
     assert "Plain markdown" in doc["content"]

@@ -1,5 +1,6 @@
 """Pytest configuration and shared fixtures."""
 
+import os
 import tempfile
 from pathlib import Path
 
@@ -7,6 +8,21 @@ import pytest
 from click.testing import CliRunner
 
 from jn.cli import cli
+
+
+@pytest.fixture(scope="session", autouse=True)
+def setup_test_jn_home():
+    """Set JN_HOME to tests/jn_home for all tests.
+
+    This ensures tests use test fixture profiles (MCP profiles in tests/jn_home/profiles/mcp/)
+    instead of the bundled ones in jn_home/.
+    """
+    test_jn_home = Path(__file__).parent / "jn_home"
+    os.environ["JN_HOME"] = str(test_jn_home)
+    yield
+    # Cleanup: restore original JN_HOME if it existed
+    if "JN_HOME" in os.environ:
+        del os.environ["JN_HOME"]
 
 
 @pytest.fixture

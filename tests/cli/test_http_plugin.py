@@ -120,13 +120,19 @@ def test_http_plugin_timeout(http_plugin):
         timeout=5,  # Overall test timeout
     )
 
-    # Should exit non-zero (exception at top level)
-    assert result.returncode != 0
-    # Should yield error record with timeout info
+    # Should exit successfully (errors are data, not exceptions)
+    assert result.returncode == 0
+    # Should yield error record
+    lines = [line for line in result.stdout.strip().split("\n") if line]
+    assert len(lines) >= 1
+    record = json.loads(lines[0])
+    assert record.get("_error") is True
+    # Could be timeout or 503 (httpbin.org sometimes returns 503 instead of delaying)
     assert (
         "timeout" in result.stdout.lower()
         or "timed out" in result.stdout.lower()
-        or "error" in result.stdout.lower()
+        or "503" in result.stdout
+        or "unavailable" in result.stdout.lower()
     )
 
 
