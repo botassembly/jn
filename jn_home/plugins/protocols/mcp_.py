@@ -5,20 +5,15 @@ This plugin enables reading from and writing to MCP servers, supporting both
 resources (data endpoints) and tools (functional endpoints).
 
 Examples:
-    # List resources from a server
+    # Using profile references (recommended):
+    jn cat "@biomcp?list=resources"
+    jn cat "@biomcp/search?gene=BRAF"
+    jn cat "@biomcp?tool=search&gene=BRAF&disease=Melanoma"
+    echo '{"gene": "BRAF"}' | jn put "@biomcp/search"
+
+    # Using direct URLs (legacy):
     jn cat "mcp://biomcp?list=resources"
-
-    # Read a specific resource
-    jn cat "mcp://biomcp?resource=resource://example"
-
-    # List available tools
-    jn cat "mcp://biomcp?list=tools"
-
-    # Call a tool
     jn cat "mcp://biomcp?tool=search&gene=BRAF"
-
-    # Call a tool with stdin data (write mode)
-    echo '{"gene": "BRAF"}' | jn put "mcp://biomcp?tool=search"
 """
 # /// script
 # requires-python = ">=3.11"
@@ -27,6 +22,7 @@ Examples:
 # ]
 # [tool.jn]
 # matches = [
+#   "^@[a-zA-Z0-9_-]+",
 #   "^mcp://.*",
 #   "^mcp\\+stdio://.*",
 #   "^mcp\\+http://.*"
@@ -43,6 +39,15 @@ from urllib.parse import parse_qs, urlparse
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+
+# Try to import MCP profile system (may not be available when run standalone)
+try:
+    sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "src"))
+    from jn.profiles.mcp import resolve_profile_reference, ProfileError
+    HAS_PROFILE_SYSTEM = True
+except ImportError:
+    HAS_PROFILE_SYSTEM = False
+    ProfileError = Exception
 
 
 def error_record(error_type: str, message: str, **extra) -> dict:
@@ -263,7 +268,7 @@ def reads(
     """Read from an MCP server and yield NDJSON records.
 
     Args:
-        url: MCP URL (e.g., mcp://biomcp?list=resources)
+        url: MCP URL (e.g., @biomcp/search or mcp://biomcp?list=resources)
         operation: Operation to perform ('list')
         resource: Resource URI to read
         tool: Tool name to call
@@ -273,40 +278,71 @@ def reads(
         Dict records from the MCP server, or error records
     """
     try:
-        # Parse URL
-        transport, server_name, params = parse_mcp_url(url)
+        # Check if this is a profile reference (@server/tool)
+        if url.startswith("@"):
+            if not HAS_PROFILE_SYSTEM:
+                yield error_record(
+                    "profile_system_unavailable",
+                    "Profile system not available (MCP profiles require framework)",
+                )
+                return
 
-        # Merge URL params with function args
-        if "list" in params:
-            operation = params["list"]
-        if "resource" in params:
-            resource = params["resource"]
-        if "tool" in params:
-            tool = params["tool"]
+            try:
+                # Resolve profile reference to server config and operation
+                server_config, op_info = resolve_profile_reference(url, tool_args)
 
-        # Merge remaining params as tool args
-        for key, value in params.items():
-            if key not in ("list", "resource", "tool"):
-                tool_args[key] = value
+                # Extract operation details from profile resolution
+                op_type = op_info.get("type")
+                tool_args = op_info.get("params", {})
 
-        # Load server configuration
-        server_config = load_server_config(server_name)
-        if not server_config:
-            yield error_record(
-                "config_not_found",
-                f"MCP server '{server_name}' not found in config",
-                server_name=server_name,
-            )
-            return
+                if op_type == "list_resources":
+                    operation = "resources"
+                elif op_type == "list_tools":
+                    operation = "tools"
+                elif op_type == "read_resource":
+                    resource = op_info.get("resource")
+                elif op_type == "call_tool":
+                    tool = op_info.get("tool")
 
-        # TODO: Support HTTP transport
-        if transport != "stdio":
-            yield error_record(
-                "unsupported_transport",
-                f"Transport '{transport}' not yet supported (only stdio)",
-                transport=transport,
-            )
-            return
+            except ProfileError as e:
+                yield error_record("profile_error", str(e))
+                return
+
+        else:
+            # Legacy: Parse mcp:// URL
+            transport, server_name, params = parse_mcp_url(url)
+
+            # Merge URL params with function args
+            if "list" in params:
+                operation = params["list"]
+            if "resource" in params:
+                resource = params["resource"]
+            if "tool" in params:
+                tool = params["tool"]
+
+            # Merge remaining params as tool args
+            for key, value in params.items():
+                if key not in ("list", "resource", "tool"):
+                    tool_args[key] = value
+
+            # Load server configuration (legacy JSON file)
+            server_config = load_server_config(server_name)
+            if not server_config:
+                yield error_record(
+                    "config_not_found",
+                    f"MCP server '{server_name}' not found in config",
+                    server_name=server_name,
+                )
+                return
+
+            # TODO: Support HTTP transport
+            if transport != "stdio":
+                yield error_record(
+                    "unsupported_transport",
+                    f"Transport '{transport}' not yet supported (only stdio)",
+                    transport=transport,
+                )
+                return
 
         # Route to appropriate async operation
         if operation == "resources":
@@ -388,31 +424,56 @@ def writes(tool: str = None, **config) -> None:
         return
 
     try:
-        # Parse URL
-        transport, server_name, params = parse_mcp_url(url)
+        # Check if this is a profile reference
+        if url.startswith("@"):
+            if not HAS_PROFILE_SYSTEM:
+                print(
+                    json.dumps(error_record(
+                        "profile_system_unavailable",
+                        "Profile system not available (MCP profiles require framework)",
+                    )),
+                    flush=True,
+                )
+                return
 
-        # Get tool name from params or config
-        if "tool" in params:
-            tool = params["tool"]
+            try:
+                # Resolve profile reference
+                server_config, op_info = resolve_profile_reference(url, {})
+
+                # Get tool from profile
+                if op_info.get("type") == "call_tool":
+                    tool = op_info.get("tool")
+
+            except ProfileError as e:
+                print(json.dumps(error_record("profile_error", str(e))), flush=True)
+                return
+
+        else:
+            # Legacy: Parse mcp:// URL
+            transport, server_name, params = parse_mcp_url(url)
+
+            # Get tool name from params or config
+            if "tool" in params:
+                tool = params["tool"]
+
+            # Load server configuration (legacy JSON file)
+            server_config = load_server_config(server_name)
+            if not server_config:
+                print(
+                    json.dumps(
+                        error_record(
+                            "config_not_found",
+                            f"MCP server '{server_name}' not found in config",
+                            server_name=server_name,
+                        )
+                    ),
+                    flush=True,
+                )
+                return
 
         if not tool:
             print(
                 json.dumps(error_record("missing_tool", "Tool name required for write mode")),
-                flush=True,
-            )
-            return
-
-        # Load server configuration
-        server_config = load_server_config(server_name)
-        if not server_config:
-            print(
-                json.dumps(
-                    error_record(
-                        "config_not_found",
-                        f"MCP server '{server_name}' not found in config",
-                        server_name=server_name,
-                    )
-                ),
                 flush=True,
             )
             return
