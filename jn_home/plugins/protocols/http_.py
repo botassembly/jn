@@ -4,7 +4,6 @@
 # requires-python = ">=3.11"
 # dependencies = [
 #   "requests>=2.31.0",
-#   "openpyxl>=3.1.0",
 # ]
 # [tool.jn]
 # matches = [
@@ -27,16 +26,11 @@ FORMAT_DETECT = {
     "application/json": "json",
     "application/x-ndjson": "ndjson",
     "text/csv": "csv",
-    # Common Excel content types
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
-    "application/vnd.ms-excel": "xlsx",
-    # File extensions
+    # File extensions (text formats only)
     ".json": "json",
     ".jsonl": "ndjson",
     ".csv": "csv",
     ".tsv": "csv",
-    ".xlsx": "xlsx",
-    ".xlsm": "xlsx",
 }
 
 
@@ -121,7 +115,6 @@ def reads(
         "csv": lambda: [
             {"content": response.text, "content_type": "text/csv", "url": url}
         ],
-        "xlsx": lambda: _parse_xlsx(response),
         "text": lambda: [
             {"content": response.text, "content_type": content_type, "url": url}
         ],
@@ -161,47 +154,44 @@ def _parse_ndjson(response: requests.Response) -> Iterator[dict]:
             yield error_record("ndjson_decode_error", str(e), line=line[:100])
 
 
-def _parse_xlsx(response: requests.Response) -> Iterator[dict]:
-    """Parse Excel (XLSX/XLSM) response body into NDJSON records."""
-    # Import locally to avoid dependency when not needed
+def _stream_raw(url: str, method: str, headers: dict, auth: tuple | None, timeout: int, verify_ssl: bool) -> int:
+    """Stream response body as raw bytes to stdout. Returns exit code."""
     try:
-        import openpyxl  # type: ignore
-    except Exception as e:  # pragma: no cover - dynamic environment
-        yield error_record("missing_dependency", f"openpyxl not available: {e}")
-        return
+        with requests.request(
+            method,
+            url,
+            headers=headers,
+            auth=auth,
+            timeout=timeout,
+            verify=verify_ssl,
+            stream=True,
+        ) as response:
+            if not response.ok:
+                # Non-200 is an error in raw mode
+                sys.stderr.write(
+                    json.dumps(
+                        error_record(
+                            "http_error",
+                            f"HTTP {response.status_code}: {response.reason}",
+                            url=url,
+                            status_code=response.status_code,
+                        )
+                    )
+                    + "\n"
+                )
+                return 1
 
-    # Read binary content
-    data = response.content
-
-    try:
-        wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
-    except Exception as e:
-        yield error_record("xlsx_load_error", str(e))
-        return
-
-    # Use first sheet by default
-    sheet = wb[wb.sheetnames[0]]
-
-    rows = iter(sheet.iter_rows(values_only=True))
-    header = next(rows, None)
-    if not header:
-        wb.close()
-        return
-
-    header = [str(col) if col is not None else f"Column_{i+1}" for i, col in enumerate(header)]
-
-    for row in rows:
-        if all(cell is None for cell in row):
-            continue
-        record = {}
-        for i, col_name in enumerate(header):
-            value = row[i] if i < len(row) else None
-            if value is not None and hasattr(value, "isoformat"):
-                value = value.isoformat()
-            record[col_name] = value
-        yield record
-
-    wb.close()
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    sys.stdout.buffer.write(chunk)
+                    sys.stdout.buffer.flush()
+            return 0
+    except requests.exceptions.RequestException as e:
+        # Propagate as error in raw mode (upstream should handle)
+        sys.stderr.write(
+            json.dumps(error_record("request_exception", str(e), url=url)) + "\n"
+        )
+        return 1
 
 
 if __name__ == "__main__":
@@ -209,7 +199,7 @@ if __name__ == "__main__":
     import os
 
     parser = argparse.ArgumentParser(description="HTTP protocol plugin")
-    parser.add_argument("--mode", choices=["read"], help="Operation mode")
+    parser.add_argument("--mode", choices=["read", "raw"], help="Operation mode")
     parser.add_argument("url", nargs="?", help="URL to fetch")
     parser.add_argument(
         "--method",
@@ -262,22 +252,34 @@ if __name__ == "__main__":
         else:
             headers[key] = value
 
-    # Call reads() with direct args (no config dict)
-    try:
-        for record in reads(
+    # Dispatch by mode
+    if args.mode == "raw":
+        exit_code = _stream_raw(
             url=args.url,
             method=args.method,
             headers=headers,
             auth=auth,
             timeout=args.timeout,
             verify_ssl=args.verify_ssl,
-            force_format=args.format,
-        ):
-            print(json.dumps(record), flush=True)
-    except requests.exceptions.RequestException as e:
-        # Errors are data: emit an error record and exit successfully
-        print(
-            json.dumps(error_record("request_exception", str(e), url=args.url)),
-            flush=True,
         )
-        sys.exit(0)
+        sys.exit(exit_code)
+    else:
+        # Call reads() with direct args (no config dict)
+        try:
+            for record in reads(
+                url=args.url,
+                method=args.method,
+                headers=headers,
+                auth=auth,
+                timeout=args.timeout,
+                verify_ssl=args.verify_ssl,
+                force_format=args.format,
+            ):
+                print(json.dumps(record), flush=True)
+        except requests.exceptions.RequestException as e:
+            # Errors are data: emit an error record and exit successfully
+            print(
+                json.dumps(error_record("request_exception", str(e), url=args.url)),
+                flush=True,
+            )
+            sys.exit(0)

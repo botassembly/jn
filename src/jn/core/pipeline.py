@@ -14,6 +14,7 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Dict, Optional, TextIO, Tuple
+from urllib.parse import urlparse
 
 from ..plugins.discovery import (
     PluginMetadata,
@@ -178,7 +179,7 @@ def start_reader(
         except HTTPProfileError as e:
             raise PipelineError(f"Profile error: {e}")
 
-    # Load plugins and find reader
+    # Load plugins and registry
     plugins, registry = _load_plugins_and_registry(plugin_dir, cache_path)
 
     plugin_name = registry.match(source)
@@ -191,10 +192,65 @@ def start_reader(
     is_url = source.startswith(("http://", "https://"))
 
     if is_url:
-        # For URLs, pass as command-line argument to HTTP plugin
+        # Decide if we should chain HTTP(raw) -> format for known extensions (e.g., .xlsx)
+        url_path = urlparse(source).path
+        path_match = registry.match(url_path)
+
+        # If the path extension maps to a specific format plugin (e.g., xlsx_), chain it
+        chain_to_format = path_match and path_match in plugins and path_match != plugin_name
+
+        if chain_to_format and path_match == "xlsx_":
+            # Stage 1: HTTP raw
+            http_cmd = [
+                "uv",
+                "run",
+                "--script",
+                plugin.path,
+                "--mode",
+                "raw",
+            ]
+            if headers_json:
+                http_cmd.extend(["--headers", headers_json])
+            http_cmd.append(source)
+
+            http_proc = subprocess.Popen(
+                http_cmd,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,  # binary stream
+                stderr=subprocess.PIPE,
+            )
+
+            # Stage 2: Format reader
+            fmt_plugin = plugins[path_match]
+            fmt_cmd = [
+                "uv",
+                "run",
+                "--script",
+                fmt_plugin.path,
+                "--mode",
+                "read",
+            ]
+
+            fmt_proc = subprocess.Popen(
+                fmt_cmd,
+                stdin=http_proc.stdout,  # pipe from HTTP raw
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,  # downstream expects text NDJSON
+            )
+
+            # Close http stdout in parent to enable SIGPIPE backpressure
+            if http_proc.stdout:
+                http_proc.stdout.close()
+
+            # Attach references for cleanup and error handling
+            fmt_proc._jn_prev_proc = http_proc  # type: ignore[attr-defined]
+            fmt_proc._jn_infile = None  # type: ignore[attr-defined]
+            return fmt_proc
+
+        # Fallback: Single-stage HTTP reader (parses JSON/NDJSON/text)
         cmd = ["uv", "run", "--script", plugin.path, "--mode", "read"]
 
-        # Add headers from profile if available
         if headers_json:
             cmd.extend(["--headers", headers_json])
 
@@ -207,8 +263,7 @@ def start_reader(
             stderr=subprocess.PIPE,
             text=True,
         )
-        # No file to attach
-        proc._jn_infile = None
+        proc._jn_infile = None  # type: ignore[attr-defined]
     else:
         # For files, open and pass as stdin
         infile = open(source)
@@ -220,7 +275,7 @@ def start_reader(
             text=True,
         )
         # Attach infile to proc so it gets closed when caller is done
-        proc._jn_infile = infile
+        proc._jn_infile = infile  # type: ignore[attr-defined]
 
     return proc
 
@@ -253,8 +308,16 @@ def read_source(
     proc.wait()
 
     # Close input file if it exists (URLs don't have one)
-    if proc._jn_infile is not None:
-        proc._jn_infile.close()
+    if getattr(proc, "_jn_infile", None) is not None:
+        proc._jn_infile.close()  # type: ignore[union-attr]
+
+    # If there was a previous stage (e.g., HTTP raw), wait and check
+    prev = getattr(proc, "_jn_prev_proc", None)
+    if prev is not None:
+        prev.wait()
+        if prev.returncode != 0:
+            prev_err = prev.stderr.read()
+            raise PipelineError(f"Reader error: {prev_err}")
 
     if proc.returncode != 0:
         error_msg = proc.stderr.read()
@@ -419,32 +482,79 @@ def convert(
     # Check if source is a URL
     is_url = source.startswith(("http://", "https://"))
 
-    # Execute two-stage pipeline
+    # Execute pipeline (possibly 3-stage chain for URL → format → writer)
     with open(dest, "w") as outfile:
         if is_url:
-            # For URLs, pass as command-line argument
-            cmd = [
-                "uv",
-                "run",
-                "--script",
-                reader_plugin.path,
-                "--mode",
-                "read",
-            ]
+            # Determine if URL path matches a specific format plugin (e.g., .xlsx)
+            url_path = urlparse(source).path
+            path_match = registry.match(url_path)
 
-            # Add headers from profile if available
-            if headers_json:
-                cmd.extend(["--headers", headers_json])
+            if path_match and path_match in plugins and path_match == "xlsx_":
+                # Stage 1: HTTP raw
+                http_cmd = [
+                    "uv",
+                    "run",
+                    "--script",
+                    reader_plugin.path,
+                    "--mode",
+                    "raw",
+                ]
+                if headers_json:
+                    http_cmd.extend(["--headers", headers_json])
+                http_cmd.append(source)
 
-            cmd.append(source)
+                http_proc = subprocess.Popen(
+                    http_cmd,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
 
-            reader = subprocess.Popen(
-                cmd,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
+                # Stage 2: Format reader
+                fmt_plugin = plugins[path_match]
+                fmt_cmd = [
+                    "uv",
+                    "run",
+                    "--script",
+                    fmt_plugin.path,
+                    "--mode",
+                    "read",
+                ]
+
+                reader = subprocess.Popen(
+                    fmt_cmd,
+                    stdin=http_proc.stdout,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+
+                # Close http stdout in parent to enable backpressure
+                if http_proc.stdout:
+                    http_proc.stdout.close()
+            else:
+                # Single-stage HTTP reader (parses JSON/NDJSON/text)
+                cmd = [
+                    "uv",
+                    "run",
+                    "--script",
+                    reader_plugin.path,
+                    "--mode",
+                    "read",
+                ]
+
+                if headers_json:
+                    cmd.extend(["--headers", headers_json])
+
+                cmd.append(source)
+
+                reader = subprocess.Popen(
+                    cmd,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
         else:
             # For files, open and pass as stdin
             infile = open(source)
@@ -476,6 +586,18 @@ def convert(
         # Wait for both processes
         writer.wait()
         reader.wait()
+
+        # For chained case, ensure HTTP raw proc also completes successfully
+        if is_url and 'http_proc' in locals():
+            http_proc.wait()
+            if http_proc.returncode != 0:
+                error_msg = http_proc.stderr.read()
+                if isinstance(error_msg, bytes):
+                    try:
+                        error_msg = error_msg.decode()
+                    except Exception:
+                        pass
+                raise PipelineError(f"Reader error: {error_msg}")
 
         # Close input file if it exists (URLs don't have one)
         if not is_url:
