@@ -292,10 +292,20 @@ def read_source(
         prev.wait()
         if prev.returncode != 0:
             prev_err = prev.stderr.read()
+            if isinstance(prev_err, bytes):
+                try:
+                    prev_err = prev_err.decode()
+                except Exception:
+                    pass
             raise PipelineError(f"Reader error: {prev_err}")
 
     if proc.returncode != 0:
         error_msg = proc.stderr.read()
+        if isinstance(error_msg, bytes):
+            try:
+                error_msg = error_msg.decode()
+            except Exception:
+                pass
         raise PipelineError(f"Reader error: {error_msg}")
 
 
