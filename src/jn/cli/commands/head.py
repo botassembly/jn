@@ -1,11 +1,15 @@
 """Head command - output first N records."""
 
+import json
+
+import subprocess
 import sys
 
 import click
 
+from ...addressing import AddressResolutionError, AddressResolver, parse_address
 from ...context import pass_context
-from ...core.pipeline import PipelineError, start_reader
+from ..helpers import check_uv_available
 from ...core.streaming import head as stream_head
 
 
@@ -23,11 +27,17 @@ from ...core.streaming import head as stream_head
 def head(ctx, source, n):
     """Output first N records from NDJSON stream.
 
+    Supports universal addressing syntax: address[~format][?parameters]
+
     Examples:
-        jn cat data.csv | jn head         # From piped input (first 10)
+        # From piped input
+        jn cat data.csv | jn head         # First 10 records
         jn cat data.csv | jn head -n 5    # First 5 records
-        jn head data.csv -n 5             # Directly from file
-        jn head data.csv                  # Default: first 10 records
+
+        # Directly from file
+        jn head data.csv -n 5             # Auto-detect format
+        jn head data.txt~csv -n 10        # Force CSV format
+        jn head "data.csv~csv?delimiter=;" -n 5  # With parameters
     """
     try:
         # Support "jn head N" by treating a numeric first arg as line count
@@ -36,43 +46,76 @@ def head(ctx, source, n):
             source = None
 
         if source:
-            # Read from file using core pipeline
-            proc = start_reader(source, ctx.plugin_dir, ctx.cache_path)
+            check_uv_available()
+
+            # Parse address
+            addr = parse_address(source)
+
+            # Create resolver and resolve address
+            resolver = AddressResolver(ctx.plugin_dir, ctx.cache_path)
+            resolved = resolver.resolve(addr, mode="read")
+
+            # Build command
+            cmd = [
+                "uv",
+                "run",
+                "--script",
+                resolved.plugin_path,
+                "--mode",
+                "read",
+            ]
+
+            # Add configuration parameters
+            for key, value in resolved.config.items():
+                cmd.extend([f"--{key}", str(value)])
+
+            # Determine input source
+            if resolved.url:
+                # Protocol or profile
+                if resolved.headers:
+                    cmd.extend(["--headers", json.dumps(resolved.headers)])
+                cmd.append(resolved.url)
+                stdin_source = subprocess.DEVNULL
+                infile = None
+            elif addr.type == "stdio":
+                # Stdin
+                stdin_source = sys.stdin
+                infile = None
+            else:
+                # File
+                infile = open(addr.base, "r")
+                stdin_source = infile
+
+            # Execute plugin
+            proc = subprocess.Popen(
+                cmd,
+                stdin=stdin_source,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+            # Stream first n lines
             stream_head(proc.stdout, n, sys.stdout)
             proc.wait()
 
-            # Close file handle if present
-            infile = getattr(proc, "_jn_infile", None)
-            if infile is not None:
+            # Close file if opened
+            if infile:
                 infile.close()
 
-            # If there was a previous stage (e.g., protocol raw), check it
-            prev = getattr(proc, "_jn_prev_proc", None)
-            if prev is not None:
-                prev.wait()
-                if prev.returncode != 0:
-                    perr = prev.stderr.read()
-                    if isinstance(perr, bytes):
-                        try:
-                            perr = perr.decode()
-                        except Exception:
-                            pass
-                    click.echo(f"Error: {perr}", err=True)
-                    sys.exit(1)
-
+            # Check for errors
             if proc.returncode != 0:
                 error_msg = proc.stderr.read()
-                if isinstance(error_msg, bytes):
-                    try:
-                        error_msg = error_msg.decode()
-                    except Exception:
-                        pass
                 click.echo(f"Error: {error_msg}", err=True)
                 sys.exit(1)
         else:
             # Read from stdin
             stream_head(sys.stdin, n, sys.stdout)
-    except PipelineError as e:
+
+    except ValueError as e:
+        click.echo(f"Error: Invalid address syntax: {e}", err=True)
+        sys.exit(1)
+    except AddressResolutionError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
     except FileNotFoundError as e:
