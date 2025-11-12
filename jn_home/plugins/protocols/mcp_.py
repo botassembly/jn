@@ -38,25 +38,26 @@ def error_record(error_type: str, message: str, **extra) -> dict:
     return {"_error": True, "type": error_type, "message": message, **extra}
 
 
-async def connect_stdio_server(server_config: dict):
-    """Connect to an MCP server via stdio transport."""
+async def execute_mcp_operation(server_config: dict, operation: dict) -> list[dict]:
+    """Execute an MCP operation and return results.
+
+    Connects to server, executes operation, properly cleans up resources.
+    """
+    results = []
+
+    # Setup server connection
     server_params = StdioServerParameters(
         command=server_config["command"],
         args=server_config.get("args", []),
         env=server_config.get("env"),
     )
+
+    # Use context manager for proper cleanup
     read_stream, write_stream = await stdio_client(server_params)
     session = ClientSession(read_stream, write_stream)
-    await session.initialize()
-    return session
-
-
-async def execute_mcp_operation(server_config: dict, operation: dict) -> list[dict]:
-    """Execute an MCP operation and return results."""
-    results = []
-    session = await connect_stdio_server(server_config)
 
     try:
+        await session.initialize()
         op_type = operation["type"]
 
         if op_type == "list_resources":
@@ -106,9 +107,39 @@ async def execute_mcp_operation(server_config: dict, operation: dict) -> list[di
                 })
 
     finally:
-        # Cleanup happens automatically via context managers
-        pass
+        # Properly close session and streams to avoid resource leaks
+        try:
+            # Close MCP session
+            if hasattr(session, '__aexit__'):
+                await session.__aexit__(None, None, None)
 
+            # Close streams to terminate subprocess
+            if hasattr(read_stream, 'aclose'):
+                await read_stream.aclose()
+            if hasattr(write_stream, 'aclose'):
+                await write_stream.aclose()
+        except Exception as e:
+            # Best effort cleanup - log but don't fail on cleanup errors
+            print(f"Warning: MCP cleanup error: {e}", file=sys.stderr)
+
+    return results
+
+
+async def execute_tool_with_session(session: ClientSession, tool_name: str, arguments: dict) -> list[dict]:
+    """Execute a tool call with an existing session.
+
+    Used by writes() to reuse connection across multiple calls.
+    """
+    results = []
+    result = await session.call_tool(tool_name, arguments)
+    for content in result.content:
+        results.append({
+            "type": "tool_result",
+            "tool": tool_name,
+            "mimeType": getattr(content, "mimeType", None),
+            "text": getattr(content, "text", None),
+            "blob": getattr(content, "blob", None),
+        })
     return results
 
 
@@ -146,6 +177,8 @@ def reads(url: str, **params) -> Iterator[dict]:
 def writes(url: str | None = None, **config) -> None:
     """Read NDJSON from stdin and call MCP tool with each record.
 
+    Reuses a single MCP connection for all records to avoid resource leaks.
+
     Args:
         url: Profile reference for the tool (e.g., @biomcp/search)
         **config: Additional configuration
@@ -168,26 +201,55 @@ def writes(url: str | None = None, **config) -> None:
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    try:
-        for line in sys.stdin:
-            line = line.strip()
-            if not line:
-                continue
 
+    async def process_records():
+        """Connect once and process all records with reused session."""
+        # Setup server connection
+        server_params = StdioServerParameters(
+            command=server_config["command"],
+            args=server_config.get("args", []),
+            env=server_config.get("env"),
+        )
+
+        read_stream, write_stream = await stdio_client(server_params)
+        session = ClientSession(read_stream, write_stream)
+
+        try:
+            await session.initialize()
+
+            # Process each input line with reused session
+            for line in sys.stdin:
+                line = line.strip()
+                if not line:
+                    continue
+
+                try:
+                    record = json.loads(line)
+                    arguments = {k: v for k, v in record.items() if not k.startswith("_")}
+
+                    # Call tool with existing session (no reconnection)
+                    results = await execute_tool_with_session(session, tool_name, arguments)
+
+                    for result in results:
+                        print(json.dumps(result), flush=True)
+
+                except json.JSONDecodeError as e:
+                    print(json.dumps(error_record("json_decode_error", str(e), line=line[:100])), flush=True)
+
+        finally:
+            # Properly close session and streams
             try:
-                record = json.loads(line)
-                arguments = {k: v for k, v in record.items() if not k.startswith("_")}
+                if hasattr(session, '__aexit__'):
+                    await session.__aexit__(None, None, None)
+                if hasattr(read_stream, 'aclose'):
+                    await read_stream.aclose()
+                if hasattr(write_stream, 'aclose'):
+                    await write_stream.aclose()
+            except Exception as e:
+                print(f"Warning: MCP cleanup error: {e}", file=sys.stderr)
 
-                # Create operation for this record
-                op = {"type": "call_tool", "tool": tool_name, "params": arguments}
-                results = loop.run_until_complete(execute_mcp_operation(server_config, op))
-
-                for result in results:
-                    print(json.dumps(result), flush=True)
-
-            except json.JSONDecodeError as e:
-                print(json.dumps(error_record("json_decode_error", str(e), line=line[:100])), flush=True)
-
+    try:
+        loop.run_until_complete(process_records())
     except Exception as e:
         print(json.dumps(error_record("mcp_error", str(e), exception_type=type(e).__name__)), flush=True)
     finally:
