@@ -1,6 +1,7 @@
 """Check command - validate plugins and core code."""
 
 import sys
+from importlib import resources
 from pathlib import Path
 
 import click
@@ -9,6 +10,28 @@ from ...context import pass_context
 from ...checker import check_files
 from ...checker.scanner import find_plugin_files, find_core_files, find_single_plugin
 from ...checker.report import format_text, format_json, format_summary
+
+
+def _get_bundled_plugins_dir() -> Path:
+    """Locate the packaged default plugins under jn_home/plugins.
+
+    Uses importlib.resources to work correctly both in development
+    and after installation.
+    """
+    pkg = resources.files("jn_home").joinpath("plugins")
+    # For the checker, we need a persistent path, not a context manager
+    # This works because jn_home is a package directory on the filesystem
+    return Path(str(pkg))
+
+
+def _get_core_dir() -> Path:
+    """Locate the core jn package directory.
+
+    Uses importlib.resources to work correctly both in development
+    and after installation.
+    """
+    pkg = resources.files("jn")
+    return Path(str(pkg))
 
 
 @click.command()
@@ -39,7 +62,7 @@ def check(ctx, target, output_format, verbose, rules):
 
     if target == "plugins":
         # Check bundled plugins
-        bundled_dir = Path(__file__).parent.parent.parent.parent.parent / "jn_home" / "plugins"
+        bundled_dir = _get_bundled_plugins_dir()
         files_to_check.extend(find_plugin_files(bundled_dir))
 
         # Check custom plugins if they exist
@@ -48,23 +71,23 @@ def check(ctx, target, output_format, verbose, rules):
 
     elif target == "core":
         # Check core framework code
-        core_dir = Path(__file__).parent.parent.parent
+        core_dir = _get_core_dir()
         files_to_check.extend(find_core_files(core_dir))
 
     elif target == "all":
         # Check everything
-        bundled_dir = Path(__file__).parent.parent.parent.parent.parent / "jn_home" / "plugins"
+        bundled_dir = _get_bundled_plugins_dir()
         files_to_check.extend(find_plugin_files(bundled_dir))
 
         if ctx.plugin_dir.exists():
             files_to_check.extend(find_plugin_files(ctx.plugin_dir))
 
-        core_dir = Path(__file__).parent.parent.parent
+        core_dir = _get_core_dir()
         files_to_check.extend(find_core_files(core_dir))
 
     else:
         # Assume it's a plugin name
-        bundled_dir = Path(__file__).parent.parent.parent.parent.parent / "jn_home" / "plugins"
+        bundled_dir = _get_bundled_plugins_dir()
         search_dirs = [bundled_dir]
         if ctx.plugin_dir.exists():
             search_dirs.append(ctx.plugin_dir)
