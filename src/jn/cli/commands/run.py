@@ -174,22 +174,31 @@ def run(ctx, input_file, output_file):
             # Close reader stdout in parent (critical for SIGPIPE)
             reader_proc.stdout.close()
         else:
+            # Pass-through stdin to writer without buffering entire input
+            try:
+                sys.stdin.fileno()  # type: ignore[attr-defined]
+                stdin_source = sys.stdin
+                use_pipe = False
+            except (AttributeError, OSError, io.UnsupportedOperation):
+                stdin_source = subprocess.PIPE
+                use_pipe = True
+
             writer = subprocess.Popen(
                 writer_cmd,
-                stdin=subprocess.PIPE,
+                stdin=stdin_source,
                 stdout=writer_stdout,
                 stderr=subprocess.PIPE,
                 text=True,
                 env=build_subprocess_env_for_coverage(),
             )
-            # Handle Click runner stdin which may not be a real fd
-            try:
-                sys.stdin.fileno()  # type: ignore[attr-defined]
-                input_data = sys.stdin.read()
-            except (AttributeError, OSError, io.UnsupportedOperation):
-                input_data = sys.stdin.read()
-            if input_data is not None:
-                writer.stdin.write(input_data)  # type: ignore[union-attr]
+
+            if use_pipe:
+                # Stream chunks from sys.stdin into writer without full buffering
+                while True:
+                    chunk = sys.stdin.read(8192)
+                    if not chunk:
+                        break
+                    writer.stdin.write(chunk)  # type: ignore[union-attr]
                 writer.stdin.close()  # type: ignore[union-attr]
 
         # Wait for all processes
