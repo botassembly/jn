@@ -119,7 +119,9 @@ class AddressResolver:
         if address.type == "profile":
             # Determine plugin from profile namespace
             # Extract namespace: @namespace/component → namespace
-            namespace = address.base[1:].split("/")[0]  # Remove @ and get first part
+            namespace = address.base[1:].split("/")[
+                0
+            ]  # Remove @ and get first part
 
             # Map known profile namespaces to plugins
             # Gmail profiles (@gmail/...) → gmail plugin

@@ -7,7 +7,11 @@ import sys
 
 import click
 
-from ...addressing import AddressResolutionError, AddressResolver, parse_address
+from ...addressing import (
+    AddressResolutionError,
+    AddressResolver,
+    parse_address,
+)
 from ...context import pass_context
 from ..helpers import check_uv_available
 
@@ -49,7 +53,14 @@ def put(ctx, output_file):
         resolved = resolver.resolve(addr, mode="write")
 
         # Build command
-        cmd = ["uv", "run", "--script", resolved.plugin_path, "--mode", "write"]
+        cmd = [
+            "uv",
+            "run",
+            "--script",
+            resolved.plugin_path,
+            "--mode",
+            "write",
+        ]
 
         # Add configuration parameters
         for key, value in resolved.config.items():

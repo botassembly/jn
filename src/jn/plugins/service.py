@@ -176,7 +176,7 @@ def call_plugin(plugin_path: str, args: List[str]) -> int:
     if input_data is not None:
         # Encode input data if it's a string
         if isinstance(input_data, str):
-            proc.stdin.write(input_data.encode('utf-8'))  # type: ignore[union-attr]
+            proc.stdin.write(input_data.encode("utf-8"))  # type: ignore[union-attr]
         else:
             proc.stdin.write(input_data)  # type: ignore[union-attr]
         proc.stdin.close()  # type: ignore[union-attr]

@@ -1,9 +1,13 @@
 """Structural checks for plugin files (shebang, PEP 723, docstrings)."""
 
 import ast
-from pathlib import Path
 
-from ..ast_checker import BaseChecker, parse_pep723, get_imports, STDLIB_MODULES
+from ..ast_checker import (
+    STDLIB_MODULES,
+    BaseChecker,
+    get_imports,
+    parse_pep723,
+)
 from ..violation import Severity
 
 
@@ -35,7 +39,7 @@ class StructureChecker(BaseChecker):
                 rule="missing_shebang",
                 severity=Severity.ERROR,
                 message="File is empty",
-                line=1
+                line=1,
             )
             return
 
@@ -47,7 +51,7 @@ class StructureChecker(BaseChecker):
                 message=f"First line must be: {expected_shebang}",
                 line=1,
                 fix=f"Change line 1 to: {expected_shebang}",
-                reference="spec/design/plugin-specification.md (Required Components)"
+                reference="spec/design/plugin-specification.md (Required Components)",
             )
 
         # Check 2: PEP 723 block - PLUGINS ONLY
@@ -59,7 +63,7 @@ class StructureChecker(BaseChecker):
                 message="Missing PEP 723 script block",
                 line=3,
                 fix="Add PEP 723 block with requires-python, dependencies, and [tool.jn]",
-                reference="spec/design/plugin-specification.md (Required Components)"
+                reference="spec/design/plugin-specification.md (Required Components)",
             )
             return
 
@@ -69,7 +73,7 @@ class StructureChecker(BaseChecker):
                 rule="missing_requires_python",
                 severity=Severity.ERROR,
                 message="PEP 723 block missing 'requires-python' field",
-                line=4
+                line=4,
             )
 
         if "dependencies" not in pep723:
@@ -78,7 +82,7 @@ class StructureChecker(BaseChecker):
                 severity=Severity.ERROR,
                 message="PEP 723 block missing 'dependencies' field",
                 line=4,
-                fix="Add: dependencies = []"
+                fix="Add: dependencies = []",
             )
 
         # Check 4: [tool.jn] section - PLUGINS ONLY
@@ -89,7 +93,7 @@ class StructureChecker(BaseChecker):
                 severity=Severity.WARNING,
                 message="PEP 723 block missing [tool.jn] section",
                 line=4,
-                fix="Add: [tool.jn] section with matches = []"
+                fix="Add: [tool.jn] section with matches = []",
             )
         elif "matches" not in tool_jn:
             self.add_violation(
@@ -97,7 +101,7 @@ class StructureChecker(BaseChecker):
                 severity=Severity.WARNING,
                 message="[tool.jn] section missing 'matches' field",
                 line=4,
-                fix="Add: matches = [] (empty list for filters)"
+                fix="Add: matches = [] (empty list for filters)",
             )
 
     def check_dependencies(self, tree: ast.AST) -> None:
@@ -153,7 +157,7 @@ class StructureChecker(BaseChecker):
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import):
                     for alias in node.names:
-                        module = alias.name.split('.')[0]
+                        module = alias.name.split(".")[0]
                         if module in missing:
                             self.add_violation(
                                 rule="missing_dependency",
@@ -161,12 +165,12 @@ class StructureChecker(BaseChecker):
                                 message=f"Import '{module}' not declared in PEP 723 dependencies",
                                 line=node.lineno,
                                 fix=f"Add '{module}' to dependencies list",
-                                reference="spec/design/plugin-specification.md"
+                                reference="spec/design/plugin-specification.md",
                             )
                             missing.remove(module)
                 elif isinstance(node, ast.ImportFrom):
                     if node.module:
-                        module = node.module.split('.')[0]
+                        module = node.module.split(".")[0]
                         if module in missing:
                             self.add_violation(
                                 rule="missing_dependency",
@@ -174,7 +178,7 @@ class StructureChecker(BaseChecker):
                                 message=f"Import '{module}' not declared in PEP 723 dependencies",
                                 line=node.lineno,
                                 fix=f"Add '{module}' to dependencies list",
-                                reference="spec/design/plugin-specification.md"
+                                reference="spec/design/plugin-specification.md",
                             )
                             missing.remove(module)
 
@@ -182,10 +186,10 @@ class StructureChecker(BaseChecker):
         """Check module-level docstring."""
         # Check if first statement is a docstring
         has_docstring = (
-            node.body and
-            isinstance(node.body[0], ast.Expr) and
-            isinstance(node.body[0].value, ast.Constant) and
-            isinstance(node.body[0].value.value, str)
+            node.body
+            and isinstance(node.body[0], ast.Expr)
+            and isinstance(node.body[0].value, ast.Constant)
+            and isinstance(node.body[0].value.value, str)
         )
 
         if not has_docstring:
@@ -194,7 +198,7 @@ class StructureChecker(BaseChecker):
                 severity=Severity.WARNING,
                 message="Missing module docstring",
                 line=2,
-                fix='Add docstring on line 2: """Description of plugin."""'
+                fix='Add docstring on line 2: """Description of plugin."""',
             )
 
         self.generic_visit(node)

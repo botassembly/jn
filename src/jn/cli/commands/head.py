@@ -1,16 +1,19 @@
 """Head command - output first N records."""
 
 import json
-
 import subprocess
 import sys
 
 import click
 
-from ...addressing import AddressResolutionError, AddressResolver, parse_address
+from ...addressing import (
+    AddressResolutionError,
+    AddressResolver,
+    parse_address,
+)
 from ...context import pass_context
-from ..helpers import check_uv_available
 from ...core.streaming import head as stream_head
+from ..helpers import check_uv_available
 
 
 @click.command()
@@ -83,7 +86,7 @@ def head(ctx, source, n):
                 infile = None
             else:
                 # File
-                infile = open(addr.base, "r")
+                infile = open(addr.base)
                 stdin_source = infile
 
             # Execute plugin

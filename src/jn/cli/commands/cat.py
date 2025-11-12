@@ -6,7 +6,11 @@ import sys
 
 import click
 
-from ...addressing import AddressResolutionError, AddressResolver, parse_address
+from ...addressing import (
+    AddressResolutionError,
+    AddressResolver,
+    parse_address,
+)
 from ...context import pass_context
 from ..helpers import check_uv_available
 
@@ -68,7 +72,7 @@ def cat(ctx, input_file):
             infile = None
         else:
             # File - open and pass as stdin
-            infile = open(addr.base, "r")
+            infile = open(addr.base)
             stdin_source = infile
 
         # Execute plugin

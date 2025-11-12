@@ -1,13 +1,16 @@
 """Run command - convenience for source to dest conversion."""
 
 import json
-
 import subprocess
 import sys
 
 import click
 
-from ...addressing import AddressResolutionError, AddressResolver, parse_address
+from ...addressing import (
+    AddressResolutionError,
+    AddressResolver,
+    parse_address,
+)
 from ...context import pass_context
 from ..helpers import check_uv_available
 
@@ -65,7 +68,9 @@ def run(ctx, input_file, output_file):
         if input_resolved.url:
             # Protocol or profile
             if input_resolved.headers:
-                reader_cmd.extend(["--headers", json.dumps(input_resolved.headers)])
+                reader_cmd.extend(
+                    ["--headers", json.dumps(input_resolved.headers)]
+                )
             reader_cmd.append(input_resolved.url)
             reader_stdin = subprocess.DEVNULL
             infile = None
@@ -75,7 +80,7 @@ def run(ctx, input_file, output_file):
             infile = None
         else:
             # File
-            infile = open(input_addr.base, "r")
+            infile = open(input_addr.base)
             reader_stdin = infile
 
         # Build writer command
@@ -95,7 +100,9 @@ def run(ctx, input_file, output_file):
         # Add URL/headers for protocol/profile destinations
         if output_resolved.url:
             if output_resolved.headers:
-                writer_cmd.extend(["--headers", json.dumps(output_resolved.headers)])
+                writer_cmd.extend(
+                    ["--headers", json.dumps(output_resolved.headers)]
+                )
             writer_cmd.append(output_resolved.url)
 
         # Determine writer output destination

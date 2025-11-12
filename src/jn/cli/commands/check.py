@@ -6,10 +6,14 @@ from pathlib import Path
 
 import click
 
-from ...context import pass_context
 from ...checker import check_files
-from ...checker.scanner import find_plugin_files, find_core_files, find_single_plugin
-from ...checker.report import format_text, format_json, format_summary
+from ...checker.report import format_json, format_summary, format_text
+from ...checker.scanner import (
+    find_core_files,
+    find_plugin_files,
+    find_single_plugin,
+)
+from ...context import pass_context
 
 
 def _get_bundled_plugins_dir() -> Path:
@@ -36,10 +40,22 @@ def _get_core_dir() -> Path:
 
 @click.command()
 @click.argument("target", default="plugins")
-@click.option("--format", "output_format", type=click.Choice(["text", "json", "summary"]), default="text",
-              help="Output format (default: text)")
-@click.option("--verbose", "-v", is_flag=True, help="Show all details including INFO violations")
-@click.option("--rules", multiple=True, help="Specific rules to check (default: all)")
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["text", "json", "summary"]),
+    default="text",
+    help="Output format (default: text)",
+)
+@click.option(
+    "--verbose",
+    "-v",
+    is_flag=True,
+    help="Show all details including INFO violations",
+)
+@click.option(
+    "--rules", multiple=True, help="Specific rules to check (default: all)"
+)
 @pass_context
 def check(ctx, target, output_format, verbose, rules):
     """Check plugins or core code for violations.
