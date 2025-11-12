@@ -1,0 +1,52 @@
+# JN Checker Configuration
+# Whitelist legitimate violations that have architectural justification
+
+# XLSX Plugin: ZIP archives require complete file buffering
+# ZIP structure has central directory at EOF, requires random access
+[[whitelist]]
+file = "jn_home/plugins/formats/xlsx_.py"
+rule = "stdin_buffer_read"
+lines = [38]
+reason = "ZIP archives require complete file access (central directory at EOF). No streaming alternative exists for full-fidelity Excel parsing."
+
+# CLI Commands: Legitimate use of sys.exit() for error codes
+# CLI commands (not plugin reads/writes) should exit with proper codes
+[[whitelist]]
+file = "src/jn/cli/commands/*.py"
+rule = "sys_exit_in_function"
+reason = "CLI command functions legitimately use sys.exit() for process exit codes (not plugin reads/writes)"
+
+# Main CLI: sys.exit() is appropriate in main entry point
+[[whitelist]]
+file = "src/jn/cli/main.py"
+rule = "sys_exit_in_function"
+reason = "Main CLI entry point uses sys.exit() for process control"
+
+# Pipeline: sys.exit() for fatal pipeline errors
+[[whitelist]]
+file = "src/jn/core/pipeline.py"
+rule = "sys_exit_in_function"
+reason = "Pipeline initialization errors are fatal and should exit immediately"
+
+# Plugin service: sys.exit() for plugin invocation errors
+[[whitelist]]
+file = "src/jn/plugins/service.py"
+rule = "sys_exit_in_function"
+reason = "Plugin service errors are fatal for standalone plugin execution"
+
+# Pipeline filter: stdout consumed directly (not piped to another process)
+[[whitelist]]
+file = "src/jn/core/pipeline.py"
+rule = "missing_stdout_close"
+lines = [645]
+reason = "Stdout consumed directly via 'for line in proc.stdout' (not piped to another process)"
+
+# Plugin service: stdout consumed directly (not piped to another process)
+[[whitelist]]
+file = "src/jn/plugins/service.py"
+rule = "missing_stdout_close"
+lines = [161]
+reason = "Stdout consumed directly via 'for line in proc.stdout' (not piped to another process)"
+
+# Future: Add exemptions for other binary formats (PDF, Parquet)
+# that require complete file access due to EOF metadata
