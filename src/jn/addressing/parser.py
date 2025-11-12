@@ -181,11 +181,11 @@ def _determine_type(base: str) -> AddressType:
         if "/" in base:
             return "profile"  # @namespace/component
         else:
-            return "plugin"   # @plugin
+            return "plugin"  # @plugin
     elif "://" in base:
-        return "protocol"     # http://, s3://, gmail://
+        return "protocol"  # http://, s3://, gmail://
     else:
-        return "file"         # Filesystem path
+        return "file"  # Filesystem path
 
 
 def _validate_address(

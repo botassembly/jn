@@ -108,7 +108,9 @@ class TestFormatOverride:
 
     def test_empty_format_override(self):
         """Test empty format override (should raise error)."""
-        with pytest.raises(ValueError, match="Format override cannot be empty"):
+        with pytest.raises(
+            ValueError, match="Format override cannot be empty"
+        ):
             parse_address("data.csv~")
 
 
@@ -404,7 +406,9 @@ class TestRealWorldExamples:
 
     def test_table_with_config(self):
         """Test table with multiple config options."""
-        addr = parse_address("-~table?tablefmt=grid&maxcolwidths=20&showindex=true")
+        addr = parse_address(
+            "-~table?tablefmt=grid&maxcolwidths=20&showindex=true"
+        )
         assert addr.format_override == "table"
         assert addr.parameters["tablefmt"] == "grid"
         assert addr.parameters["maxcolwidths"] == "20"

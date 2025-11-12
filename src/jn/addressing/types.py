@@ -59,7 +59,9 @@ class Address:
         if self.format_override:
             parts.append(f"~{self.format_override}")
         if self.parameters:
-            param_str = "&".join(f"{k}={v}" for k, v in self.parameters.items())
+            param_str = "&".join(
+                f"{k}={v}" for k, v in self.parameters.items()
+            )
             parts.append(f"?{param_str}")
         return "".join(parts)
 

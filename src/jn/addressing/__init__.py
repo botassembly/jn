@@ -23,10 +23,10 @@ from .resolver import AddressResolutionError, AddressResolver
 from .types import Address, AddressType, ResolvedAddress
 
 __all__ = [
-    "parse_address",
     "Address",
+    "AddressResolutionError",
+    "AddressResolver",
     "AddressType",
     "ResolvedAddress",
-    "AddressResolver",
-    "AddressResolutionError",
+    "parse_address",
 ]

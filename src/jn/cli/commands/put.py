@@ -4,26 +4,15 @@ import sys
 
 import click
 
-from ...addressing import AddressResolutionError, parse_address
+from ...addressing import parse_address
 from ...context import pass_context
 from ...core.pipeline import PipelineError, write_destination
 
 
 @click.command()
 @click.argument("output_file")
-@click.option(
-    "--plugin",
-    help="Explicitly specify plugin to use (e.g., 'table', 'csv', 'json'). "
-    "DEPRECATED: Use format override syntax instead: -~table or file~format",
-)
-@click.option(
-    "--tablefmt",
-    default="simple",
-    help="Table format for table plugin. "
-    "DEPRECATED: Use query string syntax instead: -~table?tablefmt=grid",
-)
 @pass_context
-def put(ctx, output_file, plugin, tablefmt):
+def put(ctx, output_file):
     """Read NDJSON from stdin, write to file or stdout.
 
     Supports universal addressing syntax: address[~format][?parameters]
@@ -45,46 +34,20 @@ def put(ctx, output_file, plugin, tablefmt):
 
         # CSV with parameters
         jn cat data.json | jn put "output.csv?delimiter=;&header=false"
-
-        # Legacy syntax (deprecated)
-        jn cat data.csv | jn put --plugin table -
-        jn cat data.csv | jn put --plugin table --tablefmt grid stdout
     """
     try:
-        # Parse address using new addressability system
+        # Parse address
         addr = parse_address(output_file)
 
-        # Handle legacy --plugin flag
-        if plugin:
-            click.echo(
-                "Warning: --plugin flag is deprecated. Use format override syntax instead: "
-                f"-~{plugin} or output.txt~{plugin}",
-                err=True,
-            )
-            # Override format with plugin flag
-            addr.format_override = plugin
+        # Build plugin config from parameters
+        plugin_config = addr.parameters if addr.parameters else None
 
-        # Handle legacy --tablefmt flag
-        if tablefmt != "simple":
-            click.echo(
-                "Warning: --tablefmt flag is deprecated. Use query string syntax instead: "
-                f"-~table?tablefmt={tablefmt}",
-                err=True,
-            )
-            # Merge tablefmt into parameters
-            addr.parameters["tablefmt"] = tablefmt
-
-        # Build plugin config from address parameters
-        plugin_config = None
-        if addr.parameters:
-            plugin_config = addr.parameters
-
-        # Determine plugin name (from format override or None for auto-detect)
+        # Determine plugin name from format override
         plugin_name = addr.format_override if addr.format_override else None
 
-        # Use original write_destination function
+        # Write destination
         write_destination(
-            addr.base,  # Use base address (without format/params)
+            addr.base,
             ctx.plugin_dir,
             ctx.cache_path,
             input_stream=sys.stdin,
@@ -92,11 +55,7 @@ def put(ctx, output_file, plugin, tablefmt):
             plugin_config=plugin_config,
         )
     except ValueError as e:
-        # Address parsing error
         click.echo(f"Error: Invalid address syntax: {e}", err=True)
-        sys.exit(1)
-    except AddressResolutionError as e:
-        click.echo(f"Error: {e}", err=True)
         sys.exit(1)
     except PipelineError as e:
         click.echo(f"Error: {e}", err=True)
