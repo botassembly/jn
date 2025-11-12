@@ -1,7 +1,8 @@
 """Address resolution - convert parsed addresses to plugins and configurations."""
 
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from ..plugins.discovery import (
     PluginMetadata,
@@ -18,6 +19,25 @@ class AddressResolutionError(Exception):
     """Error resolving address to plugin."""
 
     pass
+
+
+@dataclass
+class ExecutionStage:
+    """Represents a single stage in a pipeline execution plan.
+
+    Attributes:
+        plugin_path: Path to plugin script
+        mode: Execution mode ("read", "write", or "raw")
+        config: Configuration parameters for plugin
+        url: Optional URL argument for plugin
+        headers: Optional headers for HTTP requests
+    """
+
+    plugin_path: str
+    mode: str
+    config: Dict[str, any]
+    url: Optional[str] = None
+    headers: Optional[Dict[str, str]] = None
 
 
 class AddressResolver:
@@ -93,6 +113,79 @@ class AddressResolver:
             url=url,
             headers=headers,
         )
+
+    def plan_execution(
+        self, address: Address, mode: str = "read"
+    ) -> List[ExecutionStage]:
+        """Plan execution stages for address.
+
+        For most addresses, returns a single stage. For protocol URLs with format
+        extensions (e.g., https://example.com/data.xlsx), returns two stages:
+        1. Protocol stage (raw mode) - fetches bytes
+        2. Format stage (read mode) - parses bytes
+
+        Args:
+            address: Parsed address to resolve
+            mode: Plugin mode ("read" or "write")
+
+        Returns:
+            List of execution stages (1 or 2 stages)
+
+        Raises:
+            AddressResolutionError: If address cannot be resolved
+        """
+        self._ensure_plugins_loaded()
+
+        # Only consider 2-stage for protocol URLs in read mode
+        if (
+            mode == "read"
+            and address.type == "protocol"
+            and not address.format_override
+        ):
+            # Check if registry suggests 2-stage plan
+            plan = self._registry.plan_for_read(address.base, self._plugins)
+
+            if len(plan) == 2:
+                # Two-stage: protocol (raw) → format (read)
+                proto_name, fmt_name = plan
+                proto_plugin = self._plugins[proto_name]
+                fmt_plugin = self._plugins[fmt_name]
+
+                # Resolve URL and headers
+                url, headers = self._resolve_url_and_headers(address)
+
+                # Protocol stage: raw mode, URL as argument
+                protocol_stage = ExecutionStage(
+                    plugin_path=proto_plugin.path,
+                    mode="raw",
+                    config={},
+                    url=url,
+                    headers=headers,
+                )
+
+                # Format stage: read mode, stdin from protocol
+                # Build config from address parameters
+                format_config = self._build_config(address.parameters, fmt_name)
+                format_stage = ExecutionStage(
+                    plugin_path=fmt_plugin.path,
+                    mode="read",
+                    config=format_config,
+                    url=None,
+                    headers=None,
+                )
+
+                return [protocol_stage, format_stage]
+
+        # Single-stage execution
+        resolved = self.resolve(address, mode)
+        stage = ExecutionStage(
+            plugin_path=resolved.plugin_path,
+            mode=mode,
+            config=resolved.config,
+            url=resolved.url,
+            headers=resolved.headers,
+        )
+        return [stage]
 
     def _find_plugin(self, address: Address, mode: str) -> Tuple[str, str]:
         """Find plugin for address.
