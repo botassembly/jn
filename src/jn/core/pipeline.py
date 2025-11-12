@@ -182,80 +182,55 @@ def start_reader(
     # Load plugins and registry
     plugins, registry = _load_plugins_and_registry(plugin_dir, cache_path)
 
-    plugin_name = registry.match(source)
-    if not plugin_name:
+    # Build a read plan from registry (generic, role-driven)
+    plan = registry.plan_for_read(source, plugins)
+    if not plan:
         raise PipelineError(f"No plugin found for {source}")
 
-    plugin = plugins[plugin_name]
+    # Two-stage plan: protocol (raw) -> format
+    if len(plan) == 2:
+        proto_name, fmt_name = plan
+        proto = plugins[proto_name]
+        fmt_plugin = plugins[fmt_name]
 
-    # Check if source is a URL (HTTP protocol plugin)
+        proto_cmd = ["uv", "run", "--script", proto.path, "--mode", "raw"]
+        if headers_json:
+            proto_cmd.extend(["--headers", headers_json])
+        proto_cmd.append(source)
+
+        proto_proc = subprocess.Popen(
+            proto_cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        fmt_cmd = ["uv", "run", "--script", fmt_plugin.path, "--mode", "read"]
+        fmt_proc = subprocess.Popen(
+            fmt_cmd,
+            stdin=proto_proc.stdout,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+        if proto_proc.stdout:
+            proto_proc.stdout.close()
+
+        fmt_proc._jn_prev_proc = proto_proc  # type: ignore[attr-defined]
+        fmt_proc._jn_infile = None  # type: ignore[attr-defined]
+        return fmt_proc
+
+    # Single-stage plan
+    single_name = plan[0]
+    plugin = plugins[single_name]
+
     is_url = source.startswith(("http://", "https://"))
-
     if is_url:
-        # Decide if we should chain HTTP(raw) -> format for known extensions (e.g., .xlsx)
-        url_path = urlparse(source).path
-        path_match = registry.match(url_path)
-
-        # If the path extension maps to a specific format plugin (e.g., xlsx_), chain it
-        chain_to_format = path_match and path_match in plugins and path_match != plugin_name
-
-        if chain_to_format and path_match == "xlsx_":
-            # Stage 1: HTTP raw
-            http_cmd = [
-                "uv",
-                "run",
-                "--script",
-                plugin.path,
-                "--mode",
-                "raw",
-            ]
-            if headers_json:
-                http_cmd.extend(["--headers", headers_json])
-            http_cmd.append(source)
-
-            http_proc = subprocess.Popen(
-                http_cmd,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,  # binary stream
-                stderr=subprocess.PIPE,
-            )
-
-            # Stage 2: Format reader
-            fmt_plugin = plugins[path_match]
-            fmt_cmd = [
-                "uv",
-                "run",
-                "--script",
-                fmt_plugin.path,
-                "--mode",
-                "read",
-            ]
-
-            fmt_proc = subprocess.Popen(
-                fmt_cmd,
-                stdin=http_proc.stdout,  # pipe from HTTP raw
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,  # downstream expects text NDJSON
-            )
-
-            # Close http stdout in parent to enable SIGPIPE backpressure
-            if http_proc.stdout:
-                http_proc.stdout.close()
-
-            # Attach references for cleanup and error handling
-            fmt_proc._jn_prev_proc = http_proc  # type: ignore[attr-defined]
-            fmt_proc._jn_infile = None  # type: ignore[attr-defined]
-            return fmt_proc
-
-        # Fallback: Single-stage HTTP reader (parses JSON/NDJSON/text)
         cmd = ["uv", "run", "--script", plugin.path, "--mode", "read"]
-
         if headers_json:
             cmd.extend(["--headers", headers_json])
-
         cmd.append(source)
-
         proc = subprocess.Popen(
             cmd,
             stdin=subprocess.DEVNULL,
@@ -485,33 +460,35 @@ def convert(
     # Execute pipeline (possibly 3-stage chain for URL → format → writer)
     with open(dest, "w") as outfile:
         if is_url:
-            # Determine if URL path matches a specific format plugin (e.g., .xlsx)
-            url_path = urlparse(source).path
-            path_match = registry.match(url_path)
+            # Build a generic read plan from registry
+            plan = registry.plan_for_read(source, plugins)
+            if not plan:
+                raise PipelineError(f"No plugin found for {source}")
 
-            if path_match and path_match in plugins and path_match == "xlsx_":
-                # Stage 1: HTTP raw
-                http_cmd = [
+            if len(plan) == 2:
+                proto_name, fmt_name = plan
+                proto_plugin = plugins[proto_name]
+                fmt_plugin = plugins[fmt_name]
+
+                proto_cmd = [
                     "uv",
                     "run",
                     "--script",
-                    reader_plugin.path,
+                    proto_plugin.path,
                     "--mode",
                     "raw",
                 ]
                 if headers_json:
-                    http_cmd.extend(["--headers", headers_json])
-                http_cmd.append(source)
+                    proto_cmd.extend(["--headers", headers_json])
+                proto_cmd.append(source)
 
                 http_proc = subprocess.Popen(
-                    http_cmd,
+                    proto_cmd,
                     stdin=subprocess.DEVNULL,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                 )
 
-                # Stage 2: Format reader
-                fmt_plugin = plugins[path_match]
                 fmt_cmd = [
                     "uv",
                     "run",
@@ -520,7 +497,6 @@ def convert(
                     "--mode",
                     "read",
                 ]
-
                 reader = subprocess.Popen(
                     fmt_cmd,
                     stdin=http_proc.stdout,
@@ -528,12 +504,10 @@ def convert(
                     stderr=subprocess.PIPE,
                     text=True,
                 )
-
-                # Close http stdout in parent to enable backpressure
                 if http_proc.stdout:
                     http_proc.stdout.close()
             else:
-                # Single-stage HTTP reader (parses JSON/NDJSON/text)
+                # Single-stage reader
                 cmd = [
                     "uv",
                     "run",
@@ -542,12 +516,9 @@ def convert(
                     "--mode",
                     "read",
                 ]
-
                 if headers_json:
                     cmd.extend(["--headers", headers_json])
-
                 cmd.append(source)
-
                 reader = subprocess.Popen(
                     cmd,
                     stdin=subprocess.DEVNULL,

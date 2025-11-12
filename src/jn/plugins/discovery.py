@@ -25,6 +25,8 @@ class PluginMetadata:
     matches: List[str]
     requires_python: Optional[str] = None
     dependencies: List[str] = None
+    role: Optional[str] = None
+    supports_raw: bool = False
 
     def __post_init__(self):
         if self.dependencies is None:
@@ -75,6 +77,19 @@ def discover_plugins(plugin_dir: Path) -> Dict[str, PluginMetadata]:
         mtime = py_file.stat().st_mtime
         relative_path = py_file.relative_to(plugin_dir)
 
+        # Infer role from relative path (protocols/, formats/, filters/)
+        rel_str = str(relative_path).replace("\\", "/")
+        parts = rel_str.split("/")
+        role = None
+        if "protocols" in parts:
+            role = "protocol"
+        elif "formats" in parts:
+            role = "format"
+        elif "filters" in parts:
+            role = "filter"
+
+        supports_raw = bool(tool_jn.get("supports_raw", False))
+
         plugins[name] = PluginMetadata(
             name=name,
             path=str(relative_path),
@@ -82,6 +97,8 @@ def discover_plugins(plugin_dir: Path) -> Dict[str, PluginMetadata]:
             matches=matches,
             requires_python=metadata.get("requires-python"),
             dependencies=metadata.get("dependencies", []),
+            role=role,
+            supports_raw=supports_raw,
         )
 
     return plugins

@@ -9,6 +9,7 @@
 # matches = [
 #   "^https?://.*"
 # ]
+# supports_raw = true
 # ///
 
 import json
