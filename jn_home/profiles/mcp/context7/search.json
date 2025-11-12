@@ -1,0 +1,19 @@
+{
+  "tool": "search",
+  "description": "Search for library documentation",
+  "parameters": {
+    "library": {
+      "type": "string",
+      "description": "Library or package name (e.g., requests, mcp, fastapi)",
+      "required": true
+    },
+    "version": {
+      "type": "string",
+      "description": "Specific version (optional, defaults to latest)"
+    },
+    "query": {
+      "type": "string",
+      "description": "Search query within the library docs"
+    }
+  }
+}
