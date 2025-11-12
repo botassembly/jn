@@ -46,7 +46,7 @@ def head(ctx, source, n):
             source = None
 
         if source:
-        check_uv_available()
+            check_uv_available()
 
             # Parse address
             addr = parse_address(source)
