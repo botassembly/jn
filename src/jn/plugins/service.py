@@ -13,6 +13,7 @@ from .discovery import (
     PluginMetadata,
     get_cached_plugins_with_fallback,
 )
+from ..cli.helpers import build_subprocess_env_for_coverage
 
 
 def _check_uv_available() -> None:
@@ -172,11 +173,12 @@ def call_plugin(plugin_path: str, args: List[str]) -> int:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=False,  # Binary mode for both stdin and stdout
+        env=build_subprocess_env_for_coverage(),
     )
     if input_data is not None:
         # Encode input data if it's a string
         if isinstance(input_data, str):
-            proc.stdin.write(input_data.encode('utf-8'))  # type: ignore[union-attr]
+            proc.stdin.write(input_data.encode("utf-8"))  # type: ignore[union-attr]
         else:
             proc.stdin.write(input_data)  # type: ignore[union-attr]
         proc.stdin.close()  # type: ignore[union-attr]
@@ -191,4 +193,16 @@ def call_plugin(plugin_path: str, args: List[str]) -> int:
         sys.stdout.buffer.write(chunk)  # type: ignore[attr-defined]
 
     proc.wait()
+
+    # Forward any stderr produced by the plugin to the caller's stderr
+    if proc.stderr is not None:
+        try:
+            err_data = proc.stderr.read()
+            if err_data:
+                # Ensure bytes go to a binary-capable stream
+                sys.stderr.buffer.write(err_data)  # type: ignore[attr-defined]
+                sys.stderr.buffer.flush()  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
     return proc.returncode

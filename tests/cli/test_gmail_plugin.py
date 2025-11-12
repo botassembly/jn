@@ -15,7 +15,13 @@ import pytest
 @pytest.fixture
 def gmail_plugin():
     """Path to Gmail plugin."""
-    return Path(__file__).parent.parent.parent / "jn_home" / "plugins" / "protocols" / "gmail_.py"
+    return (
+        Path(__file__).parent.parent.parent
+        / "jn_home"
+        / "plugins"
+        / "protocols"
+        / "gmail_.py"
+    )
 
 
 def test_gmail_plugin_help(gmail_plugin):
@@ -24,7 +30,7 @@ def test_gmail_plugin_help(gmail_plugin):
         ["uv", "run", "--script", str(gmail_plugin), "--help"],
         capture_output=True,
         text=True,
-        timeout=30
+        timeout=30,
     )
 
     assert result.returncode == 0
@@ -40,7 +46,7 @@ def test_gmail_plugin_requires_mode(gmail_plugin):
         ["uv", "run", "--script", str(gmail_plugin)],
         capture_output=True,
         text=True,
-        timeout=30
+        timeout=30,
     )
 
     assert result.returncode != 0
@@ -53,11 +59,14 @@ def test_gmail_plugin_mode_choices(gmail_plugin):
         ["uv", "run", "--script", str(gmail_plugin), "--mode", "write"],
         capture_output=True,
         text=True,
-        timeout=30
+        timeout=30,
     )
 
     assert result.returncode != 0
-    assert "invalid choice" in result.stderr.lower() or "invalid choice" in result.stdout.lower()
+    assert (
+        "invalid choice" in result.stderr.lower()
+        or "invalid choice" in result.stdout.lower()
+    )
 
 
 def test_gmail_plugin_url_parsing(gmail_plugin, tmp_path):
@@ -67,15 +76,21 @@ def test_gmail_plugin_url_parsing(gmail_plugin, tmp_path):
 
     result = subprocess.run(
         [
-            "uv", "run", "--script", str(gmail_plugin),
-            "--mode", "read",
+            "uv",
+            "run",
+            "--script",
+            str(gmail_plugin),
+            "--mode",
+            "read",
             "gmail://me/messages?is=unread",
-            "--credentials-path", str(fake_creds),
-            "--token-path", str(fake_token),
+            "--credentials-path",
+            str(fake_creds),
+            "--token-path",
+            str(fake_token),
         ],
         capture_output=True,
         text=True,
-        timeout=30
+        timeout=30,
     )
 
     # Should error because credentials don't exist, but proves URL was parsed

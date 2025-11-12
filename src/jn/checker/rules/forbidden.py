@@ -1,6 +1,7 @@
 """Check for forbidden patterns in plugins."""
 
 import ast
+
 from ..ast_checker import BaseChecker, get_function_names
 from ..violation import Severity
 
@@ -23,11 +24,17 @@ class ForbiddenPatternsChecker(BaseChecker):
         # Check if this is: if __name__ == '__main__':
         is_main_check = False
         if isinstance(node.test, ast.Compare):
-            if isinstance(node.test.left, ast.Name) and node.test.left.id == "__name__":
+            if (
+                isinstance(node.test.left, ast.Name)
+                and node.test.left.id == "__name__"
+            ):
                 if node.test.ops and isinstance(node.test.ops[0], ast.Eq):
                     if node.test.comparators:
                         comp = node.test.comparators[0]
-                        if isinstance(comp, ast.Constant) and comp.value == "__main__":
+                        if (
+                            isinstance(comp, ast.Constant)
+                            and comp.value == "__main__"
+                        ):
                             is_main_check = True
 
         if is_main_check:
@@ -48,21 +55,23 @@ class ForbiddenPatternsChecker(BaseChecker):
                     message=f"Importing from jn framework ('{alias.name}') - plugins must be self-contained",
                     line=node.lineno,
                     fix="Remove framework import - plugins should not depend on jn internals",
-                    reference="spec/design/plugin-specification.md (Forbidden Patterns)"
+                    reference="spec/design/plugin-specification.md (Forbidden Patterns)",
                 )
 
         self.generic_visit(node)
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
         """Check for forbidden framework imports."""
-        if node.module and (node.module == "jn" or node.module.startswith("jn.")):
+        if node.module and (
+            node.module == "jn" or node.module.startswith("jn.")
+        ):
             self.add_violation(
                 rule="framework_import",
                 severity=Severity.ERROR,
                 message=f"Importing from jn framework ('{node.module}') - plugins must be self-contained",
                 line=node.lineno,
                 fix="Remove framework import - plugins should not depend on jn internals",
-                reference="spec/design/plugin-specification.md (Forbidden Patterns)"
+                reference="spec/design/plugin-specification.md (Forbidden Patterns)",
             )
 
         self.generic_visit(node)
@@ -77,7 +86,7 @@ class ForbiddenPatternsChecker(BaseChecker):
                 message="sys.exit() in plugin function (exits entire process)",
                 line=node.lineno,
                 fix="Remove sys.exit() - yield error records or raise exceptions instead",
-                reference="spec/design/plugin-specification.md (Forbidden Patterns)"
+                reference="spec/design/plugin-specification.md (Forbidden Patterns)",
             )
 
         self.generic_visit(node)
@@ -91,7 +100,7 @@ class ForbiddenPatternsChecker(BaseChecker):
                 message="Bare except: clause (catches KeyboardInterrupt, SystemExit)",
                 line=node.lineno,
                 fix="Use specific exception type: except ValueError:",
-                reference="spec/design/plugin-specification.md"
+                reference="spec/design/plugin-specification.md",
             )
 
         self.generic_visit(node)
@@ -101,10 +110,10 @@ class ForbiddenPatternsChecker(BaseChecker):
         # Check for missing docstrings in reads/writes
         if node.name in ("reads", "writes"):
             has_docstring = (
-                node.body and
-                isinstance(node.body[0], ast.Expr) and
-                isinstance(node.body[0].value, ast.Constant) and
-                isinstance(node.body[0].value.value, str)
+                node.body
+                and isinstance(node.body[0], ast.Expr)
+                and isinstance(node.body[0].value, ast.Constant)
+                and isinstance(node.body[0].value.value, str)
             )
             if not has_docstring:
                 self.add_violation(
@@ -112,7 +121,7 @@ class ForbiddenPatternsChecker(BaseChecker):
                     severity=Severity.WARNING,
                     message=f"Function '{node.name}()' missing docstring",
                     line=node.lineno,
-                    fix=f'Add docstring describing {node.name}() behavior'
+                    fix=f"Add docstring describing {node.name}() behavior",
                 )
 
         self.generic_visit(node)
@@ -121,9 +130,9 @@ class ForbiddenPatternsChecker(BaseChecker):
         """Check if call is sys.exit()."""
         if isinstance(node.func, ast.Attribute):
             return (
-                node.func.attr == "exit" and
-                isinstance(node.func.value, ast.Name) and
-                node.func.value.id == "sys"
+                node.func.attr == "exit"
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "sys"
             )
         elif isinstance(node.func, ast.Name):
             return node.func.id == "exit"

@@ -1,6 +1,5 @@
 """JN CLI main entry point with global options."""
 
-
 import click
 
 from ..context import JNContext, resolve_home
@@ -26,12 +25,12 @@ def cli(ctx, home):
 
 # Register commands at module level so tests can import cli with commands attached
 from .commands.cat import cat
+from .commands.check import check
 from .commands.filter import filter
 from .commands.head import head
 from .commands.put import put
 from .commands.run import run
 from .commands.tail import tail
-from .commands.check import check
 from .plugins import plugin
 
 cli.add_command(cat)

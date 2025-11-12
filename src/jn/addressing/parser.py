@@ -9,8 +9,8 @@ Where:
     - ?parameters: Optional query string parameters
 """
 
-from urllib.parse import parse_qs, unquote
 from typing import Dict
+from urllib.parse import parse_qs, unquote
 
 from .types import Address, AddressType
 

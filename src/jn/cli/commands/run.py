@@ -1,5 +1,6 @@
 """Run command - convenience for source to dest conversion."""
 
+import io
 import json
 import subprocess
 import sys
@@ -13,7 +14,7 @@ from ...addressing import (
     parse_address,
 )
 from ...context import pass_context
-from ..helpers import check_uv_available
+from ..helpers import check_uv_available, build_subprocess_env_for_coverage
 
 
 def _build_command(stage: ExecutionStage) -> list:
@@ -55,6 +56,11 @@ def run(ctx, input_file, output_file):
         # With parameters
         jn run "data.csv~csv?delimiter=;" output.json  # Semicolon delimiter
         jn run data.json "output.json?indent=4"        # Pretty JSON output
+
+    Note:
+        When passing addresses that start with '-', use '--' to stop
+        option parsing before the argument, e.g.:
+          jn run -- "-~csv" out.json
     """
     try:
         check_uv_available()
@@ -79,7 +85,7 @@ def run(ctx, input_file, output_file):
             )
         )
 
-        # Create reader process (may be 2-stage internally)
+        # Create reader process (may be 0, 1, or 2 stages)
         if len(input_stages) == 2:
             # Two-stage read: protocol (raw) → format (read)
             protocol_cmd = _build_command(input_stages[0])
@@ -92,6 +98,7 @@ def run(ctx, input_file, output_file):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=False,  # Binary for raw mode
+                env=build_subprocess_env_for_coverage(),
             )
 
             # Start format plugin (reads from protocol)
@@ -102,13 +109,14 @@ def run(ctx, input_file, output_file):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=False,  # Binary mode (stdin receives raw bytes)
+                env=build_subprocess_env_for_coverage(),
             )
 
             # Close protocol stdout in parent
             protocol_proc.stdout.close()
             infile = None
             protocol_error_proc = protocol_proc  # Save for error checking
-        else:
+        elif len(input_stages) == 1:
             # Single-stage read
             reader_cmd = _build_command(input_stages[0])
 
@@ -133,8 +141,14 @@ def run(ctx, input_file, output_file):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                env=build_subprocess_env_for_coverage(),
             )
             protocol_error_proc = None
+        else:
+            # Pass-through stdin (no reader plugin)
+            reader_proc = None
+            protocol_error_proc = None
+            infile = None
 
         # Determine writer output and create writer process
         if output_resolved.url:
@@ -147,21 +161,41 @@ def run(ctx, input_file, output_file):
             # Write to file
             writer_stdout = open(output_addr.base, "w")
 
-        # Start writer (reads from reader_proc)
-        writer = subprocess.Popen(
-            writer_cmd,
-            stdin=reader_proc.stdout,
-            stdout=writer_stdout,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-
-        # Close reader stdout in parent (critical for SIGPIPE)
-        reader_proc.stdout.close()
+        # Start writer (reads from reader_proc or directly from stdin)
+        if reader_proc is not None:
+            writer = subprocess.Popen(
+                writer_cmd,
+                stdin=reader_proc.stdout,
+                stdout=writer_stdout,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=build_subprocess_env_for_coverage(),
+            )
+            # Close reader stdout in parent (critical for SIGPIPE)
+            reader_proc.stdout.close()
+        else:
+            writer = subprocess.Popen(
+                writer_cmd,
+                stdin=subprocess.PIPE,
+                stdout=writer_stdout,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=build_subprocess_env_for_coverage(),
+            )
+            # Handle Click runner stdin which may not be a real fd
+            try:
+                sys.stdin.fileno()  # type: ignore[attr-defined]
+                input_data = sys.stdin.read()
+            except (AttributeError, OSError, io.UnsupportedOperation):
+                input_data = sys.stdin.read()
+            if input_data is not None:
+                writer.stdin.write(input_data)  # type: ignore[union-attr]
+                writer.stdin.close()  # type: ignore[union-attr]
 
         # Wait for all processes
         writer.wait()
-        reader_proc.wait()
+        if reader_proc is not None:
+            reader_proc.wait()
         if protocol_error_proc:
             protocol_error_proc.wait()
 
@@ -179,7 +213,7 @@ def run(ctx, input_file, output_file):
             click.echo(f"Error: Writer error: {error_msg}", err=True)
             sys.exit(1)
 
-        if reader_proc.returncode != 0:
+        if reader_proc is not None and reader_proc.returncode != 0:
             error_msg = reader_proc.stderr.read()
             click.echo(f"Error: Reader error: {error_msg}", err=True)
             sys.exit(1)

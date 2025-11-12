@@ -9,6 +9,7 @@ from urllib.parse import urlencode
 
 class GmailProfileError(Exception):
     """Gmail profile resolution error."""
+
     pass
 
 
@@ -32,7 +33,12 @@ def load_gmail_profile(source_name: str) -> Dict:
         # Fallback: bundled profiles relative to this file
         # This file is in src/jn/profiles/gmail.py
         # Bundled profiles are in jn_home/profiles/gmail/
-        profile_dir = Path(__file__).parent.parent.parent.parent / "jn_home" / "profiles" / "gmail"
+        profile_dir = (
+            Path(__file__).parent.parent.parent.parent
+            / "jn_home"
+            / "profiles"
+            / "gmail"
+        )
 
     profile_path = profile_dir / f"{source_name}.json"
 
@@ -48,7 +54,9 @@ def load_gmail_profile(source_name: str) -> Dict:
         raise GmailProfileError(f"Invalid JSON in {profile_path}: {e}")
 
 
-def resolve_gmail_reference(reference: str, params: Optional[Dict] = None) -> str:
+def resolve_gmail_reference(
+    reference: str, params: Optional[Dict] = None
+) -> str:
     """Resolve @gmail/source to gmail:// URL with query parameters.
 
     Args:
@@ -72,10 +80,12 @@ def resolve_gmail_reference(reference: str, params: Optional[Dict] = None) -> st
         "gmail://me/messages?is=unread&from=boss"
     """
     if not reference.startswith("@gmail/"):
-        raise GmailProfileError(f"Invalid Gmail reference (must start with @gmail/): {reference}")
+        raise GmailProfileError(
+            f"Invalid Gmail reference (must start with @gmail/): {reference}"
+        )
 
     # Extract source name
-    source_name = reference[len("@gmail/"):]
+    source_name = reference[len("@gmail/") :]
 
     # Load profile
     profile = load_gmail_profile(source_name)

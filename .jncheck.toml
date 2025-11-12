@@ -50,3 +50,22 @@ reason = "Stdout consumed directly via 'for line in proc.stdout' (not piped to a
 
 # Future: Add exemptions for other binary formats (PDF, Parquet)
 # that require complete file access due to EOF metadata
+
+# Gmail plugin: import names differ from PyPI dist names
+# googleapiclient comes from google-api-python-client; checker flags raw import names
+[[whitelist]]
+file = "jn_home/plugins/protocols/gmail_.py"
+rule = "missing_dependency"
+reason = "Imports 'google' and 'googleapiclient' map to 'google-api-python-client' and friends; dependencies declared via dist names in PEP 723."
+
+# MCP plugin: temporarily imports framework code to reuse profile resolver
+[[whitelist]]
+file = "jn_home/plugins/protocols/mcp_.py"
+rule = "framework_import"
+reason = "Plugin reuses framework MCP resolver for now; architectural exception."
+
+# MCP plugin: checker flags missing_dependency 'jn' due to framework import
+[[whitelist]]
+file = "jn_home/plugins/protocols/mcp_.py"
+rule = "missing_dependency"
+reason = "Framework import is a temporary exception; not a PEP 723 runtime dependency."

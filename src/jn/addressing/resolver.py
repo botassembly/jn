@@ -136,6 +136,15 @@ class AddressResolver:
         """
         self._ensure_plugins_loaded()
 
+        # Stdio without format override: pass-through (no stage). Caller should
+        # stream stdin directly to the consumer (e.g., writer or stdout).
+        if (
+            address.type == "stdio"
+            and not address.format_override
+            and mode == "read"
+        ):
+            return []
+
         # Only consider 2-stage for protocol URLs in read mode
         if (
             mode == "read"
@@ -165,7 +174,9 @@ class AddressResolver:
 
                 # Format stage: read mode, stdin from protocol
                 # Build config from address parameters
-                format_config = self._build_config(address.parameters, fmt_name)
+                format_config = self._build_config(
+                    address.parameters, fmt_name
+                )
                 format_stage = ExecutionStage(
                     plugin_path=fmt_plugin.path,
                     mode="read",
@@ -212,7 +223,9 @@ class AddressResolver:
         if address.type == "profile":
             # Determine plugin from profile namespace
             # Extract namespace: @namespace/component → namespace
-            namespace = address.base[1:].split("/")[0]  # Remove @ and get first part
+            namespace = address.base[1:].split("/")[
+                0
+            ]  # Remove @ and get first part
 
             # Map known profile namespaces to plugins
             # Gmail profiles (@gmail/...) → gmail plugin
@@ -406,19 +419,36 @@ class AddressResolver:
         # Copy all parameters to config
         # Plugins will handle their own parameter validation
         for key, value in parameters.items():
-            # Try to convert to appropriate type
-            if value.lower() in ("true", "false"):
-                # Boolean
-                config[key] = value.lower() == "true"
-            elif self._is_number(value):
-                # Numeric (int or float)
-                if "." in value or "e" in value.lower():
-                    config[key] = float(value)
-                else:
-                    config[key] = int(value)
-            else:
-                # String
-                config[key] = value
+            # Try to convert to appropriate type conservatively; defer strict
+            # validation to the plugin. Avoid raising here to keep CLI errors
+            # accurate (writer/reader errors vs. address syntax errors).
+            try:
+                low = value.lower()
+            except AttributeError:
+                low = value
+
+            if isinstance(value, str) and low in ("true", "false"):
+                config[key] = low == "true"
+                continue
+
+            # Treat typical numeric literals; special tokens (nan/inf) remain strings
+            if (
+                isinstance(value, str)
+                and self._is_number(value)
+                and low not in ("nan", "inf", "+inf", "-inf")
+            ):
+                try:
+                    if "." in value or "e" in low:
+                        config[key] = float(value)
+                    else:
+                        config[key] = int(value)
+                except ValueError:
+                    # Leave as string if conversion fails
+                    config[key] = value
+                continue
+
+            # Default: string
+            config[key] = value
 
         return config
 

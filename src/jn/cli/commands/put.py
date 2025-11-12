@@ -7,9 +7,13 @@ import sys
 
 import click
 
-from ...addressing import AddressResolutionError, AddressResolver, parse_address
+from ...addressing import (
+    AddressResolutionError,
+    AddressResolver,
+    parse_address,
+)
 from ...context import pass_context
-from ..helpers import check_uv_available
+from ..helpers import check_uv_available, build_subprocess_env_for_coverage
 
 
 @click.command()
@@ -37,6 +41,11 @@ def put(ctx, output_file):
 
         # CSV with parameters
         jn cat data.json | jn put "output.csv?delimiter=;&header=false"
+
+    Note:
+        When passing addresses that start with '-', use '--' to stop
+        option parsing before the argument, e.g.:
+          jn put -- "-~json?indent=2"
     """
     try:
         check_uv_available()
@@ -49,7 +58,14 @@ def put(ctx, output_file):
         resolved = resolver.resolve(addr, mode="write")
 
         # Build command
-        cmd = ["uv", "run", "--script", resolved.plugin_path, "--mode", "write"]
+        cmd = [
+            "uv",
+            "run",
+            "--script",
+            resolved.plugin_path,
+            "--mode",
+            "write",
+        ]
 
         # Add configuration parameters
         for key, value in resolved.config.items():
@@ -61,7 +77,7 @@ def put(ctx, output_file):
             stdin_source = sys.stdin
             input_data = None
             text_mode = True
-        except (AttributeError, OSError, io.UnsupportedOperation):
+        except (AttributeError, OSError, ValueError, io.UnsupportedOperation):
             # Not a real file handle (e.g., Click test runner)
             input_data = sys.stdin.read()
             stdin_source = subprocess.PIPE
@@ -80,6 +96,7 @@ def put(ctx, output_file):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=text_mode,
+                env=build_subprocess_env_for_coverage(),
             )
 
             if input_data is not None:
@@ -88,18 +105,41 @@ def put(ctx, output_file):
 
             proc.wait()
         elif addr.type == "stdio":
-            # Write to stdout
+            # Write to stdout (binary-safe for writers like xlsx_)
+            try:
+                sys.stdout.fileno()  # type: ignore[attr-defined]
+                stdout_target = sys.stdout.buffer  # binary stream
+                capture_output = False
+            except (AttributeError, OSError, ValueError):
+                stdout_target = subprocess.PIPE
+                capture_output = True
+
             proc = subprocess.Popen(
                 cmd,
-                stdin=stdin_source,
-                stdout=sys.stdout,
+                stdin=(
+                    subprocess.PIPE if input_data is not None else stdin_source
+                ),
+                stdout=stdout_target,
                 stderr=subprocess.PIPE,
-                text=text_mode,
+                text=False,  # binary mode for stdout
+                env=build_subprocess_env_for_coverage(),
             )
 
             if input_data is not None:
-                proc.stdin.write(input_data)
-                proc.stdin.close()
+                if isinstance(input_data, str):
+                    proc.stdin.write(input_data.encode("utf-8"))  # type: ignore[union-attr]
+                else:
+                    proc.stdin.write(input_data)  # type: ignore[union-attr]
+                proc.stdin.close()  # type: ignore[union-attr]
+
+            if capture_output:
+                assert proc.stdout is not None
+                while True:
+                    chunk = proc.stdout.read(8192)
+                    if not chunk:
+                        break
+                    sys.stdout.buffer.write(chunk)  # type: ignore[attr-defined]
+                    sys.stdout.buffer.flush()  # type: ignore[attr-defined]
 
             proc.wait()
         else:
@@ -111,6 +151,7 @@ def put(ctx, output_file):
                     stdout=outfile,
                     stderr=subprocess.PIPE,
                     text=text_mode,
+                    env=build_subprocess_env_for_coverage(),
                 )
 
                 if input_data is not None:

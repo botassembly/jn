@@ -3,7 +3,6 @@ branch = True
 parallel = True
 source =
     src/jn
-    jn_home
 
 [report]
 show_missing = True

@@ -4,10 +4,10 @@ import ast
 from pathlib import Path
 from typing import List, Optional
 
-from .violation import CheckResult, Violation, Severity
+from .rules.forbidden import ForbiddenPatternsChecker
 from .rules.structure import StructureChecker
 from .rules.subprocess_rules import SubprocessChecker
-from .rules.forbidden import ForbiddenPatternsChecker
+from .violation import CheckResult, Severity, Violation
 from .whitelist import Whitelist
 
 
@@ -23,13 +23,17 @@ def is_plugin_file(file_path: Path) -> bool:
     path_str = str(file_path)
     # Plugins are in jn_home/plugins/ or custom plugin directories
     # Framework code is in src/jn/
-    return (
-        "jn_home/plugins/" in path_str or
+    return "jn_home/plugins/" in path_str or (
         "/plugins/" in path_str and "src/jn/" not in path_str
     )
 
 
-def check_file(file_path: Path, rules: List[str] = None, is_plugin: bool = None, whitelist: Optional[Whitelist] = None) -> CheckResult:
+def check_file(
+    file_path: Path,
+    rules: List[str] = None,
+    is_plugin: bool = None,
+    whitelist: Optional[Whitelist] = None,
+) -> CheckResult:
     """Check a single file with all enabled rules.
 
     Args:
@@ -65,10 +69,10 @@ def check_file(file_path: Path, rules: List[str] = None, is_plugin: bool = None,
                     severity=Severity.ERROR,
                     message=f"Failed to read file: {e}",
                     file_path=str(file_path),
-                    line=1
+                    line=1,
                 )
             ],
-            checked_rules=[]
+            checked_rules=[],
         )
 
     # Parse inline ignores
@@ -86,10 +90,10 @@ def check_file(file_path: Path, rules: List[str] = None, is_plugin: bool = None,
                     severity=Severity.ERROR,
                     message=f"Syntax error: {e.msg}",
                     file_path=str(file_path),
-                    line=e.lineno or 1
+                    line=e.lineno or 1,
                 )
             ],
-            checked_rules=[]
+            checked_rules=[],
         )
 
     # Run checkers
@@ -109,18 +113,24 @@ def check_file(file_path: Path, rules: List[str] = None, is_plugin: bool = None,
 
     # Filter out whitelisted violations
     filtered_violations = [
-        v for v in all_violations
+        v
+        for v in all_violations
         if not whitelist.is_whitelisted(str(file_path), v.rule, v.line)
     ]
 
     return CheckResult(
         file_path=str(file_path),
         violations=filtered_violations,
-        checked_rules=rules
+        checked_rules=rules,
     )
 
 
-def check_files(file_paths: List[Path], rules: List[str] = None, is_plugin: bool = None, whitelist: Optional[Whitelist] = None) -> List[CheckResult]:
+def check_files(
+    file_paths: List[Path],
+    rules: List[str] = None,
+    is_plugin: bool = None,
+    whitelist: Optional[Whitelist] = None,
+) -> List[CheckResult]:
     """Check multiple files.
 
     Args:
@@ -138,6 +148,8 @@ def check_files(file_paths: List[Path], rules: List[str] = None, is_plugin: bool
 
     results = []
     for file_path in file_paths:
-        result = check_file(file_path, rules=rules, is_plugin=is_plugin, whitelist=whitelist)
+        result = check_file(
+            file_path, rules=rules, is_plugin=is_plugin, whitelist=whitelist
+        )
         results.append(result)
     return results
