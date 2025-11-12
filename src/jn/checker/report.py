@@ -39,9 +39,15 @@ def format_text(results: List[CheckResult], verbose: bool = False) -> str:
             passed_count += 1
         else:
             # Group violations by severity
-            errors = [v for v in result.violations if v.severity == Severity.ERROR]
-            warnings = [v for v in result.violations if v.severity == Severity.WARNING]
-            infos = [v for v in result.violations if v.severity == Severity.INFO]
+            errors = [
+                v for v in result.violations if v.severity == Severity.ERROR
+            ]
+            warnings = [
+                v for v in result.violations if v.severity == Severity.WARNING
+            ]
+            infos = [
+                v for v in result.violations if v.severity == Severity.INFO
+            ]
 
             total_errors += len(errors)
             total_warnings += len(warnings)
@@ -91,7 +97,9 @@ def format_text(results: List[CheckResult], verbose: bool = False) -> str:
     if failed_count:
         lines.append(f"  ❌ {failed_count} failed")
     lines.append("")
-    lines.append(f"Issues found: {total_errors} errors, {total_warnings} warnings")
+    lines.append(
+        f"Issues found: {total_errors} errors, {total_warnings} warnings"
+    )
     if verbose and total_infos:
         lines.append(f"             {total_infos} info")
     lines.append("")
@@ -126,9 +134,9 @@ def format_json(results: List[CheckResult]) -> str:
             "failed": failed_count,
             "errors": total_errors,
             "warnings": total_warnings,
-            "infos": total_infos
+            "infos": total_infos,
         },
-        "results": []
+        "results": [],
     }
 
     for result in results:
@@ -143,10 +151,10 @@ def format_json(results: List[CheckResult]) -> str:
                     "line": v.line,
                     "column": v.column,
                     "fix": v.fix,
-                    "reference": v.reference
+                    "reference": v.reference,
                 }
                 for v in result.violations
-            ]
+            ],
         }
         output["results"].append(file_result)
 

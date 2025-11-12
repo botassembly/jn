@@ -1,6 +1,7 @@
 """Subprocess and backpressure violation checks."""
 
 import ast
+
 from ..ast_checker import BaseChecker
 from ..violation import Severity
 
@@ -24,7 +25,7 @@ class SubprocessChecker(BaseChecker):
                     message="Using 'threading' module (use subprocess.Popen for parallelism)",
                     line=node.lineno,
                     fix="Use subprocess.Popen with pipes for true parallelism",
-                    reference="spec/arch/backpressure.md:395-448"
+                    reference="spec/arch/backpressure.md:395-448",
                 )
 
         self.generic_visit(node)
@@ -36,7 +37,10 @@ class SubprocessChecker(BaseChecker):
         if self._is_subprocess_run(node):
             for kw in node.keywords:
                 if kw.arg == "capture_output":
-                    if isinstance(kw.value, ast.Constant) and kw.value.value is True:
+                    if (
+                        isinstance(kw.value, ast.Constant)
+                        and kw.value.value is True
+                    ):
                         self.add_violation(
                             rule="subprocess_capture_output",
                             severity=Severity.ERROR,
@@ -44,7 +48,7 @@ class SubprocessChecker(BaseChecker):
                             line=node.lineno,
                             column=node.col_offset,
                             fix="Use subprocess.Popen with stdout=PIPE for streaming",
-                            reference="spec/arch/backpressure.md:18-29"
+                            reference="spec/arch/backpressure.md:18-29",
                         )
 
         # Check 2: process.stdout.read() without size argument (reads all)
@@ -56,7 +60,7 @@ class SubprocessChecker(BaseChecker):
                 line=node.lineno,
                 column=node.col_offset,
                 fix="Stream line-by-line: for line in process.stdout",
-                reference="spec/arch/backpressure.md:357-373"
+                reference="spec/arch/backpressure.md:357-373",
             )
 
         # Check 2b: sys.stdin.buffer.read() without size argument (buffers entire input)
@@ -68,15 +72,15 @@ class SubprocessChecker(BaseChecker):
                 line=node.lineno,
                 column=node.col_offset,
                 fix="Stream line-by-line: for line in sys.stdin (or whitelist if format requires buffering)",
-                reference="spec/arch/backpressure.md"
+                reference="spec/arch/backpressure.md",
             )
 
         # Check 3: print without flush=True in NDJSON context
         if self._is_print_json_dumps(node):
             has_flush = any(
-                kw.arg == "flush" and
-                isinstance(kw.value, ast.Constant) and
-                kw.value.value is True
+                kw.arg == "flush"
+                and isinstance(kw.value, ast.Constant)
+                and kw.value.value is True
                 for kw in node.keywords
             )
             if not has_flush:
@@ -87,7 +91,7 @@ class SubprocessChecker(BaseChecker):
                     line=node.lineno,
                     column=node.col_offset,
                     fix="Add flush=True: print(json.dumps(record), flush=True)",
-                    reference="spec/design/plugin-specification.md"
+                    reference="spec/design/plugin-specification.md",
                 )
 
         # Check 4: Track Popen calls
@@ -123,14 +127,16 @@ class SubprocessChecker(BaseChecker):
                 message="Creating Thread objects (doesn't provide parallelism or backpressure)",
                 line=node.lineno,
                 fix="Use subprocess.Popen with pipes instead",
-                reference="spec/arch/backpressure.md:395-448"
+                reference="spec/arch/backpressure.md:395-448",
             )
 
         self.generic_visit(node)
 
     def visit_Assign(self, node: ast.Assign) -> None:
         """Track subprocess.Popen assignments."""
-        if isinstance(node.value, ast.Call) and self._is_subprocess_popen(node.value):
+        if isinstance(node.value, ast.Call) and self._is_subprocess_popen(
+            node.value
+        ):
             # Track this Popen variable
             for target in node.targets:
                 if isinstance(target, ast.Name):
@@ -155,7 +161,7 @@ class SubprocessChecker(BaseChecker):
                     message=f"Popen process '{var_name}' created but never waited (zombie process)",
                     line=info["line"],
                     fix=f"Add {var_name}.wait() before function returns",
-                    reference="spec/arch/backpressure.md:375-392"
+                    reference="spec/arch/backpressure.md:375-392",
                 )
 
             # Check for missing stdout.close() when piping to another process
@@ -167,7 +173,7 @@ class SubprocessChecker(BaseChecker):
                     message=f"Popen '{var_name}' has stdout=PIPE but .close() not found (may break SIGPIPE)",
                     line=info["line"],
                     fix=f"Add {var_name}.stdout.close() after piping to next process",
-                    reference="spec/arch/backpressure.md:107-156"
+                    reference="spec/arch/backpressure.md:107-156",
                 )
 
     def check(self, tree: ast.AST) -> list:
@@ -181,19 +187,19 @@ class SubprocessChecker(BaseChecker):
     def _is_subprocess_run(self, node: ast.Call) -> bool:
         """Check if call is subprocess.run()."""
         return (
-            isinstance(node.func, ast.Attribute) and
-            node.func.attr == "run" and
-            isinstance(node.func.value, ast.Name) and
-            node.func.value.id == "subprocess"
+            isinstance(node.func, ast.Attribute)
+            and node.func.attr == "run"
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "subprocess"
         )
 
     def _is_subprocess_popen(self, node: ast.Call) -> bool:
         """Check if call is subprocess.Popen()."""
         return (
-            isinstance(node.func, ast.Attribute) and
-            node.func.attr == "Popen" and
-            isinstance(node.func.value, ast.Name) and
-            node.func.value.id == "subprocess"
+            isinstance(node.func, ast.Attribute)
+            and node.func.attr == "Popen"
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "subprocess"
         )
 
     def _has_stdout_pipe(self, node: ast.Call) -> bool:
@@ -201,9 +207,11 @@ class SubprocessChecker(BaseChecker):
         for kw in node.keywords:
             if kw.arg == "stdout":
                 if isinstance(kw.value, ast.Attribute):
-                    if (kw.value.attr == "PIPE" and
-                        isinstance(kw.value.value, ast.Name) and
-                        kw.value.value.id == "subprocess"):
+                    if (
+                        kw.value.attr == "PIPE"
+                        and isinstance(kw.value.value, ast.Name)
+                        and kw.value.value.id == "subprocess"
+                    ):
                         return True
         return False
 
@@ -257,35 +265,34 @@ class SubprocessChecker(BaseChecker):
         if isinstance(first_arg, ast.Call):
             if isinstance(first_arg.func, ast.Attribute):
                 return (
-                    first_arg.func.attr == "dumps" and
-                    isinstance(first_arg.func.value, ast.Name) and
-                    first_arg.func.value.id == "json"
+                    first_arg.func.attr == "dumps"
+                    and isinstance(first_arg.func.value, ast.Name)
+                    and first_arg.func.value.id == "json"
                 )
         return False
 
     def _is_stdout_close(self, node: ast.Call) -> bool:
         """Check if call is .stdout.close()."""
         return (
-            isinstance(node.func, ast.Attribute) and
-            node.func.attr == "close" and
-            isinstance(node.func.value, ast.Attribute) and
-            node.func.value.attr == "stdout"
+            isinstance(node.func, ast.Attribute)
+            and node.func.attr == "close"
+            and isinstance(node.func.value, ast.Attribute)
+            and node.func.value.attr == "stdout"
         )
 
     def _is_wait_call(self, node: ast.Call) -> bool:
         """Check if call is process.wait()."""
         return (
-            isinstance(node.func, ast.Attribute) and
-            node.func.attr == "wait"
+            isinstance(node.func, ast.Attribute) and node.func.attr == "wait"
         )
 
     def _is_thread_create(self, node: ast.Call) -> bool:
         """Check if call creates a Thread object."""
         if isinstance(node.func, ast.Attribute):
             return (
-                node.func.attr == "Thread" and
-                isinstance(node.func.value, ast.Name) and
-                node.func.value.id == "threading"
+                node.func.attr == "Thread"
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "threading"
             )
         elif isinstance(node.func, ast.Name):
             return node.func.id == "Thread"

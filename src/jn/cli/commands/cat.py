@@ -14,7 +14,7 @@ from ...addressing import (
     parse_address,
 )
 from ...context import pass_context
-from ..helpers import check_uv_available
+from ..helpers import check_uv_available, build_subprocess_env_for_coverage
 
 
 def _build_command(stage: ExecutionStage) -> list:
@@ -49,7 +49,7 @@ def _execute_single_stage_read(stage: ExecutionStage, addr: Address) -> None:
         infile = None
     else:
         # File - open and pass as stdin
-        infile = open(addr.base, "r")
+        infile = open(addr.base)
         stdin_source = infile
 
     # Execute plugin
@@ -59,6 +59,7 @@ def _execute_single_stage_read(stage: ExecutionStage, addr: Address) -> None:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        env=build_subprocess_env_for_coverage(),
     )
 
     # Stream output
@@ -93,6 +94,7 @@ def _execute_two_stage_read(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=False,  # Binary mode for raw bytes
+        env=build_subprocess_env_for_coverage(),
     )
 
     # Start format plugin (parses bytes to NDJSON)
@@ -103,6 +105,7 @@ def _execute_two_stage_read(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=False,  # Binary mode for stdin (receives raw bytes)
+        env=build_subprocess_env_for_coverage(),
     )
 
     # Close protocol stdout in parent (critical for SIGPIPE)
@@ -153,6 +156,11 @@ def cat(ctx, input_file):
         # Protocol URLs
         jn cat "http://example.com/data.json"
         jn cat "s3://bucket/data.csv"
+
+    Note:
+        When passing addresses that start with '-', use '--' to stop
+        option parsing before the argument, e.g.:
+          jn cat -- "-~csv"
     """
     try:
         check_uv_available()
@@ -167,9 +175,13 @@ def cat(ctx, input_file):
         if len(stages) == 2:
             # Two-stage pipeline: protocol (raw) → format (read)
             _execute_two_stage_read(stages[0], stages[1])
-        else:
+        elif len(stages) == 1:
             # Single-stage execution
             _execute_single_stage_read(stages[0], addr)
+        else:
+            # Pass-through NDJSON from stdin when no plugin stage is needed
+            for line in sys.stdin:
+                sys.stdout.write(line)
 
     except ValueError as e:
         click.echo(f"Error: Invalid address syntax: {e}", err=True)

@@ -7,14 +7,20 @@ def test_plugin_call_xlsx_write(invoke):
     ndjson = '{"name":"Alice","age":30}\n{"name":"Bob","age":25}\n'
 
     # Call via jn plugin call command (tests binary output handling in service.py)
-    result = invoke(["plugin", "call", "xlsx_", "--mode", "write"], input_data=ndjson)
+    result = invoke(
+        ["plugin", "call", "xlsx_", "--mode", "write"], input_data=ndjson
+    )
 
     assert result.exit_code == 0, f"Failed: {result.output}"
 
     # Verify output is valid XLSX
     import openpyxl
 
-    xlsx_bytes = result.stdout_bytes if hasattr(result, 'stdout_bytes') else result.output.encode('latin-1')
+    xlsx_bytes = (
+        result.stdout_bytes
+        if hasattr(result, "stdout_bytes")
+        else result.output.encode("latin-1")
+    )
     workbook = openpyxl.load_workbook(io.BytesIO(xlsx_bytes))
     sheet = workbook.active
 

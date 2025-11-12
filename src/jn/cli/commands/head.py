@@ -1,16 +1,19 @@
 """Head command - output first N records."""
 
 import json
-
 import subprocess
 import sys
 
 import click
 
-from ...addressing import AddressResolutionError, AddressResolver, parse_address
+from ...addressing import (
+    AddressResolutionError,
+    AddressResolver,
+    parse_address,
+)
 from ...context import pass_context
-from ..helpers import check_uv_available
 from ...core.streaming import head as stream_head
+from ..helpers import check_uv_available
 
 
 @click.command()
@@ -38,12 +41,20 @@ def head(ctx, source, n):
         jn head data.csv -n 5             # Auto-detect format
         jn head data.txt~csv -n 10        # Force CSV format
         jn head "data.csv~csv?delimiter=;" -n 5  # With parameters
+
+    Note:
+        When passing addresses that start with '-', use '--' to stop
+        option parsing before the argument.
     """
     try:
         # Support "jn head N" by treating a numeric first arg as line count
         if source and source.isdigit():
             n = int(source)
             source = None
+
+        if n < 0:
+            click.echo("Error: --lines must be >= 0", err=True)
+            sys.exit(1)
 
         if source:
             check_uv_available()
@@ -83,7 +94,7 @@ def head(ctx, source, n):
                 infile = None
             else:
                 # File
-                infile = open(addr.base, "r")
+                infile = open(addr.base)
                 stdin_source = infile
 
             # Execute plugin

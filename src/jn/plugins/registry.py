@@ -20,7 +20,9 @@ class PatternRegistry:
             except re.error:
                 continue
             specificity = len(pattern_str)
-            self.patterns.append((regex, plugin.name, specificity, plugin.role))
+            self.patterns.append(
+                (regex, plugin.name, specificity, plugin.role)
+            )
         self.patterns.sort(key=lambda x: x[2], reverse=True)
 
     def match(self, source: str) -> Optional[str]:
@@ -37,7 +39,9 @@ class PatternRegistry:
                 return plugin_name
         return None
 
-    def plan_for_read(self, source: str, plugins: Dict[str, PluginMetadata]) -> List[str]:
+    def plan_for_read(
+        self, source: str, plugins: Dict[str, PluginMetadata]
+    ) -> List[str]:
         """Return an ordered list of plugin names to read a source.
 
         Strategy:

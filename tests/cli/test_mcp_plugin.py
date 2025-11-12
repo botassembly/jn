@@ -1,4 +1,5 @@
 """Tests for MCP protocol plugin."""
+
 import json
 import subprocess
 from pathlib import Path
@@ -9,7 +10,13 @@ import pytest
 @pytest.fixture
 def mcp_plugin():
     """Path to MCP plugin."""
-    return Path(__file__).parent.parent.parent / "jn_home" / "plugins" / "protocols" / "mcp_.py"
+    return (
+        Path(__file__).parent.parent.parent
+        / "jn_home"
+        / "plugins"
+        / "protocols"
+        / "mcp_.py"
+    )
 
 
 def test_mcp_plugin_syntax(mcp_plugin):
@@ -17,7 +24,7 @@ def test_mcp_plugin_syntax(mcp_plugin):
     result = subprocess.run(
         ["python", "-m", "py_compile", str(mcp_plugin)],
         capture_output=True,
-        text=True
+        text=True,
     )
     assert result.returncode == 0, f"Syntax error: {result.stderr}"
 
@@ -27,7 +34,7 @@ def test_mcp_plugin_help(mcp_plugin):
     result = subprocess.run(
         ["uv", "run", "--script", str(mcp_plugin), "--help"],
         capture_output=True,
-        text=True
+        text=True,
     )
     assert result.returncode == 0
     assert "--mode" in result.stdout
@@ -40,7 +47,7 @@ def test_mcp_plugin_requires_mode(mcp_plugin):
     result = subprocess.run(
         ["uv", "run", "--script", str(mcp_plugin), "@biomcp"],
         capture_output=True,
-        text=True
+        text=True,
     )
     assert result.returncode != 0
 
@@ -48,10 +55,18 @@ def test_mcp_plugin_requires_mode(mcp_plugin):
 def test_mcp_plugin_profile_not_found(mcp_plugin):
     """Test error when profile doesn't exist."""
     result = subprocess.run(
-        ["uv", "run", "--script", str(mcp_plugin), "--mode", "read", "@nonexistent"],
+        [
+            "uv",
+            "run",
+            "--script",
+            str(mcp_plugin),
+            "--mode",
+            "read",
+            "@nonexistent",
+        ],
         capture_output=True,
         text=True,
-        timeout=10
+        timeout=10,
     )
 
     assert result.returncode == 0  # Errors are returned as NDJSON
@@ -94,9 +109,17 @@ def test_mcp_plugin_has_clean_interface(mcp_plugin):
 # These test the full pipeline: CLI → plugin → profile system
 # Note: MCP profiles are in tests/jn_home (not bundled), set via conftest.py
 
+
 def test_mcp_profile_biomcp_exists():
     """Test that BioMCP profile exists in test jn_home."""
-    biomcp_meta = Path(__file__).parent.parent / "jn_home" / "profiles" / "mcp" / "biomcp" / "_meta.json"
+    biomcp_meta = (
+        Path(__file__).parent.parent
+        / "jn_home"
+        / "profiles"
+        / "mcp"
+        / "biomcp"
+        / "_meta.json"
+    )
     assert biomcp_meta.exists(), f"BioMCP profile not found at {biomcp_meta}"
 
     meta = json.loads(biomcp_meta.read_text())
@@ -106,8 +129,17 @@ def test_mcp_profile_biomcp_exists():
 
 def test_mcp_profile_context7_exists():
     """Test that Context7 profile exists in test jn_home."""
-    context7_meta = Path(__file__).parent.parent / "jn_home" / "profiles" / "mcp" / "context7" / "_meta.json"
-    assert context7_meta.exists(), f"Context7 profile not found at {context7_meta}"
+    context7_meta = (
+        Path(__file__).parent.parent
+        / "jn_home"
+        / "profiles"
+        / "mcp"
+        / "context7"
+        / "_meta.json"
+    )
+    assert (
+        context7_meta.exists()
+    ), f"Context7 profile not found at {context7_meta}"
 
     meta = json.loads(context7_meta.read_text())
     assert meta["command"] == "npx"
