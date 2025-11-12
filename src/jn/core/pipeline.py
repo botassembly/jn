@@ -14,6 +14,7 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Dict, Optional, TextIO, Tuple
+from urllib.parse import urlparse
 
 from ..plugins.discovery import (
     PluginMetadata,
@@ -178,28 +179,58 @@ def start_reader(
         except HTTPProfileError as e:
             raise PipelineError(f"Profile error: {e}")
 
-    # Load plugins and find reader
+    # Load plugins and registry
     plugins, registry = _load_plugins_and_registry(plugin_dir, cache_path)
 
-    plugin_name = registry.match(source)
-    if not plugin_name:
+    # Build a read plan from registry (generic, role-driven)
+    plan = registry.plan_for_read(source, plugins)
+    if not plan:
         raise PipelineError(f"No plugin found for {source}")
 
-    plugin = plugins[plugin_name]
+    # Two-stage plan: protocol (raw) -> format
+    if len(plan) == 2:
+        proto_name, fmt_name = plan
+        proto = plugins[proto_name]
+        fmt_plugin = plugins[fmt_name]
 
-    # Check if source is a URL (HTTP protocol plugin)
+        proto_cmd = ["uv", "run", "--script", proto.path, "--mode", "raw"]
+        if headers_json:
+            proto_cmd.extend(["--headers", headers_json])
+        proto_cmd.append(source)
+
+        proto_proc = subprocess.Popen(
+            proto_cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        fmt_cmd = ["uv", "run", "--script", fmt_plugin.path, "--mode", "read"]
+        fmt_proc = subprocess.Popen(
+            fmt_cmd,
+            stdin=proto_proc.stdout,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+        if proto_proc.stdout:
+            proto_proc.stdout.close()
+
+        fmt_proc._jn_prev_proc = proto_proc  # type: ignore[attr-defined]
+        fmt_proc._jn_infile = None  # type: ignore[attr-defined]
+        return fmt_proc
+
+    # Single-stage plan
+    single_name = plan[0]
+    plugin = plugins[single_name]
+
     is_url = source.startswith(("http://", "https://"))
-
     if is_url:
-        # For URLs, pass as command-line argument to HTTP plugin
         cmd = ["uv", "run", "--script", plugin.path, "--mode", "read"]
-
-        # Add headers from profile if available
         if headers_json:
             cmd.extend(["--headers", headers_json])
-
         cmd.append(source)
-
         proc = subprocess.Popen(
             cmd,
             stdin=subprocess.DEVNULL,
@@ -207,8 +238,7 @@ def start_reader(
             stderr=subprocess.PIPE,
             text=True,
         )
-        # No file to attach
-        proc._jn_infile = None
+        proc._jn_infile = None  # type: ignore[attr-defined]
     else:
         # For files, open and pass as stdin
         infile = open(source)
@@ -220,7 +250,7 @@ def start_reader(
             text=True,
         )
         # Attach infile to proc so it gets closed when caller is done
-        proc._jn_infile = infile
+        proc._jn_infile = infile  # type: ignore[attr-defined]
 
     return proc
 
@@ -253,11 +283,29 @@ def read_source(
     proc.wait()
 
     # Close input file if it exists (URLs don't have one)
-    if proc._jn_infile is not None:
-        proc._jn_infile.close()
+    if getattr(proc, "_jn_infile", None) is not None:
+        proc._jn_infile.close()  # type: ignore[union-attr]
+
+    # If there was a previous stage (e.g., HTTP raw), wait and check
+    prev = getattr(proc, "_jn_prev_proc", None)
+    if prev is not None:
+        prev.wait()
+        if prev.returncode != 0:
+            prev_err = prev.stderr.read()
+            if isinstance(prev_err, bytes):
+                try:
+                    prev_err = prev_err.decode()
+                except Exception:
+                    pass
+            raise PipelineError(f"Reader error: {prev_err}")
 
     if proc.returncode != 0:
         error_msg = proc.stderr.read()
+        if isinstance(error_msg, bytes):
+            try:
+                error_msg = error_msg.decode()
+            except Exception:
+                pass
         raise PipelineError(f"Reader error: {error_msg}")
 
 
@@ -419,32 +467,75 @@ def convert(
     # Check if source is a URL
     is_url = source.startswith(("http://", "https://"))
 
-    # Execute two-stage pipeline
+    # Execute pipeline (possibly 3-stage chain for URL → format → writer)
     with open(dest, "w") as outfile:
         if is_url:
-            # For URLs, pass as command-line argument
-            cmd = [
-                "uv",
-                "run",
-                "--script",
-                reader_plugin.path,
-                "--mode",
-                "read",
-            ]
+            # Build a generic read plan from registry
+            plan = registry.plan_for_read(source, plugins)
+            if not plan:
+                raise PipelineError(f"No plugin found for {source}")
 
-            # Add headers from profile if available
-            if headers_json:
-                cmd.extend(["--headers", headers_json])
+            if len(plan) == 2:
+                proto_name, fmt_name = plan
+                proto_plugin = plugins[proto_name]
+                fmt_plugin = plugins[fmt_name]
 
-            cmd.append(source)
+                proto_cmd = [
+                    "uv",
+                    "run",
+                    "--script",
+                    proto_plugin.path,
+                    "--mode",
+                    "raw",
+                ]
+                if headers_json:
+                    proto_cmd.extend(["--headers", headers_json])
+                proto_cmd.append(source)
 
-            reader = subprocess.Popen(
-                cmd,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
+                http_proc = subprocess.Popen(
+                    proto_cmd,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+
+                fmt_cmd = [
+                    "uv",
+                    "run",
+                    "--script",
+                    fmt_plugin.path,
+                    "--mode",
+                    "read",
+                ]
+                reader = subprocess.Popen(
+                    fmt_cmd,
+                    stdin=http_proc.stdout,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+                if http_proc.stdout:
+                    http_proc.stdout.close()
+            else:
+                # Single-stage reader
+                cmd = [
+                    "uv",
+                    "run",
+                    "--script",
+                    reader_plugin.path,
+                    "--mode",
+                    "read",
+                ]
+                if headers_json:
+                    cmd.extend(["--headers", headers_json])
+                cmd.append(source)
+                reader = subprocess.Popen(
+                    cmd,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
         else:
             # For files, open and pass as stdin
             infile = open(source)
@@ -477,17 +568,39 @@ def convert(
         writer.wait()
         reader.wait()
 
+        # For chained case, ensure HTTP raw proc also completes successfully
+        if is_url and 'http_proc' in locals():
+            http_proc.wait()
+            if http_proc.returncode != 0:
+                error_msg = http_proc.stderr.read()
+                if isinstance(error_msg, bytes):
+                    try:
+                        error_msg = error_msg.decode()
+                    except Exception:
+                        pass
+                raise PipelineError(f"Reader error: {error_msg}")
+
         # Close input file if it exists (URLs don't have one)
         if not is_url:
             infile.close()
 
         # Check for errors
         if writer.returncode != 0:
-            error_msg = writer.stderr.read().decode()
+            error_msg = writer.stderr.read()
+            if isinstance(error_msg, bytes):
+                try:
+                    error_msg = error_msg.decode()
+                except Exception:
+                    pass
             raise PipelineError(f"Writer error: {error_msg}")
 
         if reader.returncode != 0:
-            error_msg = reader.stderr.read().decode()
+            error_msg = reader.stderr.read()
+            if isinstance(error_msg, bytes):
+                try:
+                    error_msg = error_msg.decode()
+                except Exception:
+                    pass
             raise PipelineError(f"Reader error: {error_msg}")
 
 

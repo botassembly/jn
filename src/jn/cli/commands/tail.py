@@ -40,10 +40,33 @@ def tail(ctx, source, n):
             proc = start_reader(source, ctx.plugin_dir, ctx.cache_path)
             stream_tail(proc.stdout, n, sys.stdout)
             proc.wait()
-            proc._jn_infile.close()
+
+            # Close file handle if present
+            infile = getattr(proc, "_jn_infile", None)
+            if infile is not None:
+                infile.close()
+
+            # If there was a previous stage (e.g., protocol raw), check it
+            prev = getattr(proc, "_jn_prev_proc", None)
+            if prev is not None:
+                prev.wait()
+                if prev.returncode != 0:
+                    perr = prev.stderr.read()
+                    if isinstance(perr, bytes):
+                        try:
+                            perr = perr.decode()
+                        except Exception:
+                            pass
+                    click.echo(f"Error: {perr}", err=True)
+                    sys.exit(1)
 
             if proc.returncode != 0:
                 error_msg = proc.stderr.read()
+                if isinstance(error_msg, bytes):
+                    try:
+                        error_msg = error_msg.decode()
+                    except Exception:
+                        pass
                 click.echo(f"Error: {error_msg}", err=True)
                 sys.exit(1)
         else:
