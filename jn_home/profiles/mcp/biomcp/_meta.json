@@ -1,0 +1,12 @@
+{
+  "command": "uv",
+  "args": [
+    "run",
+    "--with",
+    "biomcp-python",
+    "biomcp",
+    "run"
+  ],
+  "description": "BioMCP: Biomedical Model Context Protocol for clinical trials, literature, and genomic variants",
+  "transport": "stdio"
+}

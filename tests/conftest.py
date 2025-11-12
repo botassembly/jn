@@ -22,10 +22,18 @@ def invoke(cli_runner):
     Usage:
         result = invoke(["cat", "file.csv"])  # returns click.Result
         result = invoke(["run", "in.csv", "out.json"])  # exit_code, output, etc.
+        result = invoke(["plugin", "call", "xlsx_", "--mode", "read"], input_data=bytes)
+
+    Click's CliRunner automatically handles both text and binary input.
+    Binary output can be accessed via result.output_bytes or result.stdout_bytes.
     """
 
     def _invoke(args, input_data=None):
-        return cli_runner.invoke(cli, args, input=input_data)
+        result = cli_runner.invoke(cli, args, input=input_data)
+        # Ensure output_bytes is available for binary output access
+        if not hasattr(result, 'output_bytes') and hasattr(result, 'stdout_bytes'):
+            result.output_bytes = result.stdout_bytes
+        return result
 
     return _invoke
 

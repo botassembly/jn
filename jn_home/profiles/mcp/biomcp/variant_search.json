@@ -1,0 +1,19 @@
+{
+  "tool": "variant_search",
+  "description": "Search genomic variants",
+  "parameters": {
+    "gene": {
+      "type": "string",
+      "description": "Gene symbol",
+      "required": true
+    },
+    "significance": {
+      "type": "string",
+      "description": "Clinical significance (pathogenic, benign, etc.)"
+    },
+    "variant_type": {
+      "type": "string",
+      "description": "Type of variant (SNV, CNV, etc.)"
+    }
+  }
+}

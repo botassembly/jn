@@ -157,32 +157,38 @@ def call_plugin(plugin_path: str, args: List[str]) -> int:
     # use PIPE and feed the input content explicitly.
     try:
         sys.stdin.fileno()  # type: ignore[attr-defined]
-        stdin_source = sys.stdin
+        stdin_source = sys.stdin.buffer  # Always use binary mode for stdin
         input_data = None
-        text_mode = False
     except (AttributeError, OSError, io.UnsupportedOperation):
-        # Not a real file handle (e.g., Click test runner StringIO)
+        # Not a real file handle (e.g., Click test runner StringIO/BytesIO)
         stdin_source = subprocess.PIPE
         input_data = sys.stdin.read()
-        text_mode = True if isinstance(input_data, str) else False
 
-    # Call plugin using UV to ensure dependencies are installed
-    # This respects the PEP 723 dependencies in the plugin's script block
+    # Always use binary mode for the subprocess
+    # This allows plugins to output either text (NDJSON) or binary (XLSX, PDF, etc.)
     proc = subprocess.Popen(
         ["uv", "run", "--script", plugin_path, *args],
         stdin=stdin_source,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        text=True,
+        text=False,  # Binary mode for both stdin and stdout
     )
     if input_data is not None:
-        proc.stdin.write(input_data)  # type: ignore[union-attr]
+        # Encode input data if it's a string
+        if isinstance(input_data, str):
+            proc.stdin.write(input_data.encode('utf-8'))  # type: ignore[union-attr]
+        else:
+            proc.stdin.write(input_data)  # type: ignore[union-attr]
         proc.stdin.close()  # type: ignore[union-attr]
 
-    # Pipe plugin stdout to our stdout so Click runner captures it
+    # Pipe plugin stdout to our stdout
+    # Output may be text (NDJSON from read mode) or binary (XLSX from write mode)
     assert proc.stdout is not None
-    for line in proc.stdout:
-        sys.stdout.write(line)
+    while True:
+        chunk = proc.stdout.read(8192)
+        if not chunk:
+            break
+        sys.stdout.buffer.write(chunk)  # type: ignore[attr-defined]
 
     proc.wait()
     return proc.returncode

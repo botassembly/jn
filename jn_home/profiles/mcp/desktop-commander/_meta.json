@@ -1,0 +1,9 @@
+{
+  "command": "npx",
+  "args": [
+    "-y",
+    "@wonderwhy-er/desktop-commander"
+  ],
+  "description": "Desktop Commander: File system and terminal control for local development",
+  "transport": "stdio"
+}

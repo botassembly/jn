@@ -1,0 +1,9 @@
+{
+  "command": "npx",
+  "args": [
+    "-y",
+    "@upstash/context7-mcp@latest"
+  ],
+  "description": "Context7: Up-to-date code documentation and examples from official sources",
+  "transport": "stdio"
+}

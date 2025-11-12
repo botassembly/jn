@@ -1,0 +1,21 @@
+{
+  "type": "source",
+  "description": "Starred messages",
+  "defaults": {
+    "is": "starred"
+  },
+  "params": [
+    "from",
+    "to",
+    "subject",
+    "has",
+    "after",
+    "before"
+  ],
+  "examples": [
+    {
+      "description": "All starred messages",
+      "command": "jn cat @gmail/starred"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "tool": "search",
+  "description": "Search biomedical resources (trials, articles, variants)",
+  "parameters": {
+    "gene": {
+      "type": "string",
+      "description": "Gene symbol (e.g., BRAF, TP53)"
+    },
+    "disease": {
+      "type": "string",
+      "description": "Disease or condition name"
+    },
+    "variant": {
+      "type": "string",
+      "description": "Specific variant notation"
+    }
+  }
+}
