@@ -1,5 +1,6 @@
 {
   "path": "/alterations",
   "method": "GET",
-  "type": "source"
+  "type": "source",
+  "params": ["gene", "mutation_type", "biomarker", "page", "limit"]
 }
