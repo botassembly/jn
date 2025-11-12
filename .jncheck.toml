@@ -38,14 +38,14 @@ reason = "Plugin service errors are fatal for standalone plugin execution"
 [[whitelist]]
 file = "src/jn/core/pipeline.py"
 rule = "missing_stdout_close"
-lines = [522]
+lines = [645]
 reason = "Stdout consumed directly via 'for line in proc.stdout' (not piped to another process)"
 
 # Plugin service: stdout consumed directly (not piped to another process)
 [[whitelist]]
 file = "src/jn/plugins/service.py"
 rule = "missing_stdout_close"
-lines = [163]
+lines = [161]
 reason = "Stdout consumed directly via 'for line in proc.stdout' (not piped to another process)"
 
 # Future: Add exemptions for other binary formats (PDF, Parquet)
