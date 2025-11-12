@@ -19,23 +19,46 @@ JN uses a **universal addressing system** where everything is addressable: files
 
 ---
 
+## Address Syntax
+
+JN addresses use two operators:
+
+| Operator | Purpose | Example |
+|----------|---------|---------|
+| `~` | **Format override** | `-~csv`, `file.txt~json` |
+| `?` | **Parameters/config** | `?gene=BRAF`, `?delimiter=;` |
+
+**Combined:**
+```bash
+-~csv?delimiter=;              # Override to CSV with semicolon delimiter
+file.txt~table?fmt=grid        # Override to table format with grid style
+```
+
+---
+
 ## Address Types
 
 JN supports five types of addresses:
 
 ### 1. Files
-**Syntax:** `path/to/file.ext`
+**Syntax:** `path/to/file.ext[~format][?config]`
 
 ```bash
-jn cat data.csv                    # Local file
-jn cat /absolute/path/data.json    # Absolute path
-jn cat ./relative/data.yaml        # Relative path
-jn cat "file with spaces.xlsx"     # Quoted for spaces
+# Auto-detected format (from extension)
+jn cat data.csv
+jn cat /absolute/path/data.json
+jn cat ./relative/data.yaml
+
+# Format override
+jn cat data.txt~csv                    # Force CSV parsing
+jn cat data.unknown~json               # Treat as JSON
+
+# Format override + config
+jn cat data.csv~csv?delimiter=tab      # TSV with tab delimiter
+jn put output.txt~json?indent=4        # JSON with indentation
 ```
 
-**Auto-detection:** File extension determines format (`.csv` → CSV plugin, `.json` → JSON plugin)
-
-**Why:** Standard file path syntax, works like every other Unix tool.
+**Why:** Standard file paths, format override when auto-detection isn't right.
 
 ---
 
@@ -121,29 +144,36 @@ HTTP plugin fetches data
 ---
 
 ### 4. Stdin/Stdout
-**Syntax:** `-` (dash) or explicit `stdin`/`stdout`
+**Syntax:** `-[~format][?config]` or `stdin`/`stdout`
 
 ```bash
-# Read from stdin (auto-detect format)
-echo '{"a":1}\n{"b":2}' | jn cat - | jn put output.json
+# Auto-detect format (tries JSON/NDJSON)
+echo '{"a":1}' | jn cat - | jn put output.json
 
-# Read from stdin with explicit format
-cat data.csv | jn cat "-?fmt=csv" | jn put output.json
+# Force format
+cat data.csv | jn cat "-~csv" | jn put output.json
+cat data.tsv | jn cat "-~csv?delimiter=tab"
 
 # Write to stdout
-jn cat data.csv | jn put -
-
-# Write to stdout with formatting
-jn cat data.csv | jn put "-?fmt=table"
+jn cat data.csv | jn put -                     # NDJSON
+jn cat data.csv | jn put "-~table"             # Default table
+jn cat data.csv | jn put "-~table.grid"        # Grid style table
+jn cat data.csv | jn put "-~json?indent=2"     # Pretty JSON
 ```
 
-**Format detection:**
-- `-` alone → Try auto-detect (JSON/NDJSON)
-- `-?fmt=csv` → Force CSV parsing
-- `-?fmt=table` → Format as table
-- `-?fmt=json` → Format as JSON array
+**Special formats:**
+```bash
+# Table output (display-only)
+-~table              # Default table (simple)
+-~table.grid         # Grid borders
+-~table.markdown     # Markdown format
+-~table.html         # HTML table
 
-**Why:** Standard Unix convention (`-` means stdin/stdout). Format hint solves ambiguity.
+# With config
+-~table?fmt=grid&width=20&index=true
+```
+
+**Why:** Standard Unix convention (`-` means stdin/stdout). `~` makes format explicit.
 
 ---
 
@@ -156,9 +186,6 @@ Direct plugin invocation when you want to bypass auto-detection.
 # Force specific plugin
 jn cat data.csv | jn put - --plugin @json
 jn cat data.csv | jn put - --plugin @table
-
-# In filter
-jn cat data.json | jn filter @jq '.[].name'
 ```
 
 **Resolution order:**
@@ -169,13 +196,50 @@ jn cat data.json | jn filter @jq '.[].name'
 
 ---
 
-## Query String Parameters
+## Format Override: The `~` Operator
 
-**Syntax:** `?key=value&key2=value2`
+**Purpose:** Override auto-detected format
 
-All addresses support URL-style query strings for parameters.
+**When to use:**
+- File has wrong/no extension: `data.txt~csv`
+- Stdin with known format: `-~csv`
+- Force output format: `output.txt~json`
+- Try different parser: `data.unknown~yaml`
+
+**Syntax:**
+```
+address~format[?config]
+```
+
+**Examples:**
+```bash
+# Files
+data.txt~csv                   # Parse as CSV
+input.bin~json                 # Parse as JSON
+output.log~table.grid          # Write as table
+
+# Stdin/stdout
+-~csv                          # Parse stdin as CSV
+-~table.markdown               # Format stdout as markdown table
+-~json?indent=4                # Pretty-print JSON
+
+# Combined with parameters
+-~csv?delimiter=;              # CSV with semicolon
+-~table?fmt=grid&width=30      # Grid table, 30 char columns
+```
+
+---
+
+## Configuration: The `?` Operator
+
+**Purpose:** Pass parameters and configuration
+
+**Two uses:**
+1. **Profile parameters** (for `@profile/source`)
+2. **Plugin configuration** (for formats)
 
 ### Profile Parameters
+
 ```bash
 # API query parameters
 jn cat "@genomoncology/alterations?gene=BRAF&mutation_type=Missense&limit=10"
@@ -187,34 +251,57 @@ jn cat "@api/data?tag=urgent&tag=bug&tag=security"
 jn cat "@gmail/inbox?from=boss&has=attachment&newer_than=7d"
 ```
 
-### Format Hints
-```bash
-# Stdin format
-cat data.csv | jn cat "-?fmt=csv"
-
-# Stdout format
-jn cat data.json | jn put "-?fmt=table"
-jn cat data.json | jn put "-?fmt=json"  # JSON array (not NDJSON)
-```
-
 ### Plugin Configuration
+
+**CSV options:**
 ```bash
-# CSV delimiter
-jn cat data.tsv | jn put "output.csv?delimiter=tab"
+# Delimiter
+-~csv?delimiter=;              # Semicolon
+-~csv?delimiter=tab            # Tab-separated
+-~csv?delimiter=|              # Pipe-separated
 
-# JSON indentation
-jn cat data.json | jn put "output.json?indent=4"
-
-# YAML formatting
-jn cat data.json | jn put "output.yaml?default_flow_style=false"
+# Header control
+output.csv?header=false        # No header row
 ```
 
-**Why query strings?**
-- ✅ **Self-contained** - entire address in one string
-- ✅ **Familiar** - URL syntax everyone knows
-- ✅ **Composable** - works seamlessly with multi-file cat
-- ✅ **Agent-friendly** - easily parsed and generated
-- ⚠️ **Requires quoting** - but so do URLs and globs already
+**JSON options:**
+```bash
+# Indentation
+output.json?indent=4           # 4-space indent
+output.json?indent=2           # 2-space indent
+-~json?indent=0                # Compact (no indent)
+```
+
+**Table options:**
+```bash
+# Format/style
+-~table?fmt=grid               # Grid borders
+-~table?fmt=simple             # Simple format
+-~table?fmt=markdown           # Markdown table
+-~table?fmt=html               # HTML table
+
+# Column width
+-~table?width=20               # Max 20 chars per column
+-~table?width=30               # Max 30 chars per column
+
+# Row index
+-~table?index=true             # Show row numbers
+-~table?index=false            # Hide row numbers
+
+# Alignment
+-~table?numalign=right         # Right-align numbers
+-~table?stralign=center        # Center-align strings
+
+# Combined
+-~table?fmt=grid&width=20&index=true&numalign=right
+```
+
+**Shortened names:**
+- `fmt` - table format/style (was `tablefmt`)
+- `width` - column width (was `maxcolwidths`)
+- `index` - show row index (was `showindex`)
+- `numalign` - number alignment (same)
+- `stralign` - string alignment (same)
 
 ---
 
@@ -238,7 +325,7 @@ jn cat \
   "https://api.example.com/orders.json" \
   "@gmail/receipts?has=attachment" \
   | jn filter '@builtin/deduplicate' \
-  | jn put "-?fmt=table"
+  | jn put "-~table.grid"
 ```
 
 **Behavior:**
@@ -248,229 +335,6 @@ jn cat \
 - One output stream
 
 **Why:** Essential for agent workflows. Agents need to combine data from multiple sources naturally.
-
----
-
-## Table Format
-
-Table is a **format plugin** like CSV or JSON, not a special mode.
-
-### As Input (Reading)
-```bash
-# Auto-detect table format
-jn cat table.txt | jn put output.json
-
-# Explicit table format
-jn cat "-?fmt=table" < table.txt | jn put output.json
-```
-
-Tables can be in grid, pipe, HTML, markdown, or other formats. The table plugin detects and parses them.
-
-### As Output (Writing)
-```bash
-# Default table format
-jn cat data.json | jn put "-?fmt=table"
-
-# Specific style (via plugin ownership of sub-formats)
-jn cat data.json | jn put "-?fmt=table.grid"
-jn cat data.json | jn put "-?fmt=table.markdown"
-jn cat data.json | jn put "-?fmt=table.html"
-```
-
-**Plugin format declaration:**
-```python
-# In table_.py metadata
-[tool.jn]
-matches = [
-    ".*\\.table$",
-    "fmt=table",           # Owns ?fmt=table
-    "fmt=table\\..*",      # Owns ?fmt=table.grid, table.markdown, etc.
-]
-```
-
-**Why this design?**
-- Table is just another format (like CSV, JSON, YAML)
-- Plugin declares ownership of sub-formats
-- No special-case code in framework
-- Extensible: any plugin can declare sub-formats
-
-**Alternative syntax (plugin can support both):**
-```bash
-# Via format hierarchy
-jn put "-?fmt=table.grid"
-
-# Via plugin config
-jn put "-?fmt=table&style=grid"
-```
-
-Plugin decides which it supports.
-
----
-
-## User Experience
-
-### For Humans
-
-**Simple cases are simple:**
-```bash
-jn cat data.csv                    # Just works
-jn cat data.csv | jn put output.json  # Obvious conversion
-```
-
-**Complex cases are explicit:**
-```bash
-jn cat "@api/source?gene=BRAF&limit=10"  # Clear what parameters do
-jn cat "-?fmt=csv" | jn put "-?fmt=table.grid"  # Explicit formats
-```
-
-**Quoting is consistent:**
-```bash
-# These all need quotes for same reason (shell metacharacters)
-jn cat "http://example.com/data.csv?key=value"
-jn cat "@api/source?gene=BRAF"
-jn cat "files/*.csv"
-```
-
-### For Agents (AI/Automation)
-
-**Discovery is straightforward:**
-```bash
-# List available profiles
-ls ~/.jn/profiles/http/*/  # All HTTP APIs
-ls ~/.jn/profiles/jq/      # All jq filters
-
-# Inspect profile
-cat ~/.jn/profiles/http/genomoncology/_meta.json
-cat ~/.jn/profiles/http/genomoncology/alterations.json
-```
-
-**Generation is templatable:**
-```python
-# Agent generates query
-api = "genomoncology"
-source = "alterations"
-params = {"gene": "BRAF", "limit": 10}
-
-# Build address
-query_string = "&".join(f"{k}={v}" for k, v in params.items())
-address = f"@{api}/{source}?{query_string}"
-
-# Execute
-run(["jn", "cat", address])
-```
-
-**Composability enables workflows:**
-```python
-# Agent builds multi-source pipeline
-sources = [
-    "sales/2024-01.csv",
-    "sales/2024-02.csv",
-    "@stripe/charges?created_after=2024-01-01",
-    "https://api.example.com/returns.json"
-]
-
-# Natural composition
-run(["jn", "cat"] + sources + ["|", "jn", "put", "combined.json"])
-```
-
----
-
-## Why This Design?
-
-### Self-Contained Addresses
-
-**Before (scattered flags):**
-```bash
-jn cat @api/source -p gene=BRAF -p limit=10 -p status=active
-```
-
-Problems:
-- Parameters scattered across command line
-- Hard to pass as single argument
-- Ambiguous with multiple sources
-- Not URL-like (unfamiliar)
-
-**After (query strings):**
-```bash
-jn cat "@api/source?gene=BRAF&limit=10&status=active"
-```
-
-Benefits:
-- Complete address in one string
-- Familiar URL syntax
-- Easy to pass around
-- Works with multi-source cat
-
-### Profiles Abstract Complexity
-
-**Without profiles:**
-```bash
-jn cat "https://pwb-demo.genomoncology.io/api/alterations?gene=BRAF" \
-  --header "Authorization: Bearer $TOKEN" \
-  --header "Accept: application/json"
-```
-
-**With profiles:**
-```bash
-jn cat "@genomoncology/alterations?gene=BRAF"
-```
-
-The profile handles:
-- Base URL
-- Authentication (token from env var)
-- Headers (Accept, Content-Type)
-- Default parameters
-- Endpoint path structure
-
-### Multi-Source Composition
-
-**Essential for agent workflows:**
-
-```bash
-# Agent task: "Analyze all January sales data"
-jn cat \
-  sales/jan/*.csv \                           # Local CSVs
-  "@stripe/charges?month=2024-01" \          # Payment processor
-  "@quickbooks/invoices?month=2024-01" \     # Accounting system
-  | jn filter '@builtin/deduplicate?by=order_id' \
-  | jn filter '.total > 1000' \
-  | jn put "-?fmt=table.grid"
-```
-
-Without multi-source cat, this would require:
-- Manual concatenation
-- Intermediate files
-- Complex shell scripting
-- Loss of streaming
-
-### Protocol URLs Stay Explicit
-
-**HTTP URLs work directly:**
-```bash
-jn cat "http://example.com/data.csv"
-jn cat "https://api.example.com/endpoint?key=value"
-```
-
-**S3 URLs work directly:**
-```bash
-jn cat "s3://bucket/key.json"
-jn cat "s3://bucket/data.csv?region=us-west-2"
-```
-
-**Gmail URLs work directly:**
-```bash
-jn cat "gmail://me/messages?q=from:boss"
-```
-
-**Why support both profiles and protocol URLs?**
-- **Protocol URLs** - explicit, complete, portable
-- **Profiles** - convenient, secure, reusable
-
-Choose based on use case:
-- One-off queries → protocol URLs
-- Repeated access → profiles
-- Shared configs → profiles
-- Full control → protocol URLs
 
 ---
 
@@ -495,24 +359,25 @@ jn cat \
   | jn put combined.json
 ```
 
-### Stdin Processing with Format Hint
+### Stdin Processing with Format Override
 ```bash
-curl https://api.example.com/data.csv | jn cat "-?fmt=csv" | jn filter '.revenue > 1000'
+curl https://api.example.com/data.csv | jn cat "-~csv" | jn filter '.revenue > 1000'
 ```
 
 ### Table Output for Humans
 ```bash
-jn cat "@warehouse/orders?status=pending" | jn put "-?fmt=table.grid"
+jn cat "@warehouse/orders?status=pending" | jn put "-~table.grid"
+jn cat data.json | jn put "-~table?fmt=markdown&width=30"
 ```
 
 ### Gmail to CSV
 ```bash
-jn cat "@gmail/inbox?from=boss&has=attachment&newer_than=7d" | jn put boss-emails.csv
+jn cat "@gmail/inbox?from=boss&has=attachment&newer_than=7d" | jn put emails.csv
 ```
 
-### S3 to Local
+### S3 to Local with Format Override
 ```bash
-jn cat "s3://mybucket/data.json?region=us-west-2" | jn put local-copy.json
+jn cat "s3://mybucket/data.log~json" | jn put local-copy.json
 ```
 
 ### Complex Filter Pipeline
@@ -520,171 +385,35 @@ jn cat "s3://mybucket/data.json?region=us-west-2" | jn put local-copy.json
 jn cat sales.json \
   | jn filter '@builtin/pivot?row=product&col=month&value=revenue' \
   | jn filter '.total > 10000' \
-  | jn put "-?fmt=table.markdown"
-```
-
----
-
-## Address Resolution Summary
-
-```
-Input → Detection → Resolution → Plugin → Output
-
-FILE
-data.csv
-  → Extension: .csv
-  → csv_ plugin
-  → NDJSON
-
-PROTOCOL URL
-http://api.com/data.csv
-  → Protocol: http://
-  → Format: .csv
-  → http_ + csv_ plugins
-  → NDJSON
-
-PROFILE
-@genomoncology/alterations?gene=BRAF
-  → Profile lookup
-  → Resolve to URL: https://...
-  → http_ plugin
-  → NDJSON
-
-STDIN
--?fmt=csv
-  → Format hint: csv
-  → csv_ plugin
-  → NDJSON
-
-PLUGIN
-@table
-  → Direct plugin reference
-  → table_ plugin
-  → Formatted output
-```
-
----
-
-## What Changed from Previous Design
-
-### Removed
-- ❌ `-p` flag for parameters → Use query strings
-- ❌ `--tablefmt` flag → Use `?fmt=table.grid`
-- ❌ Single-file cat → Support multiple sources
-- ❌ Special-case table handling → Table is a format plugin
-
-### Added
-- ✅ Query string parameters everywhere
-- ✅ Multi-source concatenation
-- ✅ Stdin/stdout format hints
-- ✅ Plugin ownership of sub-formats (table.grid, table.markdown)
-- ✅ Unified addressing across all source types
-
-### Why Breaking Changes Are OK
-- JN is pre-1.0 (early development)
-- Clean design now → easier to maintain forever
-- No legacy baggage
-- Clear, consistent API from day one
-
----
-
-## Implementation Notes (High-Level Only)
-
-### What Stays the Same
-- Plugin discovery and registry (works great)
-- Profile resolution (http.py and resolver.py)
-- Two-stage resolution for binary formats
-- Subprocess pipeline architecture
-- NDJSON as universal interchange format
-
-### What Needs Changes
-- **CLI commands:** Parse query strings instead of `-p` flags
-- **Multi-file support:** Change `input_file` → `input_files` (nargs=-1)
-- **Table plugin:** Declare ownership of `fmt=table.*` patterns
-- **Documentation:** Update all examples to new syntax
-
-### Complexity Estimate
-- Code changes: ~500 lines added, ~150 removed
-- Test updates: ~50 test cases to update
-- Documentation: All examples updated
-- Effort: 6-8 hours focused work
-- Risk: Low (changes are localized and well-defined)
-
----
-
-## Success Criteria
-
-**For users:**
-- ✅ Simple things stay simple (`jn cat data.csv`)
-- ✅ Complex things are explicit and clear
-- ✅ Quoting is consistent with other tools
-- ✅ Examples are easy to understand and modify
-
-**For agents:**
-- ✅ Addresses are parseable without execution
-- ✅ Profiles are discoverable via filesystem
-- ✅ Address generation is straightforward (string templating)
-- ✅ Multi-source composition enables complex workflows
-
-**For the framework:**
-- ✅ No special cases (table is just a format plugin)
-- ✅ Extensible (new protocols/formats via plugins)
-- ✅ Consistent (same addressing rules everywhere)
-- ✅ Maintainable (clear boundaries, no flag pollution)
-
----
-
-## Future Extensions
-
-### Profile Discovery Commands (Later)
-```bash
-jn profile list                    # All available profiles
-jn profile info @api/source        # Show profile details
-jn profile test @api/source        # Test connection
-```
-
-### OpenAPI Import (Later)
-```bash
-jn profile import openapi https://api.example.com/openapi.json --name myapi
-```
-
-### OAuth Token Refresh (Later)
-```json
-// Automatic token refresh in profile config
-{
-  "auth": {
-    "type": "oauth2",
-    "token_file": "~/.jn/tokens/gmail.json",
-    "refresh_url": "https://oauth2.googleapis.com/token"
-  }
-}
-```
-
-### Path Variables in Profiles (Later)
-```json
-// Template variables in profile paths
-{
-  "path": "/repos/{owner}/{repo}",
-  "params": ["owner", "repo"]
-}
-```
-
-```bash
-jn cat "@github/repo?owner=anthropics&repo=claude"
-# Resolves path: /repos/anthropics/claude
+  | jn put "-~table?fmt=markdown"
 ```
 
 ---
 
 ## Summary
 
-**JN's addressability system provides:**
+**Universal Addressing Syntax:**
 
-1. **Universal addresses** - files, URLs, APIs, email, cloud storage, stdin/stdout
-2. **Self-contained syntax** - complete address in one string with query params
-3. **Profile abstraction** - named configs for APIs and services
-4. **Multi-source composition** - concatenate diverse sources naturally
-5. **Format hints** - explicit control when auto-detection isn't enough
-6. **Agent-friendly** - discoverable, parseable, generatable
+```
+address[~format][?config]
 
-**The result:** A consistent, powerful addressing system that scales from simple file conversions to complex multi-source data pipelines, optimized for both human users and AI agents.
+Where address is:
+  - file.ext              → Local file
+  - protocol://path       → Protocol URL
+  - @api/source           → Profile reference
+  - @plugin               → Plugin reference
+  - -                     → Stdin/stdout
+
+Where ~format is:
+  - csv, json, yaml       → Format plugins
+  - table, table.grid     → Display formats
+
+Where ?config is:
+  - key=value&key2=value2 → Parameters/configuration
+```
+
+**Operators:**
+- **`~`** - Format override (which plugin)
+- **`?`** - Parameters/config (how to process)
+
+**Result:** Clean, composable addressing with distinct operators for different purposes.

@@ -195,14 +195,14 @@ json_.py --mode write > output.json
 1. **Files:** `data.csv`, `/path/to/file.json`
 2. **Protocol URLs:** `http://...`, `s3://...`, `gmail://...`
 3. **Profile references:** `@genomoncology/alterations?gene=BRAF`
-4. **Stdin/stdout:** `-` or `-?fmt=csv`
+4. **Stdin/stdout:** `-` or `-~csv`
 5. **Plugin references:** `@table`, `@json`
 
 **Query strings for parameters:**
 ```bash
 jn cat "@genomoncology/alterations?gene=BRAF&limit=10"
 jn cat "@gmail/inbox?from=boss&is=unread"
-jn put "-?fmt=table.grid"
+jn put "-~table.grid"
 ```
 
 **See:** `spec/design/addressability.md`
