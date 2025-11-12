@@ -15,7 +15,6 @@
 
 import base64
 import json
-import os
 import sys
 from pathlib import Path
 from typing import Iterator
@@ -114,6 +113,42 @@ def build_gmail_query(params: dict) -> str:
     return " ".join(query_parts)
 
 
+def _walk_parts(part: dict, body_text: list, body_html: list, attachments: list):
+    """Recursively walk MIME parts to extract bodies and attachments.
+
+    Args:
+        part: MIME part dict
+        body_text: List to collect text/plain bodies
+        body_html: List to collect text/html bodies
+        attachments: List to collect attachment metadata
+    """
+    mime_type = part.get("mimeType", "")
+
+    # If this part has sub-parts, recurse
+    if "parts" in part:
+        for subpart in part["parts"]:
+            _walk_parts(subpart, body_text, body_html, attachments)
+        return
+
+    # Extract body data if present
+    if "body" in part and "data" in part["body"]:
+        data = base64.urlsafe_b64decode(part["body"]["data"]).decode("utf-8", errors="replace")
+
+        if mime_type == "text/plain":
+            body_text.append(data)
+        elif mime_type == "text/html":
+            body_html.append(data)
+
+    # Extract attachment metadata
+    if part.get("filename"):
+        attachments.append({
+            "filename": part["filename"],
+            "mime_type": mime_type,
+            "size": part.get("body", {}).get("size", 0),
+            "attachment_id": part.get("body", {}).get("attachmentId"),
+        })
+
+
 def parse_message(msg: dict, format: str = "full") -> dict:
     """Parse Gmail message into NDJSON record.
 
@@ -163,39 +198,27 @@ def parse_message(msg: dict, format: str = "full") -> dict:
     if format == "full" and "payload" in msg:
         payload = msg["payload"]
 
-        # Extract body
-        body_text = None
-        body_html = None
-
-        if "body" in payload and "data" in payload["body"]:
-            # Simple body
-            body_text = base64.urlsafe_b64decode(payload["body"]["data"]).decode("utf-8", errors="replace")
-        elif "parts" in payload:
-            # Multipart message
-            for part in payload["parts"]:
-                mime_type = part.get("mimeType", "")
-                if "body" in part and "data" in part["body"]:
-                    data = base64.urlsafe_b64decode(part["body"]["data"]).decode("utf-8", errors="replace")
-
-                    if mime_type == "text/plain" and not body_text:
-                        body_text = data
-                    elif mime_type == "text/html" and not body_html:
-                        body_html = data
-
-        record["body_text"] = body_text
-        record["body_html"] = body_html
-
-        # Extract attachments metadata
+        body_text_parts = []
+        body_html_parts = []
         attachments = []
+
+        # Simple body (no multipart)
+        if "body" in payload and "data" in payload["body"]:
+            mime_type = payload.get("mimeType", "")
+            data = base64.urlsafe_b64decode(payload["body"]["data"]).decode("utf-8", errors="replace")
+            if mime_type == "text/plain":
+                body_text_parts.append(data)
+            elif mime_type == "text/html":
+                body_html_parts.append(data)
+
+        # Multipart - walk recursively
         if "parts" in payload:
             for part in payload["parts"]:
-                if part.get("filename"):
-                    attachments.append({
-                        "filename": part["filename"],
-                        "mime_type": part.get("mimeType"),
-                        "size": part.get("body", {}).get("size", 0),
-                        "attachment_id": part.get("body", {}).get("attachmentId"),
-                    })
+                _walk_parts(part, body_text_parts, body_html_parts, attachments)
+
+        # Join multiple parts (some emails have multiple text/plain parts)
+        record["body_text"] = "\n".join(body_text_parts) if body_text_parts else None
+        record["body_html"] = "\n".join(body_html_parts) if body_html_parts else None
 
         if attachments:
             record["attachments"] = attachments
