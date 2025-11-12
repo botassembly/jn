@@ -13,11 +13,11 @@
 2. [What is MCP?](#what-is-mcp)
 3. [Current Implementation](#current-implementation)
 4. [The Versioning Problem](#the-versioning-problem)
-5. [Naked MCP Access](#naked-mcp-access)
-6. [Discovery Flow](#discovery-flow)
-7. [Schema Change Detection](#schema-change-detection)
-8. [Profile System](#profile-system)
-9. [Explore vs Exploit](#explore-vs-exploit)
+5. [Plugin Discovery Contract](#plugin-discovery-contract)
+6. [Naked Protocol Access](#naked-protocol-access)
+7. [Generic Discovery Flow](#generic-discovery-flow)
+8. [Schema Change Detection](#schema-change-detection)
+9. [Profile System](#profile-system)
 10. [Implementation Strategy](#implementation-strategy)
 
 ---
@@ -28,17 +28,19 @@
 - ✅ MCP client works (read/write to MCP servers)
 - ✅ Profile-based access functional
 - ✅ Both local (uvx) and remote (npx) MCPs supported
-- ❌ No "naked" MCP access (profiles required)
-- ❌ No discovery flow (explore → profile creation)
+- ❌ No naked protocol access (profiles required)
+- ❌ No discovery contract (plugins can't expose what's discoverable)
+- ❌ No generic profile discovery flow
 - ❌ No schema versioning/change detection
 
-**Key Challenge:** MCPs can change their tool schemas without versioning, potentially breaking profiles. Need discovery flow + change detection.
+**Key Challenge:** Services (MCPs, APIs, S3) can change without versioning, breaking profiles. Need generic discovery system that works for all plugins.
 
-**Proposed Solution:**
-1. **Naked MCP URIs** - Access MCPs without profiles for exploration
-2. **Discovery flow** - LLM explores MCP, designs profile
-3. **Schema hashing** - Detect when MCP tools change
-4. **Profile versioning** - Track which schema version profile expects
+**Proposed Solution - Plugin Discovery Contract:**
+1. **Plugin contract** - Add `explores()`, `validates()`, `versions()` functions to plugins
+2. **Naked URIs** - Access services without profiles for exploration
+3. **Generic discovery** - `jn profile explore @ref` calls plugin's explore function
+4. **Schema hashing** - Plugin defines how to version/detect changes
+5. **Profile management** - Generic commands work for all plugins (MCP, HTTP, S3, etc.)
 
 ---
 
@@ -196,11 +198,278 @@ Different MCPs launch differently:
 - LLMs learn from profile, use wrong params
 - Calls fail mysteriously
 
-**Need:** Detect when MCP schema changes, update profiles accordingly.
+**Need:** Detect when service schemas change, update profiles accordingly.
+
+**This is not MCP-specific** - same problem for HTTP APIs, S3 buckets, Gmail, any service with profiles.
 
 ---
 
-## Naked MCP Access
+## Plugin Discovery Contract
+
+### The Problem with MCP-Specific Commands
+
+**What I initially proposed:**
+```bash
+jn mcp explore <uri>      # Discover MCP tools
+jn mcp tools <uri>        # List MCP tools
+jn mcp schema <uri>       # Show MCP schema
+```
+
+**The issue:** If we add MCP-specific commands, we'll need:
+- `jn http explore <api>` - Discover HTTP endpoints
+- `jn s3 explore <bucket>` - Discover S3 contents
+- `jn gmail explore` - Discover Gmail labels/filters
+- `jn {plugin} explore` - For every plugin with profiles
+
+**This doesn't scale.** We'd have N discovery systems instead of one generic system.
+
+### The Solution: Plugin Contract Extension
+
+**Current plugin contract:**
+```python
+def reads(url: str, **config) -> Iterator[dict]:
+    """Read from source, yield NDJSON records."""
+
+def writes(url: str | None = None, **config) -> None:
+    """Read NDJSON from stdin, write to target."""
+```
+
+**Proposed extension:**
+```python
+def explores(url: str, **config) -> dict:
+    """Discover what's available from this service.
+
+    Returns schema of discoverable items:
+    - For MCP: tools, resources, their parameters
+    - For HTTP: endpoints, methods, parameters
+    - For S3: buckets, keys, metadata
+    - For Gmail: labels, filters, search operators
+
+    This is the "universe" behind a profile.
+    """
+
+def validates(profile: dict, **config) -> ValidationResult:
+    """Check if profile matches current service state.
+
+    Returns:
+        ValidationResult with status (valid/changed/error) and details
+    """
+
+def versions(url: str, **config) -> str:
+    """Calculate version hash of service schema.
+
+    Returns hash string that changes when discoverable schema changes.
+    Used for detecting if service changed since profile created.
+    """
+```
+
+### Generic Discovery Commands
+
+**With plugin contract, commands become generic:**
+
+```bash
+# Explore ANY service via profile reference or naked URI
+jn profile explore @biomcp
+jn profile explore "mcp+uvx://biomcp-python/biomcp?command=run"
+jn profile explore @genomoncology
+jn profile explore "https://api.genomoncology.com/openapi.json"
+
+# Validate ANY profile
+jn profile validate @biomcp
+jn profile validate @genomoncology
+
+# Show version hash
+jn profile version @biomcp
+jn profile version @genomoncology
+
+# Create profile from exploration
+jn profile create biomcp < profile.json
+
+# Update profile when service changes
+jn profile update @biomcp
+```
+
+**Same commands work for all plugins.**
+
+### How It Works
+
+**User runs:**
+```bash
+jn profile explore @biomcp
+```
+
+**Framework does:**
+1. Parse `@biomcp` → Look for existing profile
+2. If found: Load `_meta.json`, get server config
+3. If not found: Treat as naked URI (see next section)
+4. Determine plugin from protocol/pattern (`mcp_.py` matches `@` pattern)
+5. Call `plugin.explores(config)` function
+6. Plugin connects to service, discovers what's available
+7. Return structured schema to user/LLM
+
+**LLM receives:**
+```json
+{
+  "plugin": "mcp",
+  "service": "biomcp",
+  "version_hash": "a3f5b8c2e1f4...",
+  "discoverable": {
+    "tools": [
+      {
+        "name": "search",
+        "description": "Search biomedical resources",
+        "parameters": {
+          "gene": {"type": "string", "required": true},
+          "disease": {"type": "string", "required": false}
+        }
+      },
+      {
+        "name": "trial_search",
+        "parameters": { ... }
+      }
+    ],
+    "resources": [ ... ]
+  }
+}
+```
+
+### Plugin-Specific Implementation
+
+**Each plugin implements the contract differently:**
+
+#### MCP Plugin
+
+```python
+def explores(url: str, **config) -> dict:
+    """Connect to MCP server, list tools and resources."""
+    server_config, _ = resolve_profile_reference(url, {})
+
+    # Connect to MCP server
+    session = connect_mcp_server(server_config)
+
+    # Query available tools and resources
+    tools_result = await session.list_tools()
+    resources_result = await session.list_resources()
+
+    return {
+        "plugin": "mcp",
+        "service": extract_service_name(url),
+        "version_hash": calculate_mcp_schema_hash(tools_result.tools),
+        "discoverable": {
+            "tools": [serialize_tool(t) for t in tools_result.tools],
+            "resources": [serialize_resource(r) for r in resources_result.resources]
+        }
+    }
+
+def versions(url: str, **config) -> str:
+    """Calculate MD5 hash of MCP tool schemas."""
+    tools = explores(url, **config)["discoverable"]["tools"]
+    return calculate_mcp_schema_hash(tools)
+
+def validates(profile: dict, **config) -> ValidationResult:
+    """Check if MCP server schema matches profile."""
+    current_hash = versions(profile["_meta"]["server_ref"], **config)
+    expected_hash = profile.get("schema_hash")
+
+    if expected_hash and current_hash != expected_hash:
+        return ValidationResult(status="changed", details={
+            "expected": expected_hash,
+            "current": current_hash,
+            "message": "MCP tool schemas have changed"
+        })
+
+    return ValidationResult(status="valid")
+```
+
+#### HTTP Plugin
+
+```python
+def explores(url: str, **config) -> dict:
+    """Fetch OpenAPI spec or explore API endpoints."""
+    # Option 1: OpenAPI/Swagger spec provided
+    if url.endswith("/openapi.json") or url.endswith("/swagger.json"):
+        spec = fetch_openapi_spec(url)
+        return {
+            "plugin": "http",
+            "service": extract_domain(url),
+            "version_hash": hash_openapi_spec(spec),
+            "discoverable": {
+                "endpoints": parse_openapi_endpoints(spec),
+                "schemas": spec.get("components", {}).get("schemas", {})
+            }
+        }
+
+    # Option 2: Explore by crawling (less reliable)
+    return explore_api_by_crawling(url)
+
+def versions(url: str, **config) -> str:
+    """Hash OpenAPI spec or endpoint signatures."""
+    spec = explores(url, **config)
+    return hash_openapi_endpoints(spec["discoverable"]["endpoints"])
+
+def validates(profile: dict, **config) -> ValidationResult:
+    """Check if API schema matches profile."""
+    # Similar to MCP, compare hashes
+    pass
+```
+
+#### S3 Plugin
+
+```python
+def explores(url: str, **config) -> dict:
+    """List bucket contents and structure."""
+    bucket, prefix = parse_s3_url(url)
+
+    s3_client = boto3.client('s3')
+    objects = s3_client.list_objects_v2(Bucket=bucket, Prefix=prefix)
+
+    return {
+        "plugin": "s3",
+        "service": bucket,
+        "version_hash": None,  # S3 contents change frequently, no stable hash
+        "discoverable": {
+            "keys": [obj["Key"] for obj in objects.get("Contents", [])],
+            "patterns": infer_key_patterns(objects),
+            "sample_metadata": get_sample_metadata(objects)
+        }
+    }
+
+def versions(url: str, **config) -> str:
+    """S3 doesn't version - could hash bucket structure patterns."""
+    return None  # Or hash common prefixes/patterns
+
+def validates(profile: dict, **config) -> ValidationResult:
+    """Check if bucket exists and is accessible."""
+    # Different from MCP - not about schema, about access
+    pass
+```
+
+### Why This Design is Better
+
+**Scalability:**
+- ✅ One discovery system works for all plugins
+- ✅ Plugins define their own discoverable schema
+- ✅ No plugin-specific top-level commands
+
+**Consistency:**
+- ✅ Same commands work everywhere: `jn profile explore`, `validate`, `version`
+- ✅ Same profile structure across plugins (with plugin-specific fields)
+- ✅ Same workflow: explore → design → create → validate
+
+**Extensibility:**
+- ✅ New plugins automatically get discovery support
+- ✅ Plugin defines what's meaningful to discover
+- ✅ Plugin defines how to version/validate
+
+**Flexibility:**
+- ✅ MCP discovers tools (function-like)
+- ✅ HTTP discovers endpoints (REST-like)
+- ✅ S3 discovers keys (hierarchical)
+- ✅ Each returns what makes sense for that service
+
+---
+
+## Naked Protocol Access
 
 ### Proposal: MCP Protocol URIs
 
@@ -330,117 +599,213 @@ def parse_naked_mcp_uri(uri: str) -> ServerConfig:
 
 ---
 
-## Discovery Flow
+## Generic Discovery Flow
 
-### Goal: Explore MCP → Design Profile
+### Goal: Explore Service → Design Profile → Validate
 
-**Current problem:** Profiles are manually created. No systematic exploration.
+**Works for all plugins:** MCP, HTTP, S3, Gmail, etc.
 
-**Proposed flow:**
+**Current problem:** Profiles are manually created without systematic exploration.
 
-### Phase 1: Naked Connection
+### Universal Flow
+
+**Phase 1: Explore (via plugin's `explores()` function)**
 
 ```bash
-# Connect to MCP without profile
-jn mcp explore "mcp+uvx://biomcp-python/biomcp?command=run"
+# Explore ANY service - framework calls appropriate plugin
+jn profile explore "mcp+uvx://biomcp-python/biomcp?command=run"
+jn profile explore "https://api.genomoncology.com/openapi.json"
+jn profile explore "s3://my-bucket/data/"
 ```
 
-**What it does:**
-1. Parse naked URI
-2. Launch MCP server
-3. Call `list_tools()` and `list_resources()`
-4. Output tools and schemas to LLM
+**What happens:**
+1. Parse URI, determine plugin (mcp_, http_, s3_)
+2. Call `plugin.explores(uri, config)`
+3. Plugin connects to service
+4. Plugin returns structured discovery data
+5. Output to user/LLM as JSON
 
-**Output:**
+**Example output (MCP):**
 ```json
 {
-  "server": "biomcp-python/biomcp",
-  "transport": "stdio",
-  "tools": [
-    {
-      "name": "search",
-      "description": "Search biomedical resources",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "gene": {"type": "string", "description": "Gene symbol"},
-          "disease": {"type": "string", "description": "Disease name"}
-        },
-        "required": ["gene"]
+  "plugin": "mcp",
+  "service": "biomcp",
+  "version_hash": "a3f5b8c2e1f4...",
+  "discoverable": {
+    "tools": [
+      {
+        "name": "search",
+        "description": "Search biomedical resources",
+        "parameters": {
+          "gene": {"type": "string", "required": true},
+          "disease": {"type": "string", "required": false}
+        }
       }
-    },
-    {
-      "name": "trial_search",
-      "inputSchema": { ... }
-    }
-  ],
-  "resources": [ ... ]
-}
-```
-
-### Phase 2: LLM Exploration
-
-**LLM reviews schema, calls tools to understand behavior:**
-
-```bash
-# LLM: "Let me test the search tool"
-jn cat "mcp+uvx://biomcp-python/biomcp?command=run&tool=search&gene=BRAF"
-
-# LLM: "Output is text about BRAF mutations. Let me try with disease filter."
-jn cat "mcp+uvx://biomcp-python/biomcp?command=run&tool=search&gene=BRAF&disease=melanoma"
-
-# LLM: "More specific results. Let me check if optional params work."
-jn cat "mcp+uvx://biomcp-python/biomcp?command=run&tool=search&gene=EGFR"
-```
-
-**LLM understanding:**
-- `search` tool returns plain text (not structured JSON)
-- `gene` param is required
-- `disease` param is optional but useful for filtering
-- Output is suitable for LLM consumption (prose description)
-
-### Phase 3: Profile Design
-
-**LLM designs profile based on exploration:**
-
-```json
-{
-  "server": "biomcp",
-  "description": "BioMCP: Biomedical data for clinical trials and genomics",
-  "launcher": {
-    "command": "uv",
-    "args": ["run", "--with", "biomcp-python", "biomcp", "run"],
-    "transport": "stdio"
-  },
-  "tools": {
-    "search": {
-      "description": "General biomedical search. Returns text summaries.",
-      "parameters": {
-        "gene": {"type": "string", "required": true, "description": "Gene symbol (e.g., BRAF)"},
-        "disease": {"type": "string", "description": "Filter by disease name"}
-      },
-      "output_format": "text/plain",
-      "notes": "Returns prose description, not structured JSON. Good for LLM consumption."
-    },
-    "trial_search": {
-      "description": "Search clinical trials by gene/disease/phase",
-      "parameters": { ... }
-    }
-  },
-  "schema_hash": "a3f5b8c2...",  // MD5 of tool schemas
-  "created": "2025-11-12",
-  "tested_with": {
-    "search": ["BRAF", "BRAF+melanoma", "EGFR"],
-    "trial_search": ["BRAF+PHASE3"]
+    ],
+    "resources": []
   }
 }
 ```
 
-**Key additions:**
-- `schema_hash` - For change detection
-- `output_format` - What to expect from tool
-- `notes` - LLM's observations about behavior
-- `tested_with` - Example queries that worked during exploration
+**Example output (HTTP API):**
+```json
+{
+  "plugin": "http",
+  "service": "genomoncology.com",
+  "version_hash": "f7d3a1e9...",
+  "discoverable": {
+    "endpoints": [
+      {
+        "path": "/alterations",
+        "method": "GET",
+        "parameters": {
+          "gene": {"type": "string", "in": "query"},
+          "mutation_type": {"type": "string", "in": "query"}
+        }
+      },
+      {
+        "path": "/trials",
+        "method": "GET",
+        "parameters": { ... }
+      }
+    ]
+  }
+}
+```
+
+### Phase 2: LLM Experimentation
+
+**LLM reviews schema, calls endpoints/tools to understand behavior:**
+
+**For MCP:**
+```bash
+# Test tool with different parameters
+jn cat "mcp+uvx://biomcp-python/biomcp?command=run&tool=search&gene=BRAF"
+jn cat "mcp+uvx://biomcp-python/biomcp?command=run&tool=search&gene=BRAF&disease=melanoma"
+jn cat "mcp+uvx://biomcp-python/biomcp?command=run&tool=search&gene=EGFR"
+
+# LLM observes:
+# - Returns plain text (not structured JSON)
+# - gene param is required
+# - disease param is optional but useful
+# - Output is prose suitable for LLM consumption
+```
+
+**For HTTP API:**
+```bash
+# Test endpoints with different parameters
+jn cat "https://api.genomoncology.com/alterations?gene=BRAF&limit=5"
+jn cat "https://api.genomoncology.com/alterations?gene=EGFR&mutation_type=Missense&limit=5"
+jn cat "https://api.genomoncology.com/trials?gene=BRAF&phase=PHASE3"
+
+# LLM observes:
+# - Returns paginated JSON with {results: [...], pagination: {...}}
+# - limit param controls page size (default 100)
+# - Fields: gene, mutation_type, biomarker are filters
+# - Response time ~500ms for typical query
+```
+
+**For S3:**
+```bash
+# Test reading from bucket
+jn cat "s3://my-data-bucket/raw-data/2024/*.csv"
+jn cat "s3://my-data-bucket/processed/summaries/*.json"
+
+# LLM observes:
+# - Bucket has predictable date-based structure
+# - Raw data in CSV format (large files 100MB+)
+# - Processed data in JSON (smaller, 1-10MB)
+# - Access requires AWS credentials in env
+```
+
+**Key point:** LLM doesn't just read the schema - it **tries things** to understand actual behavior.
+
+### Phase 3: Profile Design
+
+**LLM designs profile based on exploration - structure varies by plugin type:**
+
+**MCP Profile Example:**
+```json
+{
+  "plugin": "mcp",
+  "server": "biomcp",
+  "description": "BioMCP: Biomedical data",
+  "connection": {
+    "command": "uv",
+    "args": ["run", "--with", "biomcp-python", "biomcp", "run"],
+    "transport": "stdio"
+  },
+  "schema_hash": "a3f5b8c2...",
+  "schema_updated": "2025-11-12",
+  "tools": {
+    "search": {
+      "parameters": {"gene": {"required": true}, "disease": {}},
+      "output_format": "text/plain",
+      "notes": "Returns prose, not JSON. Good for LLM consumption."
+    }
+  },
+  "tested_with": ["search?gene=BRAF", "search?gene=EGFR&disease=lung"]
+}
+```
+
+**HTTP Profile Example:**
+```json
+{
+  "plugin": "http",
+  "api": "genomoncology",
+  "description": "GenomOncology clinical data API",
+  "connection": {
+    "base_url": "https://api.genomoncology.com",
+    "headers": {"Authorization": "Token ${API_KEY}"},
+    "timeout": 60
+  },
+  "schema_hash": "f7d3a1e9...",
+  "schema_updated": "2025-11-12",
+  "endpoints": {
+    "alterations": {
+      "path": "/alterations",
+      "method": "GET",
+      "parameters": {"gene": {}, "mutation_type": {}, "limit": {"default": 100}},
+      "output_format": "application/json",
+      "pagination": {"type": "cursor", "field": "next_cursor"},
+      "notes": "Returns paginated results. Use limit=5 for testing."
+    }
+  },
+  "tested_with": ["alterations?gene=BRAF&limit=5", "trials?gene=BRAF"]
+}
+```
+
+**S3 Profile Example:**
+```json
+{
+  "plugin": "s3",
+  "bucket": "my-data-bucket",
+  "description": "Production data warehouse",
+  "connection": {
+    "region": "us-west-2",
+    "credentials": "${AWS_ACCESS_KEY_ID}/${AWS_SECRET_ACCESS_KEY}"
+  },
+  "schema_hash": null,  // S3 contents change frequently
+  "structure": {
+    "raw-data": {"pattern": "raw-data/YYYY/MM/*.csv", "format": "csv", "size": "large"},
+    "processed": {"pattern": "processed/summaries/*.json", "format": "json", "size": "small"}
+  },
+  "notes": "Raw data is large (100MB+). Use processed/ for quick access.",
+  "tested_with": ["raw-data/2024/11/*.csv", "processed/summaries/*.json"]
+}
+```
+
+**Universal profile fields:**
+- `plugin` - Which plugin this is for
+- `schema_hash` - Version hash (null if not applicable)
+- `schema_updated` - When profile was created/updated
+- `notes` - LLM observations about behavior
+- `tested_with` - Example queries that worked
+
+**Plugin-specific fields:**
+- MCP: `tools`, `connection.command`
+- HTTP: `endpoints`, `connection.base_url`
+- S3: `structure`, `connection.region`
 
 ### Phase 4: Save Profile
 
