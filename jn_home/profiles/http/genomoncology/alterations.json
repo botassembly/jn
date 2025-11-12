@@ -2,5 +2,6 @@
   "path": "/alterations",
   "method": "GET",
   "type": "source",
-  "params": ["gene", "mutation_type", "biomarker", "page", "limit"]
+  "params": ["gene", "mutation_type", "biomarker", "page", "limit"],
+  "description": "Genetic alterations database (55,000+ entries)"
 }

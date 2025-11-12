@@ -1,0 +1,43 @@
+{
+  "type": "source",
+  "description": "All Gmail messages (use -p to filter by search operators)",
+  "params": [
+    "from",
+    "to",
+    "subject",
+    "cc",
+    "bcc",
+    "has",
+    "filename",
+    "is",
+    "in",
+    "label",
+    "after",
+    "before",
+    "newer_than",
+    "older_than",
+    "size",
+    "larger",
+    "smaller",
+    "category",
+    "list"
+  ],
+  "examples": [
+    {
+      "description": "All messages from a specific sender",
+      "command": "jn cat @gmail/messages -p from=boss@company.com"
+    },
+    {
+      "description": "Unread messages from last week",
+      "command": "jn cat @gmail/messages -p is=unread -p newer_than=7d"
+    },
+    {
+      "description": "Messages with PDF attachments",
+      "command": "jn cat @gmail/messages -p has=attachment -p filename=pdf"
+    },
+    {
+      "description": "Messages after a specific date",
+      "command": "jn cat @gmail/messages -p after=2024/01/01 -p subject=invoice"
+    }
+  ]
+}

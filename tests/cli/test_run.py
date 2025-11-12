@@ -43,4 +43,3 @@ def test_run_unsupported_output_format(invoke, people_csv, tmp_path):
     result = invoke(["run", str(people_csv), str(out_file)])
     assert result.exit_code == 1
     assert "Error:" in result.output
-

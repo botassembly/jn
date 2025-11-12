@@ -91,10 +91,12 @@ Tasks:
 
 ### Protocol Plugins
 - [x] [HTTP Protocol Plugin](work/01-http-protocol.md) - Basic GET/POST ✅
+- [x] [Gmail Protocol Plugin](work/21-gmail-plugin.md) - Read Gmail messages with OAuth2 ✅
 - [ ] HTTP Protocol - Advanced (multipart, file uploads, session management)
 - [ ] [XLSX Format Plugin](work/02-xlsx-format.md) - Read Excel spreadsheets
 - [ ] [S3 Protocol Plugin](work/03-s3-protocol.md) - Read from AWS S3 buckets
 - [ ] [FTP Protocol Plugin](work/04-ftp-protocol.md) - Read from FTP servers
+- [ ] [Google Sheets Plugin](work/18-google-sheets.md) - Read/write Google Sheets via API
 
 ### Profile System
 - [x] [RESTful API Profile](work/05-restful-api-profile.md) - Hierarchical structure ✅
@@ -129,12 +131,11 @@ Tasks:
 
 ---
 
-## Phase 5: Data Formats & Cloud Services
+## Phase 5: Data Formats
 
 - [ ] [Parquet Format Plugin](work/17-parquet-format.md) - Read/write columnar Parquet files
-- [ ] [Google Sheets Plugin](work/18-google-sheets.md) - Read/write Google Sheets via API
 
-**Why:** Big data formats and cloud-based spreadsheets for collaboration.
+**Why:** Big data formats for analytics workloads.
 
 ---
 

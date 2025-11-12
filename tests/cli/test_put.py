@@ -22,7 +22,8 @@ def test_put_unsupported_format(invoke, sample_ndjson, tmp_path):
 
 def test_put_directory_not_found(invoke, sample_ndjson):
     """Test put with non-existent output directory."""
-    result = invoke(["put", "/nonexistent/dir/out.json"], input_data=sample_ndjson)
+    result = invoke(
+        ["put", "/nonexistent/dir/out.json"], input_data=sample_ndjson
+    )
     assert result.exit_code == 1
     assert "Error:" in result.output
-

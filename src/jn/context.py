@@ -1,10 +1,11 @@
 """JN context for passing state between commands."""
 
 import os
-import click
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+
+import click
 
 
 @dataclass(frozen=True)

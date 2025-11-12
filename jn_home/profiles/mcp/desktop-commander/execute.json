@@ -1,0 +1,15 @@
+{
+  "tool": "execute_command",
+  "description": "Execute shell command on local system",
+  "parameters": {
+    "command": {
+      "type": "string",
+      "description": "Shell command to execute",
+      "required": true
+    },
+    "cwd": {
+      "type": "string",
+      "description": "Working directory for command execution"
+    }
+  }
+}

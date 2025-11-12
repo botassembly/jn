@@ -1,0 +1,19 @@
+{
+  "tool": "trial_search",
+  "description": "Search clinical trials",
+  "parameters": {
+    "condition": {
+      "type": "string",
+      "description": "Medical condition"
+    },
+    "phase": {
+      "type": "string",
+      "description": "Trial phase (PHASE1, PHASE2, PHASE3, PHASE4)",
+      "enum": ["PHASE1", "PHASE2", "PHASE3", "PHASE4"]
+    },
+    "status": {
+      "type": "string",
+      "description": "Trial status"
+    }
+  }
+}

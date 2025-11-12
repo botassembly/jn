@@ -1,5 +1,7 @@
 """Tests for JQ profile system with named filters."""
+
 import json
+
 import pytest
 
 
@@ -25,7 +27,9 @@ def test_jq_builtin_group_count(invoke):
 
     # Find active and inactive groups
     active = next((r for r in records if r.get("status") == "active"), None)
-    inactive = next((r for r in records if r.get("status") == "inactive"), None)
+    inactive = next(
+        (r for r in records if r.get("status") == "inactive"), None
+    )
 
     assert active is not None
     assert active["count"] == 3
@@ -41,7 +45,14 @@ def test_jq_builtin_group_sum(invoke):
 {"customer":"Alice","total":75}
 """
     res = invoke(
-        ["filter", "@builtin/group_sum", "-p", "by=customer", "-p", "sum=total"],
+        [
+            "filter",
+            "@builtin/group_sum",
+            "-p",
+            "by=customer",
+            "-p",
+            "sum=total",
+        ],
         input_data=ndjson,
     )
 
@@ -89,7 +100,9 @@ def test_jq_builtin_stats(invoke):
 
 def test_jq_builtin_flatten_nested(invoke):
     """Test builtin flatten_nested profile."""
-    ndjson = '{"user": {"name": "Alice", "age": 30, "address": {"city": "NYC"}}}\n'
+    ndjson = (
+        '{"user": {"name": "Alice", "age": 30, "address": {"city": "NYC"}}}\n'
+    )
     res = invoke(
         ["filter", "@builtin/flatten_nested"],
         input_data=ndjson,
@@ -105,7 +118,9 @@ def test_jq_builtin_flatten_nested(invoke):
     assert flattened["user.name"] == "Alice"
     assert flattened["user.age"] == 30
     assert flattened["user.address.city"] == "NYC"
-    assert "user" not in flattened or not isinstance(flattened.get("user"), dict)
+    assert "user" not in flattened or not isinstance(
+        flattened.get("user"), dict
+    )
 
 
 def test_jq_direct_query(invoke):

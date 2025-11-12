@@ -1,0 +1,28 @@
+{
+  "type": "source",
+  "description": "Messages in inbox",
+  "defaults": {
+    "in": "inbox"
+  },
+  "params": [
+    "from",
+    "to",
+    "subject",
+    "is",
+    "has",
+    "after",
+    "before",
+    "newer_than",
+    "older_than"
+  ],
+  "examples": [
+    {
+      "description": "All inbox messages",
+      "command": "jn cat @gmail/inbox"
+    },
+    {
+      "description": "Inbox from specific sender",
+      "command": "jn cat @gmail/inbox -p from=boss@company.com"
+    }
+  ]
+}

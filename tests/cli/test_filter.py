@@ -12,10 +12,9 @@ def test_filter_field_select(invoke, sample_ndjson):
 
 
 def test_filter_condition(invoke, sample_ndjson):
-    res = invoke(["filter", "select(.age > 25)"] , input_data=sample_ndjson)
+    res = invoke(["filter", "select(.age > 25)"], input_data=sample_ndjson)
     assert res.exit_code == 0
     lines = [l for l in res.output.strip().split("\n") if l]
     assert len(lines) == 1
     rec = json.loads(lines[0])
     assert rec["name"] == "Alice"
-

@@ -1,0 +1,33 @@
+{
+  "type": "source",
+  "description": "Messages with attachments",
+  "defaults": {
+    "has": "attachment"
+  },
+  "params": [
+    "from",
+    "to",
+    "subject",
+    "filename",
+    "after",
+    "before",
+    "newer_than",
+    "older_than",
+    "larger",
+    "smaller"
+  ],
+  "examples": [
+    {
+      "description": "All messages with attachments",
+      "command": "jn cat @gmail/attachments"
+    },
+    {
+      "description": "Messages with PDF attachments",
+      "command": "jn cat @gmail/attachments -p filename=pdf"
+    },
+    {
+      "description": "Large attachments from last month",
+      "command": "jn cat @gmail/attachments -p larger=5M -p newer_than=1m"
+    }
+  ]
+}
