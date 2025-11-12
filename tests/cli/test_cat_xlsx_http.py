@@ -1,8 +1,8 @@
 """Test XLSX files via HTTP using jn cat command."""
+
 import pytest
 
 
-@pytest.mark.integration
 def test_jn_cat_xlsx_from_github_url(invoke):
     """Test reading XLSX directly from GitHub raw URL."""
     url = "https://raw.githubusercontent.com/Russel88/COEF/master/ExampleData/test.xlsx"
@@ -15,8 +15,6 @@ def test_jn_cat_xlsx_from_github_url(invoke):
     assert "Software Version" in lines[0]
 
 
-@pytest.mark.integration
-@pytest.mark.slow
 def test_jn_cat_xlsx_from_s3_url(invoke):
     """Test reading XLSX from S3 bucket."""
     url = "https://hagstofan.s3.amazonaws.com/media/public/2019/c464faa7-dbd0-41c7-b37c-8984d23abd8a.xlsx"
@@ -28,7 +26,6 @@ def test_jn_cat_xlsx_from_s3_url(invoke):
     assert len(lines) > 0
 
 
-@pytest.mark.integration
 def test_jn_run_xlsx_url_to_json(invoke, tmp_path):
     """Test converting XLSX URL directly to JSON file."""
     url = "https://raw.githubusercontent.com/hubmapconsortium/dataset-metadata-spreadsheet/main/sample-section/latest/sample-section.xlsx"
