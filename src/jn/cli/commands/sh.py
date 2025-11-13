@@ -11,16 +11,16 @@ from ...addressing import (
     parse_address,
 )
 from ...context import pass_context
+from ...shell.jc_fallback import execute_with_jc, supports_command
 from ..helpers import build_subprocess_env_for_coverage, check_uv_available
 
 
-def _build_command(stage) -> list:
+def _build_command(stage, command_str) -> list:
     """Build command from execution stage."""
     cmd = ["uv", "run", "--script", stage.plugin_path, "--mode", stage.mode]
 
-    # Add URL (the full command string)
-    if stage.url:
-        cmd.append(stage.url)
+    # Add full command string (not just URL, so plugin gets full context)
+    cmd.append(command_str)
 
     return cmd
 
@@ -54,12 +54,25 @@ def sh(ctx, command):
 
         # Plan execution
         resolver = AddressResolver(ctx.plugin_dir, ctx.cache_path)
-        stages = resolver.plan_execution(addr, mode="read")
 
+        try:
+            stages = resolver.plan_execution(addr, mode="read")
+        except AddressResolutionError:
+            # No custom plugin found - try jc fallback
+            command_name = command[0]
+            if supports_command(command_name):
+                exit_code = execute_with_jc(command_str)
+                sys.exit(exit_code)
+            else:
+                click.echo(
+                    f"Error: No plugin or jc parser found for command: {command_name}",
+                    err=True,
+                )
+                sys.exit(1)
+
+        # Plugin found - use it
         if not stages:
-            click.echo(
-                f"Error: No plugin found for command: {command[0]}", err=True
-            )
+            click.echo(f"Error: No stages planned for command: {command[0]}", err=True)
             sys.exit(1)
 
         if len(stages) > 1:
@@ -72,7 +85,7 @@ def sh(ctx, command):
         stage = stages[0]
 
         # Execute plugin
-        cmd = _build_command(stage)
+        cmd = _build_command(stage, command_str)
 
         proc = subprocess.Popen(
             cmd,

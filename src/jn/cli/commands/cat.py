@@ -14,19 +14,29 @@ from ...addressing import (
     parse_address,
 )
 from ...context import pass_context
+from ...shell.jc_fallback import execute_with_jc, supports_command
 from ..helpers import build_subprocess_env_for_coverage, check_uv_available
 
 
-def _build_command(stage: ExecutionStage) -> list:
-    """Build command from execution stage."""
+def _build_command(stage: ExecutionStage, command_str: str = None) -> list:
+    """Build command from execution stage.
+
+    Args:
+        stage: Execution stage with plugin info
+        command_str: Optional command string for shell plugins (overrides stage.url)
+    """
     cmd = ["uv", "run", "--script", stage.plugin_path, "--mode", stage.mode]
 
     # Add configuration parameters
     for key, value in stage.config.items():
         cmd.extend([f"--{key}", str(value)])
 
-    # Add URL if present
-    if stage.url:
+    # Add URL or command string if present
+    if command_str:
+        # Shell command or explicit override
+        cmd.append(command_str)
+    elif stage.url:
+        # Protocol/profile URL
         if stage.headers:
             cmd.extend(["--headers", json.dumps(stage.headers)])
         cmd.append(stage.url)
@@ -36,11 +46,18 @@ def _build_command(stage: ExecutionStage) -> list:
 
 def _execute_single_stage_read(stage: ExecutionStage, addr: Address) -> None:
     """Execute single-stage read pipeline."""
-    cmd = _build_command(stage)
+    # Check if this is a shell command plugin
+    is_shell_plugin = "/shell/" in stage.plugin_path
+
+    # Build command - for shell plugins, pass the command string
+    if is_shell_plugin:
+        cmd = _build_command(stage, command_str=addr.base)
+    else:
+        cmd = _build_command(stage)
 
     # Determine input source
-    if stage.url:
-        # Protocol or profile - URL passed as argument
+    if is_shell_plugin or stage.url:
+        # Shell command or protocol - command/URL passed as argument
         stdin_source = subprocess.DEVNULL
         infile = None
     elif addr.type == "stdio":
@@ -170,7 +187,18 @@ def cat(ctx, input_file):
 
         # Plan execution (may be 1 or 2 stages)
         resolver = AddressResolver(ctx.plugin_dir, ctx.cache_path)
-        stages = resolver.plan_execution(addr, mode="read")
+
+        try:
+            stages = resolver.plan_execution(addr, mode="read")
+        except AddressResolutionError:
+            # No plugin found - try jc fallback for shell commands
+            command_name = input_file.split()[0] if ' ' in input_file else input_file
+            if supports_command(command_name):
+                exit_code = execute_with_jc(input_file)
+                sys.exit(exit_code)
+            else:
+                # Re-raise if jc doesn't support it either
+                raise
 
         if len(stages) == 2:
             # Two-stage pipeline: protocol (raw) → format (read)
