@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["jc>=1.23.0"]
+# dependencies = []
 # [tool.jn]
 # matches = ["^ps($| )", "^ps .*"]
 # ///
@@ -9,7 +9,7 @@
 """
 JN Shell Plugin: ps
 
-Execute `ps` command and convert output to NDJSON using jc parser.
+Execute `ps` command and convert output to NDJSON.
 
 Usage:
     jn cat ps
@@ -18,13 +18,10 @@ Usage:
     jn sh ps aux
     jn sh ps -ef | jn filter '.cpu_percent > 50'
 
-The command can be any valid ps invocation.
-
-Output schema:
+Output schema (ps aux format):
     {
-        "pid": integer,
-        "ppid": integer,
         "user": string,
+        "pid": integer,
         "cpu_percent": float,
         "mem_percent": float,
         "vsz": integer,
@@ -40,8 +37,67 @@ Output schema:
 import subprocess
 import sys
 import json
-import shutil
 import shlex
+import re
+
+
+def parse_ps_aux_line(line):
+    """Parse a single line from ps aux output.
+
+    Example line:
+    root         1  0.0  0.1 169104 13640 ?        Ss   Nov07   0:11 /sbin/init
+    """
+    # PS aux format: USER PID %CPU %MEM VSZ RSS TTY STAT START TIME COMMAND
+    parts = line.split(None, 10)  # Split on whitespace, max 11 parts
+
+    if len(parts) < 11:
+        return None
+
+    try:
+        record = {
+            "user": parts[0],
+            "pid": int(parts[1]),
+            "cpu_percent": float(parts[2]),
+            "mem_percent": float(parts[3]),
+            "vsz": int(parts[4]),
+            "rss": int(parts[5]),
+            "tty": parts[6] if parts[6] != '?' else None,
+            "stat": parts[7],
+            "start": parts[8],
+            "time": parts[9],
+            "command": parts[10]
+        }
+        return record
+    except (ValueError, IndexError):
+        return None
+
+
+def parse_ps_ef_line(line):
+    """Parse a single line from ps -ef output.
+
+    Example line:
+    root         1     0  0 Nov07 ?        00:00:11 /sbin/init
+    """
+    # PS -ef format: UID PID PPID C STIME TTY TIME CMD
+    parts = line.split(None, 7)  # Split on whitespace, max 8 parts
+
+    if len(parts) < 8:
+        return None
+
+    try:
+        record = {
+            "user": parts[0],
+            "pid": int(parts[1]),
+            "ppid": int(parts[2]),
+            "c": int(parts[3]),
+            "stime": parts[4],
+            "tty": parts[5] if parts[5] != '?' else None,
+            "time": parts[6],
+            "command": parts[7]
+        }
+        return record
+    except (ValueError, IndexError):
+        return None
 
 
 def reads(command_str=None):
@@ -52,12 +108,6 @@ def reads(command_str=None):
     """
     if not command_str:
         command_str = "ps"
-
-    # Check if jc is available
-    if not shutil.which('jc'):
-        error = {"_error": "jc not found. Install: pip install jc", "hint": "https://github.com/kellyjonbrazil/jc"}
-        print(json.dumps(error), file=sys.stderr)
-        sys.exit(1)
 
     # Parse command string into args
     try:
@@ -72,53 +122,50 @@ def reads(command_str=None):
         print(json.dumps(error), file=sys.stderr)
         sys.exit(1)
 
-    # Build jc command
-    jc_cmd = ['jc', '--ps']
+    # Detect format (aux vs -ef)
+    has_aux = 'aux' in ' '.join(args[1:])
+    has_ef = '-ef' in ' '.join(args[1:]) or '-e' in args[1:] and '-f' in args[1:]
 
     try:
-        # Chain: ps [args] | jc
-        ps_proc = subprocess.Popen(
+        # Execute ps command
+        proc = subprocess.Popen(
             args,
             stdout=subprocess.PIPE,
-            stderr=sys.stderr
-        )
-
-        jc_proc = subprocess.Popen(
-            jc_cmd,
-            stdin=ps_proc.stdout,
-            stdout=subprocess.PIPE,
             stderr=sys.stderr,
-            text=True
+            text=True,
+            bufsize=1  # Line buffered
         )
 
-        # CRITICAL: Close ps stdout in parent to enable SIGPIPE propagation
-        ps_proc.stdout.close()
+        # Stream output line-by-line
+        first_line = True
+        for line in proc.stdout:
+            line = line.rstrip()
 
-        # Read jc output (JSON array)
-        output = jc_proc.stdout.read()
+            # Skip empty lines and header
+            if not line or first_line:
+                first_line = False
+                continue
 
-        # Wait for both processes
-        jc_exit = jc_proc.wait()
-        ps_exit = ps_proc.wait()
+            # Parse based on format
+            if has_aux:
+                record = parse_ps_aux_line(line)
+            elif has_ef:
+                record = parse_ps_ef_line(line)
+            else:
+                # Default to aux parser
+                record = parse_ps_aux_line(line)
 
-        # Convert JSON array to NDJSON
-        try:
-            records = json.loads(output) if output.strip() else []
-            for record in records:
+            if record:
                 print(json.dumps(record))
-        except json.JSONDecodeError as e:
-            error = {"_error": f"Failed to parse jc output: {e}"}
-            print(json.dumps(error), file=sys.stderr)
-            sys.exit(1)
+                sys.stdout.flush()
 
-        # Exit with error if either command failed
-        if jc_exit != 0:
-            sys.exit(jc_exit)
-        if ps_exit != 0:
-            sys.exit(ps_exit)
+        # Wait for process
+        exit_code = proc.wait()
+        if exit_code != 0:
+            sys.exit(exit_code)
 
-    except FileNotFoundError as e:
-        error = {"_error": f"Command not found: {e}"}
+    except FileNotFoundError:
+        error = {"_error": "ps command not found"}
         print(json.dumps(error), file=sys.stderr)
         sys.exit(1)
     except BrokenPipeError:

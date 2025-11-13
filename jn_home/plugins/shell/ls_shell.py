@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["jc>=1.23.0"]
+# dependencies = []
 # [tool.jn]
 # matches = ["^ls($| )", "^ls .*"]
 # ///
@@ -9,7 +9,7 @@
 """
 JN Shell Plugin: ls
 
-Execute `ls` command and convert output to NDJSON using jc parser.
+Execute `ls` command and convert output to NDJSON.
 
 Usage:
     jn cat ls
@@ -17,21 +17,18 @@ Usage:
     jn cat "ls -la /tmp"
     jn sh ls -l /var/log
 
-The command can be any valid ls invocation with flags and paths.
-
-Output schema (long format):
+Output schema (long format with -l):
     {
         "filename": string,
-        "flags": string,          # e.g. "drwxr-xr-x"
+        "flags": string,
         "links": integer,
         "owner": string,
         "group": string,
         "size": integer,
-        "date": string,
-        "link_to": string         # for symlinks
+        "date": string
     }
 
-Output schema (simple format):
+Output schema (simple format without -l):
     {
         "filename": string
     }
@@ -40,8 +37,47 @@ Output schema (simple format):
 import subprocess
 import sys
 import json
-import shutil
 import shlex
+import re
+
+
+def parse_ls_long_line(line):
+    """Parse a single line from ls -l output.
+
+    Example line:
+    -rw-r--r-- 1 root root 1234 Nov 13 10:21 file.txt
+    drwxr-xr-x 2 user group 4096 Nov 13 10:21 dirname
+    lrwxrwxrwx 1 user group 10 Nov 13 10:21 link -> target
+    """
+    # Match ls -l format
+    # flags links owner group size month day time filename
+    pattern = r'^([^\s]+)\s+(\d+)\s+(\S+)\s+(\S+)\s+(\d+)\s+(\w+\s+\d+\s+[\d:]+)\s+(.+)$'
+    match = re.match(pattern, line)
+
+    if not match:
+        return None
+
+    flags, links, owner, group, size, date, filename = match.groups()
+
+    # Handle symlinks (filename might be "link -> target")
+    link_to = None
+    if ' -> ' in filename:
+        filename, link_to = filename.split(' -> ', 1)
+
+    record = {
+        "filename": filename,
+        "flags": flags,
+        "links": int(links),
+        "owner": owner,
+        "group": group,
+        "size": int(size),
+        "date": date
+    }
+
+    if link_to:
+        record["link_to"] = link_to
+
+    return record
 
 
 def reads(command_str=None):
@@ -53,13 +89,7 @@ def reads(command_str=None):
     if not command_str:
         command_str = "ls"
 
-    # Check if jc is available
-    if not shutil.which('jc'):
-        error = {"_error": "jc not found. Install: pip install jc", "hint": "https://github.com/kellyjonbrazil/jc"}
-        print(json.dumps(error), file=sys.stderr)
-        sys.exit(1)
-
-    # Parse command string into args using shell lexer
+    # Parse command string into args
     try:
         args = shlex.split(command_str)
     except ValueError as e:
@@ -72,68 +102,49 @@ def reads(command_str=None):
         print(json.dumps(error), file=sys.stderr)
         sys.exit(1)
 
-    # Detect if using long format (for choosing jc parser)
+    # Detect if using long format
     has_long_flag = any(arg.startswith('-') and 'l' in arg for arg in args[1:])
 
-    # Build jc command - use streaming parser if long format
-    jc_parser = '--ls-s' if has_long_flag else '--ls'
-    jc_cmd = ['jc', jc_parser, '-qq']  # -qq: ignore parse errors
-
     try:
-        # Chain: ls [args] | jc
-        ls_proc = subprocess.Popen(
-            args,  # Use parsed args
-            stdout=subprocess.PIPE,
-            stderr=sys.stderr
-        )
-
-        jc_proc = subprocess.Popen(
-            jc_cmd,
-            stdin=ls_proc.stdout,
+        # Execute ls command
+        proc = subprocess.Popen(
+            args,
             stdout=subprocess.PIPE,
             stderr=sys.stderr,
             text=True,
             bufsize=1  # Line buffered
         )
 
-        # CRITICAL: Close ls stdout in parent to enable SIGPIPE propagation
-        ls_proc.stdout.close()
+        # Stream output line-by-line
+        for line in proc.stdout:
+            line = line.rstrip()
 
-        # Stream output line-by-line (NDJSON from jc --ls-s)
-        if has_long_flag:
-            # Streaming parser outputs NDJSON (one object per line)
-            for line in jc_proc.stdout:
-                sys.stdout.write(line)
-                sys.stdout.flush()
-        else:
-            # Non-streaming parser outputs JSON array
-            output = jc_proc.stdout.read()
-            try:
-                records = json.loads(output)
-                for record in records:
+            # Skip empty lines and "total" line
+            if not line or line.startswith('total '):
+                continue
+
+            if has_long_flag:
+                # Parse long format
+                record = parse_ls_long_line(line)
+                if record:
                     print(json.dumps(record))
-            except json.JSONDecodeError as e:
-                error = {"_error": f"Failed to parse jc output: {e}"}
-                print(json.dumps(error), file=sys.stderr)
-                sys.exit(1)
+            else:
+                # Simple format - just filename
+                print(json.dumps({"filename": line}))
 
-        # Wait for both processes
-        jc_exit = jc_proc.wait()
-        ls_exit = ls_proc.wait()
+            sys.stdout.flush()
 
-        # Exit with error if either command failed
-        if jc_exit != 0:
-            sys.exit(jc_exit)
-        if ls_exit != 0:
-            sys.exit(ls_exit)
+        # Wait for process
+        exit_code = proc.wait()
+        if exit_code != 0:
+            sys.exit(exit_code)
 
-    except FileNotFoundError as e:
-        error = {"_error": f"Command not found: {e}"}
+    except FileNotFoundError:
+        error = {"_error": "ls command not found"}
         print(json.dumps(error), file=sys.stderr)
         sys.exit(1)
     except BrokenPipeError:
         # Downstream closed pipe (e.g., head -n 10)
-        # This is expected, exit gracefully
         pass
     except KeyboardInterrupt:
         # User interrupted
@@ -150,7 +161,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     if args.mode == 'read':
-        # Pass full command string to reads()
         reads(args.address)
     else:
         error = {"_error": f"Unsupported mode: {args.mode}. Only 'read' supported."}

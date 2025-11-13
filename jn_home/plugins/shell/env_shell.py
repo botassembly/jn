@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["jc>=1.23.0"]
+# dependencies = []
 # [tool.jn]
 # matches = ["^env($| )", "^env .*"]
 # ///
@@ -27,7 +27,6 @@ Output schema:
 import subprocess
 import sys
 import json
-import shutil
 import shlex
 
 
@@ -39,12 +38,6 @@ def reads(command_str=None):
     """
     if not command_str:
         command_str = "env"
-
-    # Check if jc is available
-    if not shutil.which('jc'):
-        error = {"_error": "jc not found. Install: pip install jc", "hint": "https://github.com/kellyjonbrazil/jc"}
-        print(json.dumps(error), file=sys.stderr)
-        sys.exit(1)
 
     # Parse command string into args
     try:
@@ -59,53 +52,41 @@ def reads(command_str=None):
         print(json.dumps(error), file=sys.stderr)
         sys.exit(1)
 
-    # Build jc command
-    jc_cmd = ['jc', '--env']
-
     try:
-        # Chain: env [args] | jc
-        env_proc = subprocess.Popen(
+        # Execute env command
+        proc = subprocess.Popen(
             args,
             stdout=subprocess.PIPE,
-            stderr=sys.stderr
-        )
-
-        jc_proc = subprocess.Popen(
-            jc_cmd,
-            stdin=env_proc.stdout,
-            stdout=subprocess.PIPE,
             stderr=sys.stderr,
-            text=True
+            text=True,
+            bufsize=1  # Line buffered
         )
 
-        # CRITICAL: Close env stdout in parent to enable SIGPIPE propagation
-        env_proc.stdout.close()
+        # Stream output line-by-line
+        for line in proc.stdout:
+            line = line.rstrip()
 
-        # Read jc output (JSON array)
-        output = jc_proc.stdout.read()
+            # Skip empty lines
+            if not line:
+                continue
 
-        # Wait for both processes
-        jc_exit = jc_proc.wait()
-        env_exit = env_proc.wait()
-
-        # Convert JSON array to NDJSON
-        try:
-            records = json.loads(output) if output.strip() else []
-            for record in records:
+            # Parse NAME=VALUE format
+            if '=' in line:
+                name, value = line.split('=', 1)
+                record = {
+                    "name": name,
+                    "value": value
+                }
                 print(json.dumps(record))
-        except json.JSONDecodeError as e:
-            error = {"_error": f"Failed to parse jc output: {e}"}
-            print(json.dumps(error), file=sys.stderr)
-            sys.exit(1)
+                sys.stdout.flush()
 
-        # Exit with error if either command failed
-        if jc_exit != 0:
-            sys.exit(jc_exit)
-        if env_exit != 0:
-            sys.exit(env_exit)
+        # Wait for process
+        exit_code = proc.wait()
+        if exit_code != 0:
+            sys.exit(exit_code)
 
-    except FileNotFoundError as e:
-        error = {"_error": f"Command not found: {e}"}
+    except FileNotFoundError:
+        error = {"_error": "env command not found"}
         print(json.dumps(error), file=sys.stderr)
         sys.exit(1)
     except BrokenPipeError:

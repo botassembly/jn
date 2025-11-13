@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["jc>=1.23.0"]
+# dependencies = []
 # [tool.jn]
 # matches = ["^find($| )", "^find .*"]
 # ///
@@ -9,33 +9,26 @@
 """
 JN Shell Plugin: find
 
-Execute `find` command and convert output to NDJSON using jc parser.
+Execute `find` command and convert output to NDJSON.
 
 Usage:
     jn cat find
     jn cat "find ."
     jn cat "find /tmp -name '*.py'"
     jn sh find . -type f -name "*.log"
-    jn sh find /var -size +1M | jn filter '.size > 1000000'
-
-The command can be any valid find invocation.
+    jn sh find /var -size +1M
 
 Output schema:
     {
-        "path": string,         # Directory path
-        "node": string,         # File/directory name
-        "error": string         # If permission denied, etc.
+        "path": string
     }
-
-Note: find outputs paths naturally as it discovers them, so streaming
-      behavior is excellent even without jc streaming parser.
 """
 
 import subprocess
 import sys
 import json
-import shutil
 import shlex
+import os
 
 
 def reads(command_str=None):
@@ -46,12 +39,6 @@ def reads(command_str=None):
     """
     if not command_str:
         command_str = "find ."
-
-    # Check if jc is available
-    if not shutil.which('jc'):
-        error = {"_error": "jc not found. Install: pip install jc", "hint": "https://github.com/kellyjonbrazil/jc"}
-        print(json.dumps(error), file=sys.stderr)
-        sys.exit(1)
 
     # Parse command string into args
     try:
@@ -66,52 +53,35 @@ def reads(command_str=None):
         print(json.dumps(error), file=sys.stderr)
         sys.exit(1)
 
-    # Build jc command
-    jc_cmd = ['jc', '--find']
-
     try:
-        # Chain: find [args] | jc
-        find_proc = subprocess.Popen(
+        # Execute find command
+        proc = subprocess.Popen(
             args,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
+            stderr=subprocess.PIPE,  # Capture stderr to ignore permission errors
+            text=True,
+            bufsize=1  # Line buffered
         )
 
-        jc_proc = subprocess.Popen(
-            jc_cmd,
-            stdin=find_proc.stdout,
-            stdout=subprocess.PIPE,
-            stderr=sys.stderr,
-            text=True
-        )
+        # Stream output line-by-line
+        for line in proc.stdout:
+            line = line.rstrip()
 
-        # CRITICAL: Close find stdout in parent to enable SIGPIPE propagation
-        find_proc.stdout.close()
+            # Skip empty lines
+            if not line:
+                continue
 
-        # Read jc output (JSON array)
-        output = jc_proc.stdout.read()
+            # Simple format: just the path
+            record = {"path": line}
+            print(json.dumps(record))
+            sys.stdout.flush()
 
-        # Wait for both processes
-        jc_exit = jc_proc.wait()
-        find_exit = find_proc.wait()
+        # Wait for process
+        # Note: find returns non-zero on permission errors, but we still output successful results
+        proc.wait()
 
-        # Convert JSON array to NDJSON
-        try:
-            records = json.loads(output) if output.strip() else []
-            for record in records:
-                print(json.dumps(record))
-        except json.JSONDecodeError as e:
-            error = {"_error": f"Failed to parse jc output: {e}"}
-            print(json.dumps(error), file=sys.stderr)
-            sys.exit(1)
-
-        # Note: find returns non-zero if it encounters errors (permission denied, etc.)
-        # but we still output successful results. Only exit on jc errors.
-        if jc_exit != 0:
-            sys.exit(jc_exit)
-
-    except FileNotFoundError as e:
-        error = {"_error": f"Command not found: {e}"}
+    except FileNotFoundError:
+        error = {"_error": "find command not found"}
         print(json.dumps(error), file=sys.stderr)
         sys.exit(1)
     except BrokenPipeError:

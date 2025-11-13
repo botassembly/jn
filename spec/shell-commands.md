@@ -2,37 +2,33 @@
 
 ## Overview
 
-Shell command plugins wrap Unix utilities and convert their output to NDJSON, enabling composable data pipelines from system commands. This approach follows the Unix philosophy: use existing battle-tested tools and compose them together.
+Shell command plugins wrap Unix utilities and convert their output to NDJSON, enabling composable data pipelines from system commands. Each plugin parses the command's text output and emits structured JSON records.
 
-**Philosophy:** Incorporate, don't replace. Wrap standard Unix utilities with thin Python adapters that handle streaming and backpressure correctly.
+**Philosophy:** Incorporate, don't replace. Wrap standard Unix utilities with simple Python parsers that generate JSON using schemas inspired by the [jc (JSON Convert)](https://github.com/kellyjonbrazil/jc) project.
 
 ## Architecture
 
-### Core Pattern: Command → JC → NDJSON
+### Core Pattern: Command → Parse in Python → NDJSON
 
-Each shell plugin follows this pipeline:
+Each shell plugin follows this simple pipeline:
 
 ```
-Unix Command → jc parser → NDJSON output
+Unix Command → Parse output line-by-line → NDJSON output
 ```
 
 1. **Execute the command** as a subprocess (using `shlex` for safe parsing)
-2. **Pipe output to jc** for JSON conversion
-3. **Convert to NDJSON** (one JSON object per line)
-4. **Stream to stdout** for pipeline composition
+2. **Stream output line-by-line** (no buffering)
+3. **Parse each line** with Python regex or string operations
+4. **Emit JSON** following jc-inspired schemas
+5. **Stream to stdout** for pipeline composition
 
-### Why JC?
+### Why Not Use jc Directly?
 
-[jc (JSON Convert)](https://github.com/kellyjonbrazil/jc) provides:
-- **240+ parsers** for Unix commands
-- **Robust parsing** of complex output formats
-- **Consistent schemas** across different platforms
-- **Streaming parsers** for some commands (e.g., `--ls-s`, `--ping-s`)
-
-We use jc as an external dependency, calling it via subprocess to maintain:
-- **Process isolation** and automatic backpressure
-- **True streaming** with OS pipe buffers
-- **SIGPIPE propagation** for early termination
+We use **jc for inspiration** (JSON schemas, field names) but write our own parsers because:
+- **Simplicity** - No external dependencies, just stdlib Python
+- **Control** - We own the parsing logic and can optimize for streaming
+- **Lightweight** - Each plugin is self-contained (~100 lines)
+- **Backpressure** - Direct subprocess → parse → emit maintains streaming
 
 ### Command Invocation Syntax
 
@@ -64,7 +60,7 @@ The `sh` command greedily consumes all arguments, so no quoting is needed.
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["jc>=1.23.0"]
+# dependencies = []  # No dependencies needed!
 # [tool.jn]
 # matches = ["^ls($| )", "^ls .*"]
 # ///
@@ -72,14 +68,14 @@ The `sh` command greedily consumes all arguments, so no quoting is needed.
 """
 JN Shell Plugin: ls
 
-Execute `ls` command and convert output to NDJSON using jc parser.
+Execute `ls` command and convert output to NDJSON.
 
 Usage:
     jn cat ls
     jn cat "ls -l"
     jn sh ls -la /tmp
 
-Output schema: (from jc --ls)
+Output schema: (inspired by jc --ls)
     {
         "filename": string,
         "flags": string,
@@ -92,8 +88,30 @@ Output schema: (from jc --ls)
 import subprocess
 import sys
 import json
-import shutil
 import shlex
+import re
+
+
+def parse_ls_long_line(line):
+    """Parse a single line from ls -l output."""
+    # Pattern: flags links owner group size date filename
+    pattern = r'^([^\s]+)\s+(\d+)\s+(\S+)\s+(\S+)\s+(\d+)\s+(\w+\s+\d+\s+[\d:]+)\s+(.+)$'
+    match = re.match(pattern, line)
+
+    if not match:
+        return None
+
+    flags, links, owner, group, size, date, filename = match.groups()
+
+    return {
+        "filename": filename,
+        "flags": flags,
+        "links": int(links),
+        "owner": owner,
+        "group": group,
+        "size": int(size),
+        "date": date
+    }
 
 
 def reads(command_str=None):
@@ -101,74 +119,47 @@ def reads(command_str=None):
     if not command_str:
         command_str = "ls"
 
-    # Check if jc is available
-    if not shutil.which('jc'):
-        error = {"_error": "jc not found. Install: pip install jc"}
-        print(json.dumps(error), file=sys.stderr)
-        sys.exit(1)
-
     # Parse command string safely
-    try:
-        args = shlex.split(command_str)
-    except ValueError as e:
-        error = {"_error": f"Invalid command syntax: {e}"}
-        print(json.dumps(error), file=sys.stderr)
-        sys.exit(1)
+    args = shlex.split(command_str)
 
     # Validate command
-    if not args or args[0] != 'ls':
-        error = {"_error": f"Expected ls command, got: {command_str}"}
+    if args[0] != 'ls':
+        error = {"_error": f"Expected ls command, got: {args[0]}"}
         print(json.dumps(error), file=sys.stderr)
         sys.exit(1)
 
-    # Choose jc parser (streaming if available)
-    has_long_flag = any(arg.startswith('-') and 'l' in arg for arg in args[1:])
-    jc_parser = '--ls-s' if has_long_flag else '--ls'
-    jc_cmd = ['jc', jc_parser]
+    # Detect if using long format
+    has_long_flag = any('-l' in arg for arg in args[1:])
 
-    try:
-        # Chain: ls [args] | jc
-        ls_proc = subprocess.Popen(
-            args,
-            stdout=subprocess.PIPE,
-            stderr=sys.stderr
-        )
+    # Execute command
+    proc = subprocess.Popen(
+        args,
+        stdout=subprocess.PIPE,
+        stderr=sys.stderr,
+        text=True,
+        bufsize=1  # Line buffered
+    )
 
-        jc_proc = subprocess.Popen(
-            jc_cmd,
-            stdin=ls_proc.stdout,
-            stdout=subprocess.PIPE,
-            stderr=sys.stderr,
-            text=True,
-            bufsize=1  # Line buffered
-        )
+    # Stream output line-by-line
+    for line in proc.stdout:
+        line = line.rstrip()
 
-        # CRITICAL: Close ls stdout in parent to enable SIGPIPE propagation
-        ls_proc.stdout.close()
+        # Skip empty lines and "total" line
+        if not line or line.startswith('total '):
+            continue
 
-        # Stream output
         if has_long_flag:
-            # Streaming parser: outputs NDJSON directly
-            for line in jc_proc.stdout:
-                sys.stdout.write(line)
-                sys.stdout.flush()
-        else:
-            # Non-streaming: convert JSON array to NDJSON
-            output = jc_proc.stdout.read()
-            records = json.loads(output) if output.strip() else []
-            for record in records:
+            # Parse long format
+            record = parse_ls_long_line(line)
+            if record:
                 print(json.dumps(record))
+        else:
+            # Simple format - just filename
+            print(json.dumps({"filename": line}))
 
-        # Wait for both processes
-        jc_proc.wait()
-        ls_proc.wait()
+        sys.stdout.flush()
 
-    except BrokenPipeError:
-        # Downstream closed (e.g., head -n 10) - expected
-        pass
-    except KeyboardInterrupt:
-        # User interrupted
-        pass
+    proc.wait()
 
 
 if __name__ == '__main__':
@@ -184,7 +175,17 @@ if __name__ == '__main__':
 
 ### Key Implementation Details
 
-#### 1. Regex Pattern Matching
+#### 1. No Dependencies
+```python
+# /// script
+# requires-python = ">=3.11"
+# dependencies = []  # Just stdlib!
+# ///
+```
+
+All plugins use only Python standard library.
+
+#### 2. Regex Pattern Matching
 ```python
 # [tool.jn]
 # matches = ["^ls($| )", "^ls .*"]
@@ -194,32 +195,23 @@ if __name__ == '__main__':
 - `^ls .*` - Matches "ls " followed by any arguments
 - Pattern resolves to this specific plugin when user types `jn cat ls` or `jn sh ls`
 
-#### 2. shlex for Safe Parsing
+#### 3. shlex for Safe Parsing
 ```python
 args = shlex.split(command_str)  # "find . -name '*.py'" → ['find', '.', '-name', '*.py']
 ```
 
 Never use `shell=True` in subprocess calls - it's a security risk.
 
-#### 3. SIGPIPE Propagation
+#### 4. Line-by-Line Streaming
 ```python
-ls_proc.stdout.close()  # CRITICAL for backpressure!
+for line in proc.stdout:
+    line = line.rstrip()
+    record = parse_line(line)
+    print(json.dumps(record))
+    sys.stdout.flush()
 ```
 
-Closing stdout in the parent process enables SIGPIPE to propagate backward through the pipeline when downstream processes terminate (e.g., `head -n 10`).
-
-#### 4. Streaming vs Batch Parsers
-
-**Streaming parsers** (e.g., `jc --ls-s`, `jc --ping-s`):
-- Output NDJSON directly (one object per line)
-- Can be written directly to stdout
-- Memory usage stays constant
-- First results appear immediately
-
-**Batch parsers** (e.g., `jc --ls`, `jc --ps`):
-- Output JSON array
-- Must be converted to NDJSON in our plugin
-- Entire command must complete before output
+Process and emit each line immediately - no accumulation in memory.
 
 #### 5. Error Handling
 
@@ -248,15 +240,69 @@ This directory structure separates shell commands from:
 
 ## Current Shell Plugins
 
-| Plugin | Command | JC Parser | Streaming | Description |
-|--------|---------|-----------|-----------|-------------|
-| `ls_shell.py` | `ls` | `--ls` / `--ls-s` | Yes (with -l) | Directory listings |
-| `ps_shell.py` | `ps` | `--ps` | No | Process information |
-| `env_shell.py` | `env` | `--env` | No | Environment variables |
-| `find_shell.py` | `find` | `--find` | No | File search |
-| `tail_shell.py` | `tail` | (none) | Yes | File tail/follow |
+| Plugin | Command | Parser | Fields | Description |
+|--------|---------|--------|--------|-------------|
+| `ls_shell.py` | `ls` | regex | 7 | Directory listings (filename, flags, owner, size, etc.) |
+| `ps_shell.py` | `ps` | split | 11 | Process info (pid, cpu%, mem%, command) |
+| `env_shell.py` | `env` | split | 2 | Environment variables (name, value) |
+| `find_shell.py` | `find` | simple | 1 | File search (path) |
+| `tail_shell.py` | `tail` | simple | 2 | File tail/follow (line, line_number) |
 
-**Note:** `tail_shell.py` doesn't use jc - it wraps each line as a simple JSON object with metadata.
+## JSON Schemas (Inspired by jc)
+
+### ls (Long Format)
+```json
+{
+  "filename": "file.txt",
+  "flags": "-rw-r--r--",
+  "links": 1,
+  "owner": "root",
+  "group": "root",
+  "size": 1234,
+  "date": "Nov 13 10:21",
+  "link_to": "target"  // Optional, for symlinks
+}
+```
+
+### ps aux
+```json
+{
+  "user": "root",
+  "pid": 1,
+  "cpu_percent": 0.0,
+  "mem_percent": 0.1,
+  "vsz": 169104,
+  "rss": 13640,
+  "tty": null,
+  "stat": "Ss",
+  "start": "Nov07",
+  "time": "0:11",
+  "command": "/sbin/init"
+}
+```
+
+### env
+```json
+{
+  "name": "PATH",
+  "value": "/usr/local/bin:/usr/bin:/bin"
+}
+```
+
+### find
+```json
+{
+  "path": "/tmp/file.txt"
+}
+```
+
+### tail
+```json
+{
+  "line": "Log message here",
+  "line_number": 42
+}
+```
 
 ## Next Shell Commands to Implement
 
@@ -265,15 +311,15 @@ Based on the jc project and common Unix usage patterns, these are the next prior
 ### 1. du - Disk Usage
 **Use case:** Find large directories consuming disk space
 
-**JC Parser:** `jc --du`
-
 **Output schema:**
 ```json
 {
-  "size": integer,      // Size in blocks or bytes
-  "name": string        // Directory/file path
+  "size": integer,      // Size in blocks
+  "path": string        // Directory/file path
 }
 ```
+
+**Parser:** Simple split on whitespace (2 columns)
 
 **Example:**
 ```bash
@@ -283,65 +329,61 @@ jn sh du -h /var/log | jn filter '.size > 1000000'
 ### 2. df - Disk Free
 **Use case:** Monitor filesystem usage
 
-**JC Parser:** `jc --df`
-
 **Output schema:**
 ```json
 {
   "filesystem": string,
-  "size": integer,           // Total size
+  "size": integer,
   "used": integer,
   "available": integer,
-  "capacity_percent": integer,
+  "use_percent": integer,
   "mounted_on": string
 }
 ```
 
+**Parser:** Split header, parse percentage
+
 **Example:**
 ```bash
-jn sh df -h | jn filter '.capacity_percent > 80'
+jn sh df -h | jn filter '.use_percent > 80'
 ```
 
 ### 3. who - Logged In Users
 **Use case:** Security monitoring, see who's logged in
-
-**JC Parser:** `jc --who`
 
 **Output schema:**
 ```json
 {
   "user": string,
   "tty": string,
-  "time": string,
-  "idle": string,
-  "pid": integer,
+  "login_time": string,
   "from": string
 }
 ```
 
+**Parser:** Simple split on whitespace
+
 **Example:**
 ```bash
-jn sh who -a | jn filter '.user == "root"'
+jn sh who | jn filter '.user == "root"'
 ```
 
 ### 4. uptime - System Uptime
 **Use case:** Monitor system load and uptime
-
-**JC Parser:** `jc --uptime`
 
 **Output schema:**
 ```json
 {
   "time": string,
   "uptime": string,
-  "uptime_days": integer,
-  "uptime_hours": integer,
   "users": integer,
   "load_1m": float,
   "load_5m": float,
   "load_15m": float
 }
 ```
+
+**Parser:** Regex for single-line format
 
 **Example:**
 ```bash
@@ -351,19 +393,17 @@ jn sh uptime | jn filter '.load_1m > 2.0'
 ### 5. netstat - Network Connections
 **Use case:** Troubleshoot network issues, monitor connections
 
-**JC Parser:** `jc --netstat`
-
 **Output schema:**
 ```json
 {
   "proto": string,
   "local_address": string,
   "foreign_address": string,
-  "state": string,
-  "pid": integer,
-  "program_name": string
+  "state": string
 }
 ```
+
+**Parser:** Split on whitespace, handle varying column counts
 
 **Example:**
 ```bash
@@ -397,33 +437,35 @@ jn sh ls -l /usr/bin | jn filter '.size > 10000' | jn put large_files.json
 Pipeline stages run concurrently:
 ```
 CPU1: ███ ls
-CPU2:    ███ jc
+CPU2:    ███ parse
 CPU3:       ███ filter
 CPU4:          ███ write
 ```
-
-All 4 processes run simultaneously on different CPUs.
 
 ## Implementation Guidelines
 
 ### When Creating New Shell Plugins
 
-1. **Check jc support first:**
+1. **Check jc schema first:**
+   - Browse: https://github.com/kellyjonbrazil/jc/tree/master/jc/parsers
+   - Look at docstring for schema definition
+   - Use same field names and types
+
+2. **Test command locally:**
    ```bash
-   jc --help | grep command-name
+   command args | head -10  # See the output format
    ```
 
-2. **Test jc parser locally:**
-   ```bash
-   command args | jc --command-name
-   ```
-
-3. **Copy ls_shell.py as template** - it has the correct pattern
+3. **Copy an existing shell plugin as template:**
+   - `ls_shell.py` - Complex regex parsing
+   - `ps_shell.py` - Split-based parsing
+   - `env_shell.py` - Simple key=value parsing
+   - `find_shell.py` - Minimal wrapping (just add path field)
 
 4. **Update these sections:**
    - `matches` regex pattern
    - Command validation (`args[0] != 'command'`)
-   - JC parser name (`jc --command-name`)
+   - Parser function (regex or split)
    - Documentation and schema
 
 5. **Test with backpressure:**
@@ -431,15 +473,33 @@ All 4 processes run simultaneously on different CPUs.
    jn sh command args | head -n 5  # Should terminate early
    ```
 
-### When jc Doesn't Have a Parser
+## Parser Patterns
 
-For commands without jc support (like `tail`):
-1. Execute command directly
-2. Wrap each output line in JSON
-3. Add minimal metadata (line numbers, timestamps, etc.)
-4. Stream line-by-line
+### Regex Parsing (ls)
+For complex, fixed-format output:
+```python
+pattern = r'^([^\s]+)\s+(\d+)\s+(\S+)\s+(\S+)\s+(\d+)\s+(\w+\s+\d+\s+[\d:]+)\s+(.+)$'
+match = re.match(pattern, line)
+if match:
+    flags, links, owner, group, size, date, filename = match.groups()
+```
 
-**Example:** See `tail_shell.py:100-108`
+### Split Parsing (ps, env)
+For whitespace-delimited columns:
+```python
+parts = line.split(None, 10)  # Split on any whitespace, max 11 parts
+record = {
+    "user": parts[0],
+    "pid": int(parts[1]),
+    ...
+}
+```
+
+### Simple Wrapping (find, tail)
+When output is already structured:
+```python
+record = {"path": line}  # Just wrap the line
+```
 
 ## Security Considerations
 
@@ -461,9 +521,6 @@ if args[0] != 'expected_command':
 ```
 
 This prevents users from running arbitrary commands through a plugin.
-
-### Trust jc
-We trust jc to parse command output safely. It's a mature project with 240+ parsers and active maintenance.
 
 ## Testing Shell Plugins
 
@@ -499,25 +556,9 @@ jn sh find /large/dir -name "*.py" | head -n 10  # Should terminate early
 jn sh tail -f /var/log/syslog  # First line appears instantly
 ```
 
-## Future Enhancements
-
-### Streaming Optimizations
-- Auto-detect streaming jc parsers (`--command-s` variants)
-- Use streaming parsers when available for lower latency
-
-### Error Handling
-- Better error messages for missing jc
-- Parse jc error output for user-friendly messages
-- Handle command not found gracefully
-
-### Platform Support
-- Test on macOS, Linux, BSD
-- Handle platform-specific command variations (e.g., `ps aux` vs `ps -ef`)
-- Graceful degradation when commands unavailable
-
 ## References
 
-- **jc Project:** https://github.com/kellyjonbrazil/jc
-- **jc Parsers:** https://github.com/kellyjonbrazil/jc/tree/master/jc/parsers
+- **jc Project (for schemas):** https://github.com/kellyjonbrazil/jc
+- **jc Parsers (for field names):** https://github.com/kellyjonbrazil/jc/tree/master/jc/parsers
 - **JN Architecture:** `spec/arch/design.md`
 - **Backpressure Design:** `spec/arch/backpressure.md`
