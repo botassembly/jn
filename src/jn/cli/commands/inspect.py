@@ -1,25 +1,80 @@
-"""Inspect command - list tools and resources from protocol servers."""
+"""Inspect command - discover capabilities or inspect data."""
 
 import json
 import subprocess
 import sys
+from pathlib import Path
 
 import click
 
+from ...addressing import Address, parse_address
 from ...context import pass_context
-from ..helpers import check_uv_available
+from ...filtering import build_jq_filter, separate_config_and_filters
+from ...introspection import get_plugin_config_params
+from ..helpers import build_subprocess_env_for_coverage, check_uv_available
 
 
-def _format_text_output(result: dict) -> str:
-    """Format inspect result as human-readable text."""
+def _is_container(address_str: str) -> bool:
+    """Check if address is a container (for capability listing).
+
+    Container patterns:
+    - @api (no endpoint)
+    - @biomcp (no tool)
+    - gmail://me (no label/folder)
+    - @plugin (standalone plugin reference)
+
+    Returns:
+        True if container, False if leaf
+    """
+    if not address_str.startswith("@"):
+        # Protocol URLs need more logic
+        if address_str.startswith("gmail://"):
+            # gmail://me = container, gmail://me/INBOX = leaf
+            return address_str.count("/") == 2
+        # Other protocols default to leaf
+        return False
+
+    # Profile/plugin reference
+    ref = address_str[1:].split("?")[0]  # Remove @ and query
+
+    # @api/endpoint = leaf, @api = container
+    return "/" not in ref
+
+
+def _format_container_text(result: dict) -> str:
+    """Format container listing as human-readable text."""
     if "_error" in result:
         return f"Error: {result['message']}"
 
     lines = []
     transport = result.get("transport", "unknown")
 
+    # HTTP API format
+    if transport == "http":
+        lines.append(f"API: {result.get('api', 'unknown')}")
+        if result.get("base_url"):
+            lines.append(f"Base URL: {result['base_url']}")
+        lines.append(f"Transport: {transport}")
+        lines.append("")
+
+        sources = result.get("sources", [])
+        lines.append(f"Sources ({len(sources)}):")
+        if sources:
+            for source in sources:
+                lines.append(f"  • {source['name']}")
+                if source.get("description"):
+                    lines.append(f"    {source['description']}")
+                lines.append(f"    Path: {source.get('path', '')}")
+                lines.append(f"    Method: {source.get('method', 'GET')}")
+                params = source.get("params", [])
+                if params:
+                    lines.append(f"    Parameters: {', '.join(params)}")
+                lines.append("")
+        else:
+            lines.append("  (none)")
+
     # MCP server format
-    if transport == "stdio":
+    elif transport == "stdio":
         lines.append(f"Server: {result.get('server', 'unknown')}")
         lines.append(f"Transport: {transport}")
         lines.append("")
@@ -67,47 +122,16 @@ def _format_text_output(result: dict) -> str:
         else:
             lines.append("  (none)")
 
-    # HTTP API format
-    elif transport == "http":
-        if "api" in result:
-            # Profile-based HTTP API
-            lines.append(f"API: {result.get('api', 'unknown')}")
-            lines.append(f"Base URL: {result.get('base_url', 'unknown')}")
-            lines.append(f"Transport: {transport}")
-            lines.append("")
-
-            sources = result.get("sources", [])
-            lines.append(f"Sources ({len(sources)}):")
-            if sources:
-                for source in sources:
-                    lines.append(f"  • {source['name']}")
-                    if source.get("description"):
-                        lines.append(f"    {source['description']}")
-                    lines.append(f"    Path: {source.get('path', '')}")
-                    lines.append(f"    Method: {source.get('method', 'GET')}")
-                    params = source.get("params", [])
-                    if params:
-                        lines.append(f"    Parameters: {', '.join(params)}")
-                    lines.append("")
-            else:
-                lines.append("  (none)")
-        else:
-            # Naked HTTP URL
-            lines.append(f"URL: {result.get('url', 'unknown')}")
-            lines.append(f"Host: {result.get('host', 'unknown')}")
-            lines.append(f"Scheme: {result.get('scheme', 'http')}")
-            lines.append(f"Transport: {transport}")
-            lines.append("")
-            lines.append(result.get("description", "No description"))
-
     # Gmail format
     elif transport == "gmail":
         lines.append(f"Account: {result.get('account', 'unknown')}")
         if result.get("email"):
             lines.append(f"Email: {result['email']}")
         lines.append(f"Transport: {transport}")
-        lines.append(f"Messages Total: {result.get('messagesTotal', 0)}")
-        lines.append(f"Threads Total: {result.get('threadsTotal', 0)}")
+        if result.get("messagesTotal"):
+            lines.append(f"Messages Total: {result['messagesTotal']}")
+        if result.get("threadsTotal"):
+            lines.append(f"Threads Total: {result['threadsTotal']}")
         lines.append("")
 
         labels = result.get("labels", [])
@@ -124,7 +148,7 @@ def _format_text_output(result: dict) -> str:
             lines.append("  (none)")
 
     else:
-        # Generic format (fallback)
+        # Generic format
         lines.append(f"Transport: {transport}")
         lines.append("")
         for key, value in result.items():
@@ -134,200 +158,304 @@ def _format_text_output(result: dict) -> str:
     return "\n".join(lines)
 
 
+def _format_data_text(result: dict) -> str:
+    """Format data inspection as human-readable text."""
+    lines = []
+
+    lines.append(f"Resource: {result.get('resource', 'unknown')}")
+    if result.get("transport"):
+        lines.append(f"Transport: {result['transport']}")
+    if result.get("format"):
+        lines.append(f"Format: {result['format']}")
+    lines.append(f"Rows: {result.get('rows', 0)}")
+    lines.append(f"Columns: {result.get('columns', 0)}")
+    lines.append("")
+
+    # Schema
+    schema = result.get("schema", {})
+    if schema:
+        lines.append("Schema:")
+        for field, info in schema.items():
+            nullable = " (nullable)" if info.get("nullable") else ""
+            unique = info.get("unique", 0)
+            field_min = info.get("min")
+            field_max = info.get("max")
+
+            line = f"  {field}: {info['type']}{nullable}"
+            if unique:
+                line += f" ({unique} unique)"
+            if field_min is not None and field_max is not None:
+                line += f" [{field_min} to {field_max}]"
+            lines.append(line)
+        lines.append("")
+
+    # Facets
+    facets = result.get("facets", {})
+    if facets:
+        lines.append("Facets:")
+        for field, counts in list(facets.items())[:5]:  # Limit to 5 fields
+            lines.append(f"  {field}:")
+            for value, count in list(counts.items())[:10]:  # Top 10 per field
+                lines.append(f"    {value}: {count}")
+            if len(counts) > 10:
+                lines.append(f"    ... ({len(counts) - 10} more)")
+            lines.append("")
+
+    # Stats
+    stats = result.get("stats", {})
+    if stats:
+        lines.append("Statistics:")
+        for field, field_stats in stats.items():
+            lines.append(f"  {field}:")
+            lines.append(f"    Count: {field_stats['count']} (nulls: {field_stats['nulls']})")
+            lines.append(f"    Min: {field_stats['min']:.2f}")
+            lines.append(f"    Max: {field_stats['max']:.2f}")
+            lines.append(f"    Mean: {field_stats['mean']:.2f}")
+            lines.append(f"    StdDev: {field_stats['stddev']:.2f}")
+            lines.append("")
+
+    return "\n".join(lines)
+
+
+def _inspect_container(address_str: str) -> dict:
+    """Inspect container - call cat and aggregate listings."""
+    # Execute: jn cat <container>
+    proc = subprocess.Popen(
+        ["jn", "cat", address_str],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=build_subprocess_env_for_coverage(),
+    )
+
+    listings = []
+    for line in proc.stdout:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            record = json.loads(line)
+            listings.append(record)
+        except json.JSONDecodeError:
+            continue
+
+    proc.wait()
+
+    if proc.returncode != 0:
+        stderr = proc.stderr.read()
+        return {"_error": True, "message": f"Failed to list container: {stderr}"}
+
+    if not listings:
+        return {"_error": True, "message": "No listings found"}
+
+    # Aggregate based on listing type
+    first = listings[0]
+    listing_type = first.get("_type")
+    container = first.get("_container", "")
+
+    if listing_type == "source":
+        # HTTP API sources
+        return {
+            "api": container.lstrip("@"),
+            "base_url": "",  # Would need to fetch from profile
+            "transport": "http",
+            "sources": [
+                {k: v for k, v in rec.items() if not k.startswith("_")}
+                for rec in listings
+            ],
+        }
+    elif listing_type in ("tool", "resource"):
+        # MCP tools/resources
+        tools = [rec for rec in listings if rec.get("_type") == "tool"]
+        resources = [rec for rec in listings if rec.get("_type") == "resource"]
+        return {
+            "server": container,
+            "transport": "stdio",
+            "tools": [
+                {k: v for k, v in rec.items() if not k.startswith("_")}
+                for rec in tools
+            ],
+            "resources": [
+                {k: v for k, v in rec.items() if not k.startswith("_")}
+                for rec in resources
+            ],
+        }
+    elif listing_type == "label":
+        # Gmail labels
+        # Extract account info from first record if present
+        return {
+            "account": "me",
+            "email": first.get("email", ""),
+            "transport": "gmail",
+            "messagesTotal": sum(rec.get("messagesTotal", 0) for rec in listings),
+            "threadsTotal": 0,  # Would need to aggregate properly
+            "labels": [
+                {k: v for k, v in rec.items() if not k.startswith("_")}
+                for rec in listings
+            ],
+        }
+    else:
+        # Generic
+        return {
+            "transport": "unknown",
+            "listings": listings,
+        }
+
+
+def _inspect_data(ctx, address_str: str, limit: int) -> dict:
+    """Inspect data - build analysis pipeline."""
+    # Parse address
+    addr = parse_address(address_str)
+
+    # Get plugin path to introspect config params
+    from ...addressing import AddressResolver
+    from ...plugins.discovery import get_cached_plugins_with_fallback
+
+    plugins = get_cached_plugins_with_fallback(ctx.plugin_dir, ctx.cache_path)
+    resolver = AddressResolver(ctx.plugin_dir, ctx.cache_path)
+
+    # Resolve to get plugin
+    try:
+        resolved = resolver.resolve(addr, mode="read")
+        plugin_path = resolved.plugin_path
+    except Exception as e:
+        return {"_error": True, "message": f"Failed to resolve address: {e}"}
+
+    # Get config params from plugin
+    config_params = get_plugin_config_params(plugin_path)
+
+    # Separate filters from config
+    config, filters = separate_config_and_filters(addr.parameters, config_params)
+    config["limit"] = str(limit)
+
+    # Build URI with config parameters as query string
+    from urllib.parse import urlencode
+
+    # Reconstruct URI with config parameters
+    base_uri = addr.base
+    if addr.format_override:
+        base_uri = f"{base_uri}~{addr.format_override}"
+
+    if config:
+        query_str = urlencode(config)
+        full_uri = f"{base_uri}?{query_str}"
+    else:
+        full_uri = base_uri
+
+    # Start cat process
+    cat_proc = subprocess.Popen(
+        ["jn", "cat", full_uri],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=build_subprocess_env_for_coverage(),
+    )
+
+    # Add filter if needed
+    if filters:
+        jq_expr = build_jq_filter(filters)
+        filter_proc = subprocess.Popen(
+            ["jn", "filter", jq_expr],
+            stdin=cat_proc.stdout,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=build_subprocess_env_for_coverage(),
+        )
+        cat_proc.stdout.close()
+        analyze_stdin = filter_proc.stdout
+    else:
+        filter_proc = None
+        analyze_stdin = cat_proc.stdout
+
+    # Analyze
+    analyze_proc = subprocess.Popen(
+        ["jn", "analyze", "--format", "json"],
+        stdin=analyze_stdin,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=build_subprocess_env_for_coverage(),
+    )
+
+    stdout, stderr = analyze_proc.communicate()
+
+    if analyze_proc.returncode != 0:
+        return {"_error": True, "message": f"Analysis failed: {stderr}"}
+
+    try:
+        result = json.loads(stdout)
+    except json.JSONDecodeError as e:
+        return {"_error": True, "message": f"Invalid analysis output: {e}"}
+
+    # Add metadata
+    result["resource"] = address_str
+    result["transport"] = addr.type
+    if addr.format_override:
+        result["format"] = addr.format_override
+
+    return result
+
+
 @click.command()
-@click.argument("server")
+@click.argument("uri")
+@click.option(
+    "--limit",
+    type=int,
+    default=10000,
+    help="Sample size for data inspection (default: 10000)",
+)
 @click.option(
     "--format",
     "output_format",
     type=click.Choice(["json", "text"]),
     default="text",
-    help="Output format (json or text)",
+    help="Output format",
 )
 @pass_context
-def inspect(ctx, server, output_format):
-    """List tools, resources, or sources from protocol servers.
+def inspect(ctx, uri, limit, output_format):
+    """Inspect resources - discover capabilities or analyze data.
 
-    Supports multiple protocols:
-    - MCP: mcp+uvx://package/command or @biomcp
-    - HTTP: https://api.example.com or @genomoncology
-    - Gmail: gmail://me
+    Container inspection (lists available resources):
+        jn inspect @api              # List HTTP API endpoints
+        jn inspect @biomcp           # List MCP tools/resources
+        jn inspect gmail://me        # List Gmail labels
 
-    Examples:
-        # Inspect MCP server
-        jn inspect "mcp+uvx://biomcp-python/biomcp"
-        jn inspect "@biomcp"
+    Data inspection (schema, stats, facets, samples):
+        jn inspect data.csv                    # Inspect local file
+        jn inspect @api/endpoint               # Inspect API data
+        jn inspect @api/endpoint?gene=BRAF     # Inspect filtered data
+        jn inspect gmail://me/INBOX            # Inspect Gmail messages
 
-        # Inspect HTTP API
-        jn inspect "https://api.example.com"
-        jn inspect "@genomoncology"
-
-        # Inspect Gmail account
-        jn inspect "gmail://me"
-
-        # JSON output
-        jn inspect "@genomoncology" --format json
+    Options:
+        --limit N      Sample size for data inspection (default: 10000)
+        --format json  Output as JSON instead of text
     """
     try:
         check_uv_available()
 
-        # Detect which plugin to use based on URL pattern
-        from ...plugins.discovery import get_cached_plugins_with_fallback
+        # Determine if this is container or data inspection
+        is_container = _is_container(uri)
 
-        plugins = get_cached_plugins_with_fallback(
-            ctx.plugin_dir, ctx.cache_path
-        )
-
-        # Determine plugin based on URL pattern
-        plugin_name = None
-        if server.startswith("mcp+"):
-            plugin_name = "mcp_"
-        elif server.startswith("http://") or server.startswith("https://"):
-            plugin_name = "http_"
-        elif server.startswith("gmail://"):
-            plugin_name = "gmail_"
-        elif server.startswith("@"):
-            # Profile reference - @ is special, determine type by profile location
-            # Parse profile name from @api or @api/source
-            profile_name = server[1:].split("/")[0].split("?")[0]
-
-            # Check which profile directory contains this profile
-            from pathlib import Path
-
-            profile_type = None
-
-            # Search order: project → user → bundled
-            search_paths = [
-                Path.cwd() / ".jn" / "profiles",
-                Path.home() / ".local" / "jn" / "profiles",
-            ]
-
-            # Add JN_HOME if set
-            import os
-
-            jn_home = os.environ.get("JN_HOME")
-            if jn_home:
-                search_paths.append(Path(jn_home) / "profiles")
-            else:
-                # Fallback to bundled (3 levels up from this file)
-                bundled = (
-                    Path(__file__).parent.parent.parent.parent
-                    / "jn_home"
-                    / "profiles"
-                )
-                if bundled.exists():
-                    search_paths.append(bundled)
-
-            # Determine profile type by which subdirectory contains it
-            # Check for ambiguity (same profile name in multiple protocols at same level)
-            for base_path in search_paths:
-                found_protocols = []
-                for protocol in ["mcp", "http", "gmail"]:
-                    profile_dir = base_path / protocol / profile_name
-                    if profile_dir.exists():
-                        found_protocols.append(protocol)
-
-                # If found in multiple protocols at same level, it's ambiguous
-                if len(found_protocols) > 1:
-                    click.echo(
-                        f"Error: Ambiguous profile '{profile_name}' found in multiple protocols: {', '.join(found_protocols)}",
-                        err=True,
-                    )
-                    click.echo(
-                        f"  Location: {base_path}",
-                        err=True,
-                    )
-                    click.echo(
-                        "  Remove duplicate profiles or use explicit protocol reference",
-                        err=True,
-                    )
-                    sys.exit(1)
-
-                # If found in exactly one protocol, use it
-                if found_protocols:
-                    profile_type = found_protocols[0]
-                    break
-
-            # Map profile type to plugin name
-            if profile_type == "mcp":
-                plugin_name = "mcp_"
-            elif profile_type == "http":
-                plugin_name = "http_"
-            elif profile_type == "gmail":
-                plugin_name = "gmail_"
-            else:
-                click.echo(
-                    f"Error: Profile '{profile_name}' not found in any protocol directory",
-                    err=True,
-                )
-                sys.exit(1)
-
-        if not plugin_name:
-            click.echo(
-                f"Error: Unable to determine protocol for: {server}", err=True
-            )
-            click.echo(
-                "Supported protocols: mcp+, http://, https://, gmail://",
-                err=True,
-            )
-            sys.exit(1)
-
-        # Find plugin
-        if plugin_name not in plugins:
-            click.echo(f"Error: Plugin ({plugin_name}) not found", err=True)
-            sys.exit(1)
-
-        plugin = plugins[plugin_name]
-
-        # Build command: uv run --script <plugin> --mode inspect <server>
-        cmd = [
-            "uv",
-            "run",
-            "--script",
-            str(plugin.path),
-            "--mode",
-            "inspect",
-            server,
-        ]
-
-        # Execute plugin
-        proc = subprocess.Popen(
-            cmd,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-
-        stdout, stderr = proc.communicate()
+        if is_container:
+            # Container: list capabilities
+            result = _inspect_container(uri)
+        else:
+            # Leaf: analyze data
+            result = _inspect_data(ctx, uri, limit)
 
         # Check for errors
-        if proc.returncode != 0:
-            click.echo(f"Error: Inspect failed: {stderr}", err=True)
-            sys.exit(1)
-
-        # Parse result
-        try:
-            result = json.loads(stdout)
-        except json.JSONDecodeError as e:
-            click.echo(f"Error: Invalid JSON response: {e}", err=True)
-            sys.exit(1)
-
-        # Check for _error in response
         if result.get("_error"):
-            click.echo(
-                f"Error: {result.get('message', 'Unknown error')}", err=True
-            )
+            click.echo(f"Error: {result.get('message', 'Unknown error')}", err=True)
             sys.exit(1)
 
         # Output
         if output_format == "json":
             click.echo(json.dumps(result, indent=2))
         else:
-            click.echo(_format_text_output(result))
+            if is_container:
+                click.echo(_format_container_text(result))
+            else:
+                click.echo(_format_data_text(result))
 
-    except json.JSONDecodeError as e:
-        click.echo(f"Error: Invalid JSON response: {e}", err=True)
-        sys.exit(1)
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)

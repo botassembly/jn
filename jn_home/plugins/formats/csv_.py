@@ -22,6 +22,7 @@ def reads(config: Optional[dict] = None) -> Iterator[dict]:
     Config:
         delimiter: Field delimiter (default: ',')
         skip_rows: Number of header rows to skip (default: 0)
+        limit: Maximum records to yield (default: None)
 
     Yields:
         Dict per CSV row with column headers as keys
@@ -29,6 +30,7 @@ def reads(config: Optional[dict] = None) -> Iterator[dict]:
     config = config or {}
     delimiter = config.get("delimiter", ",")
     skip_rows = config.get("skip_rows", 0)
+    limit = config.get("limit")
 
     # Skip header rows if requested
     for _ in range(skip_rows):
@@ -37,7 +39,15 @@ def reads(config: Optional[dict] = None) -> Iterator[dict]:
     # Read CSV
     reader = csv.DictReader(sys.stdin, delimiter=delimiter)
 
-    yield from reader
+    if limit:
+        count = 0
+        for row in reader:
+            yield row
+            count += 1
+            if count >= limit:
+                break
+    else:
+        yield from reader
 
 
 def writes(config: Optional[dict] = None) -> None:
@@ -116,6 +126,12 @@ if __name__ == "__main__":
         action="store_false",
         help="Skip header row when writing",
     )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Maximum records to yield when reading",
+    )
 
     args = parser.parse_args()
 
@@ -129,6 +145,8 @@ if __name__ == "__main__":
 
     if args.mode == "read":
         config["skip_rows"] = args.skip_rows
+        if args.limit:
+            config["limit"] = args.limit
         for record in reads(config):
             print(json.dumps(record), flush=True)
     else:

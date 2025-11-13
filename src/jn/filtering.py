@@ -143,14 +143,14 @@ def build_jq_filter(filters: List[Tuple[str, str, str]]) -> str:
         filters: List of (field, operator, value) tuples
 
     Returns:
-        jq filter expression
+        jq filter expression wrapped in select()
 
     Examples:
         >>> build_jq_filter([("category", "==", "Electronics"), ("category", "==", "Clothing")])
-        '(.category == "Electronics" or .category == "Clothing")'
+        'select((.category == "Electronics" or .category == "Clothing"))'
 
         >>> build_jq_filter([("category", "==", "Electronics"), ("revenue", ">", "1000")])
-        '.category == "Electronics" and .revenue > 1000'
+        'select(.category == "Electronics" and .revenue > 1000)'
     """
     if not filters:
         return "."  # Pass-through filter
@@ -174,11 +174,13 @@ def build_jq_filter(filters: List[Tuple[str, str, str]]) -> str:
             parts = [format_jq_condition(field, op, val) for op, val in conditions]
             clauses.append(f"({' or '.join(parts)})")
 
-    # Combine clauses with AND
+    # Combine clauses with AND and wrap in select()
     if len(clauses) == 1:
-        return clauses[0]
+        condition = clauses[0]
     else:
-        return " and ".join(clauses)
+        condition = " and ".join(clauses)
+
+    return f"select({condition})"
 
 
 def separate_config_and_filters(
