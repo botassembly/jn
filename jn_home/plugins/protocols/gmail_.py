@@ -1,5 +1,16 @@
 #!/usr/bin/env -S uv run --script
-"""Gmail API plugin for reading Gmail messages."""
+"""Gmail API plugin for reading Gmail messages.
+
+This plugin enables reading from Gmail using:
+- Gmail URLs: gmail://me/messages?from=boss&is=unread
+
+Examples:
+    # Fetch unread messages from specific sender
+    jn cat "gmail://me/messages?from=boss&is=unread"
+
+    # List available labels and folders
+    jn inspect "gmail://me"
+"""
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
@@ -324,12 +335,91 @@ def reads(
         yield error_record("gmail_api_error", f"Gmail API error: {str(e)}")
 
 
+def inspects(url: str = None, **config) -> dict:
+    """List available Gmail labels and folders (inspect operation).
+
+    This is the 'inspect' operation - shows what's available from Gmail account.
+
+    Args:
+        url: Gmail URL (e.g., "gmail://me")
+        **config: Optional configuration (token_path, credentials_path)
+
+    Returns:
+        Dict with account info and available labels:
+        {
+            "account": "me",
+            "transport": "gmail",
+            "labels": [
+                {
+                    "id": "INBOX",
+                    "name": "INBOX",
+                    "type": "system",
+                    "messagesTotal": 42,
+                    "messagesUnread": 5
+                }
+            ]
+        }
+    """
+    try:
+        # Get credentials
+        token_path = config.get("token_path")
+        credentials_path = config.get("credentials_path")
+        token_p = Path(token_path) if token_path else None
+        creds_p = Path(credentials_path) if credentials_path else None
+        creds = get_credentials(token_path=token_p, credentials_path=creds_p)
+
+        # Build Gmail API service
+        service = build("gmail", "v1", credentials=creds)
+
+        # Parse user_id from URL if provided
+        user_id = "me"
+        if url:
+            from urllib.parse import urlparse
+            parsed = urlparse(url)
+            if parsed.netloc:
+                user_id = parsed.netloc
+
+        # Get profile info
+        profile = service.users().getProfile(userId=user_id).execute()
+
+        # List all labels
+        labels_result = service.users().labels().list(userId=user_id).execute()
+        labels = labels_result.get("labels", [])
+
+        # Format label info
+        formatted_labels = []
+        for label in labels:
+            formatted_labels.append({
+                "id": label["id"],
+                "name": label["name"],
+                "type": label.get("type", "user").lower(),
+                "messagesTotal": label.get("messagesTotal", 0),
+                "messagesUnread": label.get("messagesUnread", 0),
+            })
+
+        return {
+            "account": user_id,
+            "email": profile.get("emailAddress"),
+            "transport": "gmail",
+            "messagesTotal": profile.get("messagesTotal", 0),
+            "threadsTotal": profile.get("threadsTotal", 0),
+            "labels": formatted_labels,
+        }
+
+    except FileNotFoundError as e:
+        return error_record("credentials_not_found", str(e))
+    except HttpError as e:
+        return error_record("gmail_api_error", f"Gmail API error: {str(e)}")
+    except Exception as e:
+        return error_record("inspect_error", str(e), exception_type=type(e).__name__)
+
+
 if __name__ == "__main__":
     import argparse
     from urllib.parse import parse_qs, urlparse
 
     parser = argparse.ArgumentParser(description="Gmail protocol plugin")
-    parser.add_argument("--mode", choices=["read"], help="Operation mode")
+    parser.add_argument("--mode", choices=["read", "inspect"], help="Operation mode")
     parser.add_argument("url", nargs="?", help="Gmail URL (e.g., gmail://me/messages?from=boss&is=unread)")
     parser.add_argument("--max-results", type=int, default=500, help="Max results per page")
     parser.add_argument("--include-spam-trash", action="store_true", help="Include spam/trash")
@@ -347,42 +437,56 @@ if __name__ == "__main__":
     if not args.mode:
         parser.error("--mode is required")
 
-    if not args.url:
-        parser.error("URL is required")
+    if args.mode == "inspect":
+        # Inspect mode: list labels and account info
+        if not args.url:
+            # Default to "me" if no URL provided
+            args.url = "gmail://me"
 
-    # Parse gmail:// URL
-    # Expected format: gmail://user_id/endpoint?from=boss&is=unread
-    parsed = urlparse(args.url)
-
-    if parsed.scheme != "gmail":
-        print(json.dumps(error_record("invalid_url", f"URL must start with gmail://, got: {args.url}")), flush=True)
-        sys.exit(1)
-
-    # Extract user_id from netloc (e.g., "me" from gmail://me/messages)
-    user_id = parsed.netloc or "me"
-
-    # Parse query string into params dict
-    # parse_qs returns lists for each key, flatten single values
-    params = {}
-    if parsed.query:
-        parsed_params = parse_qs(parsed.query)
-        for key, values in parsed_params.items():
-            # If only one value, use it directly; otherwise keep as list
-            params[key] = values[0] if len(values) == 1 else values
-
-    # Call reads() and output NDJSON
-    try:
-        for record in reads(
-            user_id=user_id,
-            max_results=args.max_results,
-            include_spam_trash=args.include_spam_trash,
-            format=args.format,
-            label_ids=None,  # Could add to URL if needed
+        result = inspects(
+            url=args.url,
             token_path=args.token_path,
             credentials_path=args.credentials_path,
-            **params,
-        ):
-            print(json.dumps(record), flush=True)
-    except KeyboardInterrupt:
-        # Handle Ctrl+C gracefully
-        sys.exit(0)
+        )
+        print(json.dumps(result, indent=2), flush=True)
+
+    else:  # read mode
+        if not args.url:
+            parser.error("URL is required for read mode")
+
+        # Parse gmail:// URL
+        # Expected format: gmail://user_id/endpoint?from=boss&is=unread
+        parsed = urlparse(args.url)
+
+        if parsed.scheme != "gmail":
+            print(json.dumps(error_record("invalid_url", f"URL must start with gmail://, got: {args.url}")), flush=True)
+            sys.exit(1)
+
+        # Extract user_id from netloc (e.g., "me" from gmail://me/messages)
+        user_id = parsed.netloc or "me"
+
+        # Parse query string into params dict
+        # parse_qs returns lists for each key, flatten single values
+        params = {}
+        if parsed.query:
+            parsed_params = parse_qs(parsed.query)
+            for key, values in parsed_params.items():
+                # If only one value, use it directly; otherwise keep as list
+                params[key] = values[0] if len(values) == 1 else values
+
+        # Call reads() and output NDJSON
+        try:
+            for record in reads(
+                user_id=user_id,
+                max_results=args.max_results,
+                include_spam_trash=args.include_spam_trash,
+                format=args.format,
+                label_ids=None,  # Could add to URL if needed
+                token_path=args.token_path,
+                credentials_path=args.credentials_path,
+                **params,
+            ):
+                print(json.dumps(record), flush=True)
+        except KeyboardInterrupt:
+            # Handle Ctrl+C gracefully
+            sys.exit(0)
