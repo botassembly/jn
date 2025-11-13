@@ -48,6 +48,32 @@ def test_jn_sh_ls(jn_cli, tmp_path):
     assert "size" in records[0]
 
 
+def test_jn_sh_ls_simple(jn_cli, tmp_path):
+    """Test jn sh ls (without -l) degrades gracefully to filenames-only."""
+    # Create test files
+    (tmp_path / "a.txt").write_text("a")
+    (tmp_path / "b.txt").write_text("b")
+
+    result = subprocess.run(
+        [*jn_cli, "sh", "ls", str(tmp_path)],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+    lines = [line for line in result.stdout.strip().split("\n") if line]
+    assert len(lines) >= 2
+
+    # Should be valid NDJSON with minimal schema (filename only)
+    records = [json.loads(line) for line in lines]
+    filenames = [r["filename"] for r in records]
+    assert "a.txt" in filenames
+    assert "b.txt" in filenames
+
+    # Short ls output should not include long listing fields like 'flags'
+    assert all("flags" not in r for r in records)
+
+
 def test_jn_cat_ls(jn_cli, tmp_path):
     """Test jn cat 'ls -l' command."""
     # Create test file

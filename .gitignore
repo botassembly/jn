@@ -17,3 +17,4 @@ jn.json
 # Plugin cache (auto-generated)
 cache.json
 **/cache.json
+vendor
