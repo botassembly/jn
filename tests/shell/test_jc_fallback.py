@@ -52,11 +52,14 @@ def test_execute_with_jc_ls(tmp_path):
 
     # Capture output of execute_with_jc
     result = subprocess.run(
-        [sys.executable, "-c",
-         f"from jn.shell.jc_fallback import execute_with_jc; "
-         f"import sys; sys.exit(execute_with_jc('ls -l {tmp_path}'))"],
+        [
+            sys.executable,
+            "-c",
+            f"from jn.shell.jc_fallback import execute_with_jc; "
+            f"import sys; sys.exit(execute_with_jc('ls -l {tmp_path}'))",
+        ],
         capture_output=True,
-        text=True
+        text=True,
     )
 
     assert result.returncode == 0
@@ -80,11 +83,14 @@ def test_execute_with_jc_ps():
         pytest.skip("jc not available")
 
     result = subprocess.run(
-        [sys.executable, "-c",
-         "from jn.shell.jc_fallback import execute_with_jc; "
-         "import sys; sys.exit(execute_with_jc('ps aux'))"],
+        [
+            sys.executable,
+            "-c",
+            "from jn.shell.jc_fallback import execute_with_jc; "
+            "import sys; sys.exit(execute_with_jc('ps aux'))",
+        ],
         capture_output=True,
-        text=True
+        text=True,
     )
 
     assert result.returncode == 0
@@ -104,11 +110,14 @@ def test_execute_with_jc_env():
         pytest.skip("jc not available")
 
     result = subprocess.run(
-        [sys.executable, "-c",
-         "from jn.shell.jc_fallback import execute_with_jc; "
-         "import sys; sys.exit(execute_with_jc('env'))"],
+        [
+            sys.executable,
+            "-c",
+            "from jn.shell.jc_fallback import execute_with_jc; "
+            "import sys; sys.exit(execute_with_jc('env'))",
+        ],
         capture_output=True,
-        text=True
+        text=True,
     )
 
     assert result.returncode == 0
@@ -130,12 +139,18 @@ def test_execute_with_jc_unsupported_command():
         pytest.skip("jc not available")
 
     result = subprocess.run(
-        [sys.executable, "-c",
-         "from jn.shell.jc_fallback import execute_with_jc; "
-         "import sys; sys.exit(execute_with_jc('unsupported_xyz'))"],
+        [
+            sys.executable,
+            "-c",
+            "from jn.shell.jc_fallback import execute_with_jc; "
+            "import sys; sys.exit(execute_with_jc('unsupported_xyz'))",
+        ],
         capture_output=True,
-        text=True
+        text=True,
     )
 
     assert result.returncode == 1
-    assert "does not support command" in result.stderr or "not found" in result.stderr
+    assert (
+        "does not support command" in result.stderr
+        or "not found" in result.stderr
+    )

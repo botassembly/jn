@@ -72,7 +72,9 @@ def sh(ctx, command):
 
         # Plugin found - use it
         if not stages:
-            click.echo(f"Error: No stages planned for command: {command[0]}", err=True)
+            click.echo(
+                f"Error: No stages planned for command: {command[0]}", err=True
+            )
             sys.exit(1)
 
         if len(stages) > 1:
