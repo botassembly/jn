@@ -3,7 +3,7 @@
 # requires-python = ">=3.11"
 # dependencies = ["jc>=1.23.0"]
 # [tool.jn]
-# matches = ["^shell://ls$", "^shell://ls\\?.*"]
+# matches = ["^ls$", "^ls\\?.*"]
 # ///
 
 """
@@ -12,10 +12,10 @@ JN Shell Plugin: ls
 Execute `ls` command and convert output to NDJSON using jc parser.
 
 Usage:
-    jn cat shell://ls
-    jn cat "shell://ls?path=/tmp"
-    jn cat "shell://ls?path=/var/log&long=true"
-    jn cat "shell://ls?path=/usr/bin" | head -n 10
+    jn cat ls
+    jn cat "ls?path=/tmp"
+    jn cat "ls?path=/var/log&long=true"
+    jn cat "ls?path=/usr/bin" | head -n 10
 
 Supported parameters:
     path - Directory to list (default: current directory)
@@ -165,18 +165,15 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='JN ls shell plugin')
     parser.add_argument('--mode', default='read', help='Plugin mode (read/write)')
-    parser.add_argument('--url', help='Shell URL with parameters')
-    parser.add_argument('--config', help='JSON config string')
+    parser.add_argument('address', nargs='?', help='Command address with parameters (e.g., ls?path=/tmp)')
 
     args = parser.parse_args()
 
     if args.mode == 'read':
-        # Parse config from URL or config arg
+        # Parse config from address
         config = {}
-        if args.url:
-            config = parse_config_from_url(args.url)
-        elif args.config:
-            config = json.loads(args.config)
+        if args.address:
+            config = parse_config_from_url(args.address)
 
         reads(config)
     else:
