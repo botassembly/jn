@@ -187,3 +187,37 @@ def test_custom_plugin_takes_priority_over_jc(jn_cli):
         assert "line_number" in record
     finally:
         Path(temp_file).unlink()
+
+
+def test_jn_cat_with_shell_command(jn_cli):
+    """Test that jn cat works with shell command plugins."""
+    # Create a test file
+    import tempfile
+    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt') as f:
+        f.write("line1\nline2\nline3\nline4\nline5\n")
+        f.flush()
+        temp_file = f.name
+
+    try:
+        # Test jn cat with tail command (should use tail_shell plugin)
+        result = subprocess.run(
+            jn_cli + ["cat", f"tail -n 3 {temp_file}"],
+            capture_output=True,
+            text=True
+        )
+
+        assert result.returncode == 0, f"Failed with stderr: {result.stderr}"
+        lines = [line for line in result.stdout.strip().split("\n") if line]
+        assert len(lines) == 3
+
+        # Verify it's using the custom tail plugin (has line_number field)
+        for line in lines:
+            record = json.loads(line)
+            assert "line" in record
+            assert "line_number" in record
+
+        # Verify content
+        record = json.loads(lines[0])
+        assert "line3" in record["line"]
+    finally:
+        Path(temp_file).unlink()
