@@ -11,6 +11,7 @@ from ...addressing import (
     parse_address,
 )
 from ...context import pass_context
+from ...shell.jc_fallback import execute_with_jc, supports_command
 from ..helpers import build_subprocess_env_for_coverage, check_uv_available
 
 
@@ -56,11 +57,19 @@ def sh(ctx, command):
         resolver = AddressResolver(ctx.plugin_dir, ctx.cache_path)
         stages = resolver.plan_execution(addr, mode="read")
 
+        # If no custom plugin found, try jc fallback
         if not stages:
-            click.echo(
-                f"Error: No plugin found for command: {command[0]}", err=True
-            )
-            sys.exit(1)
+            command_name = command[0]
+            if supports_command(command_name):
+                # Use jc fallback
+                exit_code = execute_with_jc(command_str)
+                sys.exit(exit_code)
+            else:
+                click.echo(
+                    f"Error: No plugin or jc parser found for command: {command_name}",
+                    err=True
+                )
+                sys.exit(1)
 
         if len(stages) > 1:
             click.echo(

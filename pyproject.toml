@@ -26,6 +26,7 @@ authors = [
 ]
 dependencies = [
     "click>=8.0.0",
+    "jc>=1.23.0",
     "ruamel.yaml>=0.18.0",
 ]
 
