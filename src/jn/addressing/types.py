@@ -53,6 +53,13 @@ class Address:
     - stdio: Stdin/stdout (-)
     """
 
+    compression: Optional[str] = None
+    """Compression format detected from extension.
+
+    Examples: "gz", "bz2", "xz"
+    When present, a decompression stage will be inserted in the pipeline.
+    """
+
     def __str__(self) -> str:
         """Human-readable representation."""
         parts = [self.base]

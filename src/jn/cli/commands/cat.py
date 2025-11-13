@@ -50,39 +50,75 @@ def _execute_with_filter(stages, addr, filters):
     """Execute pipeline with optional filter stage.
 
     Args:
-        stages: List of execution stages (1 or 2)
+        stages: List of execution stages (1-3)
         addr: Parsed address
         filters: List of filter tuples, or empty list
     """
     # Build reader processes
-    if len(stages) == 2:
-        # Two-stage: protocol + format
-        protocol_cmd = _build_command(stages[0])
-        format_cmd = _build_command(stages[1])
+    if len(stages) >= 2:
+        # Multi-stage pipeline (2 or 3 stages)
+        # Examples:
+        #   2-stage: protocol (raw) → format (read)
+        #   2-stage: decompress (raw) → format (read)  [for local .gz files]
+        #   3-stage: protocol (raw) → decompress (raw) → format (read)
 
-        protocol_proc = subprocess.Popen(
-            protocol_cmd,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=False,
-            env=build_subprocess_env_for_coverage(),
-        )
+        procs = []
+        prev_proc = None
+        infile_handle = None
 
-        format_proc = subprocess.Popen(
-            format_cmd,
-            stdin=protocol_proc.stdout,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            env=build_subprocess_env_for_coverage(),
-        )
+        for i, stage in enumerate(stages):
+            cmd = _build_command(stage)
+            is_last = (i == len(stages) - 1)
+            is_first = (i == 0)
 
-        protocol_proc.stdout.close()
-        reader_stdout = format_proc.stdout
-        reader_stderr = format_proc.stderr
-        reader_proc = format_proc
-        other_proc = protocol_proc
+            # Determine stdin source
+            if is_first:
+                # First stage: check if it has a URL or needs file input
+                if stage.url:
+                    # Protocol stage: DEVNULL (gets URL argument)
+                    stdin_source = subprocess.DEVNULL
+                elif addr.type == "file":
+                    # Local file: reconstruct file path with compression extension
+                    file_path = addr.base
+                    if addr.compression:
+                        file_path = f"{file_path}.{addr.compression}"
+                    infile_handle = open(file_path, 'rb')
+                    stdin_source = infile_handle
+                elif addr.type == "stdio":
+                    stdin_source = sys.stdin.buffer
+                else:
+                    stdin_source = subprocess.DEVNULL
+            else:
+                # Subsequent stages: pipe from previous
+                stdin_source = prev_proc.stdout
+
+            # Determine output text mode
+            # Last stage outputs NDJSON (text), others output raw bytes
+            text_mode = is_last and stage.mode == "read"
+
+            proc = subprocess.Popen(
+                cmd,
+                stdin=stdin_source,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=text_mode,
+                env=build_subprocess_env_for_coverage(),
+            )
+
+            # Close previous stdout in parent to enable SIGPIPE
+            if prev_proc:
+                prev_proc.stdout.close()
+
+            procs.append(proc)
+            prev_proc = proc
+
+        # Last process is the reader
+        reader_proc = procs[-1]
+        reader_stdout = reader_proc.stdout
+        reader_stderr = reader_proc.stderr
+        other_proc = procs[0] if len(procs) > 1 else None
+        # Store all procs for cleanup
+        all_procs = procs
 
     elif len(stages) == 1:
         # Single-stage
@@ -151,11 +187,17 @@ def _execute_with_filter(stages, addr, filters):
     # Wait for all processes
     final_proc.wait()
     reader_proc.wait()
-    if other_proc:
+
+    # Wait for all intermediate processes
+    if "all_procs" in locals():
+        for proc in all_procs:
+            if proc != reader_proc:
+                proc.wait()
+    elif other_proc:
         other_proc.wait()
 
     # Close file if opened
-    if len(stages) == 1 and "infile_handle" in locals() and infile_handle:
+    if "infile_handle" in locals() and infile_handle:
         infile_handle.close()
 
     # Check for errors
@@ -170,7 +212,17 @@ def _execute_with_filter(stages, addr, filters):
         click.echo(f"Error: Reader error: {error_msg}", err=True)
         sys.exit(1)
 
-    if other_proc and other_proc.returncode != 0:
+    # Check all intermediate processes for errors
+    if "all_procs" in locals():
+        for i, proc in enumerate(all_procs):
+            if proc != reader_proc and proc.returncode != 0:
+                error_msg = proc.stderr.read()
+                if isinstance(error_msg, bytes):
+                    error_msg = error_msg.decode("utf-8")
+                stage_name = "Stage" if i == 0 else "Decompression" if i == 1 and len(all_procs) == 3 else "Protocol"
+                click.echo(f"Error: {stage_name} error: {error_msg}", err=True)
+                sys.exit(1)
+    elif other_proc and other_proc.returncode != 0:
         error_msg = other_proc.stderr.read()
         if isinstance(error_msg, bytes):
             error_msg = error_msg.decode("utf-8")
@@ -283,6 +335,9 @@ def cat(ctx, input_file):
         # Rebuild address with ONLY config parameters (removing filters)
         # Reconstruct address with only config
         base_addr = addr.base
+        # Add compression extension back if present
+        if addr.compression:
+            base_addr = f"{base_addr}.{addr.compression}"
         if addr.format_override:
             base_addr = f"{base_addr}~{addr.format_override}"
 

@@ -132,12 +132,17 @@ class AddressResolver:
         1. Protocol stage (raw mode) - fetches bytes
         2. Format stage (read mode) - parses bytes
 
+        For compressed files (.gz, .bz2, .xz), inserts decompression stage:
+        1. Protocol/file stage (raw mode) - fetches/reads bytes
+        2. Decompression stage (raw mode) - decompresses bytes
+        3. Format stage (read mode) - parses decompressed bytes
+
         Args:
             address: Parsed address to resolve
             mode: Plugin mode ("read" or "write")
 
         Returns:
-            List of execution stages (1 or 2 stages)
+            List of execution stages (1-3 stages)
 
         Raises:
             AddressResolutionError: If address cannot be resolved
@@ -153,14 +158,42 @@ class AddressResolver:
         ):
             return []
 
+        # Build base stages (protocol + format, or single stage)
+        stages = []
+
         # Only consider 2-stage for protocol URLs in read mode
         if (
             mode == "read"
             and address.type == "protocol"
-            and not address.format_override
         ):
-            # Check if registry suggests 2-stage plan
-            plan = self._registry.plan_for_read(address.base, self._plugins)
+            # Check if registry suggests 2-stage plan OR if there's explicit format override
+            # Note: We use the original base (without .gz) for format detection
+            if address.format_override:
+                # Explicit format override: protocol (raw) → format (read)
+                # Extract protocol from URL
+                protocol = address.base.split("://")[0]
+                proto_name = f"{protocol}_"
+
+                # Verify protocol plugin exists
+                if proto_name not in self._plugins:
+                    # Try common protocols
+                    if protocol in ("http", "https"):
+                        proto_name = "http_"
+                    else:
+                        raise AddressResolutionError(f"Protocol plugin not found: {protocol}")
+
+                # Get format plugin name
+                fmt_name = f"{address.format_override}_"
+                if fmt_name not in self._plugins:
+                    # Try without underscore
+                    fmt_name = address.format_override
+                    if fmt_name not in self._plugins:
+                        raise AddressResolutionError(f"Format plugin not found: {address.format_override}")
+
+                plan = [proto_name, fmt_name]
+            else:
+                # Auto-detect format from URL
+                plan = self._registry.plan_for_read(address.base, self._plugins)
 
             if len(plan) == 2:
                 # Two-stage: protocol (raw) → format (read)
@@ -169,9 +202,22 @@ class AddressResolver:
                 fmt_plugin = self._plugins[fmt_name]
 
                 # Resolve URL and headers
-                url, headers = self._resolve_url_and_headers(
-                    address, proto_name
+                # Reconstruct full URL with compression extension if needed
+                if address.compression:
+                    # Add compression extension back: base + .gz
+                    full_url = f"{address.base}.{address.compression}"
+                else:
+                    full_url = address.base
+
+                # Create temporary address with full URL for resolution
+                temp_addr = Address(
+                    raw=full_url,
+                    base=full_url,
+                    format_override=None,  # Don't include format in URL
+                    parameters={},  # Don't include params in URL
+                    type="protocol",
                 )
+                url, headers = self._resolve_url_and_headers(temp_addr, proto_name)
 
                 # Protocol stage: raw mode, URL as argument
                 protocol_stage = ExecutionStage(
@@ -182,7 +228,7 @@ class AddressResolver:
                     headers=headers,
                 )
 
-                # Format stage: read mode, stdin from protocol
+                # Format stage: read mode, stdin from protocol/decompression
                 # Build config from address parameters
                 format_config = self._build_config(
                     address.parameters, fmt_name
@@ -195,18 +241,64 @@ class AddressResolver:
                     headers=None,
                 )
 
-                return [protocol_stage, format_stage]
+                stages = [protocol_stage, format_stage]
+            else:
+                # Single stage - resolve normally
+                resolved = self.resolve(address, mode)
+                stage = ExecutionStage(
+                    plugin_path=resolved.plugin_path,
+                    mode=mode,
+                    config=resolved.config,
+                    url=resolved.url,
+                    headers=resolved.headers,
+                )
+                stages = [stage]
+        else:
+            # Single-stage execution
+            resolved = self.resolve(address, mode)
+            stage = ExecutionStage(
+                plugin_path=resolved.plugin_path,
+                mode=mode,
+                config=resolved.config,
+                url=resolved.url,
+                headers=resolved.headers,
+            )
+            stages = [stage]
 
-        # Single-stage execution
-        resolved = self.resolve(address, mode)
-        stage = ExecutionStage(
-            plugin_path=resolved.plugin_path,
-            mode=mode,
-            config=resolved.config,
-            url=resolved.url,
-            headers=resolved.headers,
-        )
-        return [stage]
+        # Insert decompression stage if compression detected (only in read mode)
+        if mode == "read" and address.compression:
+            # Find decompression plugin
+            try:
+                decomp_name = f"{address.compression}_"
+                decomp_plugin = self._plugins.get(decomp_name)
+                if not decomp_plugin:
+                    raise AddressResolutionError(
+                        f"Decompression plugin not found: {address.compression}. "
+                        f"Available plugins: {', '.join(sorted(self._plugins.keys()))}"
+                    )
+
+                decomp_stage = ExecutionStage(
+                    plugin_path=decomp_plugin.path,
+                    mode="raw",
+                    config={},
+                    url=None,
+                    headers=None,
+                )
+
+                # Insert decompression stage after first stage (protocol/file read)
+                # Pipeline becomes: fetch/read (raw) → decompress (raw) → parse (read)
+                if len(stages) >= 2:
+                    # Protocol + format: insert decomp between them
+                    stages = [stages[0], decomp_stage, stages[1]]
+                elif len(stages) == 1:
+                    # Single stage: add decomp before it
+                    stages = [decomp_stage, stages[0]]
+            except KeyError:
+                raise AddressResolutionError(
+                    f"Decompression plugin not found: {address.compression}"
+                )
+
+        return stages
 
     def _find_plugin(self, address: Address, mode: str) -> Tuple[str, str]:
         """Find plugin for address.
