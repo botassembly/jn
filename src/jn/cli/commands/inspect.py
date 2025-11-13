@@ -341,6 +341,9 @@ def _inspect_data(ctx, address_str: str, limit: int) -> dict:
 
     # Reconstruct URI with config parameters
     base_uri = addr.base
+    # Add compression extension back if present
+    if addr.compression:
+        base_uri = f"{base_uri}.{addr.compression}"
     if addr.format_override:
         base_uri = f"{base_uri}~{addr.format_override}"
 
