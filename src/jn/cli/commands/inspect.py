@@ -171,9 +171,9 @@ def inspect(ctx, server, output_format):
         check_uv_available()
 
         # Detect which plugin to use based on URL pattern
-        from ...plugins.discovery import discover_plugins
+        from ...plugins.discovery import get_cached_plugins_with_fallback
 
-        plugins = discover_plugins(ctx.plugin_dir)
+        plugins = get_cached_plugins_with_fallback(ctx.plugin_dir, ctx.cache_path)
 
         # Determine plugin based on URL pattern
         plugin_name = None
@@ -183,13 +183,14 @@ def inspect(ctx, server, output_format):
             plugin_name = "http_"
         elif server.startswith("gmail://"):
             plugin_name = "gmail_"
-        elif server.startswith("@") and "mcp_" in plugins:
+        elif server.startswith("@"):
             # Profile reference - could be MCP or HTTP
-            # Try MCP first (most common), fall back to HTTP
-            plugin_name = "mcp_"
-            # Check if it's an HTTP profile by looking for the profile directory
-            # This is a heuristic - we'll try MCP first and let it fail gracefully
-            # if it's actually an HTTP profile, the error will guide us
+            # Try MCP first if available, otherwise HTTP
+            if "mcp_" in plugins:
+                plugin_name = "mcp_"
+            elif "http_" in plugins:
+                plugin_name = "http_"
+            # The chosen plugin will try to resolve, and we have fallback logic below
 
         if not plugin_name:
             click.echo(
@@ -230,9 +231,18 @@ def inspect(ctx, server, output_format):
 
         stdout, stderr = proc.communicate()
 
-        # Check for errors
-        if proc.returncode != 0:
-            # If MCP failed on @ reference, try HTTP
+        # Parse result to check for errors
+        result = None
+        has_error = False
+        try:
+            result = json.loads(stdout)
+            has_error = result.get("_error", False)
+        except json.JSONDecodeError:
+            has_error = True
+
+        # Check for errors (either non-zero exit or _error in JSON)
+        if proc.returncode != 0 or has_error:
+            # If MCP failed on @ reference, try HTTP as fallback
             if (
                 plugin_name == "mcp_"
                 and server.startswith("@")
@@ -250,17 +260,30 @@ def inspect(ctx, server, output_format):
                 )
                 stdout, stderr = proc.communicate()
 
-                if proc.returncode != 0:
-                    click.echo(f"Error: Inspect failed: {stderr}", err=True)
+                # Re-parse result
+                try:
+                    result = json.loads(stdout)
+                    has_error = result.get("_error", False)
+                except json.JSONDecodeError as e:
+                    click.echo(f"Error: Invalid JSON response: {e}", err=True)
+                    sys.exit(1)
+
+                # If HTTP also failed, report error
+                if proc.returncode != 0 or has_error:
+                    if has_error:
+                        click.echo(f"Error: {result.get('message', 'Unknown error')}", err=True)
+                    else:
+                        click.echo(f"Error: Inspect failed: {stderr}", err=True)
                     sys.exit(1)
             else:
-                click.echo(f"Error: Inspect failed: {stderr}", err=True)
+                # Not an @ reference or no HTTP fallback available
+                if has_error:
+                    click.echo(f"Error: {result.get('message', 'Unknown error')}", err=True)
+                else:
+                    click.echo(f"Error: Inspect failed: {stderr}", err=True)
                 sys.exit(1)
 
-        # Parse result
-        result = json.loads(stdout)
-
-        # Output
+        # Output (result already parsed above)
         if output_format == "json":
             click.echo(json.dumps(result, indent=2))
         else:

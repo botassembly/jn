@@ -206,15 +206,15 @@ def list_profile_sources(api_name: str) -> list[str]:
 def resolve_profile_reference(
     reference: str,
     params: Optional[Dict] = None
-) -> Tuple[str, Dict[str, str], int]:
-    """Resolve @api/source reference to URL, headers, and timeout.
+) -> Tuple[str, Dict[str, str], int, str]:
+    """Resolve @api/source reference to URL, headers, timeout, and method.
 
     Args:
         reference: Profile reference like "@genomoncology/alterations"
         params: Optional query parameters
 
     Returns:
-        Tuple of (url, headers_dict, timeout)
+        Tuple of (url, headers_dict, timeout, method)
 
     Raises:
         ProfileError: If profile not found
@@ -264,11 +264,12 @@ def resolve_profile_reference(
         query_string = urlencode(merged_params, doseq=True)
         url = f"{url}?{query_string}"
 
-    # Get headers and timeout
+    # Get headers, timeout, and method
     headers = profile.get("headers", {})
     timeout = profile.get("timeout", 30)
+    method = profile.get("method", "GET")
 
-    return url, headers, timeout
+    return url, headers, timeout, method
 
 
 def error_record(error_type: str, message: str, **extra) -> dict:
@@ -308,14 +309,17 @@ def reads(
     # Check if this is a profile reference
     if url.startswith("@"):
         try:
-            # Resolve profile to URL and headers
-            resolved_url, profile_headers, profile_timeout = resolve_profile_reference(url, params)
+            # Resolve profile to URL, headers, timeout, and method
+            resolved_url, profile_headers, profile_timeout, profile_method = resolve_profile_reference(url, params)
             url = resolved_url
             # Merge headers: explicit headers override profile headers
             headers = {**profile_headers, **(headers or {})}
             # Use profile timeout if not explicitly set
             if timeout == 30:  # Default value
                 timeout = profile_timeout
+            # Use profile method if not explicitly set
+            if method == "GET":  # Default value
+                method = profile_method
         except ProfileError as e:
             yield error_record("profile_error", str(e))
             return
