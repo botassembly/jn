@@ -8,8 +8,6 @@ import shlex
 import shutil
 import subprocess
 import sys
-from typing import Optional
-
 
 # jc commands that have streaming parsers (output NDJSON directly)
 STREAMING_PARSERS = {
@@ -28,7 +26,7 @@ STREAMING_PARSERS = {
 
 def is_jc_available() -> bool:
     """Check if jc command is installed."""
-    return shutil.which('jc') is not None
+    return shutil.which("jc") is not None
 
 
 def supports_command(command: str) -> bool:
@@ -46,13 +44,10 @@ def supports_command(command: str) -> bool:
     try:
         # jc --help lists all supported commands
         result = subprocess.run(
-            ['jc', '--help'],
-            capture_output=True,
-            text=True,
-            timeout=2
+            ["jc", "--help"], capture_output=True, text=True, timeout=2
         )
         # Look for --commandname in help output
-        return f'--{command}' in result.stdout
+        return f"--{command}" in result.stdout
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return False
 
@@ -72,7 +67,7 @@ def execute_with_jc(command_str: str) -> int:
     if not is_jc_available():
         error = {
             "_error": "jc not found. Install: pip install jc",
-            "hint": "https://github.com/kellyjonbrazil/jc"
+            "hint": "https://github.com/kellyjonbrazil/jc",
         }
         print(json.dumps(error), file=sys.stderr)
         return 1
@@ -96,22 +91,20 @@ def execute_with_jc(command_str: str) -> int:
     if not supports_command(command):
         error = {
             "_error": f"jc does not support command: {command}",
-            "hint": "Run 'jc --help' to see supported commands"
+            "hint": "Run 'jc --help' to see supported commands",
         }
         print(json.dumps(error), file=sys.stderr)
         return 1
 
     # Determine if streaming parser available
     use_streaming = command in STREAMING_PARSERS
-    jc_parser = f'--{command}-s' if use_streaming else f'--{command}'
-    jc_cmd = ['jc', jc_parser]
+    jc_parser = f"--{command}-s" if use_streaming else f"--{command}"
+    jc_cmd = ["jc", jc_parser]
 
     try:
         # Chain: command | jc
         cmd_proc = subprocess.Popen(
-            args,
-            stdout=subprocess.PIPE,
-            stderr=sys.stderr
+            args, stdout=subprocess.PIPE, stderr=sys.stderr
         )
 
         jc_proc = subprocess.Popen(
@@ -120,7 +113,7 @@ def execute_with_jc(command_str: str) -> int:
             stdout=subprocess.PIPE,
             stderr=sys.stderr,
             text=True,
-            bufsize=1  # Line buffered
+            bufsize=1,  # Line buffered
         )
 
         # CRITICAL: Close command stdout in parent to enable SIGPIPE

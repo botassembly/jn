@@ -14,6 +14,7 @@ from ...addressing import (
     parse_address,
 )
 from ...context import pass_context
+from ...shell.jc_fallback import execute_with_jc, supports_command
 from ..helpers import build_subprocess_env_for_coverage, check_uv_available
 
 
@@ -170,7 +171,18 @@ def cat(ctx, input_file):
 
         # Plan execution (may be 1 or 2 stages)
         resolver = AddressResolver(ctx.plugin_dir, ctx.cache_path)
-        stages = resolver.plan_execution(addr, mode="read")
+
+        try:
+            stages = resolver.plan_execution(addr, mode="read")
+        except AddressResolutionError:
+            # No plugin found - try jc fallback for shell commands
+            command_name = input_file.split()[0] if ' ' in input_file else input_file
+            if supports_command(command_name):
+                exit_code = execute_with_jc(input_file)
+                sys.exit(exit_code)
+            else:
+                # Re-raise if jc doesn't support it either
+                raise
 
         if len(stages) == 2:
             # Two-stage pipeline: protocol (raw) → format (read)
