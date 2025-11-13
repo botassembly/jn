@@ -15,13 +15,12 @@ from ...shell.jc_fallback import execute_with_jc, supports_command
 from ..helpers import build_subprocess_env_for_coverage, check_uv_available
 
 
-def _build_command(stage) -> list:
+def _build_command(stage, command_str) -> list:
     """Build command from execution stage."""
     cmd = ["uv", "run", "--script", stage.plugin_path, "--mode", stage.mode]
 
-    # Add URL (the full command string)
-    if stage.url:
-        cmd.append(stage.url)
+    # Add full command string (not just URL, so plugin gets full context)
+    cmd.append(command_str)
 
     return cmd
 
@@ -86,7 +85,7 @@ def sh(ctx, command):
         stage = stages[0]
 
         # Execute plugin
-        cmd = _build_command(stage)
+        cmd = _build_command(stage, command_str)
 
         proc = subprocess.Popen(
             cmd,
