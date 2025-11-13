@@ -116,7 +116,9 @@ def _format_text_output(result: dict) -> str:
             for label in labels:
                 lines.append(f"  • {label['name']} (ID: {label['id']})")
                 lines.append(f"    Type: {label.get('type', 'user')}")
-                lines.append(f"    Messages: {label.get('messagesTotal', 0)} ({label.get('messagesUnread', 0)} unread)")
+                lines.append(
+                    f"    Messages: {label.get('messagesTotal', 0)} ({label.get('messagesUnread', 0)} unread)"
+                )
                 lines.append("")
         else:
             lines.append("  (none)")
@@ -181,18 +183,22 @@ def inspect(ctx, server, output_format):
             plugin_name = "http_"
         elif server.startswith("gmail://"):
             plugin_name = "gmail_"
-        elif server.startswith("@"):
+        elif server.startswith("@") and "mcp_" in plugins:
             # Profile reference - could be MCP or HTTP
             # Try MCP first (most common), fall back to HTTP
-            if "mcp_" in plugins:
-                plugin_name = "mcp_"
+            plugin_name = "mcp_"
             # Check if it's an HTTP profile by looking for the profile directory
             # This is a heuristic - we'll try MCP first and let it fail gracefully
             # if it's actually an HTTP profile, the error will guide us
 
         if not plugin_name:
-            click.echo(f"Error: Unable to determine protocol for: {server}", err=True)
-            click.echo("Supported protocols: mcp+, http://, https://, gmail://", err=True)
+            click.echo(
+                f"Error: Unable to determine protocol for: {server}", err=True
+            )
+            click.echo(
+                "Supported protocols: mcp+, http://, https://, gmail://",
+                err=True,
+            )
             sys.exit(1)
 
         # Find plugin
@@ -227,7 +233,11 @@ def inspect(ctx, server, output_format):
         # Check for errors
         if proc.returncode != 0:
             # If MCP failed on @ reference, try HTTP
-            if plugin_name == "mcp_" and server.startswith("@") and "http_" in plugins:
+            if (
+                plugin_name == "mcp_"
+                and server.startswith("@")
+                and "http_" in plugins
+            ):
                 # Try HTTP plugin instead
                 plugin = plugins["http_"]
                 cmd[3] = str(plugin.path)  # Update plugin path

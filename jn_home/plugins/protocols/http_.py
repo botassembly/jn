@@ -28,7 +28,6 @@ Examples:
 # ///
 
 import json
-import io
 import os
 import re
 import sys
@@ -280,11 +279,11 @@ def error_record(error_type: str, message: str, **extra) -> dict:
 def reads(
     url: str,
     method: str = "GET",
-    headers: dict = None,
-    auth: tuple = None,
+    headers: dict | None = None,
+    auth: tuple | None = None,
     timeout: int = 30,
     verify_ssl: bool = True,
-    force_format: str = None,
+    force_format: str | None = None,
     **params
 ) -> Iterator[dict]:
     """Fetch data from HTTP/HTTPS URL or profile reference and yield NDJSON records.

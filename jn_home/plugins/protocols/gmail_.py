@@ -48,7 +48,7 @@ def error_record(error_type: str, message: str, **extra) -> dict:
     return {"_error": True, "type": error_type, "message": message, **extra}
 
 
-def get_credentials(token_path: Path = None, credentials_path: Path = None) -> Credentials:
+def get_credentials(token_path: Path | None = None, credentials_path: Path | None = None) -> Credentials:
     """Get or create Gmail API credentials with OAuth2.
 
     Args:
@@ -242,9 +242,9 @@ def reads(
     max_results: int = 500,
     include_spam_trash: bool = False,
     format: str = "full",
-    label_ids: str = None,
-    token_path: str = None,
-    credentials_path: str = None,
+    label_ids: str | None = None,
+    token_path: str | None = None,
+    credentials_path: str | None = None,
     **params
 ) -> Iterator[dict]:
     """Fetch Gmail messages and yield NDJSON records.
@@ -319,7 +319,7 @@ def reads(
                 except HttpError as e:
                     yield error_record(
                         "gmail_api_error",
-                        f"Failed to fetch message {msg_ref['id']}: {str(e)}",
+                        f"Failed to fetch message {msg_ref['id']}: {e!s}",
                         message_id=msg_ref["id"],
                     )
 
@@ -332,10 +332,10 @@ def reads(
         yield error_record("credentials_not_found", str(e))
 
     except HttpError as e:
-        yield error_record("gmail_api_error", f"Gmail API error: {str(e)}")
+        yield error_record("gmail_api_error", f"Gmail API error: {e!s}")
 
 
-def inspects(url: str = None, **config) -> dict:
+def inspects(url: str | None = None, **config) -> dict:
     """List available Gmail labels and folders (inspect operation).
 
     This is the 'inspect' operation - shows what's available from Gmail account.
@@ -409,7 +409,7 @@ def inspects(url: str = None, **config) -> dict:
     except FileNotFoundError as e:
         return error_record("credentials_not_found", str(e))
     except HttpError as e:
-        return error_record("gmail_api_error", f"Gmail API error: {str(e)}")
+        return error_record("gmail_api_error", f"Gmail API error: {e!s}")
     except Exception as e:
         return error_record("inspect_error", str(e), exception_type=type(e).__name__)
 
