@@ -3,7 +3,7 @@
 # requires-python = ">=3.11"
 # dependencies = ["jc>=1.23.0"]
 # [tool.jn]
-# matches = ["^ls$", "^ls\\?.*"]
+# matches = ["^ls($| )", "^ls .*"]
 # ///
 
 """
@@ -13,15 +13,11 @@ Execute `ls` command and convert output to NDJSON using jc parser.
 
 Usage:
     jn cat ls
-    jn cat "ls?path=/tmp"
-    jn cat "ls?path=/var/log&long=true"
-    jn cat "ls?path=/usr/bin" | head -n 10
+    jn cat "ls -l"
+    jn cat "ls -la /tmp"
+    jn sh ls -l /var/log
 
-Supported parameters:
-    path - Directory to list (default: current directory)
-    long - Use long format (-l) (default: false)
-    all - Show hidden files (-a) (default: false)
-    recursive - Recursive listing (-R) (default: false)
+The command can be any valid ls invocation with flags and paths.
 
 Output schema (long format):
     {
@@ -44,40 +40,18 @@ Output schema (simple format):
 import subprocess
 import sys
 import json
-import os
 import shutil
-from urllib.parse import urlparse, parse_qs
+import shlex
 
 
-def parse_config_from_url(url=None):
-    """Parse configuration from shell:// URL."""
-    if not url:
-        return {}
+def reads(command_str=None):
+    """Execute ls command and stream NDJSON records.
 
-    parsed = urlparse(url)
-    params = parse_qs(parsed.query)
-
-    # Convert query params to config dict (take first value of each param)
-    config = {k: v[0] if v else None for k, v in params.items()}
-    return config
-
-
-def reads(config=None):
-    """Execute ls command and stream NDJSON records."""
-    if config is None:
-        config = {}
-
-    # Parse parameters
-    path = config.get('path', '.')
-    long_format = config.get('long', 'false').lower() == 'true'
-    show_all = config.get('all', 'false').lower() == 'true'
-    recursive = config.get('recursive', 'false').lower() == 'true'
-
-    # Validate path exists
-    if not os.path.exists(path):
-        error = {"_error": f"Path not found: {path}", "path": path}
-        print(json.dumps(error), file=sys.stderr)
-        sys.exit(1)
+    Args:
+        command_str: Full command string like "ls -l /tmp" or just "ls"
+    """
+    if not command_str:
+        command_str = "ls"
 
     # Check if jc is available
     if not shutil.which('jc'):
@@ -85,24 +59,30 @@ def reads(config=None):
         print(json.dumps(error), file=sys.stderr)
         sys.exit(1)
 
-    # Build ls command
-    ls_cmd = ['ls']
-    if long_format:
-        ls_cmd.append('-l')
-    if show_all:
-        ls_cmd.append('-a')
-    if recursive:
-        ls_cmd.append('-R')
-    ls_cmd.append(path)
+    # Parse command string into args using shell lexer
+    try:
+        args = shlex.split(command_str)
+    except ValueError as e:
+        error = {"_error": f"Invalid command syntax: {e}"}
+        print(json.dumps(error), file=sys.stderr)
+        sys.exit(1)
 
-    # Build jc command - use streaming parser if available and long format
-    jc_parser = '--ls-s' if long_format else '--ls'
+    if not args or args[0] != 'ls':
+        error = {"_error": f"Expected ls command, got: {command_str}"}
+        print(json.dumps(error), file=sys.stderr)
+        sys.exit(1)
+
+    # Detect if using long format (for choosing jc parser)
+    has_long_flag = any(arg.startswith('-') and 'l' in arg for arg in args[1:])
+
+    # Build jc command - use streaming parser if long format
+    jc_parser = '--ls-s' if has_long_flag else '--ls'
     jc_cmd = ['jc', jc_parser, '-qq']  # -qq: ignore parse errors
 
     try:
-        # Chain: ls | jc
+        # Chain: ls [args] | jc
         ls_proc = subprocess.Popen(
-            ls_cmd,
+            args,  # Use parsed args
             stdout=subprocess.PIPE,
             stderr=sys.stderr
         )
@@ -120,7 +100,7 @@ def reads(config=None):
         ls_proc.stdout.close()
 
         # Stream output line-by-line (NDJSON from jc --ls-s)
-        if long_format:
+        if has_long_flag:
             # Streaming parser outputs NDJSON (one object per line)
             for line in jc_proc.stdout:
                 sys.stdout.write(line)
@@ -165,17 +145,13 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='JN ls shell plugin')
     parser.add_argument('--mode', default='read', help='Plugin mode (read/write)')
-    parser.add_argument('address', nargs='?', help='Command address with parameters (e.g., ls?path=/tmp)')
+    parser.add_argument('address', nargs='?', help='Command string (e.g., "ls -l /tmp")')
 
     args = parser.parse_args()
 
     if args.mode == 'read':
-        # Parse config from address
-        config = {}
-        if args.address:
-            config = parse_config_from_url(args.address)
-
-        reads(config)
+        # Pass full command string to reads()
+        reads(args.address)
     else:
         error = {"_error": f"Unsupported mode: {args.mode}. Only 'read' supported."}
         print(json.dumps(error), file=sys.stderr)

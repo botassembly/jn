@@ -17,13 +17,13 @@ def test_ls_basic(invoke):
     assert "filename" in record
 
 
-def test_ls_with_parameters(invoke, tmp_path):
-    """Test ls with query parameters."""
+def test_ls_with_flags(invoke, tmp_path):
+    """Test ls with flags and path."""
     # Create temp directory with files
     test_file = tmp_path / "test.txt"
     test_file.write_text("test content")
 
-    result = invoke(["cat", f"ls?path={tmp_path}&long=true"])
+    result = invoke(["cat", f"ls -l {tmp_path}"])
     assert result.exit_code == 0
 
     # Should have detailed listing
@@ -43,11 +43,11 @@ def test_ls_pipeline(invoke, tmp_path):
     (tmp_path / "bar.txt").write_text("bar")
     (tmp_path / "baz.log").write_text("baz")
 
-    # List then filter for .txt files
-    cat_result = invoke(["cat", f"ls?path={tmp_path}"])
+    # List directory
+    cat_result = invoke(["cat", f"ls {tmp_path}"])
     assert cat_result.exit_code == 0
 
-    # Filter should work (tested separately, just verify ls output is valid NDJSON)
+    # Verify ls output is valid NDJSON
     lines = [line for line in cat_result.output.strip().split("\n") if line]
     records = [json.loads(line) for line in lines]
 
@@ -55,3 +55,51 @@ def test_ls_pipeline(invoke, tmp_path):
     assert "foo.txt" in filenames
     assert "bar.txt" in filenames
     assert "baz.log" in filenames
+
+
+def test_sh_command_basic(invoke):
+    """Test sh command with basic ls."""
+    result = invoke(["sh", "ls"])
+    assert result.exit_code == 0
+
+    lines = [line for line in result.output.strip().split("\n") if line]
+    assert len(lines) > 0
+
+    record = json.loads(lines[0])
+    assert "filename" in record
+
+
+def test_sh_command_with_flags(invoke, tmp_path):
+    """Test sh command with flags - no quoting needed."""
+    test_file = tmp_path / "test.txt"
+    test_file.write_text("test content")
+
+    result = invoke(["sh", "ls", "-l", str(tmp_path)])
+    assert result.exit_code == 0
+
+    lines = [line for line in result.output.strip().split("\n") if line]
+    record = json.loads(lines[0])
+    assert "filename" in record
+    assert "flags" in record
+    assert "test.txt" in record["filename"]
+
+
+def test_sh_vs_cat_equivalence(invoke):
+    """Test that sh and cat produce equivalent output."""
+    cat_result = invoke(["cat", "ls -l"])
+    sh_result = invoke(["sh", "ls", "-l"])
+
+    assert cat_result.exit_code == 0
+    assert sh_result.exit_code == 0
+
+    # Both should produce valid NDJSON
+    cat_lines = [l for l in cat_result.output.strip().split("\n") if l]
+    sh_lines = [l for l in sh_result.output.strip().split("\n") if l]
+
+    assert len(cat_lines) == len(sh_lines)
+
+    # First records should be equivalent
+    cat_record = json.loads(cat_lines[0])
+    sh_record = json.loads(sh_lines[0])
+
+    assert cat_record["filename"] == sh_record["filename"]
