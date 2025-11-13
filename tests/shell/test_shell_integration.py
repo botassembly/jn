@@ -13,6 +13,7 @@ def jn_cli():
     """Return path to jn CLI."""
     # Use the jn command from PATH (installed in venv)
     import shutil
+
     jn_path = shutil.which("jn")
     if jn_path:
         return [jn_path]
@@ -29,7 +30,7 @@ def test_jn_sh_ls(jn_cli, tmp_path):
     result = subprocess.run(
         jn_cli + ["sh", "ls", "-l", str(tmp_path)],
         capture_output=True,
-        text=True
+        text=True,
     )
 
     assert result.returncode == 0
@@ -47,15 +48,39 @@ def test_jn_sh_ls(jn_cli, tmp_path):
     assert "size" in records[0]
 
 
+def test_jn_sh_ls_simple(jn_cli, tmp_path):
+    """Test jn sh ls (without -l) degrades gracefully to filenames-only."""
+    # Create test files
+    (tmp_path / "a.txt").write_text("a")
+    (tmp_path / "b.txt").write_text("b")
+
+    result = subprocess.run(
+        [*jn_cli, "sh", "ls", str(tmp_path)],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+    lines = [line for line in result.stdout.strip().split("\n") if line]
+    assert len(lines) >= 2
+
+    # Should be valid NDJSON with minimal schema (filename only)
+    records = [json.loads(line) for line in lines]
+    filenames = [r["filename"] for r in records]
+    assert "a.txt" in filenames
+    assert "b.txt" in filenames
+
+    # Short ls output should not include long listing fields like 'flags'
+    assert all("flags" not in r for r in records)
+
+
 def test_jn_cat_ls(jn_cli, tmp_path):
     """Test jn cat 'ls -l' command."""
     # Create test file
     (tmp_path / "test.txt").write_text("content")
 
     result = subprocess.run(
-        jn_cli + ["cat", f"ls -l {tmp_path}"],
-        capture_output=True,
-        text=True
+        jn_cli + ["cat", f"ls -l {tmp_path}"], capture_output=True, text=True
     )
 
     assert result.returncode == 0
@@ -70,9 +95,7 @@ def test_jn_cat_ls(jn_cli, tmp_path):
 def test_jn_sh_ps(jn_cli):
     """Test jn sh ps aux command."""
     result = subprocess.run(
-        jn_cli + ["sh", "ps", "aux"],
-        capture_output=True,
-        text=True
+        jn_cli + ["sh", "ps", "aux"], capture_output=True, text=True
     )
 
     assert result.returncode == 0
@@ -89,9 +112,7 @@ def test_jn_sh_ps(jn_cli):
 def test_jn_sh_env(jn_cli):
     """Test jn sh env command."""
     result = subprocess.run(
-        jn_cli + ["sh", "env"],
-        capture_output=True,
-        text=True
+        jn_cli + ["sh", "env"], capture_output=True, text=True
     )
 
     assert result.returncode == 0
@@ -110,9 +131,7 @@ def test_jn_sh_env(jn_cli):
 def test_jn_sh_df(jn_cli):
     """Test jn sh df -h command."""
     result = subprocess.run(
-        jn_cli + ["sh", "df", "-h"],
-        capture_output=True,
-        text=True
+        jn_cli + ["sh", "df", "-h"], capture_output=True, text=True
     )
 
     assert result.returncode == 0
@@ -130,7 +149,7 @@ def test_jn_sh_unsupported_command(jn_cli):
     result = subprocess.run(
         jn_cli + ["sh", "totally_fake_command_xyz"],
         capture_output=True,
-        text=True
+        text=True,
     )
 
     assert result.returncode == 1
@@ -148,7 +167,7 @@ def test_jn_sh_pipeline_with_head(jn_cli, tmp_path):
         f"{' '.join(jn_cli)} sh ls -l {tmp_path} | head -n 5",
         shell=True,
         capture_output=True,
-        text=True
+        text=True,
     )
 
     assert result.returncode == 0
@@ -165,7 +184,10 @@ def test_custom_plugin_takes_priority_over_jc(jn_cli):
     """Test that custom tail plugin is used instead of jc."""
     # Create a test file
     import tempfile
-    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt') as f:
+
+    with tempfile.NamedTemporaryFile(
+        mode="w", delete=False, suffix=".txt"
+    ) as f:
         f.write("line1\nline2\nline3\n")
         f.flush()
         temp_file = f.name
@@ -174,7 +196,7 @@ def test_custom_plugin_takes_priority_over_jc(jn_cli):
         result = subprocess.run(
             jn_cli + ["sh", "tail", "-n", "2", temp_file],
             capture_output=True,
-            text=True
+            text=True,
         )
 
         assert result.returncode == 0
@@ -193,7 +215,10 @@ def test_jn_cat_with_shell_command(jn_cli):
     """Test that jn cat works with shell command plugins."""
     # Create a test file
     import tempfile
-    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt') as f:
+
+    with tempfile.NamedTemporaryFile(
+        mode="w", delete=False, suffix=".txt"
+    ) as f:
         f.write("line1\nline2\nline3\nline4\nline5\n")
         f.flush()
         temp_file = f.name
@@ -203,7 +228,7 @@ def test_jn_cat_with_shell_command(jn_cli):
         result = subprocess.run(
             jn_cli + ["cat", f"tail -n 3 {temp_file}"],
             capture_output=True,
-            text=True
+            text=True,
         )
 
         assert result.returncode == 0, f"Failed with stderr: {result.stderr}"

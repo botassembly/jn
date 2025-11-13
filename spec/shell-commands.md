@@ -106,6 +106,11 @@ jn sh ls -l /tmp          # jc fallback
 jn sh ps aux              # jc fallback
 jn sh df -h               # jc fallback
 jn sh tail -f /var/log    # Custom plugin (if exists)
+
+# Graceful ls fallback
+# If you run `jn sh ls` without `-l`, JN will automatically
+# use jc's batch `--ls` parser and output filenames-only NDJSON.
+# Add `-l` (e.g., `jn sh ls -l`) to get full metadata via streaming.
 ```
 
 ### Via `jn cat` (Quoted)
@@ -154,6 +159,7 @@ See full list: https://github.com/kellyjonbrazil/jc#parsers
 
 Currently only:
 - `tail` - Stream file contents line-by-line (jc doesn't support streaming file tails)
+- `watchfiles` - Watch a directory and emit filesystem change events
 
 Add more custom plugins as needed for commands jc doesn't support.
 
@@ -392,6 +398,10 @@ jn sh env | jn filter '.name == "PATH"'
 ```bash
 # Tail log file (uses tail_shell.py)
 jn sh tail -f /var/log/syslog | jn filter '.line | contains("error")'
+
+# Watch a directory (uses watchfiles_shell.py)
+jn sh watchfiles /var/log --exit-after 1 --initial
+jn sh watchfiles ~/Downloads --recursive --debounce-ms 100
 ```
 
 ## Testing

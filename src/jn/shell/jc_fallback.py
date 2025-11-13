@@ -10,6 +10,8 @@ import subprocess
 import sys
 
 # jc commands that have streaming parsers (output NDJSON directly)
+# Note: some commands (e.g., ls) may require certain flags for streaming
+# to be valid. See logic in execute_with_jc for conditional handling.
 STREAMING_PARSERS = {
     "ls",
     "ping",
@@ -96,8 +98,21 @@ def execute_with_jc(command_str: str) -> int:
         print(json.dumps(error), file=sys.stderr)
         return 1
 
-    # Determine if streaming parser available
-    use_streaming = command in STREAMING_PARSERS
+    # Determine if streaming parser is appropriate
+    # Special-case: jc's streaming ls parser requires '-l'.
+    use_streaming = False
+    if command == "ls":
+        # Use streaming only when '-l' is present in any combined flag (e.g., -l, -la, -al)
+        # Stop parsing flags after '--'
+        for arg in args[1:]:
+            if arg == "--":
+                break
+            if arg.startswith("-") and "l" in arg.lstrip("-"):
+                use_streaming = True
+                break
+    else:
+        use_streaming = command in STREAMING_PARSERS
+
     jc_parser = f"--{command}-s" if use_streaming else f"--{command}"
     jc_cmd = ["jc", jc_parser]
 

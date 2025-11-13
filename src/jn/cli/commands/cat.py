@@ -192,7 +192,9 @@ def cat(ctx, input_file):
             stages = resolver.plan_execution(addr, mode="read")
         except AddressResolutionError:
             # No plugin found - try jc fallback for shell commands
-            command_name = input_file.split()[0] if ' ' in input_file else input_file
+            command_name = (
+                input_file.split()[0] if " " in input_file else input_file
+            )
             if supports_command(command_name):
                 exit_code = execute_with_jc(input_file)
                 sys.exit(exit_code)
