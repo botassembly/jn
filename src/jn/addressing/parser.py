@@ -42,6 +42,9 @@ def parse_address(raw: str) -> Address:
 
         >>> parse_address("-~table.grid")
         Address(base="-", format_override="table", parameters={"tablefmt": "grid"}, type="stdio")
+
+        >>> parse_address("file.csv.gz")
+        Address(base="file.csv", compression="gz", type="file")
     """
     # Handle empty/whitespace input
     if not raw or not raw.strip():
@@ -53,23 +56,25 @@ def parse_address(raw: str) -> Address:
     # Protocol URLs contain :// and their query strings are part of the URL
     is_protocol_url = "://" in raw
 
-    # Step 2: Extract JN parameters (everything after ?)
-    # For protocol URLs, keep query string as part of the URL
-    parameters: Dict[str, str] = {}
-    if "?" in raw and not is_protocol_url:
-        # Non-protocol: split on ? to get JN parameters
-        addr_part, query_string = raw.split("?", 1)
-        parameters = _parse_query_string(query_string)
-    else:
-        # Protocol URL: keep full URL with query string
-        addr_part = raw
-
-    # Step 3: Extract format override (everything after ~)
+    # Step 2: Extract format override FIRST (before parameters)
+    # Format override syntax: address~format?params
+    # For protocol URLs: https://example.com/data?token=xyz~csv?delimiter=,
+    #   base = https://example.com/data?token=xyz
+    #   format = csv
+    #   params = delimiter=,
     format_override = None
-    if "~" in addr_part and not is_protocol_url:
-        # Only parse ~ for non-protocol addresses
-        # Protocols can't have format overrides (they determine their own format)
-        base, format_str = addr_part.rsplit("~", 1)  # rsplit to get last ~
+    if "~" in raw:
+        # Split on ~ to separate base from format override
+        base_part, format_part = raw.rsplit("~", 1)  # rsplit to get last ~
+
+        # Extract parameters from format part if present
+        if "?" in format_part:
+            format_str, query_string = format_part.split("?", 1)
+            parameters = _parse_query_string(query_string)
+        else:
+            format_str = format_part
+            parameters = {}
+
         if not format_str:
             raise ValueError(f"Format override cannot be empty: {raw}")
 
@@ -80,13 +85,34 @@ def parse_address(raw: str) -> Address:
             parameters.update(_expand_shorthand(format_override, variant))
         else:
             format_override = format_str
-    else:
-        base = addr_part
 
-    # Step 4: Determine address type
+        base = base_part
+    else:
+        # No format override
+        # For non-protocol: extract JN parameters
+        # For protocol: keep query string as part of URL
+        if "?" in raw and not is_protocol_url:
+            # Non-protocol: extract JN parameters
+            base, query_string = raw.split("?", 1)
+            parameters = _parse_query_string(query_string)
+        else:
+            # Protocol or no parameters
+            base = raw
+            parameters = {}
+
+    # Step 4: Detect and strip compression extension
+    compression = None
+    compression_formats = {".gz", ".bz2", ".xz"}
+    for ext in compression_formats:
+        if base.endswith(ext):
+            compression = ext[1:]  # Remove leading dot
+            base = base[:-len(ext)]  # Strip extension from base
+            break
+
+    # Step 5: Determine address type
     addr_type = _determine_type(base)
 
-    # Step 5: Validate address
+    # Step 6: Validate address
     _validate_address(base, format_override, parameters, addr_type)
 
     return Address(
@@ -95,6 +121,7 @@ def parse_address(raw: str) -> Address:
         format_override=format_override,
         parameters=parameters,
         type=addr_type,
+        compression=compression,
     )
 
 

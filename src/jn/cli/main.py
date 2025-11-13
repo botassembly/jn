@@ -24,6 +24,7 @@ def cli(ctx, home):
 
 
 # Register commands at module level so tests can import cli with commands attached
+from .commands.analyze import analyze
 from .commands.cat import cat
 from .commands.check import check
 from .commands.filter import filter
@@ -35,6 +36,7 @@ from .commands.sh import sh
 from .commands.tail import tail
 from .plugins import plugin
 
+cli.add_command(analyze)
 cli.add_command(cat)
 cli.add_command(put)
 cli.add_command(run)

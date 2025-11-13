@@ -481,15 +481,20 @@ async def execute_tool_with_session(
     return results
 
 
-def reads(url: str, **params) -> Iterator[dict]:
+def reads(url: str, limit: int | None = None, **params) -> Iterator[dict]:
     """Read from an MCP server using naked URI or profile reference.
 
     Supports two formats:
     - Naked URI: mcp+uvx://package/command?tool=X&param=Y
     - Profile reference: @biomcp/search?gene=BRAF
 
+    Container vs Leaf:
+    - Container (@biomcp): Lists tools and resources with _type and _container metadata
+    - Leaf (@biomcp/search or ?tool=search): Calls tool or reads resource
+
     Args:
         url: Naked MCP URI or profile reference
+        limit: Maximum number of records to return (optional)
         **params: Additional parameters merged with URL query params
 
     Yields:
@@ -523,10 +528,58 @@ def reads(url: str, **params) -> Iterator[dict]:
                 operation["type"] = "list_resources"
 
             operation["params"] = merged_params
+            container_name = url
 
+        elif url.startswith("@"):
+            # Profile reference: check for container vs leaf
+            ref = url[1:].split("?")[0]  # Remove @ and query params
+
+            if "/" not in ref:
+                # Container: @biomcp (no tool/resource specified)
+                # List both tools and resources with metadata
+                server_config, _ = resolve_profile_reference(url, params)
+
+                # Execute listing operations
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    # List tools
+                    tools_op = {"type": "list_tools", "params": {}}
+                    tools = loop.run_until_complete(
+                        execute_mcp_operation(server_config, tools_op)
+                    )
+
+                    count = 0
+                    for tool in tools:
+                        tool["_type"] = "tool"
+                        tool["_container"] = url
+                        yield tool
+                        count += 1
+                        if limit and count >= limit:
+                            return
+
+                    # List resources
+                    resources_op = {"type": "list_resources", "params": {}}
+                    resources = loop.run_until_complete(
+                        execute_mcp_operation(server_config, resources_op)
+                    )
+
+                    for resource in resources:
+                        resource["_type"] = "resource"
+                        resource["_container"] = url
+                        yield resource
+                        count += 1
+                        if limit and count >= limit:
+                            return
+                finally:
+                    loop.close()
+                return
+            else:
+                # Leaf: @biomcp/search (tool/resource specified)
+                server_config, operation = resolve_profile_reference(url, params)
+                container_name = url
         else:
-            # Profile reference: resolve (vendored function)
-            server_config, operation = resolve_profile_reference(url, params)
+            raise ValueError(f"Invalid MCP URL format: {url}")
 
     except (ProfileError, ValueError) as e:
         yield error_record("resolution_error", str(e))
@@ -537,141 +590,23 @@ def reads(url: str, **params) -> Iterator[dict]:
         )
         return
 
-    # Execute async operation
+    # Execute async operation (for leaf nodes)
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
         results = loop.run_until_complete(
             execute_mcp_operation(server_config, operation)
         )
-        yield from results
+
+        # Apply limit if specified
+        count = 0
+        for result in results:
+            yield result
+            count += 1
+            if limit and count >= limit:
+                break
     except Exception as e:
         yield error_record(
-            "mcp_error", str(e), exception_type=type(e).__name__
-        )
-    finally:
-        loop.close()
-
-
-def inspects(url: str, **config) -> dict:
-    """List tools and resources from MCP server (inspect operation).
-
-    This is the 'inspect' operation - shows what's available from the server.
-    Does NOT require a pre-existing profile.
-
-    Supports two formats:
-    - Naked URI: mcp+uvx://package/command
-    - Profile reference: @biomcp
-
-    Args:
-        url: Naked MCP URI or profile reference
-        **config: Optional configuration
-
-    Returns:
-        Dict with server info, tools, and resources:
-        {
-            "server": "biomcp-python/biomcp",
-            "transport": "stdio",
-            "tools": [
-                {
-                    "name": "search",
-                    "description": "Search biomedical resources",
-                    "inputSchema": {...}
-                }
-            ],
-            "resources": [
-                {
-                    "uri": "resource://trials/NCT12345",
-                    "name": "Clinical Trial NCT12345",
-                    "description": "Phase 3 trial for melanoma"
-                }
-            ]
-        }
-    """
-    try:
-        if url.startswith("mcp+"):
-            # Naked URI: parse directly
-            server_config, _ = parse_naked_mcp_uri(url)
-            server_name = url  # Use full URI as server name
-        else:
-            # Profile reference: resolve
-            server_config, _ = resolve_profile_reference(url, {})
-            server_name = url[1:] if url.startswith("@") else url
-
-    except (ProfileError, ValueError) as e:
-        return error_record("resolution_error", str(e))
-    except Exception as e:
-        return error_record(
-            "resolution_error", str(e), exception_type=type(e).__name__
-        )
-
-    # Connect to MCP server and list tools/resources
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
-    async def inspect_server():
-        """Connect and inspect server capabilities."""
-        server_params = StdioServerParameters(
-            command=server_config["command"],
-            args=server_config.get("args", []),
-            env=server_config.get("env"),
-        )
-
-        read_stream, write_stream = await stdio_client(server_params)
-        session = ClientSession(read_stream, write_stream)
-
-        try:
-            await session.initialize()
-
-            # List tools
-            tools_result = await session.list_tools()
-            tools = []
-            for tool in tools_result.tools:
-                tools.append(
-                    {
-                        "name": tool.name,
-                        "description": getattr(tool, "description", None),
-                        "inputSchema": tool.inputSchema,
-                    }
-                )
-
-            # List resources
-            resources_result = await session.list_resources()
-            resources = []
-            for resource in resources_result.resources:
-                resources.append(
-                    {
-                        "uri": resource.uri,
-                        "name": resource.name,
-                        "description": getattr(resource, "description", None),
-                        "mimeType": getattr(resource, "mimeType", None),
-                    }
-                )
-
-            return {
-                "server": server_name,
-                "transport": server_config.get("transport", "stdio"),
-                "tools": tools,
-                "resources": resources,
-            }
-
-        finally:
-            # Properly close session and streams
-            try:
-                if hasattr(session, "__aexit__"):
-                    await session.__aexit__(None, None, None)
-                if hasattr(read_stream, "aclose"):
-                    await read_stream.aclose()
-                if hasattr(write_stream, "aclose"):
-                    await write_stream.aclose()
-            except Exception as e:
-                print(f"Warning: MCP cleanup error: {e}", file=sys.stderr)
-
-    try:
-        result = loop.run_until_complete(inspect_server())
-        return result
-    except Exception as e:
-        return error_record(
             "mcp_error", str(e), exception_type=type(e).__name__
         )
     finally:
@@ -798,12 +733,18 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="MCP protocol plugin")
     parser.add_argument(
         "--mode",
-        choices=["read", "write", "inspect"],
+        choices=["read", "write"],
         required=True,
         help="Operation mode",
     )
     parser.add_argument(
         "url", nargs="?", help="MCP naked URI or profile reference"
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Maximum number of records to return",
     )
 
     args, unknown = parser.parse_known_args()
@@ -819,15 +760,8 @@ if __name__ == "__main__":
         if not args.url:
             parser.error("URL is required for read mode")
 
-        for record in reads(args.url, **params):
+        for record in reads(args.url, limit=args.limit, **params):
             print(json.dumps(record), flush=True)
-
-    elif args.mode == "inspect":
-        if not args.url:
-            parser.error("URL is required for inspect mode")
-
-        result = inspects(args.url, **params)
-        print(json.dumps(result, indent=2), flush=True)
 
     else:  # write mode
         writes(url=args.url)

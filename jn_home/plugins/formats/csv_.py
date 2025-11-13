@@ -13,15 +13,78 @@
 import csv
 import json
 import sys
+from io import StringIO
 from typing import Iterator, Optional
+
+
+def _detect_delimiter(sample_lines: list[str], candidates: str = ",;\t|") -> str:
+    """Auto-detect delimiter using heuristic scoring.
+
+    Args:
+        sample_lines: First N lines of the file (typically 20-100)
+        candidates: String of candidate delimiters to try
+
+    Returns:
+        Best delimiter character, or ',' as fallback
+
+    Algorithm:
+    - For each candidate delimiter:
+      - Count how consistently it appears across lines
+      - Penalize high variance in column counts
+      - Penalize many empty fields
+    - Pick delimiter with highest score
+    """
+    if not sample_lines:
+        return ","
+
+    best_delim = ","
+    best_score = float("-inf")
+
+    for delim in candidates:
+        col_counts = []
+        empty_fields = 0
+        total_fields = 0
+
+        for line in sample_lines:
+            # Simple split (not quote-aware for speed, csv.Sniffer handles that)
+            if delim not in line:
+                continue
+
+            cols = line.split(delim)
+            if len(cols) <= 1:
+                continue
+
+            col_counts.append(len(cols))
+            empty_fields += sum(1 for c in cols if not c.strip())
+            total_fields += len(cols)
+
+        # Need at least 3 lines with this delimiter
+        if len(col_counts) < 3:
+            continue
+
+        # Calculate metrics
+        n = len(col_counts)
+        mean_cols = sum(col_counts) / n
+        variance = sum((c - mean_cols) ** 2 for c in col_counts) / n
+        empty_ratio = empty_fields / total_fields if total_fields else 0
+
+        # Score: reward consistency, penalize variance and empties
+        score = n - 5 * variance - 2 * empty_ratio * n
+
+        if score > best_score:
+            best_score = score
+            best_delim = delim
+
+    return best_delim
 
 
 def reads(config: Optional[dict] = None) -> Iterator[dict]:
     """Read CSV from stdin, yield NDJSON records.
 
     Config:
-        delimiter: Field delimiter (default: ',')
+        delimiter: Field delimiter (default: ',', or 'auto' to detect)
         skip_rows: Number of header rows to skip (default: 0)
+        limit: Maximum records to yield (default: None)
 
     Yields:
         Dict per CSV row with column headers as keys
@@ -29,15 +92,55 @@ def reads(config: Optional[dict] = None) -> Iterator[dict]:
     config = config or {}
     delimiter = config.get("delimiter", ",")
     skip_rows = config.get("skip_rows", 0)
+    limit = config.get("limit")
+
+    # Auto-detect delimiter if requested
+    if delimiter == "auto":
+        # Read sample lines (buffer them for re-reading)
+        sample_lines = []
+        line_count = 0
+        for line in sys.stdin:
+            sample_lines.append(line)
+            line_count += 1
+            if line_count >= 50:  # Sample first 50 lines
+                break
+
+        # Detect delimiter from sample
+        delimiter = _detect_delimiter(sample_lines)
+
+        # Create a new stdin-like object from buffered lines + remaining stdin
+        from itertools import chain
+        stdin_content = chain(sample_lines, sys.stdin)
+
+        # Wrap in StringIO for csv.DictReader
+        class ChainedReader:
+            def __init__(self, iterator):
+                self.iterator = iterator
+            def __iter__(self):
+                return self.iterator
+            def __next__(self):
+                return next(self.iterator)
+
+        input_stream = ChainedReader(stdin_content)
+    else:
+        input_stream = sys.stdin
 
     # Skip header rows if requested
     for _ in range(skip_rows):
-        next(sys.stdin, None)
+        next(input_stream, None)
 
     # Read CSV
-    reader = csv.DictReader(sys.stdin, delimiter=delimiter)
+    reader = csv.DictReader(input_stream, delimiter=delimiter)
 
-    yield from reader
+    if limit:
+        count = 0
+        for row in reader:
+            yield row
+            count += 1
+            if count >= limit:
+                break
+    else:
+        yield from reader
 
 
 def writes(config: Optional[dict] = None) -> None:
@@ -116,6 +219,12 @@ if __name__ == "__main__":
         action="store_false",
         help="Skip header row when writing",
     )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Maximum records to yield when reading",
+    )
 
     args = parser.parse_args()
 
@@ -129,6 +238,8 @@ if __name__ == "__main__":
 
     if args.mode == "read":
         config["skip_rows"] = args.skip_rows
+        if args.limit:
+            config["limit"] = args.limit
         for record in reads(config):
             print(json.dumps(record), flush=True)
     else:

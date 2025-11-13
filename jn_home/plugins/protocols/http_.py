@@ -293,6 +293,7 @@ def reads(
     timeout: int = 30,
     verify_ssl: bool = True,
     force_format: str | None = None,
+    limit: int | None = None,
     **params,
 ) -> Iterator[dict]:
     """Fetch data from HTTP/HTTPS URL or profile reference and yield NDJSON records.
@@ -300,6 +301,7 @@ def reads(
     Supports two formats:
     - Naked URL: https://example.com/data.json
     - Profile reference: @genomoncology/alterations?gene=BRAF
+    - Container listing: @genomoncology (no endpoint - lists available sources)
 
     Args:
         url: The URL to fetch or profile reference (required)
@@ -309,11 +311,50 @@ def reads(
         timeout: Request timeout in seconds (default: 30)
         verify_ssl: Verify SSL certificates (default: True)
         force_format: Force specific format ('json', 'csv', 'ndjson', 'text')
+        limit: Maximum number of records to yield (default: None)
         **params: Additional parameters for profile references
 
     Yields:
-        Dict records from the response, or error records
+        Dict records from the response, or listing records for containers
     """
+    # Check if this is a container listing request (profile without endpoint)
+    if url.startswith("@"):
+        ref = url[1:].split("?")[0]  # Remove @ and query string
+
+        if "/" not in ref:
+            # Container: @api (no endpoint specified)
+            # Yield listing of available sources
+            api_name = ref
+
+            try:
+                # Load profile metadata
+                profile = load_hierarchical_profile(api_name, None)
+            except ProfileError as e:
+                yield error_record("profile_error", str(e))
+                return
+
+            # List available sources
+            sources = list_profile_sources(api_name)
+
+            # Yield each source as a listing record
+            for source_name in sources:
+                try:
+                    source_profile = load_hierarchical_profile(api_name, source_name)
+                    yield {
+                        "name": source_name,
+                        "path": source_profile.get("path", ""),
+                        "description": source_profile.get("description", ""),
+                        "method": source_profile.get("method", "GET"),
+                        "params": source_profile.get("params", []),
+                        "_type": "source",
+                        "_container": f"@{api_name}",
+                    }
+                except ProfileError:
+                    # Skip sources that fail to load
+                    pass
+            return
+
+    # Leaf resource: fetch data
     # Check if this is a profile reference
     if url.startswith("@"):
         try:
@@ -401,9 +442,17 @@ def reads(
         ],
     }
 
-    # Dispatch to handler
+    # Dispatch to handler and apply limit if specified
     handler = handlers.get(fmt, handlers["text"])
-    yield from handler()
+    if limit:
+        count = 0
+        for record in handler():
+            yield record
+            count += 1
+            if count >= limit:
+                break
+    else:
+        yield from handler()
 
 
 def _parse_json(response: requests.Response, url: str) -> Iterator[dict]:
@@ -435,100 +484,6 @@ def _parse_ndjson(response: requests.Response) -> Iterator[dict]:
             yield error_record("ndjson_decode_error", str(e), line=line[:100])
 
 
-def inspects(url: str, **config) -> dict:
-    """List available sources and metadata from HTTP API profile.
-
-    This is the 'inspect' operation - shows what's available from the API.
-    For naked URLs, returns basic URL info.
-    For profiles, lists available sources.
-
-    Supports two formats:
-    - Naked URL: https://api.example.com
-    - Profile reference: @genomoncology
-
-    Args:
-        url: Naked URL or profile reference
-        **config: Optional configuration
-
-    Returns:
-        Dict with API info and available sources:
-        {
-            "api": "genomoncology",
-            "base_url": "https://genomoncology.io/api",
-            "transport": "http",
-            "sources": [
-                {
-                    "name": "alterations",
-                    "path": "/alterations",
-                    "description": "Gene alterations endpoint"
-                }
-            ]
-        }
-    """
-    try:
-        if url.startswith("@"):
-            # Profile reference: list available sources
-            ref = url[1:]  # Remove @
-
-            # Parse API name (before / if present)
-            api_name = ref.split("/")[0].split("?")[0]
-
-            # Load profile metadata
-            try:
-                profile = load_hierarchical_profile(api_name, None)
-            except ProfileError as e:
-                return error_record("profile_error", str(e))
-
-            # List available sources
-            sources = list_profile_sources(api_name)
-
-            # Build response
-            result = {
-                "api": api_name,
-                "base_url": profile.get("base_url", ""),
-                "transport": "http",
-                "sources": [],
-            }
-
-            # Load each source to get metadata
-            for source_name in sources:
-                try:
-                    source_profile = load_hierarchical_profile(
-                        api_name, source_name
-                    )
-                    result["sources"].append(
-                        {
-                            "name": source_name,
-                            "path": source_profile.get("path", ""),
-                            "description": source_profile.get(
-                                "description", ""
-                            ),
-                            "method": source_profile.get("method", "GET"),
-                            "params": source_profile.get("params", []),
-                        }
-                    )
-                except ProfileError:
-                    # Skip sources that fail to load
-                    pass
-
-            return result
-
-        else:
-            # Naked URL: return basic info
-            parsed = urlparse(url)
-            return {
-                "url": url,
-                "transport": "http",
-                "scheme": parsed.scheme,
-                "host": parsed.netloc,
-                "path": parsed.path,
-                "description": "HTTP endpoint (no profile)",
-            }
-
-    except Exception as e:
-        return error_record(
-            "inspect_error", str(e), exception_type=type(e).__name__
-        )
 
 
 def _stream_raw(
@@ -585,7 +540,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="HTTP protocol plugin")
     parser.add_argument(
-        "--mode", choices=["read", "raw", "inspect"], help="Operation mode"
+        "--mode", choices=["read", "raw"], help="Operation mode"
     )
     parser.add_argument(
         "url", nargs="?", help="URL to fetch or profile reference"
@@ -616,6 +571,12 @@ if __name__ == "__main__":
         "--format",
         choices=["json", "ndjson", "csv", "text"],
         help="Force format",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Maximum number of records to yield",
     )
 
     args, unknown = parser.parse_known_args()
@@ -663,14 +624,7 @@ if __name__ == "__main__":
             headers[key] = value
 
     # Dispatch by mode
-    if args.mode == "inspect":
-        if not args.url:
-            parser.error("URL is required for inspect mode")
-
-        result = inspects(args.url)
-        print(json.dumps(result, indent=2), flush=True)
-
-    elif args.mode == "raw":
+    if args.mode == "raw":
         exit_code = _stream_raw(
             url=args.url,
             method=args.method,
@@ -692,6 +646,7 @@ if __name__ == "__main__":
                 timeout=args.timeout,
                 verify_ssl=args.verify_ssl,
                 force_format=args.format,
+                limit=args.limit,
                 **params,
             ):
                 print(json.dumps(record), flush=True)

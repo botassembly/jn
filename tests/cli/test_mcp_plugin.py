@@ -105,10 +105,12 @@ def test_mcp_plugin_has_clean_interface(mcp_plugin):
     """Test that plugin has clean reads/writes interface."""
     content = mcp_plugin.read_text()
 
-    # Should have reads, writes, and inspects
-    assert "def reads(url: str, **params)" in content
+    # Should have reads and writes with new signatures
+    assert "def reads(url: str, limit: int | None = None, **params)" in content
     assert "def writes(url: str | None = None, **config)" in content
-    assert "def inspects(url: str, **config)" in content
+
+    # Should NOT have inspects (removed in unified architecture)
+    assert "def inspects(" not in content
 
     # Should have naked URI parsing
     assert "def parse_naked_mcp_uri(uri: str)" in content
@@ -123,15 +125,17 @@ def test_mcp_plugin_has_clean_interface(mcp_plugin):
     assert "def find_profile_paths()" in content
 
 
-def test_mcp_plugin_inspect_mode(mcp_plugin):
-    """Test that plugin supports inspect mode."""
+def test_mcp_plugin_modes(mcp_plugin):
+    """Test that plugin supports read and write modes (but not inspect)."""
     result = subprocess.run(
         ["uv", "run", "--script", str(mcp_plugin), "--help"],
         capture_output=True,
         text=True,
     )
     assert result.returncode == 0
-    assert "inspect" in result.stdout
+    assert "read" in result.stdout
+    assert "write" in result.stdout
+    # Inspect mode removed in unified architecture - container detection in reads()
 
 
 # Unit tests for naked URI parsing
