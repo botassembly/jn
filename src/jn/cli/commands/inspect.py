@@ -6,11 +6,6 @@ import sys
 
 import click
 
-from ...addressing import (
-    AddressResolutionError,
-    AddressResolver,
-    parse_address,
-)
 from ...context import pass_context
 from ..helpers import check_uv_available
 
@@ -101,24 +96,31 @@ def inspect(ctx, server, output_format):
     try:
         check_uv_available()
 
-        # Parse address
-        addr = parse_address(server)
+        # Inspect command is MCP-specific, so bypass addressing system
+        # and directly invoke mcp_ plugin to avoid plugin name resolution issues
+        # (@biomcp would be interpreted as "find plugin named biomcp" rather than
+        # pattern-matching to mcp_ plugin)
 
-        # Resolve to plugin
-        resolver = AddressResolver(ctx.plugin_dir, ctx.cache_path)
-        stages = resolver.plan_execution(addr, mode="inspect")
+        # Find mcp_ plugin
+        from ...plugins.discovery import discover_plugins
 
-        # Execute inspect mode
-        stage = stages[0]
-        cmd = ["uv", "run", "--script", stage.plugin_path, "--mode", "inspect"]
+        plugins = discover_plugins(ctx.plugin_dir)
+        if "mcp_" not in plugins:
+            click.echo("Error: MCP plugin (mcp_) not found", err=True)
+            sys.exit(1)
 
-        # Add URL
-        if stage.url:
-            cmd.append(stage.url)
-        elif addr.type == "file":
-            cmd.append(addr.base)
-        else:
-            raise ValueError("Invalid server reference")
+        mcp_plugin = plugins["mcp_"]
+
+        # Build command: uv run --script <plugin> --mode inspect <server>
+        cmd = [
+            "uv",
+            "run",
+            "--script",
+            str(mcp_plugin.path),
+            "--mode",
+            "inspect",
+            server,
+        ]
 
         # Execute plugin
         proc = subprocess.Popen(
@@ -145,12 +147,6 @@ def inspect(ctx, server, output_format):
         else:
             click.echo(_format_text_output(result))
 
-    except ValueError as e:
-        click.echo(f"Error: Invalid address syntax: {e}", err=True)
-        sys.exit(1)
-    except AddressResolutionError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
     except json.JSONDecodeError as e:
         click.echo(f"Error: Invalid JSON response: {e}", err=True)
         sys.exit(1)
