@@ -339,7 +339,9 @@ def analyze(ctx, sample_size, facet_limit, output_format):
             for field, info in result["schema"].items():
                 nullable = " (nullable)" if info.get("nullable") else ""
                 unique = info.get("unique", 0)
-                click.echo(f"  {field}: {info['type']}{nullable} ({unique} unique)")
+                click.echo(
+                    f"  {field}: {info['type']}{nullable} ({unique} unique)"
+                )
 
             if result["facets"]:
                 click.echo()
@@ -354,7 +356,9 @@ def analyze(ctx, sample_size, facet_limit, output_format):
                 click.echo("Statistics:")
                 for field, stats in result["stats"].items():
                     click.echo(f"  {field}:")
-                    click.echo(f"    Count: {stats['count']} (nulls: {stats['nulls']})")
+                    click.echo(
+                        f"    Count: {stats['count']} (nulls: {stats['nulls']})"
+                    )
                     click.echo(f"    Min: {stats['min']:.2f}")
                     click.echo(f"    Max: {stats['max']:.2f}")
                     click.echo(f"    Mean: {stats['mean']:.2f}")

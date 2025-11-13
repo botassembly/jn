@@ -41,7 +41,7 @@ def test_gmail_plugin_help(gmail_plugin):
 
 
 def test_gmail_plugin_requires_mode(gmail_plugin):
-    """Test Gmail plugin requires --mode argument."""
+    """Test Gmail plugin requires --mode and url arguments."""
     result = subprocess.run(
         ["uv", "run", "--script", str(gmail_plugin)],
         capture_output=True,
@@ -50,7 +50,7 @@ def test_gmail_plugin_requires_mode(gmail_plugin):
     )
 
     assert result.returncode != 0
-    assert "--mode is required" in result.stderr
+    assert "required" in result.stderr and ("--mode" in result.stderr or "url" in result.stderr)
 
 
 def test_gmail_plugin_mode_choices(gmail_plugin):

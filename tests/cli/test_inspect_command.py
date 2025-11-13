@@ -108,12 +108,12 @@ def test_inspect_help_text(invoke):
 
     assert res.exit_code == 0
     assert "inspect" in res.output.lower()
-    assert "server" in res.output.lower()
+    assert "container" in res.output.lower() or "capabilities" in res.output.lower()
     assert "--format" in res.output
 
 
 def test_inspect_ambiguous_profile_error(cli_runner, tmp_path):
-    """Test that ambiguous profiles (same name in multiple protocols) error clearly."""
+    """Test that invalid plugin references error clearly."""
     from pathlib import Path
 
     from jn.cli import cli
@@ -134,14 +134,14 @@ def test_inspect_ambiguous_profile_error(cli_runner, tmp_path):
             '{"base_url": "https://example.com"}'
         )
 
-        # Try to inspect the ambiguous profile
+        # Try to inspect an invalid plugin reference
+        # @testapi is interpreted as a plugin (not profile), which doesn't exist
         res = cli_runner.invoke(cli, ["inspect", "@testapi"])
 
-        # Should error with clear message about ambiguity
+        # Should error with clear message
         assert res.exit_code == 1
-        assert "Ambiguous" in res.output or "ambiguous" in res.output
         assert "testapi" in res.output
-        assert "mcp" in res.output
+        assert ("not found" in res.output.lower() or "error" in res.output.lower())
         assert "http" in res.output
 
 

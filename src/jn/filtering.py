@@ -2,7 +2,6 @@
 
 import json
 from typing import Dict, List, Tuple
-from urllib.parse import unquote
 
 
 def parse_operator(param_name: str) -> Tuple[str, str]:
@@ -175,7 +174,9 @@ def build_jq_filter(filters: List[Tuple[str, str, str]]) -> str:
             clauses.append(format_jq_condition(field, operator, value))
         else:
             # Multiple conditions for same field → OR
-            parts = [format_jq_condition(field, op, val) for op, val in conditions]
+            parts = [
+                format_jq_condition(field, op, val) for op, val in conditions
+            ]
             clauses.append(f"({' or '.join(parts)})")
 
     # Combine clauses with AND and wrap in select()

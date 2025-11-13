@@ -3,11 +3,10 @@
 import json
 import subprocess
 import sys
-from pathlib import Path
 
 import click
 
-from ...addressing import Address, parse_address
+from ...addressing import parse_address
 from ...context import pass_context
 from ...filtering import build_jq_filter, separate_config_and_filters
 from ...introspection import get_plugin_config_params
@@ -207,7 +206,9 @@ def _format_data_text(result: dict) -> str:
         lines.append("Statistics:")
         for field, field_stats in stats.items():
             lines.append(f"  {field}:")
-            lines.append(f"    Count: {field_stats['count']} (nulls: {field_stats['nulls']})")
+            lines.append(
+                f"    Count: {field_stats['count']} (nulls: {field_stats['nulls']})"
+            )
             lines.append(f"    Min: {field_stats['min']:.2f}")
             lines.append(f"    Max: {field_stats['max']:.2f}")
             lines.append(f"    Mean: {field_stats['mean']:.2f}")
@@ -243,7 +244,10 @@ def _inspect_container(address_str: str) -> dict:
 
     if proc.returncode != 0:
         stderr = proc.stderr.read()
-        return {"_error": True, "message": f"Failed to list container: {stderr}"}
+        return {
+            "_error": True,
+            "message": f"Failed to list container: {stderr}",
+        }
 
     if not listings:
         return {"_error": True, "message": "No listings found"}
@@ -287,7 +291,9 @@ def _inspect_container(address_str: str) -> dict:
             "account": "me",
             "email": first.get("email", ""),
             "transport": "gmail",
-            "messagesTotal": sum(rec.get("messagesTotal", 0) for rec in listings),
+            "messagesTotal": sum(
+                rec.get("messagesTotal", 0) for rec in listings
+            ),
             "threadsTotal": 0,  # Would need to aggregate properly
             "labels": [
                 {k: v for k, v in rec.items() if not k.startswith("_")}
@@ -325,7 +331,9 @@ def _inspect_data(ctx, address_str: str, limit: int) -> dict:
     config_params = get_plugin_config_params(plugin_path)
 
     # Separate filters from config
-    config, filters = separate_config_and_filters(addr.parameters, config_params)
+    config, filters = separate_config_and_filters(
+        addr.parameters, config_params
+    )
     config["limit"] = str(limit)
 
     # Build URI with config parameters as query string
@@ -444,7 +452,9 @@ def inspect(ctx, uri, limit, output_format):
 
         # Check for errors
         if result.get("_error"):
-            click.echo(f"Error: {result.get('message', 'Unknown error')}", err=True)
+            click.echo(
+                f"Error: {result.get('message', 'Unknown error')}", err=True
+            )
             sys.exit(1)
 
         # Output

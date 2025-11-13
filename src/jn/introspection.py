@@ -3,11 +3,12 @@
 import importlib.util
 import inspect
 import sys
-from pathlib import Path
 from typing import Callable, List, Optional
 
 
-def load_plugin_function(plugin_path: str, function_name: str = "reads") -> Optional[Callable]:
+def load_plugin_function(
+    plugin_path: str, function_name: str = "reads"
+) -> Optional[Callable]:
     """Load a specific function from a plugin file.
 
     Args:
@@ -19,7 +20,9 @@ def load_plugin_function(plugin_path: str, function_name: str = "reads") -> Opti
     """
     try:
         # Load module from path
-        spec = importlib.util.spec_from_file_location("plugin_module", plugin_path)
+        spec = importlib.util.spec_from_file_location(
+            "plugin_module", plugin_path
+        )
         if not spec or not spec.loader:
             return None
 
@@ -66,7 +69,10 @@ def get_config_params(func: Callable) -> List[str]:
                 continue
 
             # Skip *args and **kwargs style parameters
-            if param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
+            if param.kind in (
+                inspect.Parameter.VAR_POSITIONAL,
+                inspect.Parameter.VAR_KEYWORD,
+            ):
                 continue
 
             params.append(name)
@@ -117,8 +123,15 @@ def get_plugin_config_params(plugin_path: str) -> List[str]:
     if is_config_dict_pattern(func):
         # Common config parameters that should not be treated as filters
         return [
-            "limit", "offset", "delimiter", "skip_rows", "header",
-            "method", "timeout", "headers", "format"
+            "limit",
+            "offset",
+            "delimiter",
+            "skip_rows",
+            "header",
+            "method",
+            "timeout",
+            "headers",
+            "format",
         ]
 
     return params

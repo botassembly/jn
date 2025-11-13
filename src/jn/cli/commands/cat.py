@@ -8,7 +8,6 @@ from urllib.parse import urlencode
 import click
 
 from ...addressing import (
-    Address,
     AddressResolutionError,
     AddressResolver,
     ExecutionStage,
@@ -118,7 +117,7 @@ def _execute_with_filter(stages, addr, filters):
         reader_stdout = reader_proc.stdout
         reader_stderr = reader_proc.stderr
         other_proc = None
-        infile_handle = infile if 'infile' in locals() else None
+        infile_handle = infile if "infile" in locals() else None
     else:
         # Pass-through (no stages)
         for line in sys.stdin:
@@ -156,7 +155,7 @@ def _execute_with_filter(stages, addr, filters):
         other_proc.wait()
 
     # Close file if opened
-    if len(stages) == 1 and 'infile_handle' in locals() and infile_handle:
+    if len(stages) == 1 and "infile_handle" in locals() and infile_handle:
         infile_handle.close()
 
     # Check for errors
@@ -237,7 +236,9 @@ def cat(ctx, input_file):
             try:
                 stages = resolver.plan_execution(addr, mode="read")
             except AddressResolutionError:
-                command_name = input_file.split()[0] if ' ' in input_file else input_file
+                command_name = (
+                    input_file.split()[0] if " " in input_file else input_file
+                )
                 if supports_command(command_name):
                     exit_code = execute_with_jc(input_file)
                     sys.exit(exit_code)
@@ -253,7 +254,9 @@ def cat(ctx, input_file):
         try:
             stages = resolver.plan_execution(addr, mode="read")
         except AddressResolutionError:
-            command_name = input_file.split()[0] if ' ' in input_file else input_file
+            command_name = (
+                input_file.split()[0] if " " in input_file else input_file
+            )
             if supports_command(command_name):
                 exit_code = execute_with_jc(input_file)
                 sys.exit(exit_code)
@@ -273,7 +276,9 @@ def cat(ctx, input_file):
         config_params = get_plugin_config_params(final_stage.plugin_path)
 
         # Separate config from filters
-        config, filters = separate_config_and_filters(addr.parameters, config_params)
+        config, filters = separate_config_and_filters(
+            addr.parameters, config_params
+        )
 
         # Rebuild address with ONLY config parameters (removing filters)
         # Reconstruct address with only config
