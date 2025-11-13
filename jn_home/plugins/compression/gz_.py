@@ -27,30 +27,45 @@ Examples:
 import gzip
 import sys
 
+CHUNK_SIZE = 64 * 1024
+
 
 def decompress_stream():
     """Decompress gzip data from stdin to stdout.
 
-    Reads compressed bytes from stdin, decompresses them using gzip,
-    and writes the decompressed bytes to stdout. Operates on raw bytes
-    for maximum efficiency and compatibility with all data formats.
+    Streams decompressed bytes so upstream/downstream tools can stop early.
+    Broken pipes are expected when downstream commands (like sampling analyzers)
+    finish before the entire stream is consumed, so we swallow them quietly.
     """
-    # Read compressed data from stdin (binary mode)
-    compressed_data = sys.stdin.buffer.read()
 
-    # Decompress
     try:
-        decompressed_data = gzip.decompress(compressed_data)
+        gz_stream = gzip.GzipFile(fileobj=sys.stdin.buffer)
     except gzip.BadGzipFile as e:
         sys.stderr.write(f"Error: Invalid gzip file: {e}\n")
         sys.exit(1)
+
+    try:
+        with gz_stream:
+            while True:
+                chunk = gz_stream.read(CHUNK_SIZE)
+                if not chunk:
+                    break
+                try:
+                    sys.stdout.buffer.write(chunk)
+                except BrokenPipeError:
+                    # Downstream stopped reading (e.g., limit reached)
+                    return
+    except BrokenPipeError:
+        # Downstream stopped during read/write
+        return
     except Exception as e:
         sys.stderr.write(f"Error: Decompression failed: {e}\n")
         sys.exit(1)
 
-    # Write decompressed data to stdout (binary mode)
-    sys.stdout.buffer.write(decompressed_data)
-    sys.stdout.buffer.flush()
+    try:
+        sys.stdout.buffer.flush()
+    except BrokenPipeError:
+        pass
 
 
 if __name__ == "__main__":

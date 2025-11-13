@@ -162,9 +162,22 @@ def get_cached_plugins(
 
 def _builtin_plugins_dir() -> Optional[Path]:
     """Locate the packaged default plugins under jn_home.plugins."""
-    pkg = resources.files("jn_home").joinpath("plugins")
-    with resources.as_file(pkg) as p:
-        return Path(p)
+    try:
+        pkg = resources.files("jn_home").joinpath("plugins")
+        with resources.as_file(pkg) as p:
+            plugins_path = Path(p)
+            if plugins_path.exists():
+                return plugins_path
+    except (ModuleNotFoundError, FileNotFoundError):
+        pass
+
+    # Fallback to repo-local jn_home bundle (useful during tests where a fixture
+    # directory named jn_home shadows the packaged version).
+    repo_root = Path(__file__).resolve().parents[3]
+    fallback = repo_root / "jn_home" / "plugins"
+    if fallback.exists():
+        return fallback
+    return None
 
 
 def get_cached_plugins_with_fallback(

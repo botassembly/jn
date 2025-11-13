@@ -62,16 +62,16 @@ def build_subprocess_env_for_coverage() -> dict:
     """
     env = os.environ.copy()
 
-    if env.get("COVERAGE_PROCESS_START"):
-        root = _repo_root()
-        py_path = env.get("PYTHONPATH", "")
-        root_str = str(root)
-        if py_path:
-            if root_str not in py_path.split(os.pathsep):
-                env["PYTHONPATH"] = root_str + os.pathsep + py_path
-        else:
-            env["PYTHONPATH"] = root_str
+    root = _repo_root()
+    py_path = env.get("PYTHONPATH", "")
+    root_str = str(root)
+    if py_path:
+        if root_str not in py_path.split(os.pathsep):
+            env["PYTHONPATH"] = root_str + os.pathsep + py_path
+    else:
+        env["PYTHONPATH"] = root_str
 
+    if env.get("COVERAGE_PROCESS_START"):
         # Centralize coverage data output
         env.setdefault("COVERAGE_RCFILE", str(root / ".coveragerc"))
         env.setdefault("COVERAGE_FILE", str(root / ".coverage"))

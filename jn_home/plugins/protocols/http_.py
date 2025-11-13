@@ -521,9 +521,13 @@ def _stream_raw(
                 return 1
 
             for chunk in response.iter_content(chunk_size=8192):
-                if chunk:
+                if not chunk:
+                    continue
+                try:
                     sys.stdout.buffer.write(chunk)
                     sys.stdout.buffer.flush()
+                except BrokenPipeError:
+                    return 0
             return 0
     except requests.exceptions.RequestException as e:
         # Propagate as error in raw mode (upstream should handle)

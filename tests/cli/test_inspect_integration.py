@@ -5,16 +5,14 @@ inspection of various data sources.
 """
 
 import json
+import textwrap
 
 
 def test_inspect_csv_file_basic(invoke, tmp_path):
     """Test inspect on CSV file (data inspection)."""
     data_file = tmp_path / "test.csv"
     data_file.write_text(
-        "name,age,city\n"
-        "Alice,30,NYC\n"
-        "Bob,25,SF\n"
-        "Carol,35,NYC\n"
+        "name,age,city\n" "Alice,30,NYC\n" "Bob,25,SF\n" "Carol,35,NYC\n"
     )
 
     result = invoke(["inspect", str(data_file), "--format", "json"])
@@ -31,11 +29,7 @@ def test_inspect_csv_file_basic(invoke, tmp_path):
 def test_inspect_csv_text_format(invoke, tmp_path):
     """Test inspect with text output format."""
     data_file = tmp_path / "test.csv"
-    data_file.write_text(
-        "name,city\n"
-        "Alice,NYC\n"
-        "Bob,SF\n"
-    )
+    data_file.write_text("name,city\n" "Alice,NYC\n" "Bob,SF\n")
 
     result = invoke(["inspect", str(data_file), "--format", "text"])
     assert result.exit_code == 0
@@ -47,6 +41,98 @@ def test_inspect_csv_text_format(invoke, tmp_path):
     assert "Schema:" in output
 
 
+def test_inspect_text_highlights(invoke, tmp_path):
+    """Inspect text output should include highlight blocks and domain hints."""
+
+    data_file = tmp_path / "genes.csv"
+    data_file.write_text(
+        "GeneID,gene_symbol,gene_type,chromosome\n"
+        "1,TP53,protein_coding,17\n"
+        "2,EGFR,protein_coding,7\n"
+        "3,ACTB,protein_coding,7\n"
+    )
+
+    result = invoke(["inspect", str(data_file), "--format", "text"])
+    assert result.exit_code == 0
+
+    output = result.output
+    assert "Facet candidates:" in output
+    assert "Flat fields (low variation):" in output
+    assert "BioMCP" in output  # Domain hint for gene-centric data
+
+
+def test_inspect_text_output_snapshot(invoke, tmp_path):
+    """Render full text output so we know exactly what users see."""
+
+    data_file = tmp_path / "snapshot.csv"
+    data_file.write_text(
+        "name,city,gene_type,chromosome\n"
+        "Alice,NYC,protein_coding,17\n"
+        "Bob,SF,pseudo,7\n"
+        "Carol,NYC,protein_coding,7\n"
+    )
+
+    result = invoke(["inspect", str(data_file), "--format", "text"])
+    assert result.exit_code == 0
+
+    output = result.output.rstrip()
+    expected = textwrap.dedent(
+        f"""
+        Resource: {data_file}
+        Transport: file
+        Rows: 3
+        Columns: 4
+
+        Schema:
+          name: string (3 unique)
+          city: string (2 unique)
+          gene_type: string (2 unique)
+          chromosome: string (2 unique)
+
+        Facet candidates:
+          • city (2 values) — top: NYC (2), SF (1)
+          • gene_type (2 values) — top: protein_coding (2), pseudo (1)
+          • chromosome (2 values) — top: 7 (2), 17 (1)
+          • name (3 values) — top: Alice (1), Bob (1), Carol (1)
+
+        Flat fields (low variation):
+          • name — unique IDs
+
+        MCP / domain hints:
+          • Gene-centric columns detected — explore BioMCP tools via `jn inspect @biomcp` or call `mcp+uvx://biomcp-python/biomcp`
+          • Chromosome facets found — try BioMCP's chromosome browsers or build MCP workflows against those facets
+
+        Facets:
+          name:
+            Alice: 1
+            Bob: 1
+            Carol: 1
+
+          city:
+            NYC: 2
+            SF: 1
+
+          gene_type:
+            protein_coding: 2
+            pseudo: 1
+
+          chromosome:
+            7: 2
+            17: 1
+
+        Statistics:
+          chromosome:
+            Count: 3 (nulls: 0)
+            Min: 7.00
+            Max: 17.00
+            Mean: 10.33
+            StdDev: 4.71
+        """
+    ).strip()
+
+    assert output == expected
+
+
 def test_inspect_with_limit(invoke, tmp_path):
     """Test inspect with limit parameter."""
     data_file = tmp_path / "test.csv"
@@ -55,7 +141,9 @@ def test_inspect_with_limit(invoke, tmp_path):
         lines.append(f"Name{i},{i}\n")
     data_file.write_text("".join(lines))
 
-    result = invoke(["inspect", str(data_file), "--limit", "10", "--format", "json"])
+    result = invoke(
+        ["inspect", str(data_file), "--limit", "10", "--format", "json"]
+    )
     assert result.exit_code == 0
 
     data = json.loads(result.output)
@@ -96,6 +184,7 @@ def test_inspect_json_array(invoke, tmp_path):
     inspect command doesn't properly handle JSON arrays. Skipping for now.
     """
     import pytest
+
     pytest.skip("JSON array inspection not yet working - needs bugfix")
 
 
@@ -103,11 +192,7 @@ def test_inspect_shows_facets(invoke, tmp_path):
     """Test that inspect includes facet information."""
     data_file = tmp_path / "test.csv"
     data_file.write_text(
-        "name,category\n"
-        "Item1,A\n"
-        "Item2,B\n"
-        "Item3,A\n"
-        "Item4,C\n"
+        "name,category\n" "Item1,A\n" "Item2,B\n" "Item3,A\n" "Item4,C\n"
     )
 
     result = invoke(["inspect", str(data_file), "--format", "json"])
@@ -124,12 +209,7 @@ def test_inspect_shows_facets(invoke, tmp_path):
 def test_inspect_shows_statistics(invoke, tmp_path):
     """Test that inspect includes statistics for numeric fields."""
     data_file = tmp_path / "test.csv"
-    data_file.write_text(
-        "name,value\n"
-        "A,10\n"
-        "B,20\n"
-        "C,30\n"
-    )
+    data_file.write_text("name,value\n" "A,10\n" "B,20\n" "C,30\n")
 
     result = invoke(["inspect", str(data_file), "--format", "json"])
     assert result.exit_code == 0
@@ -145,12 +225,7 @@ def test_inspect_shows_statistics(invoke, tmp_path):
 def test_inspect_shows_samples(invoke, tmp_path):
     """Test that inspect includes data samples."""
     data_file = tmp_path / "test.csv"
-    data_file.write_text(
-        "name,value\n"
-        "A,1\n"
-        "B,2\n"
-        "C,3\n"
-    )
+    data_file.write_text("name,value\n" "A,1\n" "B,2\n" "C,3\n")
 
     result = invoke(["inspect", str(data_file), "--format", "json"])
     assert result.exit_code == 0
@@ -179,7 +254,9 @@ def test_inspect_large_file_with_limit(invoke, tmp_path):
     data_file.write_text("".join(lines))
 
     # Inspect with small limit for performance
-    result = invoke(["inspect", str(data_file), "--limit", "100", "--format", "json"])
+    result = invoke(
+        ["inspect", str(data_file), "--limit", "100", "--format", "json"]
+    )
     assert result.exit_code == 0
 
     data = json.loads(result.output)
@@ -200,7 +277,9 @@ def test_inspect_with_multiple_filters(invoke, tmp_path):
     )
 
     # Filter: city=NYC AND status=active
-    result = invoke(["inspect", f"{data_file}?city=NYC&status=active", "--format", "json"])
+    result = invoke(
+        ["inspect", f"{data_file}?city=NYC&status=active", "--format", "json"]
+    )
     assert result.exit_code == 0
 
     data = json.loads(result.output)
@@ -227,6 +306,7 @@ def test_inspect_ndjson_from_stdin(invoke):
     for NDJSON data. This is a known limitation.
     """
     import pytest
+
     pytest.skip("Stdin NDJSON requires format override - feature limitation")
 
 

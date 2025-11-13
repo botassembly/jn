@@ -241,7 +241,10 @@ if __name__ == "__main__":
         if args.limit:
             config["limit"] = args.limit
         for record in reads(config):
-            print(json.dumps(record), flush=True)
+            try:
+                print(json.dumps(record), flush=True)
+            except BrokenPipeError:
+                sys.exit(0)
     else:
         config["header"] = args.header
         writes(config)

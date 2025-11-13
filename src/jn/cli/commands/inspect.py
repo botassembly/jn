@@ -13,6 +13,12 @@ from ...introspection import get_plugin_config_params
 from ..helpers import build_subprocess_env_for_coverage, check_uv_available
 
 
+def _jn_cli_cmd(*args: str) -> list:
+    """Return command list that runs the current JN CLI module."""
+
+    return [sys.executable, "-m", "jn.cli.main", *args]
+
+
 def _is_container(address_str: str) -> bool:
     """Check if address is a container (for capability listing).
 
@@ -157,6 +163,56 @@ def _format_container_text(result: dict) -> str:
     return "\n".join(lines)
 
 
+def _summarize_flat_fields(schema: dict, row_count: int) -> list:
+    """Return fields that are constant or fully unique."""
+    if not row_count:
+        return []
+
+    boring = []
+    for field, info in schema.items():
+        unique = info.get("unique")
+        if unique is None:
+            continue
+        if unique == 0:
+            continue
+        if unique == 1:
+            boring.append((field, "constant"))
+        elif unique == row_count:
+            boring.append((field, "unique IDs"))
+    return boring
+
+
+def _facet_candidates(facets: dict, limit: int = 5) -> list:
+    """Build a ranked list of good facet fields with previews."""
+    candidates = []
+    for field, counts in facets.items():
+        total_unique = len(counts)
+        preview = [f"{value} ({count})" for value, count in list(counts.items())[:3]]
+        candidates.append((field, total_unique, preview))
+    candidates.sort(key=lambda item: item[1])
+    return candidates[:limit]
+
+
+def _domain_hints(schema: dict) -> list:
+    """Suggest domain-aware follow-ups (e.g., BioMCP) based on field names."""
+    hints = []
+    lowercase_fields = [field.lower() for field in schema.keys()]
+
+    if any("gene" in field for field in lowercase_fields):
+        hints.append(
+            "Gene-centric columns detected — explore BioMCP tools via "
+            "`jn inspect @biomcp` or call `mcp+uvx://biomcp-python/biomcp`"
+        )
+
+    if any("chrom" in field for field in lowercase_fields):
+        hints.append(
+            "Chromosome facets found — try BioMCP's chromosome browsers "
+            "or build MCP workflows against those facets"
+        )
+
+    return hints
+
+
 def _format_data_text(result: dict) -> str:
     """Format data inspection as human-readable text."""
     lines = []
@@ -166,7 +222,8 @@ def _format_data_text(result: dict) -> str:
         lines.append(f"Transport: {result['transport']}")
     if result.get("format"):
         lines.append(f"Format: {result['format']}")
-    lines.append(f"Rows: {result.get('rows', 0)}")
+    rows = result.get("rows", 0)
+    lines.append(f"Rows: {rows}")
     lines.append(f"Columns: {result.get('columns', 0)}")
     lines.append("")
 
@@ -188,8 +245,34 @@ def _format_data_text(result: dict) -> str:
             lines.append(line)
         lines.append("")
 
-    # Facets
+    # Highlights
+    flat_fields = _summarize_flat_fields(schema, rows)
     facets = result.get("facets", {})
+    facet_fields = _facet_candidates(facets)
+
+    if facet_fields:
+        lines.append("Facet candidates:")
+        for field, unique_count, preview in facet_fields:
+            preview_str = ", ".join(preview)
+            lines.append(
+                f"  • {field} ({unique_count} values) — top: {preview_str}"
+            )
+        lines.append("")
+
+    if flat_fields:
+        lines.append("Flat fields (low variation):")
+        for field, reason in flat_fields[:5]:
+            lines.append(f"  • {field} — {reason}")
+        lines.append("")
+
+    domain_hints = _domain_hints(schema)
+    if domain_hints:
+        lines.append("MCP / domain hints:")
+        for hint in domain_hints:
+            lines.append(f"  • {hint}")
+        lines.append("")
+
+    # Facets
     if facets:
         lines.append("Facets:")
         for field, counts in list(facets.items())[:5]:  # Limit to 5 fields
@@ -222,7 +305,7 @@ def _inspect_container(address_str: str) -> dict:
     """Inspect container - call cat and aggregate listings."""
     # Execute: jn cat <container>
     proc = subprocess.Popen(
-        ["jn", "cat", address_str],
+        _jn_cli_cmd("cat", address_str),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -355,7 +438,7 @@ def _inspect_data(ctx, address_str: str, limit: int) -> dict:
 
     # Start cat process
     cat_proc = subprocess.Popen(
-        ["jn", "cat", full_uri],
+        _jn_cli_cmd("cat", full_uri),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         env=build_subprocess_env_for_coverage(),
@@ -365,7 +448,7 @@ def _inspect_data(ctx, address_str: str, limit: int) -> dict:
     if filters:
         jq_expr = build_jq_filter(filters)
         filter_proc = subprocess.Popen(
-            ["jn", "filter", jq_expr],
+            _jn_cli_cmd("filter", jq_expr),
             stdin=cat_proc.stdout,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -379,7 +462,7 @@ def _inspect_data(ctx, address_str: str, limit: int) -> dict:
 
     # Analyze
     analyze_proc = subprocess.Popen(
-        ["jn", "analyze", "--format", "json"],
+        _jn_cli_cmd("analyze", "--format", "json"),
         stdin=analyze_stdin,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,

@@ -46,6 +46,17 @@ def _build_command(stage: ExecutionStage, command_str: str = None) -> list:
     return cmd
 
 
+def _looks_like_broken_pipe(message: str | bytes | None) -> bool:
+    if not message:
+        return False
+    if isinstance(message, bytes):
+        try:
+            message = message.decode("utf-8", errors="ignore")
+        except Exception:
+            return False
+    return "broken pipe" in message.lower()
+
+
 def _execute_with_filter(stages, addr, filters):
     """Execute pipeline with optional filter stage.
 
@@ -203,20 +214,26 @@ def _execute_with_filter(stages, addr, filters):
     # Check for errors
     if final_proc.returncode != 0:
         error_msg = final_proc.stderr.read() if filters else ""
+        if _looks_like_broken_pipe(error_msg):
+            return
         if error_msg:
             click.echo(f"Error: Filter error: {error_msg}", err=True)
         sys.exit(1)
 
     if reader_proc.returncode != 0:
         error_msg = reader_stderr.read()
-        click.echo(f"Error: Reader error: {error_msg}", err=True)
-        sys.exit(1)
+        if not _looks_like_broken_pipe(error_msg):
+            click.echo(f"Error: Reader error: {error_msg}", err=True)
+            sys.exit(1)
+        return
 
     # Check all intermediate processes for errors
     if "all_procs" in locals():
         for i, proc in enumerate(all_procs):
             if proc != reader_proc and proc.returncode != 0:
                 error_msg = proc.stderr.read()
+                if _looks_like_broken_pipe(error_msg):
+                    continue
                 if isinstance(error_msg, bytes):
                     error_msg = error_msg.decode("utf-8")
                 stage_name = "Stage" if i == 0 else "Decompression" if i == 1 and len(all_procs) == 3 else "Protocol"
@@ -224,10 +241,11 @@ def _execute_with_filter(stages, addr, filters):
                 sys.exit(1)
     elif other_proc and other_proc.returncode != 0:
         error_msg = other_proc.stderr.read()
-        if isinstance(error_msg, bytes):
-            error_msg = error_msg.decode("utf-8")
-        click.echo(f"Error: Protocol error: {error_msg}", err=True)
-        sys.exit(1)
+        if not _looks_like_broken_pipe(error_msg):
+            if isinstance(error_msg, bytes):
+                error_msg = error_msg.decode("utf-8")
+            click.echo(f"Error: Protocol error: {error_msg}", err=True)
+            sys.exit(1)
 
 
 @click.command()

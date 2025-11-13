@@ -17,6 +17,8 @@ Inspired by Kelly Brazil's [jc](https://github.com/kellyjonbrazil/jc) philosophy
 
 ## Quick Start
 
+> **New contributor?** Skim [`docs/onboarding.md`](docs/onboarding.md) for a 5-minute primer on the repo layout, setup commands, and the fastest way to verify your environment before diving in here.
+
 ### Installation
 
 ```bash
@@ -43,6 +45,10 @@ jn cat data.csv --limit 5
 # Transform and filter
 echo '{"name":"Alice","age":30}' | jn cat - | jq '.age' | jn put -
 ```
+
+### What does `jn inspect` look like?
+
+`jn inspect` now renders a rich text dashboard with schema, facet candidates, flat fields, BioMCP hints, and stats. Grab a peek at [`docs/inspect.md`](docs/inspect.md) for a screenshot-style transcript from the Homo sapiens gene info file along with the exact command to reproduce it.
 
 ## Core Commands
 
