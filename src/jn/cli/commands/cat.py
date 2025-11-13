@@ -68,8 +68,8 @@ def _execute_with_filter(stages, addr, filters):
 
         for i, stage in enumerate(stages):
             cmd = _build_command(stage)
-            is_last = (i == len(stages) - 1)
-            is_first = (i == 0)
+            is_last = i == len(stages) - 1
+            is_first = i == 0
 
             # Determine stdin source
             if is_first:
@@ -82,7 +82,7 @@ def _execute_with_filter(stages, addr, filters):
                     file_path = addr.base
                     if addr.compression:
                         file_path = f"{file_path}.{addr.compression}"
-                    infile_handle = open(file_path, 'rb')
+                    infile_handle = open(file_path, "rb")
                     stdin_source = infile_handle
                 elif addr.type == "stdio":
                     stdin_source = sys.stdin.buffer
@@ -219,7 +219,15 @@ def _execute_with_filter(stages, addr, filters):
                 error_msg = proc.stderr.read()
                 if isinstance(error_msg, bytes):
                     error_msg = error_msg.decode("utf-8")
-                stage_name = "Stage" if i == 0 else "Decompression" if i == 1 and len(all_procs) == 3 else "Protocol"
+                stage_name = (
+                    "Stage"
+                    if i == 0
+                    else (
+                        "Decompression"
+                        if i == 1 and len(all_procs) == 3
+                        else "Protocol"
+                    )
+                )
                 click.echo(f"Error: {stage_name} error: {error_msg}", err=True)
                 sys.exit(1)
     elif other_proc and other_proc.returncode != 0:

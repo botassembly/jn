@@ -10,18 +10,19 @@ def test_analyze_basic_csv(invoke, tmp_path):
     """Test analyze with basic CSV data."""
     data_file = tmp_path / "test.csv"
     data_file.write_text(
-        "name,age,city\n"
-        "Alice,30,NYC\n"
-        "Bob,25,SF\n"
-        "Carol,35,NYC\n"
+        "name,age,city\n" "Alice,30,NYC\n" "Bob,25,SF\n" "Carol,35,NYC\n"
     )
 
-    result = invoke(["cat", str(data_file), "|", "jn", "analyze", "--format", "json"])
+    result = invoke(
+        ["cat", str(data_file), "|", "jn", "analyze", "--format", "json"]
+    )
     # Note: pipe doesn't work in Click runner, so test directly
     cat_result = invoke(["cat", str(data_file)])
     assert cat_result.exit_code == 0
 
-    analyze_result = invoke(["analyze", "--format", "json"], input_data=cat_result.output)
+    analyze_result = invoke(
+        ["analyze", "--format", "json"], input_data=cat_result.output
+    )
     assert analyze_result.exit_code == 0
 
     data = json.loads(analyze_result.output)
@@ -36,13 +37,13 @@ def test_analyze_schema_detection(invoke, tmp_path):
     """Test schema type detection."""
     data_file = tmp_path / "test.csv"
     data_file.write_text(
-        "name,age,active\n"
-        "Alice,30,true\n"
-        "Bob,25,false\n"
+        "name,age,active\n" "Alice,30,true\n" "Bob,25,false\n"
     )
 
     cat_result = invoke(["cat", str(data_file)])
-    analyze_result = invoke(["analyze", "--format", "json"], input_data=cat_result.output)
+    analyze_result = invoke(
+        ["analyze", "--format", "json"], input_data=cat_result.output
+    )
     assert analyze_result.exit_code == 0
 
     data = json.loads(analyze_result.output)
@@ -67,7 +68,9 @@ def test_analyze_facets(invoke, tmp_path):
     )
 
     cat_result = invoke(["cat", str(data_file)])
-    analyze_result = invoke(["analyze", "--format", "json"], input_data=cat_result.output)
+    analyze_result = invoke(
+        ["analyze", "--format", "json"], input_data=cat_result.output
+    )
     assert analyze_result.exit_code == 0
 
     data = json.loads(analyze_result.output)
@@ -83,14 +86,13 @@ def test_analyze_statistics(invoke, tmp_path):
     """Test numeric statistics computation."""
     data_file = tmp_path / "test.csv"
     data_file.write_text(
-        "name,revenue\n"
-        "Alice,1200\n"
-        "Bob,950\n"
-        "Carol,1500\n"
+        "name,revenue\n" "Alice,1200\n" "Bob,950\n" "Carol,1500\n"
     )
 
     cat_result = invoke(["cat", str(data_file)])
-    analyze_result = invoke(["analyze", "--format", "json"], input_data=cat_result.output)
+    analyze_result = invoke(
+        ["analyze", "--format", "json"], input_data=cat_result.output
+    )
     assert analyze_result.exit_code == 0
 
     data = json.loads(analyze_result.output)
@@ -107,17 +109,13 @@ def test_analyze_samples(invoke, tmp_path):
     """Test sample collection (first/last/random)."""
     data_file = tmp_path / "test.csv"
     data_file.write_text(
-        "name,value\n"
-        "A,1\n"
-        "B,2\n"
-        "C,3\n"
-        "D,4\n"
-        "E,5\n"
+        "name,value\n" "A,1\n" "B,2\n" "C,3\n" "D,4\n" "E,5\n"
     )
 
     cat_result = invoke(["cat", str(data_file)])
     analyze_result = invoke(
-        ["analyze", "--format", "json", "--sample-size", "3"], input_data=cat_result.output
+        ["analyze", "--format", "json", "--sample-size", "3"],
+        input_data=cat_result.output,
     )
     assert analyze_result.exit_code == 0
 
@@ -140,14 +138,12 @@ def test_analyze_samples(invoke, tmp_path):
 def test_analyze_text_format(invoke, tmp_path):
     """Test analyze with text output format."""
     data_file = tmp_path / "test.csv"
-    data_file.write_text(
-        "name,city\n"
-        "Alice,NYC\n"
-        "Bob,SF\n"
-    )
+    data_file.write_text("name,city\n" "Alice,NYC\n" "Bob,SF\n")
 
     cat_result = invoke(["cat", str(data_file)])
-    analyze_result = invoke(["analyze", "--format", "text"], input_data=cat_result.output)
+    analyze_result = invoke(
+        ["analyze", "--format", "text"], input_data=cat_result.output
+    )
     assert analyze_result.exit_code == 0
 
     output = analyze_result.output
@@ -190,7 +186,8 @@ def test_analyze_custom_sample_size(invoke, tmp_path):
 
     cat_result = invoke(["cat", str(data_file)])
     analyze_result = invoke(
-        ["analyze", "--format", "json", "--sample-size", "5"], input_data=cat_result.output
+        ["analyze", "--format", "json", "--sample-size", "5"],
+        input_data=cat_result.output,
     )
     assert analyze_result.exit_code == 0
 
@@ -222,15 +219,12 @@ def test_analyze_with_nulls(invoke):
 def test_analyze_unique_counts(invoke, tmp_path):
     """Test unique value counting in schema."""
     data_file = tmp_path / "test.csv"
-    data_file.write_text(
-        "name,city\n"
-        "Alice,NYC\n"
-        "Bob,NYC\n"
-        "Carol,SF\n"
-    )
+    data_file.write_text("name,city\n" "Alice,NYC\n" "Bob,NYC\n" "Carol,SF\n")
 
     cat_result = invoke(["cat", str(data_file)])
-    analyze_result = invoke(["analyze", "--format", "json"], input_data=cat_result.output)
+    analyze_result = invoke(
+        ["analyze", "--format", "json"], input_data=cat_result.output
+    )
     assert analyze_result.exit_code == 0
 
     data = json.loads(analyze_result.output)

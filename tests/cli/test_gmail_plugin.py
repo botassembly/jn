@@ -50,7 +50,9 @@ def test_gmail_plugin_requires_mode(gmail_plugin):
     )
 
     assert result.returncode != 0
-    assert "required" in result.stderr and ("--mode" in result.stderr or "url" in result.stderr)
+    assert "required" in result.stderr and (
+        "--mode" in result.stderr or "url" in result.stderr
+    )
 
 
 def test_gmail_plugin_mode_choices(gmail_plugin):

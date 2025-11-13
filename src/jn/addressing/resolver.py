@@ -162,10 +162,7 @@ class AddressResolver:
         stages = []
 
         # Only consider 2-stage for protocol URLs in read mode
-        if (
-            mode == "read"
-            and address.type == "protocol"
-        ):
+        if mode == "read" and address.type == "protocol":
             # Check if registry suggests 2-stage plan OR if there's explicit format override
             # Note: We use the original base (without .gz) for format detection
             if address.format_override:
@@ -180,7 +177,9 @@ class AddressResolver:
                     if protocol in ("http", "https"):
                         proto_name = "http_"
                     else:
-                        raise AddressResolutionError(f"Protocol plugin not found: {protocol}")
+                        raise AddressResolutionError(
+                            f"Protocol plugin not found: {protocol}"
+                        )
 
                 # Get format plugin name
                 fmt_name = f"{address.format_override}_"
@@ -188,12 +187,16 @@ class AddressResolver:
                     # Try without underscore
                     fmt_name = address.format_override
                     if fmt_name not in self._plugins:
-                        raise AddressResolutionError(f"Format plugin not found: {address.format_override}")
+                        raise AddressResolutionError(
+                            f"Format plugin not found: {address.format_override}"
+                        )
 
                 plan = [proto_name, fmt_name]
             else:
                 # Auto-detect format from URL
-                plan = self._registry.plan_for_read(address.base, self._plugins)
+                plan = self._registry.plan_for_read(
+                    address.base, self._plugins
+                )
 
             if len(plan) == 2:
                 # Two-stage: protocol (raw) → format (read)
@@ -217,7 +220,9 @@ class AddressResolver:
                     parameters={},  # Don't include params in URL
                     type="protocol",
                 )
-                url, headers = self._resolve_url_and_headers(temp_addr, proto_name)
+                url, headers = self._resolve_url_and_headers(
+                    temp_addr, proto_name
+                )
 
                 # Protocol stage: raw mode, URL as argument
                 protocol_stage = ExecutionStage(

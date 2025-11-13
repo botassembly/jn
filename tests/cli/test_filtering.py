@@ -227,9 +227,7 @@ def test_filter_empty_results(invoke, tmp_path):
     """Test filter that matches no records."""
     data_file = tmp_path / "test.csv"
     data_file.write_text(
-        "name,city,revenue\n"
-        "Alice,NYC,1200\n"
-        "Bob,SF,950\n"
+        "name,city,revenue\n" "Alice,NYC,1200\n" "Bob,SF,950\n"
     )
 
     # Filter for non-existent city

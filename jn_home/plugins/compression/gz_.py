@@ -25,32 +25,43 @@ Examples:
 # ///
 
 import gzip
+import os
 import sys
 
 
-def decompress_stream():
-    """Decompress gzip data from stdin to stdout.
-
-    Reads compressed bytes from stdin, decompresses them using gzip,
-    and writes the decompressed bytes to stdout. Operates on raw bytes
-    for maximum efficiency and compatibility with all data formats.
-    """
-    # Read compressed data from stdin (binary mode)
-    compressed_data = sys.stdin.buffer.read()
-
-    # Decompress
+def safe_write_bytes(data: bytes) -> None:
+    """Write bytes to stdout.buffer safely, exit on EPIPE."""
     try:
-        decompressed_data = gzip.decompress(compressed_data)
+        sys.stdout.buffer.write(data)
+        sys.stdout.buffer.flush()
+    except BrokenPipeError:
+        os._exit(0)
+
+
+def decompress_stream():
+    """Stream gzip decompression from stdin to stdout.
+
+    - Reads compressed bytes from stdin
+    - Decompresses in fixed-size chunks (constant memory)
+    - Writes decompressed bytes to stdout
+    - Exits cleanly on BrokenPipeError (downstream closed)
+    """
+    try:
+        with gzip.GzipFile(fileobj=sys.stdin.buffer, mode="rb") as gz:
+            while True:
+                chunk = gz.read(8192)
+                if not chunk:
+                    break
+                safe_write_bytes(chunk)
     except gzip.BadGzipFile as e:
         sys.stderr.write(f"Error: Invalid gzip file: {e}\n")
         sys.exit(1)
+    except BrokenPipeError:
+        # Downstream closed while reading - normal termination
+        os._exit(0)
     except Exception as e:
         sys.stderr.write(f"Error: Decompression failed: {e}\n")
         sys.exit(1)
-
-    # Write decompressed data to stdout (binary mode)
-    sys.stdout.buffer.write(decompressed_data)
-    sys.stdout.buffer.flush()
 
 
 if __name__ == "__main__":

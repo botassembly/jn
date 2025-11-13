@@ -108,7 +108,10 @@ def test_inspect_help_text(invoke):
 
     assert res.exit_code == 0
     assert "inspect" in res.output.lower()
-    assert "container" in res.output.lower() or "capabilities" in res.output.lower()
+    assert (
+        "container" in res.output.lower()
+        or "capabilities" in res.output.lower()
+    )
     assert "--format" in res.output
 
 
@@ -141,7 +144,9 @@ def test_inspect_ambiguous_profile_error(cli_runner, tmp_path):
         # Should error with clear message
         assert res.exit_code == 1
         assert "testapi" in res.output
-        assert ("not found" in res.output.lower() or "error" in res.output.lower())
+        assert (
+            "not found" in res.output.lower() or "error" in res.output.lower()
+        )
         assert "http" in res.output
 
 
