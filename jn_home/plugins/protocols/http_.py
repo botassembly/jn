@@ -1,5 +1,19 @@
 #!/usr/bin/env -S uv run --script
-"""HTTP protocol plugin for fetching data from HTTP/HTTPS endpoints."""
+"""HTTP protocol plugin for fetching data from HTTP/HTTPS endpoints.
+
+This plugin enables reading from HTTP/HTTPS endpoints using:
+- Naked URLs: https://example.com/data.json
+- Profile references: @genomoncology/alterations?gene=BRAF
+
+Examples:
+    # Naked URL access (no profile required)
+    jn cat "https://api.example.com/data.json"
+    jn inspect "https://api.example.com"
+
+    # Profile-based access
+    jn cat "@genomoncology/alterations?gene=BRAF"
+    jn inspect "@genomoncology"
+"""
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
@@ -13,10 +27,12 @@
 # ///
 
 import json
-import io
+import os
+import re
 import sys
-from typing import Iterator
-from urllib.parse import urlparse
+from pathlib import Path
+from typing import Dict, Iterator, Optional, Tuple
+from urllib.parse import parse_qs, urlencode, urlparse
 
 import requests
 
@@ -35,6 +51,235 @@ FORMAT_DETECT = {
 }
 
 
+# ============================================================================
+# VENDORED HTTP PROFILE RESOLVER (self-contained, no framework imports)
+# Copied from src/jn/profiles/http.py to maintain plugin self-containment
+# ============================================================================
+
+
+class ProfileError(Exception):
+    """Error in profile resolution."""
+
+    pass
+
+
+def find_profile_paths() -> list[Path]:
+    """Get search paths for HTTP profiles (in priority order)."""
+    paths = []
+
+    # 1. Project profiles (highest priority)
+    project_profile_dir = Path.cwd() / ".jn" / "profiles" / "http"
+    if project_profile_dir.exists():
+        paths.append(project_profile_dir)
+
+    # 2. User profiles
+    user_profile_dir = Path.home() / ".local" / "jn" / "profiles" / "http"
+    if user_profile_dir.exists():
+        paths.append(user_profile_dir)
+
+    # 3. Bundled profiles (lowest priority)
+    jn_home = os.environ.get("JN_HOME")
+    if jn_home:
+        bundled_dir = Path(jn_home) / "profiles" / "http"
+    else:
+        # Fallback: relative to this file (3 levels up to jn_home)
+        bundled_dir = Path(__file__).parent.parent.parent / "profiles" / "http"
+
+    if bundled_dir.exists():
+        paths.append(bundled_dir)
+
+    return paths
+
+
+def substitute_env_vars(value: str) -> str:
+    """Substitute ${VAR} environment variables in string."""
+    if not isinstance(value, str):
+        return value
+
+    pattern = r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}"
+
+    def replace_var(match):
+        var_name = match.group(1)
+        var_value = os.environ.get(var_name)
+        if var_value is None:
+            raise ProfileError(f"Environment variable {var_name} not set")
+        return var_value
+
+    return re.sub(pattern, replace_var, value)
+
+
+def substitute_env_vars_recursive(data):
+    """Recursively substitute environment variables in nested structures."""
+    if isinstance(data, dict):
+        return {k: substitute_env_vars_recursive(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [substitute_env_vars_recursive(item) for item in data]
+    elif isinstance(data, str):
+        return substitute_env_vars(data)
+    else:
+        return data
+
+
+def load_hierarchical_profile(
+    api_name: str, source_name: Optional[str] = None
+) -> dict:
+    """Load hierarchical HTTP profile: _meta.json + optional source.json.
+
+    Args:
+        api_name: API name (e.g., "genomoncology")
+        source_name: Optional source name (e.g., "alterations")
+
+    Returns:
+        Merged profile dict with _meta + source info
+
+    Raises:
+        ProfileError: If profile not found
+    """
+    meta = {}
+    source = {}
+
+    # Search for profile directory
+    for search_dir in find_profile_paths():
+        api_dir = search_dir / api_name
+
+        if not api_dir.exists():
+            continue
+
+        # Load _meta.json (connection info)
+        meta_file = api_dir / "_meta.json"
+        if meta_file.exists():
+            try:
+                meta = json.loads(meta_file.read_text())
+            except json.JSONDecodeError as e:
+                raise ProfileError(f"Invalid JSON in {meta_file}: {e}")
+
+        # Load source.json if requested
+        if source_name:
+            source_file = api_dir / f"{source_name}.json"
+            if source_file.exists():
+                try:
+                    source = json.loads(source_file.read_text())
+                except json.JSONDecodeError as e:
+                    raise ProfileError(f"Invalid JSON in {source_file}: {e}")
+            elif meta:
+                # _meta exists but source doesn't
+                raise ProfileError(
+                    f"Source not found: {api_name}/{source_name}"
+                )
+
+        # If we found meta, we're done
+        if meta:
+            break
+
+    if not meta:
+        raise ProfileError(f"HTTP API profile not found: {api_name}")
+
+    # Merge _meta + source
+    merged = {**meta, **source}
+
+    # Substitute environment variables recursively
+    merged = substitute_env_vars_recursive(merged)
+
+    return merged
+
+
+def list_profile_sources(api_name: str) -> list[str]:
+    """List available sources for an HTTP API profile.
+
+    Args:
+        api_name: API name (e.g., "genomoncology")
+
+    Returns:
+        List of source names (without .json extension)
+    """
+    sources = []
+
+    for search_dir in find_profile_paths():
+        api_dir = search_dir / api_name
+        if api_dir.exists():
+            # Find all .json files except _meta.json
+            for json_file in api_dir.glob("*.json"):
+                if json_file.name != "_meta.json":
+                    source_name = json_file.stem
+                    if source_name not in sources:
+                        sources.append(source_name)
+
+    return sorted(sources)
+
+
+def resolve_profile_reference(
+    reference: str, params: Optional[Dict] = None
+) -> Tuple[str, Dict[str, str], int, str]:
+    """Resolve @api/source reference to URL, headers, timeout, and method.
+
+    Args:
+        reference: Profile reference like "@genomoncology/alterations"
+        params: Optional query parameters
+
+    Returns:
+        Tuple of (url, headers_dict, timeout, method)
+
+    Raises:
+        ProfileError: If profile not found
+    """
+    if not reference.startswith("@"):
+        raise ProfileError(
+            f"Invalid profile reference (must start with @): {reference}"
+        )
+
+    # Parse reference: @api_name/source_name?query
+    ref = reference[1:]  # Remove @
+
+    # Check for query params in reference
+    if "?" in ref:
+        ref_part, query_part = ref.split("?", 1)
+        # Parse query string
+        query_params = {
+            k: v[0] if len(v) == 1 else v
+            for k, v in parse_qs(query_part).items()
+        }
+    else:
+        ref_part = ref
+        query_params = {}
+
+    # Parse api/source path
+    parts = ref_part.split("/", 1)
+
+    if len(parts) == 1:
+        # Just @api_name - load _meta only
+        api_name = parts[0]
+        source_name = None
+    else:
+        api_name, source_name = parts
+
+    # Load profile
+    profile = load_hierarchical_profile(api_name, source_name)
+
+    # Merge params: function params override query params
+    merged_params = {**query_params, **(params or {})}
+
+    # Build URL
+    base_url = profile.get("base_url", "")
+    path = profile.get("path", "")
+
+    # Construct full URL
+    base = base_url.rstrip("/")
+    path = path.lstrip("/")
+    url = f"{base}/{path}" if path else base
+
+    # Add query params if provided
+    if merged_params:
+        query_string = urlencode(merged_params, doseq=True)
+        url = f"{url}?{query_string}"
+
+    # Get headers, timeout, and method
+    headers = profile.get("headers", {})
+    timeout = profile.get("timeout", 30)
+    method = profile.get("method", "GET")
+
+    return url, headers, timeout, method
+
+
 def error_record(error_type: str, message: str, **extra) -> dict:
     """Create standardized error record."""
     return {"_error": True, "type": error_type, "message": message, **extra}
@@ -43,26 +288,57 @@ def error_record(error_type: str, message: str, **extra) -> dict:
 def reads(
     url: str,
     method: str = "GET",
-    headers: dict = None,
-    auth: tuple = None,
+    headers: dict | None = None,
+    auth: tuple | None = None,
     timeout: int = 30,
     verify_ssl: bool = True,
-    force_format: str = None,
+    force_format: str | None = None,
+    **params,
 ) -> Iterator[dict]:
-    """Fetch data from HTTP/HTTPS URL and yield NDJSON records.
+    """Fetch data from HTTP/HTTPS URL or profile reference and yield NDJSON records.
+
+    Supports two formats:
+    - Naked URL: https://example.com/data.json
+    - Profile reference: @genomoncology/alterations?gene=BRAF
 
     Args:
-        url: The URL to fetch (required)
+        url: The URL to fetch or profile reference (required)
         method: HTTP method (default: 'GET')
         headers: Dict of HTTP headers
         auth: Tuple of (username, password) for Basic auth
         timeout: Request timeout in seconds (default: 30)
         verify_ssl: Verify SSL certificates (default: True)
         force_format: Force specific format ('json', 'csv', 'ndjson', 'text')
+        **params: Additional parameters for profile references
 
     Yields:
         Dict records from the response, or error records
     """
+    # Check if this is a profile reference
+    if url.startswith("@"):
+        try:
+            # Resolve profile to URL, headers, timeout, and method
+            resolved_url, profile_headers, profile_timeout, profile_method = (
+                resolve_profile_reference(url, params)
+            )
+            url = resolved_url
+            # Merge headers: explicit headers override profile headers
+            headers = {**profile_headers, **(headers or {})}
+            # Use profile timeout if not explicitly set
+            if timeout == 30:  # Default value
+                timeout = profile_timeout
+            # Use profile method if not explicitly set
+            if method == "GET":  # Default value
+                method = profile_method
+        except ProfileError as e:
+            yield error_record("profile_error", str(e))
+            return
+        except Exception as e:
+            yield error_record(
+                "profile_error", str(e), exception_type=type(e).__name__
+            )
+            return
+
     headers = headers or {}
 
     # Read request body from stdin for POST/PUT/PATCH
@@ -117,7 +393,11 @@ def reads(
             {"content": response.text, "content_type": "text/csv", "url": url}
         ],
         "text": lambda: [
-            {"content": response.text, "content_type": content_type, "url": url}
+            {
+                "content": response.text,
+                "content_type": content_type,
+                "url": url,
+            }
         ],
     }
 
@@ -155,7 +435,110 @@ def _parse_ndjson(response: requests.Response) -> Iterator[dict]:
             yield error_record("ndjson_decode_error", str(e), line=line[:100])
 
 
-def _stream_raw(url: str, method: str, headers: dict, auth: tuple | None, timeout: int, verify_ssl: bool) -> int:
+def inspects(url: str, **config) -> dict:
+    """List available sources and metadata from HTTP API profile.
+
+    This is the 'inspect' operation - shows what's available from the API.
+    For naked URLs, returns basic URL info.
+    For profiles, lists available sources.
+
+    Supports two formats:
+    - Naked URL: https://api.example.com
+    - Profile reference: @genomoncology
+
+    Args:
+        url: Naked URL or profile reference
+        **config: Optional configuration
+
+    Returns:
+        Dict with API info and available sources:
+        {
+            "api": "genomoncology",
+            "base_url": "https://genomoncology.io/api",
+            "transport": "http",
+            "sources": [
+                {
+                    "name": "alterations",
+                    "path": "/alterations",
+                    "description": "Gene alterations endpoint"
+                }
+            ]
+        }
+    """
+    try:
+        if url.startswith("@"):
+            # Profile reference: list available sources
+            ref = url[1:]  # Remove @
+
+            # Parse API name (before / if present)
+            api_name = ref.split("/")[0].split("?")[0]
+
+            # Load profile metadata
+            try:
+                profile = load_hierarchical_profile(api_name, None)
+            except ProfileError as e:
+                return error_record("profile_error", str(e))
+
+            # List available sources
+            sources = list_profile_sources(api_name)
+
+            # Build response
+            result = {
+                "api": api_name,
+                "base_url": profile.get("base_url", ""),
+                "transport": "http",
+                "sources": [],
+            }
+
+            # Load each source to get metadata
+            for source_name in sources:
+                try:
+                    source_profile = load_hierarchical_profile(
+                        api_name, source_name
+                    )
+                    result["sources"].append(
+                        {
+                            "name": source_name,
+                            "path": source_profile.get("path", ""),
+                            "description": source_profile.get(
+                                "description", ""
+                            ),
+                            "method": source_profile.get("method", "GET"),
+                            "params": source_profile.get("params", []),
+                        }
+                    )
+                except ProfileError:
+                    # Skip sources that fail to load
+                    pass
+
+            return result
+
+        else:
+            # Naked URL: return basic info
+            parsed = urlparse(url)
+            return {
+                "url": url,
+                "transport": "http",
+                "scheme": parsed.scheme,
+                "host": parsed.netloc,
+                "path": parsed.path,
+                "description": "HTTP endpoint (no profile)",
+            }
+
+    except Exception as e:
+        return error_record(
+            "inspect_error", str(e), exception_type=type(e).__name__
+        )
+
+
+def _stream_raw(
+    url: str,
+    method: str,
+    headers: dict,
+    auth: tuple | None,
+    timeout: int,
+    verify_ssl: bool,
+) -> int:
     """Stream response body as raw bytes to stdout. Returns exit code."""
     try:
         with requests.request(
@@ -190,7 +573,8 @@ def _stream_raw(url: str, method: str, headers: dict, auth: tuple | None, timeou
     except requests.exceptions.RequestException as e:
         # Propagate as error in raw mode (upstream should handle)
         sys.stderr.write(
-            json.dumps(error_record("request_exception", str(e), url=url)) + "\n"
+            json.dumps(error_record("request_exception", str(e), url=url))
+            + "\n"
         )
         return 1
 
@@ -200,8 +584,12 @@ if __name__ == "__main__":
     import os
 
     parser = argparse.ArgumentParser(description="HTTP protocol plugin")
-    parser.add_argument("--mode", choices=["read", "raw"], help="Operation mode")
-    parser.add_argument("url", nargs="?", help="URL to fetch")
+    parser.add_argument(
+        "--mode", choices=["read", "raw", "inspect"], help="Operation mode"
+    )
+    parser.add_argument(
+        "url", nargs="?", help="URL to fetch or profile reference"
+    )
     parser.add_argument(
         "--method",
         default="GET",
@@ -215,15 +603,29 @@ if __name__ == "__main__":
         help="HTTP headers as JSON",
     )
     parser.add_argument("--auth", help="Basic auth as 'username:password'")
-    parser.add_argument("--timeout", type=int, default=30, help="Request timeout")
     parser.add_argument(
-        "--no-verify-ssl", dest="verify_ssl", action="store_false", help="Disable SSL verification"
+        "--timeout", type=int, default=30, help="Request timeout"
     )
     parser.add_argument(
-        "--format", choices=["json", "ndjson", "csv", "text"], help="Force format"
+        "--no-verify-ssl",
+        dest="verify_ssl",
+        action="store_false",
+        help="Disable SSL verification",
+    )
+    parser.add_argument(
+        "--format",
+        choices=["json", "ndjson", "csv", "text"],
+        help="Force format",
     )
 
-    args = parser.parse_args()
+    args, unknown = parser.parse_known_args()
+
+    # Parse unknown args as parameters (--key=value) for profile references
+    params = {}
+    for arg in unknown:
+        if arg.startswith("--") and "=" in arg:
+            key, value = arg[2:].split("=", 1)
+            params[key] = value
 
     if not args.mode or not args.url:
         parser.error("--mode and URL are required")
@@ -238,13 +640,20 @@ if __name__ == "__main__":
     # Substitute env vars in headers
     headers = {}
     for key, value in args.headers.items():
-        if isinstance(value, str) and value.startswith("${") and value.endswith("}"):
+        if (
+            isinstance(value, str)
+            and value.startswith("${")
+            and value.endswith("}")
+        ):
             env_var = value[2:-1]
             env_value = os.environ.get(env_var)
             if not env_value:
                 print(
                     json.dumps(
-                        error_record("env_var_not_set", f"Environment variable {env_var} not set")
+                        error_record(
+                            "env_var_not_set",
+                            f"Environment variable {env_var} not set",
+                        )
                     ),
                     flush=True,
                 )
@@ -254,7 +663,14 @@ if __name__ == "__main__":
             headers[key] = value
 
     # Dispatch by mode
-    if args.mode == "raw":
+    if args.mode == "inspect":
+        if not args.url:
+            parser.error("URL is required for inspect mode")
+
+        result = inspects(args.url)
+        print(json.dumps(result, indent=2), flush=True)
+
+    elif args.mode == "raw":
         exit_code = _stream_raw(
             url=args.url,
             method=args.method,
@@ -264,7 +680,8 @@ if __name__ == "__main__":
             verify_ssl=args.verify_ssl,
         )
         sys.exit(exit_code)
-    else:
+
+    else:  # read mode
         # Call reads() with direct args (no config dict)
         try:
             for record in reads(
@@ -275,12 +692,15 @@ if __name__ == "__main__":
                 timeout=args.timeout,
                 verify_ssl=args.verify_ssl,
                 force_format=args.format,
+                **params,
             ):
                 print(json.dumps(record), flush=True)
         except requests.exceptions.RequestException as e:
             # Errors are data: emit an error record and exit successfully
             print(
-                json.dumps(error_record("request_exception", str(e), url=args.url)),
+                json.dumps(
+                    error_record("request_exception", str(e), url=args.url)
+                ),
                 flush=True,
             )
             sys.exit(0)

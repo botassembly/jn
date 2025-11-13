@@ -64,7 +64,7 @@ def sh(ctx, command):
 
         if len(stages) > 1:
             click.echo(
-                f"Error: Multi-stage execution not supported for sh command",
+                "Error: Multi-stage execution not supported for sh command",
                 err=True,
             )
             sys.exit(1)

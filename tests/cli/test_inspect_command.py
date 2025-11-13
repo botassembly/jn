@@ -112,5 +112,38 @@ def test_inspect_help_text(invoke):
     assert "--format" in res.output
 
 
+def test_inspect_ambiguous_profile_error(cli_runner, tmp_path):
+    """Test that ambiguous profiles (same name in multiple protocols) error clearly."""
+    from pathlib import Path
+
+    from jn.cli import cli
+
+    # Use isolated filesystem from CliRunner
+    with cli_runner.isolated_filesystem(temp_dir=tmp_path) as td:
+        # Create same profile name in both mcp and http directories
+        test_dir = Path(td)
+        mcp_profile = test_dir / ".jn/profiles/mcp/testapi"
+        http_profile = test_dir / ".jn/profiles/http/testapi"
+
+        mcp_profile.mkdir(parents=True, exist_ok=True)
+        http_profile.mkdir(parents=True, exist_ok=True)
+
+        # Add minimal metadata so they're valid profiles
+        (mcp_profile / "_meta.json").write_text('{"command": "echo"}')
+        (http_profile / "_meta.json").write_text(
+            '{"base_url": "https://example.com"}'
+        )
+
+        # Try to inspect the ambiguous profile
+        res = cli_runner.invoke(cli, ["inspect", "@testapi"])
+
+        # Should error with clear message about ambiguity
+        assert res.exit_code == 1
+        assert "Ambiguous" in res.output or "ambiguous" in res.output
+        assert "testapi" in res.output
+        assert "mcp" in res.output
+        assert "http" in res.output
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

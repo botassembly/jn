@@ -1,5 +1,16 @@
 #!/usr/bin/env -S uv run --script
-"""Gmail API plugin for reading Gmail messages."""
+"""Gmail API plugin for reading Gmail messages.
+
+This plugin enables reading from Gmail using:
+- Gmail URLs: gmail://me/messages?from=boss&is=unread
+
+Examples:
+    # Fetch unread messages from specific sender
+    jn cat "gmail://me/messages?from=boss&is=unread"
+
+    # List available labels and folders
+    jn inspect "gmail://me"
+"""
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
@@ -37,7 +48,9 @@ def error_record(error_type: str, message: str, **extra) -> dict:
     return {"_error": True, "type": error_type, "message": message, **extra}
 
 
-def get_credentials(token_path: Path = None, credentials_path: Path = None) -> Credentials:
+def get_credentials(
+    token_path: Path | None = None, credentials_path: Path | None = None
+) -> Credentials:
     """Get or create Gmail API credentials with OAuth2.
 
     Args:
@@ -48,7 +61,9 @@ def get_credentials(token_path: Path = None, credentials_path: Path = None) -> C
         Valid Credentials object
     """
     token_path = token_path or DEFAULT_TOKEN_PATH
-    credentials_path = credentials_path or (Path.home() / ".jn" / "gmail-credentials.json")
+    credentials_path = credentials_path or (
+        Path.home() / ".jn" / "gmail-credentials.json"
+    )
 
     creds = None
 
@@ -73,7 +88,9 @@ def get_credentials(token_path: Path = None, credentials_path: Path = None) -> C
                 )
 
             # Run OAuth flow
-            flow = InstalledAppFlow.from_client_secrets_file(str(credentials_path), SCOPES)
+            flow = InstalledAppFlow.from_client_secrets_file(
+                str(credentials_path), SCOPES
+            )
             creds = flow.run_local_server(port=0)
 
         # Save token for future use
@@ -113,7 +130,9 @@ def build_gmail_query(params: dict) -> str:
     return " ".join(query_parts)
 
 
-def _walk_parts(part: dict, body_text: list, body_html: list, attachments: list):
+def _walk_parts(
+    part: dict, body_text: list, body_html: list, attachments: list
+):
     """Recursively walk MIME parts to extract bodies and attachments.
 
     Args:
@@ -132,7 +151,9 @@ def _walk_parts(part: dict, body_text: list, body_html: list, attachments: list)
 
     # Extract body data if present
     if "body" in part and "data" in part["body"]:
-        data = base64.urlsafe_b64decode(part["body"]["data"]).decode("utf-8", errors="replace")
+        data = base64.urlsafe_b64decode(part["body"]["data"]).decode(
+            "utf-8", errors="replace"
+        )
 
         if mime_type == "text/plain":
             body_text.append(data)
@@ -141,12 +162,14 @@ def _walk_parts(part: dict, body_text: list, body_html: list, attachments: list)
 
     # Extract attachment metadata
     if part.get("filename"):
-        attachments.append({
-            "filename": part["filename"],
-            "mime_type": mime_type,
-            "size": part.get("body", {}).get("size", 0),
-            "attachment_id": part.get("body", {}).get("attachmentId"),
-        })
+        attachments.append(
+            {
+                "filename": part["filename"],
+                "mime_type": mime_type,
+                "size": part.get("body", {}).get("size", 0),
+                "attachment_id": part.get("body", {}).get("attachmentId"),
+            }
+        )
 
 
 def parse_message(msg: dict, format: str = "full") -> dict:
@@ -175,12 +198,17 @@ def parse_message(msg: dict, format: str = "full") -> dict:
         record["internal_date"] = msg["internalDate"]
         # Convert to human-readable timestamp (milliseconds to seconds)
         import datetime
+
         timestamp = int(msg["internalDate"]) / 1000
-        record["date"] = datetime.datetime.fromtimestamp(timestamp, tz=datetime.timezone.utc).isoformat()
+        record["date"] = datetime.datetime.fromtimestamp(
+            timestamp, tz=datetime.timezone.utc
+        ).isoformat()
 
     # Parse headers for metadata/full format
     if "payload" in msg and "headers" in msg["payload"]:
-        headers = {h["name"].lower(): h["value"] for h in msg["payload"]["headers"]}
+        headers = {
+            h["name"].lower(): h["value"] for h in msg["payload"]["headers"]
+        }
 
         # Extract common headers
         record["from"] = headers.get("from")
@@ -205,7 +233,9 @@ def parse_message(msg: dict, format: str = "full") -> dict:
         # Simple body (no multipart)
         if "body" in payload and "data" in payload["body"]:
             mime_type = payload.get("mimeType", "")
-            data = base64.urlsafe_b64decode(payload["body"]["data"]).decode("utf-8", errors="replace")
+            data = base64.urlsafe_b64decode(payload["body"]["data"]).decode(
+                "utf-8", errors="replace"
+            )
             if mime_type == "text/plain":
                 body_text_parts.append(data)
             elif mime_type == "text/html":
@@ -214,11 +244,17 @@ def parse_message(msg: dict, format: str = "full") -> dict:
         # Multipart - walk recursively
         if "parts" in payload:
             for part in payload["parts"]:
-                _walk_parts(part, body_text_parts, body_html_parts, attachments)
+                _walk_parts(
+                    part, body_text_parts, body_html_parts, attachments
+                )
 
         # Join multiple parts (some emails have multiple text/plain parts)
-        record["body_text"] = "\n".join(body_text_parts) if body_text_parts else None
-        record["body_html"] = "\n".join(body_html_parts) if body_html_parts else None
+        record["body_text"] = (
+            "\n".join(body_text_parts) if body_text_parts else None
+        )
+        record["body_html"] = (
+            "\n".join(body_html_parts) if body_html_parts else None
+        )
 
         if attachments:
             record["attachments"] = attachments
@@ -231,10 +267,10 @@ def reads(
     max_results: int = 500,
     include_spam_trash: bool = False,
     format: str = "full",
-    label_ids: str = None,
-    token_path: str = None,
-    credentials_path: str = None,
-    **params
+    label_ids: str | None = None,
+    token_path: str | None = None,
+    credentials_path: str | None = None,
+    **params,
 ) -> Iterator[dict]:
     """Fetch Gmail messages and yield NDJSON records.
 
@@ -296,11 +332,16 @@ def reads(
             for msg_ref in messages:
                 try:
                     # Get full message
-                    msg = service.users().messages().get(
-                        userId=user_id,
-                        id=msg_ref["id"],
-                        format=format,
-                    ).execute()
+                    msg = (
+                        service.users()
+                        .messages()
+                        .get(
+                            userId=user_id,
+                            id=msg_ref["id"],
+                            format=format,
+                        )
+                        .execute()
+                    )
 
                     # Parse and yield
                     yield parse_message(msg, format=format)
@@ -308,7 +349,7 @@ def reads(
                 except HttpError as e:
                     yield error_record(
                         "gmail_api_error",
-                        f"Failed to fetch message {msg_ref['id']}: {str(e)}",
+                        f"Failed to fetch message {msg_ref['id']}: {e!s}",
                         message_id=msg_ref["id"],
                     )
 
@@ -321,7 +362,91 @@ def reads(
         yield error_record("credentials_not_found", str(e))
 
     except HttpError as e:
-        yield error_record("gmail_api_error", f"Gmail API error: {str(e)}")
+        yield error_record("gmail_api_error", f"Gmail API error: {e!s}")
+
+
+def inspects(url: str | None = None, **config) -> dict:
+    """List available Gmail labels and folders (inspect operation).
+
+    This is the 'inspect' operation - shows what's available from Gmail account.
+
+    Args:
+        url: Gmail URL (e.g., "gmail://me")
+        **config: Optional configuration (token_path, credentials_path)
+
+    Returns:
+        Dict with account info and available labels:
+        {
+            "account": "me",
+            "transport": "gmail",
+            "labels": [
+                {
+                    "id": "INBOX",
+                    "name": "INBOX",
+                    "type": "system",
+                    "messagesTotal": 42,
+                    "messagesUnread": 5
+                }
+            ]
+        }
+    """
+    try:
+        # Get credentials
+        token_path = config.get("token_path")
+        credentials_path = config.get("credentials_path")
+        token_p = Path(token_path) if token_path else None
+        creds_p = Path(credentials_path) if credentials_path else None
+        creds = get_credentials(token_path=token_p, credentials_path=creds_p)
+
+        # Build Gmail API service
+        service = build("gmail", "v1", credentials=creds)
+
+        # Parse user_id from URL if provided
+        user_id = "me"
+        if url:
+            from urllib.parse import urlparse
+
+            parsed = urlparse(url)
+            if parsed.netloc:
+                user_id = parsed.netloc
+
+        # Get profile info
+        profile = service.users().getProfile(userId=user_id).execute()
+
+        # List all labels
+        labels_result = service.users().labels().list(userId=user_id).execute()
+        labels = labels_result.get("labels", [])
+
+        # Format label info
+        formatted_labels = []
+        for label in labels:
+            formatted_labels.append(
+                {
+                    "id": label["id"],
+                    "name": label["name"],
+                    "type": label.get("type", "user").lower(),
+                    "messagesTotal": label.get("messagesTotal", 0),
+                    "messagesUnread": label.get("messagesUnread", 0),
+                }
+            )
+
+        return {
+            "account": user_id,
+            "email": profile.get("emailAddress"),
+            "transport": "gmail",
+            "messagesTotal": profile.get("messagesTotal", 0),
+            "threadsTotal": profile.get("threadsTotal", 0),
+            "labels": formatted_labels,
+        }
+
+    except FileNotFoundError as e:
+        return error_record("credentials_not_found", str(e))
+    except HttpError as e:
+        return error_record("gmail_api_error", f"Gmail API error: {e!s}")
+    except Exception as e:
+        return error_record(
+            "inspect_error", str(e), exception_type=type(e).__name__
+        )
 
 
 if __name__ == "__main__":
@@ -329,10 +454,20 @@ if __name__ == "__main__":
     from urllib.parse import parse_qs, urlparse
 
     parser = argparse.ArgumentParser(description="Gmail protocol plugin")
-    parser.add_argument("--mode", choices=["read"], help="Operation mode")
-    parser.add_argument("url", nargs="?", help="Gmail URL (e.g., gmail://me/messages?from=boss&is=unread)")
-    parser.add_argument("--max-results", type=int, default=500, help="Max results per page")
-    parser.add_argument("--include-spam-trash", action="store_true", help="Include spam/trash")
+    parser.add_argument(
+        "--mode", choices=["read", "inspect"], help="Operation mode"
+    )
+    parser.add_argument(
+        "url",
+        nargs="?",
+        help="Gmail URL (e.g., gmail://me/messages?from=boss&is=unread)",
+    )
+    parser.add_argument(
+        "--max-results", type=int, default=500, help="Max results per page"
+    )
+    parser.add_argument(
+        "--include-spam-trash", action="store_true", help="Include spam/trash"
+    )
     parser.add_argument(
         "--format",
         choices=["minimal", "metadata", "full"],
@@ -340,49 +475,73 @@ if __name__ == "__main__":
         help="Message format",
     )
     parser.add_argument("--token-path", help="Path to OAuth token file")
-    parser.add_argument("--credentials-path", help="Path to OAuth credentials file")
+    parser.add_argument(
+        "--credentials-path", help="Path to OAuth credentials file"
+    )
 
     args = parser.parse_args()
 
     if not args.mode:
         parser.error("--mode is required")
 
-    if not args.url:
-        parser.error("URL is required")
+    if args.mode == "inspect":
+        # Inspect mode: list labels and account info
+        if not args.url:
+            # Default to "me" if no URL provided
+            args.url = "gmail://me"
 
-    # Parse gmail:// URL
-    # Expected format: gmail://user_id/endpoint?from=boss&is=unread
-    parsed = urlparse(args.url)
-
-    if parsed.scheme != "gmail":
-        print(json.dumps(error_record("invalid_url", f"URL must start with gmail://, got: {args.url}")), flush=True)
-        sys.exit(1)
-
-    # Extract user_id from netloc (e.g., "me" from gmail://me/messages)
-    user_id = parsed.netloc or "me"
-
-    # Parse query string into params dict
-    # parse_qs returns lists for each key, flatten single values
-    params = {}
-    if parsed.query:
-        parsed_params = parse_qs(parsed.query)
-        for key, values in parsed_params.items():
-            # If only one value, use it directly; otherwise keep as list
-            params[key] = values[0] if len(values) == 1 else values
-
-    # Call reads() and output NDJSON
-    try:
-        for record in reads(
-            user_id=user_id,
-            max_results=args.max_results,
-            include_spam_trash=args.include_spam_trash,
-            format=args.format,
-            label_ids=None,  # Could add to URL if needed
+        result = inspects(
+            url=args.url,
             token_path=args.token_path,
             credentials_path=args.credentials_path,
-            **params,
-        ):
-            print(json.dumps(record), flush=True)
-    except KeyboardInterrupt:
-        # Handle Ctrl+C gracefully
-        sys.exit(0)
+        )
+        print(json.dumps(result, indent=2), flush=True)
+
+    else:  # read mode
+        if not args.url:
+            parser.error("URL is required for read mode")
+
+        # Parse gmail:// URL
+        # Expected format: gmail://user_id/endpoint?from=boss&is=unread
+        parsed = urlparse(args.url)
+
+        if parsed.scheme != "gmail":
+            print(
+                json.dumps(
+                    error_record(
+                        "invalid_url",
+                        f"URL must start with gmail://, got: {args.url}",
+                    )
+                ),
+                flush=True,
+            )
+            sys.exit(1)
+
+        # Extract user_id from netloc (e.g., "me" from gmail://me/messages)
+        user_id = parsed.netloc or "me"
+
+        # Parse query string into params dict
+        # parse_qs returns lists for each key, flatten single values
+        params = {}
+        if parsed.query:
+            parsed_params = parse_qs(parsed.query)
+            for key, values in parsed_params.items():
+                # If only one value, use it directly; otherwise keep as list
+                params[key] = values[0] if len(values) == 1 else values
+
+        # Call reads() and output NDJSON
+        try:
+            for record in reads(
+                user_id=user_id,
+                max_results=args.max_results,
+                include_spam_trash=args.include_spam_trash,
+                format=args.format,
+                label_ids=None,  # Could add to URL if needed
+                token_path=args.token_path,
+                credentials_path=args.credentials_path,
+                **params,
+            ):
+                print(json.dumps(record), flush=True)
+        except KeyboardInterrupt:
+            # Handle Ctrl+C gracefully
+            sys.exit(0)

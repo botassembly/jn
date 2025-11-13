@@ -21,8 +21,7 @@ Examples:
 # ]
 # [tool.jn]
 # matches = [
-#   "^@[a-zA-Z0-9_-]+",
-#   "^mcp\\+[a-z]+://",
+#   "^mcp\\+[a-z]+://"
 # ]
 # ///
 
@@ -47,6 +46,7 @@ from mcp.client.stdio import stdio_client
 
 class ProfileError(Exception):
     """Error in profile resolution."""
+
     pass
 
 
@@ -83,7 +83,7 @@ def substitute_env_vars(value: str) -> str:
     if not isinstance(value, str):
         return value
 
-    pattern = r'\$\{([A-Za-z_][A-Za-z0-9_]*)\}'
+    pattern = r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}"
 
     def replace_var(match):
         var_name = match.group(1)
@@ -107,7 +107,9 @@ def substitute_env_vars_recursive(data):
         return data
 
 
-def load_hierarchical_profile(server_name: str, tool_or_resource: Optional[str] = None) -> dict:
+def load_hierarchical_profile(
+    server_name: str, tool_or_resource: Optional[str] = None
+) -> dict:
     """Load hierarchical MCP profile: _meta.json + optional tool/resource.json.
 
     Args:
@@ -167,8 +169,7 @@ def load_hierarchical_profile(server_name: str, tool_or_resource: Optional[str] 
 
 
 def resolve_profile_reference(
-    reference: str,
-    params: Optional[Dict] = None
+    reference: str, params: Optional[Dict] = None
 ) -> Tuple[Dict, Dict]:
     """Resolve @server/tool reference to server config and operation.
 
@@ -189,7 +190,9 @@ def resolve_profile_reference(
         ProfileError: If profile not found
     """
     if not reference.startswith("@"):
-        raise ProfileError(f"Invalid profile reference (must start with @): {reference}")
+        raise ProfileError(
+            f"Invalid profile reference (must start with @): {reference}"
+        )
 
     # Parse reference: @server_name/tool or @server_name?query
     ref = reference[1:]  # Remove @
@@ -198,7 +201,10 @@ def resolve_profile_reference(
     if "?" in ref:
         server_part, query_part = ref.split("?", 1)
         # Parse query string
-        query_params = {k: v[0] if len(v) == 1 else v for k, v in parse_qs(query_part).items()}
+        query_params = {
+            k: v[0] if len(v) == 1 else v
+            for k, v in parse_qs(query_part).items()
+        }
     else:
         server_part = ref
         query_params = {}
@@ -289,7 +295,10 @@ def parse_naked_mcp_uri(uri: str) -> Tuple[Dict, Dict]:
     # Parse package/path and query string
     if "?" in rest:
         package_path, query_string = rest.split("?", 1)
-        params = {k: v[0] if len(v) == 1 else v for k, v in parse_qs(query_string).items()}
+        params = {
+            k: v[0] if len(v) == 1 else v
+            for k, v in parse_qs(query_string).items()
+        }
     else:
         package_path = rest
         params = {}
@@ -305,7 +314,7 @@ def parse_naked_mcp_uri(uri: str) -> Tuple[Dict, Dict]:
         server_config = {
             "command": "uv",
             "args": ["run", "--with", package, command],
-            "transport": "stdio"
+            "transport": "stdio",
         }
 
     elif launcher == "npx":
@@ -314,7 +323,7 @@ def parse_naked_mcp_uri(uri: str) -> Tuple[Dict, Dict]:
         server_config = {
             "command": "npx",
             "args": ["-y", package_path],
-            "transport": "stdio"
+            "transport": "stdio",
         }
 
     elif launcher == "python":
@@ -323,7 +332,7 @@ def parse_naked_mcp_uri(uri: str) -> Tuple[Dict, Dict]:
         server_config = {
             "command": "python",
             "args": [package_path],
-            "transport": "stdio"
+            "transport": "stdio",
         }
 
     elif launcher == "node":
@@ -332,11 +341,13 @@ def parse_naked_mcp_uri(uri: str) -> Tuple[Dict, Dict]:
         server_config = {
             "command": "node",
             "args": [package_path],
-            "transport": "stdio"
+            "transport": "stdio",
         }
 
     else:
-        raise ValueError(f"Unsupported MCP launcher: {launcher} (supported: uvx, npx, python, node)")
+        raise ValueError(
+            f"Unsupported MCP launcher: {launcher} (supported: uvx, npx, python, node)"
+        )
 
     return server_config, params
 
@@ -351,7 +362,9 @@ def error_record(error_type: str, message: str, **extra) -> dict:
     return {"_error": True, "type": error_type, "message": message, **extra}
 
 
-async def execute_mcp_operation(server_config: dict, operation: dict) -> list[dict]:
+async def execute_mcp_operation(
+    server_config: dict, operation: dict
+) -> list[dict]:
     """Execute an MCP operation and return results.
 
     Connects to server, executes operation, properly cleans up resources.
@@ -376,60 +389,68 @@ async def execute_mcp_operation(server_config: dict, operation: dict) -> list[di
         if op_type == "list_resources":
             result = await session.list_resources()
             for resource in result.resources:
-                results.append({
-                    "type": "resource",
-                    "uri": resource.uri,
-                    "name": resource.name,
-                    "description": getattr(resource, "description", None),
-                    "mimeType": getattr(resource, "mimeType", None),
-                })
+                results.append(
+                    {
+                        "type": "resource",
+                        "uri": resource.uri,
+                        "name": resource.name,
+                        "description": getattr(resource, "description", None),
+                        "mimeType": getattr(resource, "mimeType", None),
+                    }
+                )
 
         elif op_type == "list_tools":
             result = await session.list_tools()
             for tool in result.tools:
-                results.append({
-                    "type": "tool",
-                    "name": tool.name,
-                    "description": getattr(tool, "description", None),
-                    "inputSchema": tool.inputSchema,
-                })
+                results.append(
+                    {
+                        "type": "tool",
+                        "name": tool.name,
+                        "description": getattr(tool, "description", None),
+                        "inputSchema": tool.inputSchema,
+                    }
+                )
 
         elif op_type == "read_resource":
             resource_uri = operation["resource"]
             result = await session.read_resource(resource_uri)
             for content in result.contents:
-                results.append({
-                    "type": "resource_content",
-                    "uri": resource_uri,
-                    "mimeType": getattr(content, "mimeType", None),
-                    "text": getattr(content, "text", None),
-                    "blob": getattr(content, "blob", None),
-                })
+                results.append(
+                    {
+                        "type": "resource_content",
+                        "uri": resource_uri,
+                        "mimeType": getattr(content, "mimeType", None),
+                        "text": getattr(content, "text", None),
+                        "blob": getattr(content, "blob", None),
+                    }
+                )
 
         elif op_type == "call_tool":
             tool_name = operation["tool"]
             arguments = operation["params"]
             result = await session.call_tool(tool_name, arguments)
             for content in result.content:
-                results.append({
-                    "type": "tool_result",
-                    "tool": tool_name,
-                    "mimeType": getattr(content, "mimeType", None),
-                    "text": getattr(content, "text", None),
-                    "blob": getattr(content, "blob", None),
-                })
+                results.append(
+                    {
+                        "type": "tool_result",
+                        "tool": tool_name,
+                        "mimeType": getattr(content, "mimeType", None),
+                        "text": getattr(content, "text", None),
+                        "blob": getattr(content, "blob", None),
+                    }
+                )
 
     finally:
         # Properly close session and streams to avoid resource leaks
         try:
             # Close MCP session
-            if hasattr(session, '__aexit__'):
+            if hasattr(session, "__aexit__"):
                 await session.__aexit__(None, None, None)
 
             # Close streams to terminate subprocess
-            if hasattr(read_stream, 'aclose'):
+            if hasattr(read_stream, "aclose"):
                 await read_stream.aclose()
-            if hasattr(write_stream, 'aclose'):
+            if hasattr(write_stream, "aclose"):
                 await write_stream.aclose()
         except Exception as e:
             # Best effort cleanup - log but don't fail on cleanup errors
@@ -438,7 +459,9 @@ async def execute_mcp_operation(server_config: dict, operation: dict) -> list[di
     return results
 
 
-async def execute_tool_with_session(session: ClientSession, tool_name: str, arguments: dict) -> list[dict]:
+async def execute_tool_with_session(
+    session: ClientSession, tool_name: str, arguments: dict
+) -> list[dict]:
     """Execute a tool call with an existing session.
 
     Used by writes() to reuse connection across multiple calls.
@@ -446,13 +469,15 @@ async def execute_tool_with_session(session: ClientSession, tool_name: str, argu
     results = []
     result = await session.call_tool(tool_name, arguments)
     for content in result.content:
-        results.append({
-            "type": "tool_result",
-            "tool": tool_name,
-            "mimeType": getattr(content, "mimeType", None),
-            "text": getattr(content, "text", None),
-            "blob": getattr(content, "blob", None),
-        })
+        results.append(
+            {
+                "type": "tool_result",
+                "tool": tool_name,
+                "mimeType": getattr(content, "mimeType", None),
+                "text": getattr(content, "text", None),
+                "blob": getattr(content, "blob", None),
+            }
+        )
     return results
 
 
@@ -507,17 +532,23 @@ def reads(url: str, **params) -> Iterator[dict]:
         yield error_record("resolution_error", str(e))
         return
     except Exception as e:
-        yield error_record("resolution_error", str(e), exception_type=type(e).__name__)
+        yield error_record(
+            "resolution_error", str(e), exception_type=type(e).__name__
+        )
         return
 
     # Execute async operation
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
-        results = loop.run_until_complete(execute_mcp_operation(server_config, operation))
+        results = loop.run_until_complete(
+            execute_mcp_operation(server_config, operation)
+        )
         yield from results
     except Exception as e:
-        yield error_record("mcp_error", str(e), exception_type=type(e).__name__)
+        yield error_record(
+            "mcp_error", str(e), exception_type=type(e).__name__
+        )
     finally:
         loop.close()
 
@@ -570,7 +601,9 @@ def inspects(url: str, **config) -> dict:
     except (ProfileError, ValueError) as e:
         return error_record("resolution_error", str(e))
     except Exception as e:
-        return error_record("resolution_error", str(e), exception_type=type(e).__name__)
+        return error_record(
+            "resolution_error", str(e), exception_type=type(e).__name__
+        )
 
     # Connect to MCP server and list tools/resources
     loop = asyncio.new_event_loop()
@@ -594,22 +627,26 @@ def inspects(url: str, **config) -> dict:
             tools_result = await session.list_tools()
             tools = []
             for tool in tools_result.tools:
-                tools.append({
-                    "name": tool.name,
-                    "description": getattr(tool, "description", None),
-                    "inputSchema": tool.inputSchema,
-                })
+                tools.append(
+                    {
+                        "name": tool.name,
+                        "description": getattr(tool, "description", None),
+                        "inputSchema": tool.inputSchema,
+                    }
+                )
 
             # List resources
             resources_result = await session.list_resources()
             resources = []
             for resource in resources_result.resources:
-                resources.append({
-                    "uri": resource.uri,
-                    "name": resource.name,
-                    "description": getattr(resource, "description", None),
-                    "mimeType": getattr(resource, "mimeType", None),
-                })
+                resources.append(
+                    {
+                        "uri": resource.uri,
+                        "name": resource.name,
+                        "description": getattr(resource, "description", None),
+                        "mimeType": getattr(resource, "mimeType", None),
+                    }
+                )
 
             return {
                 "server": server_name,
@@ -621,11 +658,11 @@ def inspects(url: str, **config) -> dict:
         finally:
             # Properly close session and streams
             try:
-                if hasattr(session, '__aexit__'):
+                if hasattr(session, "__aexit__"):
                     await session.__aexit__(None, None, None)
-                if hasattr(read_stream, 'aclose'):
+                if hasattr(read_stream, "aclose"):
                     await read_stream.aclose()
-                if hasattr(write_stream, 'aclose'):
+                if hasattr(write_stream, "aclose"):
                     await write_stream.aclose()
             except Exception as e:
                 print(f"Warning: MCP cleanup error: {e}", file=sys.stderr)
@@ -634,7 +671,9 @@ def inspects(url: str, **config) -> dict:
         result = loop.run_until_complete(inspect_server())
         return result
     except Exception as e:
-        return error_record("mcp_error", str(e), exception_type=type(e).__name__)
+        return error_record(
+            "mcp_error", str(e), exception_type=type(e).__name__
+        )
     finally:
         loop.close()
 
@@ -649,7 +688,12 @@ def writes(url: str | None = None, **config) -> None:
         **config: Additional configuration
     """
     if not url:
-        print(json.dumps(error_record("missing_url", "MCP profile reference required")), flush=True)
+        print(
+            json.dumps(
+                error_record("missing_url", "MCP profile reference required")
+            ),
+            flush=True,
+        )
         return
 
     try:
@@ -659,7 +703,14 @@ def writes(url: str | None = None, **config) -> None:
         return
 
     if operation["type"] != "call_tool":
-        print(json.dumps(error_record("invalid_operation", "Write mode requires a tool reference")), flush=True)
+        print(
+            json.dumps(
+                error_record(
+                    "invalid_operation", "Write mode requires a tool reference"
+                )
+            ),
+            flush=True,
+        )
         return
 
     tool_name = operation["tool"]
@@ -690,25 +741,38 @@ def writes(url: str | None = None, **config) -> None:
 
                 try:
                     record = json.loads(line)
-                    arguments = {k: v for k, v in record.items() if not k.startswith("_")}
+                    arguments = {
+                        k: v
+                        for k, v in record.items()
+                        if not k.startswith("_")
+                    }
 
                     # Call tool with existing session (no reconnection)
-                    results = await execute_tool_with_session(session, tool_name, arguments)
+                    results = await execute_tool_with_session(
+                        session, tool_name, arguments
+                    )
 
                     for result in results:
                         print(json.dumps(result), flush=True)
 
                 except json.JSONDecodeError as e:
-                    print(json.dumps(error_record("json_decode_error", str(e), line=line[:100])), flush=True)
+                    print(
+                        json.dumps(
+                            error_record(
+                                "json_decode_error", str(e), line=line[:100]
+                            )
+                        ),
+                        flush=True,
+                    )
 
         finally:
             # Properly close session and streams
             try:
-                if hasattr(session, '__aexit__'):
+                if hasattr(session, "__aexit__"):
                     await session.__aexit__(None, None, None)
-                if hasattr(read_stream, 'aclose'):
+                if hasattr(read_stream, "aclose"):
                     await read_stream.aclose()
-                if hasattr(write_stream, 'aclose'):
+                if hasattr(write_stream, "aclose"):
                     await write_stream.aclose()
             except Exception as e:
                 print(f"Warning: MCP cleanup error: {e}", file=sys.stderr)
@@ -716,7 +780,14 @@ def writes(url: str | None = None, **config) -> None:
     try:
         loop.run_until_complete(process_records())
     except Exception as e:
-        print(json.dumps(error_record("mcp_error", str(e), exception_type=type(e).__name__)), flush=True)
+        print(
+            json.dumps(
+                error_record(
+                    "mcp_error", str(e), exception_type=type(e).__name__
+                )
+            ),
+            flush=True,
+        )
     finally:
         loop.close()
 
@@ -725,8 +796,15 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="MCP protocol plugin")
-    parser.add_argument("--mode", choices=["read", "write", "inspect"], required=True, help="Operation mode")
-    parser.add_argument("url", nargs="?", help="MCP naked URI or profile reference")
+    parser.add_argument(
+        "--mode",
+        choices=["read", "write", "inspect"],
+        required=True,
+        help="Operation mode",
+    )
+    parser.add_argument(
+        "url", nargs="?", help="MCP naked URI or profile reference"
+    )
 
     args, unknown = parser.parse_known_args()
 
