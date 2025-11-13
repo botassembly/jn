@@ -79,17 +79,23 @@ def test_mcp_plugin_profile_not_found(mcp_plugin):
     assert "resolution_error" in record.get("type", "")
 
 
-def test_mcp_plugin_matches_profile_pattern(mcp_plugin):
-    """Test that plugin metadata matches @ pattern."""
+def test_mcp_plugin_matches_naked_uri_pattern(mcp_plugin):
+    """Test that plugin metadata matches naked MCP URI pattern.
+
+    Note: @ profiles are now handled by the framework, not plugin patterns.
+    The @ symbol is special and triggers profile lookup by directory structure.
+    """
     content = mcp_plugin.read_text()
 
     # Check PEP 723 metadata
     assert "# [tool.jn]" in content
     assert "matches" in content
-    assert "^@[a-zA-Z0-9_-]+" in content
 
     # Should match naked MCP URI pattern (double-escaped in JSON)
     assert '"^mcp\\\\+[a-z]+://"' in content
+
+    # Should NOT match @ pattern (handled by framework)
+    assert "^@[a-zA-Z0-9_-]+" not in content
 
     # Should NOT match legacy patterns
     assert "^mcp://" not in content

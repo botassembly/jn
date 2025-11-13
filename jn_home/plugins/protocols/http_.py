@@ -21,8 +21,7 @@ Examples:
 # ]
 # [tool.jn]
 # matches = [
-#   "^https?://.*",
-#   "^@[a-zA-Z0-9_-]+"
+#   "^https?://.*"
 # ]
 # supports_raw = true
 # ///

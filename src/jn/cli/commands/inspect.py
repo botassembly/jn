@@ -184,13 +184,54 @@ def inspect(ctx, server, output_format):
         elif server.startswith("gmail://"):
             plugin_name = "gmail_"
         elif server.startswith("@"):
-            # Profile reference - could be MCP or HTTP
-            # Try MCP first if available, otherwise HTTP
-            if "mcp_" in plugins:
+            # Profile reference - @ is special, determine type by profile location
+            # Parse profile name from @api or @api/source
+            profile_name = server[1:].split("/")[0].split("?")[0]
+
+            # Check which profile directory contains this profile
+            from pathlib import Path
+            profile_type = None
+
+            # Search order: project → user → bundled
+            search_paths = [
+                Path.cwd() / ".jn" / "profiles",
+                Path.home() / ".local" / "jn" / "profiles",
+            ]
+
+            # Add JN_HOME if set
+            import os
+            jn_home = os.environ.get("JN_HOME")
+            if jn_home:
+                search_paths.append(Path(jn_home) / "profiles")
+            else:
+                # Fallback to bundled (3 levels up from this file)
+                bundled = Path(__file__).parent.parent.parent.parent / "jn_home" / "profiles"
+                if bundled.exists():
+                    search_paths.append(bundled)
+
+            # Determine profile type by which subdirectory contains it
+            for base_path in search_paths:
+                for protocol in ["mcp", "http", "gmail"]:
+                    profile_dir = base_path / protocol / profile_name
+                    if profile_dir.exists():
+                        profile_type = protocol
+                        break
+                if profile_type:
+                    break
+
+            # Map profile type to plugin name
+            if profile_type == "mcp":
                 plugin_name = "mcp_"
-            elif "http_" in plugins:
+            elif profile_type == "http":
                 plugin_name = "http_"
-            # The chosen plugin will try to resolve, and we have fallback logic below
+            elif profile_type == "gmail":
+                plugin_name = "gmail_"
+            else:
+                click.echo(
+                    f"Error: Profile '{profile_name}' not found in any protocol directory",
+                    err=True,
+                )
+                sys.exit(1)
 
         if not plugin_name:
             click.echo(
@@ -231,59 +272,24 @@ def inspect(ctx, server, output_format):
 
         stdout, stderr = proc.communicate()
 
-        # Parse result to check for errors
-        result = None
-        has_error = False
+        # Check for errors
+        if proc.returncode != 0:
+            click.echo(f"Error: Inspect failed: {stderr}", err=True)
+            sys.exit(1)
+
+        # Parse result
         try:
             result = json.loads(stdout)
-            has_error = result.get("_error", False)
-        except json.JSONDecodeError:
-            has_error = True
+        except json.JSONDecodeError as e:
+            click.echo(f"Error: Invalid JSON response: {e}", err=True)
+            sys.exit(1)
 
-        # Check for errors (either non-zero exit or _error in JSON)
-        if proc.returncode != 0 or has_error:
-            # If MCP failed on @ reference, try HTTP as fallback
-            if (
-                plugin_name == "mcp_"
-                and server.startswith("@")
-                and "http_" in plugins
-            ):
-                # Try HTTP plugin instead
-                plugin = plugins["http_"]
-                cmd[3] = str(plugin.path)  # Update plugin path
-                proc = subprocess.Popen(
-                    cmd,
-                    stdin=subprocess.DEVNULL,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                )
-                stdout, stderr = proc.communicate()
+        # Check for _error in response
+        if result.get("_error"):
+            click.echo(f"Error: {result.get('message', 'Unknown error')}", err=True)
+            sys.exit(1)
 
-                # Re-parse result
-                try:
-                    result = json.loads(stdout)
-                    has_error = result.get("_error", False)
-                except json.JSONDecodeError as e:
-                    click.echo(f"Error: Invalid JSON response: {e}", err=True)
-                    sys.exit(1)
-
-                # If HTTP also failed, report error
-                if proc.returncode != 0 or has_error:
-                    if has_error:
-                        click.echo(f"Error: {result.get('message', 'Unknown error')}", err=True)
-                    else:
-                        click.echo(f"Error: Inspect failed: {stderr}", err=True)
-                    sys.exit(1)
-            else:
-                # Not an @ reference or no HTTP fallback available
-                if has_error:
-                    click.echo(f"Error: {result.get('message', 'Unknown error')}", err=True)
-                else:
-                    click.echo(f"Error: Inspect failed: {stderr}", err=True)
-                sys.exit(1)
-
-        # Output (result already parsed above)
+        # Output
         if output_format == "json":
             click.echo(json.dumps(result, indent=2))
         else:

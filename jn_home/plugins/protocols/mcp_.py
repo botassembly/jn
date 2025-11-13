@@ -21,8 +21,7 @@ Examples:
 # ]
 # [tool.jn]
 # matches = [
-#   "^@[a-zA-Z0-9_-]+",
-#   "^mcp\\+[a-z]+://",
+#   "^mcp\\+[a-z]+://"
 # ]
 # ///
 
