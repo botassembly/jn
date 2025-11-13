@@ -106,7 +106,7 @@ def parse_address(raw: str) -> Address:
     for ext in compression_formats:
         if base.endswith(ext):
             compression = ext[1:]  # Remove leading dot
-            base = base[:-len(ext)]  # Strip extension from base
+            base = base[: -len(ext)]  # Strip extension from base
             break
 
     # Step 5: Determine address type

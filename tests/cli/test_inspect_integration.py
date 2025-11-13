@@ -11,10 +11,7 @@ def test_inspect_csv_file_basic(invoke, tmp_path):
     """Test inspect on CSV file (data inspection)."""
     data_file = tmp_path / "test.csv"
     data_file.write_text(
-        "name,age,city\n"
-        "Alice,30,NYC\n"
-        "Bob,25,SF\n"
-        "Carol,35,NYC\n"
+        "name,age,city\n" "Alice,30,NYC\n" "Bob,25,SF\n" "Carol,35,NYC\n"
     )
 
     result = invoke(["inspect", str(data_file), "--format", "json"])
@@ -31,11 +28,7 @@ def test_inspect_csv_file_basic(invoke, tmp_path):
 def test_inspect_csv_text_format(invoke, tmp_path):
     """Test inspect with text output format."""
     data_file = tmp_path / "test.csv"
-    data_file.write_text(
-        "name,city\n"
-        "Alice,NYC\n"
-        "Bob,SF\n"
-    )
+    data_file.write_text("name,city\n" "Alice,NYC\n" "Bob,SF\n")
 
     result = invoke(["inspect", str(data_file), "--format", "text"])
     assert result.exit_code == 0
@@ -55,7 +48,9 @@ def test_inspect_with_limit(invoke, tmp_path):
         lines.append(f"Name{i},{i}\n")
     data_file.write_text("".join(lines))
 
-    result = invoke(["inspect", str(data_file), "--limit", "10", "--format", "json"])
+    result = invoke(
+        ["inspect", str(data_file), "--limit", "10", "--format", "json"]
+    )
     assert result.exit_code == 0
 
     data = json.loads(result.output)
@@ -96,6 +91,7 @@ def test_inspect_json_array(invoke, tmp_path):
     inspect command doesn't properly handle JSON arrays. Skipping for now.
     """
     import pytest
+
     pytest.skip("JSON array inspection not yet working - needs bugfix")
 
 
@@ -103,11 +99,7 @@ def test_inspect_shows_facets(invoke, tmp_path):
     """Test that inspect includes facet information."""
     data_file = tmp_path / "test.csv"
     data_file.write_text(
-        "name,category\n"
-        "Item1,A\n"
-        "Item2,B\n"
-        "Item3,A\n"
-        "Item4,C\n"
+        "name,category\n" "Item1,A\n" "Item2,B\n" "Item3,A\n" "Item4,C\n"
     )
 
     result = invoke(["inspect", str(data_file), "--format", "json"])
@@ -124,12 +116,7 @@ def test_inspect_shows_facets(invoke, tmp_path):
 def test_inspect_shows_statistics(invoke, tmp_path):
     """Test that inspect includes statistics for numeric fields."""
     data_file = tmp_path / "test.csv"
-    data_file.write_text(
-        "name,value\n"
-        "A,10\n"
-        "B,20\n"
-        "C,30\n"
-    )
+    data_file.write_text("name,value\n" "A,10\n" "B,20\n" "C,30\n")
 
     result = invoke(["inspect", str(data_file), "--format", "json"])
     assert result.exit_code == 0
@@ -145,12 +132,7 @@ def test_inspect_shows_statistics(invoke, tmp_path):
 def test_inspect_shows_samples(invoke, tmp_path):
     """Test that inspect includes data samples."""
     data_file = tmp_path / "test.csv"
-    data_file.write_text(
-        "name,value\n"
-        "A,1\n"
-        "B,2\n"
-        "C,3\n"
-    )
+    data_file.write_text("name,value\n" "A,1\n" "B,2\n" "C,3\n")
 
     result = invoke(["inspect", str(data_file), "--format", "json"])
     assert result.exit_code == 0
@@ -179,7 +161,9 @@ def test_inspect_large_file_with_limit(invoke, tmp_path):
     data_file.write_text("".join(lines))
 
     # Inspect with small limit for performance
-    result = invoke(["inspect", str(data_file), "--limit", "100", "--format", "json"])
+    result = invoke(
+        ["inspect", str(data_file), "--limit", "100", "--format", "json"]
+    )
     assert result.exit_code == 0
 
     data = json.loads(result.output)
@@ -200,7 +184,9 @@ def test_inspect_with_multiple_filters(invoke, tmp_path):
     )
 
     # Filter: city=NYC AND status=active
-    result = invoke(["inspect", f"{data_file}?city=NYC&status=active", "--format", "json"])
+    result = invoke(
+        ["inspect", f"{data_file}?city=NYC&status=active", "--format", "json"]
+    )
     assert result.exit_code == 0
 
     data = json.loads(result.output)
@@ -227,6 +213,7 @@ def test_inspect_ndjson_from_stdin(invoke):
     for NDJSON data. This is a known limitation.
     """
     import pytest
+
     pytest.skip("Stdin NDJSON requires format override - feature limitation")
 
 

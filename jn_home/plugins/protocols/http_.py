@@ -520,10 +520,16 @@ def _stream_raw(
                 )
                 return 1
 
-            for chunk in response.iter_content(chunk_size=8192):
-                if chunk:
-                    sys.stdout.buffer.write(chunk)
+            def safe_write_bytes(data: bytes) -> None:
+                try:
+                    sys.stdout.buffer.write(data)
                     sys.stdout.buffer.flush()
+                except BrokenPipeError:
+                    os._exit(0)
+            for chunk in response.iter_content(chunk_size=8192):
+                if not chunk:
+                    continue
+                safe_write_bytes(chunk)
             return 0
     except requests.exceptions.RequestException as e:
         # Propagate as error in raw mode (upstream should handle)
@@ -532,6 +538,9 @@ def _stream_raw(
             + "\n"
         )
         return 1
+    except BrokenPipeError:
+        # Downstream closed early
+        os._exit(0)
 
 
 if __name__ == "__main__":

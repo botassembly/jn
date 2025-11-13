@@ -159,7 +159,7 @@ See full list: https://github.com/kellyjonbrazil/jc#parsers
 
 Currently only:
 - `tail` - Stream file contents line-by-line (jc doesn't support streaming file tails)
-- `watchfiles` - Watch a directory and emit filesystem change events
+- `watch` - Watch a directory and emit filesystem change events (alias: watchfiles)
 
 Add more custom plugins as needed for commands jc doesn't support.
 
@@ -399,9 +399,9 @@ jn sh env | jn filter '.name == "PATH"'
 # Tail log file (uses tail_shell.py)
 jn sh tail -f /var/log/syslog | jn filter '.line | contains("error")'
 
-# Watch a directory (uses watchfiles_shell.py)
-jn sh watchfiles /var/log --exit-after 1 --initial
-jn sh watchfiles ~/Downloads --recursive --debounce-ms 100
+# Watch a directory (uses watch_shell.py)
+jn sh watch /var/log --exit-after 1 --initial
+jn sh watch ~/Downloads --recursive --debounce-ms 100 --include "*.log" --exclude "*.tmp"
 ```
 
 ## Testing

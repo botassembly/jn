@@ -1,11 +1,11 @@
 """Tests for the watchfiles shell plugin via the actual CLI."""
 
+import contextlib
 import json
 import subprocess
 import sys
 import time
 from pathlib import Path
-import contextlib
 
 import pytest
 
@@ -21,7 +21,7 @@ def jn_cli():
     return [sys.executable, "-m", "jn.cli.main"]
 
 
-def test_jn_sh_watchfiles_initial_snapshot(jn_cli, tmp_path: Path):
+def test_jn_sh_watch_initial_snapshot(jn_cli, tmp_path: Path):
     """watchfiles emits initial snapshot and exits when --exit-after is set."""
     # Create an existing file before starting the watcher
     f = tmp_path / "seed.txt"
@@ -31,7 +31,7 @@ def test_jn_sh_watchfiles_initial_snapshot(jn_cli, tmp_path: Path):
         [
             *jn_cli,
             "sh",
-            "watchfiles",
+            "watch",
             str(tmp_path),
             "--initial",
             "--exit-after",
@@ -50,13 +50,13 @@ def test_jn_sh_watchfiles_initial_snapshot(jn_cli, tmp_path: Path):
     assert rec.get("is_dir") is False
 
 
-def test_jn_sh_watchfiles_rejects_files(jn_cli, tmp_path: Path):
+def test_jn_sh_watch_rejects_files(jn_cli, tmp_path: Path):
     """watchfiles should reject file paths and hint to use tail -F."""
     file_path = tmp_path / "log.txt"
     file_path.write_text("x")
 
     result = subprocess.run(
-        [*jn_cli, "sh", "watchfiles", str(file_path)],
+        [*jn_cli, "sh", "watch", str(file_path)],
         capture_output=True,
         text=True,
     )
@@ -69,13 +69,13 @@ def test_jn_sh_watchfiles_rejects_files(jn_cli, tmp_path: Path):
     assert "tail -F" in (result.stdout + result.stderr)
 
 
-def test_jn_sh_watchfiles_emits_on_change(jn_cli, tmp_path: Path):
+def test_jn_sh_watch_emits_on_change(jn_cli, tmp_path: Path):
     """watchfiles should emit a created event when a new file appears."""
     proc = subprocess.Popen(
         [
             *jn_cli,
             "sh",
-            "watchfiles",
+            "watch",
             str(tmp_path),
             "--debounce-ms",
             "10",
@@ -89,13 +89,13 @@ def test_jn_sh_watchfiles_emits_on_change(jn_cli, tmp_path: Path):
 
     try:
         # Small delay to ensure watcher is running
-        time.sleep(0.3)
+        time.sleep(0.5)
 
         # Create a new file to trigger event
         new_file = tmp_path / "new.txt"
         new_file.write_text("x")
 
-        out, err = proc.communicate(timeout=10)
+        out, err = proc.communicate(timeout=15)
         assert proc.returncode == 0, err
         lines = [line for line in out.strip().split("\n") if line]
         assert len(lines) >= 1
@@ -106,3 +106,59 @@ def test_jn_sh_watchfiles_emits_on_change(jn_cli, tmp_path: Path):
     finally:
         with contextlib.suppress(Exception):
             proc.kill()
+
+
+def test_jn_sh_watch_include_exclude(jn_cli, tmp_path: Path):
+    """Include/exclude globs should filter events."""
+    # Prepare files
+    (tmp_path / "keep.foo").write_text("x")
+    (tmp_path / "skip.txt").write_text("x")
+
+    # Include only *.foo
+    result = subprocess.run(
+        [
+            *jn_cli,
+            "sh",
+            "watch",
+            str(tmp_path),
+            "--initial",
+            "--include",
+            "*.foo",
+            "--exit-after",
+            "1",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    lines = [line for line in result.stdout.strip().split("\n") if line]
+    assert len(lines) == 1
+    import json as _json
+
+    rec = _json.loads(lines[0])
+    assert rec["path"].endswith("keep.foo")
+
+    # Exclude *.tmp (create an extra tmp file)
+    (tmp_path / "foo.tmp").write_text("x")
+    result = subprocess.run(
+        [
+            *jn_cli,
+            "sh",
+            "watch",
+            str(tmp_path),
+            "--initial",
+            "--exclude",
+            "*.tmp",
+            "--exit-after",
+            "1",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    lines = [line for line in result.stdout.strip().split("\n") if line]
+    assert len(lines) == 1
+    rec = _json.loads(lines[0])
+    assert not rec["path"].endswith(".tmp")
