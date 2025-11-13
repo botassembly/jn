@@ -387,8 +387,32 @@ def _inspect_data(ctx, address_str: str, limit: int) -> dict:
         env=build_subprocess_env_for_coverage(),
     )
 
+    # Close analyze stdin in parent (allows cat/filter to receive SIGPIPE)
+    if filter_proc:
+        filter_proc.stdout.close()
+    else:
+        cat_proc.stdout.close()
+
+    # Wait for analyze to complete
     stdout, stderr = analyze_proc.communicate()
 
+    # Wait for upstream processes and check for errors
+    cat_proc.wait()
+    if filter_proc:
+        filter_proc.wait()
+
+    # Check for upstream failures first (more informative than empty analysis)
+    if cat_proc.returncode != 0:
+        cat_stderr = cat_proc.stderr.read()
+        if isinstance(cat_stderr, bytes):
+            cat_stderr = cat_stderr.decode("utf-8")
+        return {"_error": True, "message": f"Cat failed: {cat_stderr}"}
+
+    if filter_proc and filter_proc.returncode != 0:
+        filter_stderr = filter_proc.stderr.read()
+        return {"_error": True, "message": f"Filter failed: {filter_stderr}"}
+
+    # Check analyze result
     if analyze_proc.returncode != 0:
         return {"_error": True, "message": f"Analysis failed: {stderr}"}
 
