@@ -210,13 +210,33 @@ def inspect(ctx, server, output_format):
                     search_paths.append(bundled)
 
             # Determine profile type by which subdirectory contains it
+            # Check for ambiguity (same profile name in multiple protocols at same level)
             for base_path in search_paths:
+                found_protocols = []
                 for protocol in ["mcp", "http", "gmail"]:
                     profile_dir = base_path / protocol / profile_name
                     if profile_dir.exists():
-                        profile_type = protocol
-                        break
-                if profile_type:
+                        found_protocols.append(protocol)
+
+                # If found in multiple protocols at same level, it's ambiguous
+                if len(found_protocols) > 1:
+                    click.echo(
+                        f"Error: Ambiguous profile '{profile_name}' found in multiple protocols: {', '.join(found_protocols)}",
+                        err=True,
+                    )
+                    click.echo(
+                        f"  Location: {base_path}",
+                        err=True,
+                    )
+                    click.echo(
+                        "  Remove duplicate profiles or use explicit protocol reference",
+                        err=True,
+                    )
+                    sys.exit(1)
+
+                # If found in exactly one protocol, use it
+                if found_protocols:
+                    profile_type = found_protocols[0]
                     break
 
             # Map profile type to plugin name
