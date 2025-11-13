@@ -1,12 +1,18 @@
 #!/usr/bin/env -S uv run --script
 """MCP (Model Context Protocol) plugin for connecting to MCP servers.
 
-This plugin enables reading from and writing to MCP servers using profile references.
+This plugin enables reading from and writing to MCP servers using:
+- Naked MCP URIs: mcp+uvx://package/command?tool=X&param=Y
+- Profile references: @biomcp/search?gene=BRAF
 
 Examples:
-    jn cat "@biomcp?list=resources"
+    # Naked URI access (no profile required)
+    jn cat "mcp+uvx://biomcp-python/biomcp?command=run&tool=search&gene=BRAF"
+    jn inspect "mcp+uvx://biomcp-python/biomcp?command=run"
+
+    # Profile-based access
     jn cat "@biomcp/search?gene=BRAF"
-    echo '{"gene": "BRAF"}' | jn put "@biomcp/search"
+    jn cat "@biomcp?list=resources"
 """
 # /// script
 # requires-python = ">=3.11"
@@ -16,21 +22,328 @@ Examples:
 # [tool.jn]
 # matches = [
 #   "^@[a-zA-Z0-9_-]+",
+#   "^mcp\\+[a-z]+://",
 # ]
 # ///
 
 import asyncio
 import json
+import os
+import re
 import sys
 from pathlib import Path
-from typing import Iterator
+from typing import Dict, Iterator, Optional, Tuple
+from urllib.parse import parse_qs
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-# Import MCP profile system
-sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "src"))
-from jn.profiles.mcp import resolve_profile_reference, ProfileError
+
+# ============================================================================
+# VENDORED PROFILE RESOLVER (self-contained, no framework imports)
+# Copied from src/jn/profiles/mcp.py to maintain plugin self-containment
+# ============================================================================
+
+
+class ProfileError(Exception):
+    """Error in profile resolution."""
+    pass
+
+
+def find_profile_paths() -> list[Path]:
+    """Get search paths for MCP profiles (in priority order)."""
+    paths = []
+
+    # 1. Project profiles (highest priority)
+    project_profile_dir = Path.cwd() / ".jn" / "profiles" / "mcp"
+    if project_profile_dir.exists():
+        paths.append(project_profile_dir)
+
+    # 2. User profiles
+    user_profile_dir = Path.home() / ".local" / "jn" / "profiles" / "mcp"
+    if user_profile_dir.exists():
+        paths.append(user_profile_dir)
+
+    # 3. Bundled profiles (lowest priority)
+    jn_home = os.environ.get("JN_HOME")
+    if jn_home:
+        bundled_dir = Path(jn_home) / "profiles" / "mcp"
+    else:
+        # Fallback: relative to this file (3 levels up to jn_home)
+        bundled_dir = Path(__file__).parent.parent.parent / "profiles" / "mcp"
+
+    if bundled_dir.exists():
+        paths.append(bundled_dir)
+
+    return paths
+
+
+def substitute_env_vars(value: str) -> str:
+    """Substitute ${VAR} environment variables in string."""
+    if not isinstance(value, str):
+        return value
+
+    pattern = r'\$\{([A-Za-z_][A-Za-z0-9_]*)\}'
+
+    def replace_var(match):
+        var_name = match.group(1)
+        var_value = os.environ.get(var_name)
+        if var_value is None:
+            raise ProfileError(f"Environment variable {var_name} not set")
+        return var_value
+
+    return re.sub(pattern, replace_var, value)
+
+
+def substitute_env_vars_recursive(data):
+    """Recursively substitute environment variables in nested structures."""
+    if isinstance(data, dict):
+        return {k: substitute_env_vars_recursive(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [substitute_env_vars_recursive(item) for item in data]
+    elif isinstance(data, str):
+        return substitute_env_vars(data)
+    else:
+        return data
+
+
+def load_hierarchical_profile(server_name: str, tool_or_resource: Optional[str] = None) -> dict:
+    """Load hierarchical MCP profile: _meta.json + optional tool/resource.json.
+
+    Args:
+        server_name: MCP server name (e.g., "biomcp")
+        tool_or_resource: Optional tool/resource name (e.g., "search")
+
+    Returns:
+        Merged profile dict with _meta + tool/resource info
+
+    Raises:
+        ProfileError: If profile not found
+    """
+    meta = {}
+    specific = {}
+
+    # Search for profile directory
+    for search_dir in find_profile_paths():
+        server_dir = search_dir / server_name
+
+        if not server_dir.exists():
+            continue
+
+        # Load _meta.json (server connection info)
+        meta_file = server_dir / "_meta.json"
+        if meta_file.exists():
+            try:
+                meta = json.loads(meta_file.read_text())
+            except json.JSONDecodeError as e:
+                raise ProfileError(f"Invalid JSON in {meta_file}: {e}")
+
+        # Load tool/resource.json if requested
+        if tool_or_resource:
+            specific_file = server_dir / f"{tool_or_resource}.json"
+            if specific_file.exists():
+                try:
+                    specific = json.loads(specific_file.read_text())
+                except json.JSONDecodeError as e:
+                    raise ProfileError(f"Invalid JSON in {specific_file}: {e}")
+            elif meta:
+                # _meta exists but tool/resource doesn't - that's OK, might be dynamic
+                pass
+
+        # If we found meta, we're done
+        if meta:
+            break
+
+    if not meta:
+        raise ProfileError(f"MCP server profile not found: {server_name}")
+
+    # Merge _meta + specific config
+    merged = {**meta, **specific}
+
+    # Substitute environment variables recursively
+    merged = substitute_env_vars_recursive(merged)
+
+    return merged
+
+
+def resolve_profile_reference(
+    reference: str,
+    params: Optional[Dict] = None
+) -> Tuple[Dict, Dict]:
+    """Resolve @server/tool reference to server config and operation.
+
+    Args:
+        reference: Profile reference like "@biomcp/search" or "@biomcp?tool=search"
+        params: Optional parameters for the operation
+
+    Returns:
+        Tuple of (server_config, operation_dict)
+        where operation_dict contains: {
+            "type": "list_tools" | "list_resources" | "call_tool" | "read_resource",
+            "tool": "tool_name",  # for call_tool
+            "resource": "uri",    # for read_resource
+            "params": {...}       # merged params
+        }
+
+    Raises:
+        ProfileError: If profile not found
+    """
+    if not reference.startswith("@"):
+        raise ProfileError(f"Invalid profile reference (must start with @): {reference}")
+
+    # Parse reference: @server_name/tool or @server_name?query
+    ref = reference[1:]  # Remove @
+
+    # Check for query params in reference
+    if "?" in ref:
+        server_part, query_part = ref.split("?", 1)
+        # Parse query string
+        query_params = {k: v[0] if len(v) == 1 else v for k, v in parse_qs(query_part).items()}
+    else:
+        server_part = ref
+        query_params = {}
+
+    # Parse server/tool path
+    parts = server_part.split("/", 1)
+    server_name = parts[0]
+    tool_name = parts[1] if len(parts) > 1 else None
+
+    # Load server profile (with optional tool definition)
+    server_config = load_hierarchical_profile(server_name, tool_name)
+
+    # Merge params: query_params override function params
+    merged_params = {**(params or {}), **query_params}
+
+    # Determine operation type
+    operation = {}
+
+    if "list" in merged_params:
+        # List operation: @biomcp?list=tools or @biomcp?list=resources
+        list_type = merged_params.pop("list")
+        if list_type == "tools":
+            operation["type"] = "list_tools"
+        elif list_type == "resources":
+            operation["type"] = "list_resources"
+        else:
+            raise ProfileError(f"Invalid list type: {list_type}")
+    elif "resource" in merged_params:
+        # Read resource: @biomcp?resource=resource://trials
+        operation["type"] = "read_resource"
+        operation["resource"] = merged_params.pop("resource")
+    elif "tool" in merged_params:
+        # Call tool: @biomcp?tool=search&gene=BRAF
+        operation["type"] = "call_tool"
+        operation["tool"] = merged_params.pop("tool")
+    elif tool_name:
+        # Tool specified in path: @biomcp/search
+        operation["type"] = "call_tool"
+        operation["tool"] = tool_name
+    else:
+        # Default: list resources
+        operation["type"] = "list_resources"
+
+    # Add remaining params
+    operation["params"] = merged_params
+
+    return server_config, operation
+
+
+# ============================================================================
+# NAKED MCP URI PARSING (no profile required)
+# ============================================================================
+
+
+def parse_naked_mcp_uri(uri: str) -> Tuple[Dict, Dict]:
+    """Parse naked MCP URI: mcp+{launcher}://{package}[/{command}]?{params}.
+
+    Supported launchers:
+    - uvx: UV tool runner (Python MCPs)
+    - npx: NPM package executor (Node MCPs)
+    - python: Direct Python script
+    - node: Direct Node script
+
+    Examples:
+        mcp+uvx://biomcp-python/biomcp?command=run&tool=search&gene=BRAF
+        mcp+npx://@upstash/context7-mcp@latest?tool=search&library=fastapi
+        mcp+python://./my_server.py?tool=fetch_data
+        mcp+node://./server.js?tool=analyze
+
+    Args:
+        uri: Naked MCP URI string
+
+    Returns:
+        Tuple of (server_config, params) where:
+        - server_config: dict with command, args, env for StdioServerParameters
+        - params: dict of operation parameters (tool, resource, etc.)
+
+    Raises:
+        ValueError: If URI format is invalid
+    """
+    if not uri.startswith("mcp+"):
+        raise ValueError(f"Invalid MCP URI (must start with mcp+): {uri}")
+
+    # Extract launcher type
+    protocol, rest = uri.split("://", 1)
+    launcher = protocol.split("+")[1]  # "uvx", "npx", "python", "node"
+
+    # Parse package/path and query string
+    if "?" in rest:
+        package_path, query_string = rest.split("?", 1)
+        params = {k: v[0] if len(v) == 1 else v for k, v in parse_qs(query_string).items()}
+    else:
+        package_path = rest
+        params = {}
+
+    # Build server config based on launcher
+    if launcher == "uvx":
+        # Format: mcp+uvx://package/command?params
+        # Command: uv run --with package command [args]
+        parts = package_path.split("/")
+        package = parts[0]
+        command = parts[1] if len(parts) > 1 else params.pop("command", "run")
+
+        server_config = {
+            "command": "uv",
+            "args": ["run", "--with", package, command],
+            "transport": "stdio"
+        }
+
+    elif launcher == "npx":
+        # Format: mcp+npx://package?params
+        # Command: npx -y package
+        server_config = {
+            "command": "npx",
+            "args": ["-y", package_path],
+            "transport": "stdio"
+        }
+
+    elif launcher == "python":
+        # Format: mcp+python://./script.py?params
+        # Command: python script.py
+        server_config = {
+            "command": "python",
+            "args": [package_path],
+            "transport": "stdio"
+        }
+
+    elif launcher == "node":
+        # Format: mcp+node://./script.js?params
+        # Command: node script.js
+        server_config = {
+            "command": "node",
+            "args": [package_path],
+            "transport": "stdio"
+        }
+
+    else:
+        raise ValueError(f"Unsupported MCP launcher: {launcher} (supported: uvx, npx, python, node)")
+
+    return server_config, params
+
+
+# ============================================================================
+# MCP OPERATIONS
+# ============================================================================
 
 
 def error_record(error_type: str, message: str, **extra) -> dict:
@@ -144,19 +457,54 @@ async def execute_tool_with_session(session: ClientSession, tool_name: str, argu
 
 
 def reads(url: str, **params) -> Iterator[dict]:
-    """Read from an MCP server using profile reference.
+    """Read from an MCP server using naked URI or profile reference.
+
+    Supports two formats:
+    - Naked URI: mcp+uvx://package/command?tool=X&param=Y
+    - Profile reference: @biomcp/search?gene=BRAF
 
     Args:
-        url: Profile reference (e.g., @biomcp/search)
+        url: Naked MCP URI or profile reference
         **params: Additional parameters merged with URL query params
 
     Yields:
         Dict records from the MCP server
     """
     try:
-        server_config, operation = resolve_profile_reference(url, params)
-    except ProfileError as e:
-        yield error_record("profile_error", str(e))
+        if url.startswith("mcp+"):
+            # Naked URI: parse directly
+            server_config, uri_params = parse_naked_mcp_uri(url)
+            # Merge params: function params override URI params
+            merged_params = {**uri_params, **params}
+
+            # Determine operation from params
+            operation = {}
+            if "list" in merged_params:
+                list_type = merged_params.pop("list")
+                if list_type == "tools":
+                    operation["type"] = "list_tools"
+                elif list_type == "resources":
+                    operation["type"] = "list_resources"
+                else:
+                    raise ValueError(f"Invalid list type: {list_type}")
+            elif "resource" in merged_params:
+                operation["type"] = "read_resource"
+                operation["resource"] = merged_params.pop("resource")
+            elif "tool" in merged_params:
+                operation["type"] = "call_tool"
+                operation["tool"] = merged_params.pop("tool")
+            else:
+                # Default: list resources
+                operation["type"] = "list_resources"
+
+            operation["params"] = merged_params
+
+        else:
+            # Profile reference: resolve (vendored function)
+            server_config, operation = resolve_profile_reference(url, params)
+
+    except (ProfileError, ValueError) as e:
+        yield error_record("resolution_error", str(e))
         return
     except Exception as e:
         yield error_record("resolution_error", str(e), exception_type=type(e).__name__)
@@ -170,6 +518,123 @@ def reads(url: str, **params) -> Iterator[dict]:
         yield from results
     except Exception as e:
         yield error_record("mcp_error", str(e), exception_type=type(e).__name__)
+    finally:
+        loop.close()
+
+
+def inspects(url: str, **config) -> dict:
+    """List tools and resources from MCP server (inspect operation).
+
+    This is the 'inspect' operation - shows what's available from the server.
+    Does NOT require a pre-existing profile.
+
+    Supports two formats:
+    - Naked URI: mcp+uvx://package/command
+    - Profile reference: @biomcp
+
+    Args:
+        url: Naked MCP URI or profile reference
+        **config: Optional configuration
+
+    Returns:
+        Dict with server info, tools, and resources:
+        {
+            "server": "biomcp-python/biomcp",
+            "transport": "stdio",
+            "tools": [
+                {
+                    "name": "search",
+                    "description": "Search biomedical resources",
+                    "inputSchema": {...}
+                }
+            ],
+            "resources": [
+                {
+                    "uri": "resource://trials/NCT12345",
+                    "name": "Clinical Trial NCT12345",
+                    "description": "Phase 3 trial for melanoma"
+                }
+            ]
+        }
+    """
+    try:
+        if url.startswith("mcp+"):
+            # Naked URI: parse directly
+            server_config, _ = parse_naked_mcp_uri(url)
+            server_name = url  # Use full URI as server name
+        else:
+            # Profile reference: resolve
+            server_config, _ = resolve_profile_reference(url, {})
+            server_name = url[1:] if url.startswith("@") else url
+
+    except (ProfileError, ValueError) as e:
+        return error_record("resolution_error", str(e))
+    except Exception as e:
+        return error_record("resolution_error", str(e), exception_type=type(e).__name__)
+
+    # Connect to MCP server and list tools/resources
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    async def inspect_server():
+        """Connect and inspect server capabilities."""
+        server_params = StdioServerParameters(
+            command=server_config["command"],
+            args=server_config.get("args", []),
+            env=server_config.get("env"),
+        )
+
+        read_stream, write_stream = await stdio_client(server_params)
+        session = ClientSession(read_stream, write_stream)
+
+        try:
+            await session.initialize()
+
+            # List tools
+            tools_result = await session.list_tools()
+            tools = []
+            for tool in tools_result.tools:
+                tools.append({
+                    "name": tool.name,
+                    "description": getattr(tool, "description", None),
+                    "inputSchema": tool.inputSchema,
+                })
+
+            # List resources
+            resources_result = await session.list_resources()
+            resources = []
+            for resource in resources_result.resources:
+                resources.append({
+                    "uri": resource.uri,
+                    "name": resource.name,
+                    "description": getattr(resource, "description", None),
+                    "mimeType": getattr(resource, "mimeType", None),
+                })
+
+            return {
+                "server": server_name,
+                "transport": server_config.get("transport", "stdio"),
+                "tools": tools,
+                "resources": resources,
+            }
+
+        finally:
+            # Properly close session and streams
+            try:
+                if hasattr(session, '__aexit__'):
+                    await session.__aexit__(None, None, None)
+                if hasattr(read_stream, 'aclose'):
+                    await read_stream.aclose()
+                if hasattr(write_stream, 'aclose'):
+                    await write_stream.aclose()
+            except Exception as e:
+                print(f"Warning: MCP cleanup error: {e}", file=sys.stderr)
+
+    try:
+        result = loop.run_until_complete(inspect_server())
+        return result
+    except Exception as e:
+        return error_record("mcp_error", str(e), exception_type=type(e).__name__)
     finally:
         loop.close()
 
@@ -260,8 +725,8 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="MCP protocol plugin")
-    parser.add_argument("--mode", choices=["read", "write"], required=True, help="Operation mode")
-    parser.add_argument("url", nargs="?", help="MCP profile reference (@server/tool)")
+    parser.add_argument("--mode", choices=["read", "write", "inspect"], required=True, help="Operation mode")
+    parser.add_argument("url", nargs="?", help="MCP naked URI or profile reference")
 
     args, unknown = parser.parse_known_args()
 
@@ -278,6 +743,13 @@ if __name__ == "__main__":
 
         for record in reads(args.url, **params):
             print(json.dumps(record), flush=True)
+
+    elif args.mode == "inspect":
+        if not args.url:
+            parser.error("URL is required for inspect mode")
+
+        result = inspects(args.url, **params)
+        print(json.dumps(result, indent=2), flush=True)
 
     else:  # write mode
         writes(url=args.url)

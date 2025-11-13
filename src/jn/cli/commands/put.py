@@ -13,7 +13,7 @@ from ...addressing import (
     parse_address,
 )
 from ...context import pass_context
-from ..helpers import check_uv_available, build_subprocess_env_for_coverage
+from ..helpers import build_subprocess_env_for_coverage, check_uv_available
 
 
 @click.command()

@@ -9,11 +9,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from ..cli.helpers import build_subprocess_env_for_coverage
 from .discovery import (
     PluginMetadata,
     get_cached_plugins_with_fallback,
 )
-from ..cli.helpers import build_subprocess_env_for_coverage
 
 
 def _check_uv_available() -> None:

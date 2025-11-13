@@ -28,6 +28,7 @@ from .commands.cat import cat
 from .commands.check import check
 from .commands.filter import filter
 from .commands.head import head
+from .commands.inspect import inspect
 from .commands.put import put
 from .commands.run import run
 from .commands.tail import tail
@@ -39,6 +40,7 @@ cli.add_command(run)
 cli.add_command(filter)
 cli.add_command(head)
 cli.add_command(tail)
+cli.add_command(inspect)
 cli.add_command(check)
 cli.add_command(plugin)
 
