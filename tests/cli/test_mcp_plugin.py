@@ -122,7 +122,7 @@ def test_mcp_plugin_inspect_mode(mcp_plugin):
     result = subprocess.run(
         ["uv", "run", "--script", str(mcp_plugin), "--help"],
         capture_output=True,
-        text=True
+        text=True,
     )
     assert result.returncode == 0
     assert "inspect" in result.stdout

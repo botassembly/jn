@@ -7,7 +7,6 @@ import sys
 import click
 
 from ...addressing import (
-    Address,
     AddressResolutionError,
     AddressResolver,
     parse_address,
@@ -46,7 +45,9 @@ def _format_text_output(result: dict) -> str:
                     param_type = param_info.get("type", "any")
                     param_desc = param_info.get("description", "")
                     req_marker = "*" if param_name in required else " "
-                    lines.append(f"      {req_marker} {param_name} ({param_type}): {param_desc}")
+                    lines.append(
+                        f"      {req_marker} {param_name} ({param_type}): {param_desc}"
+                    )
             lines.append("")
     else:
         lines.append("  (none)")
@@ -72,8 +73,13 @@ def _format_text_output(result: dict) -> str:
 
 @click.command()
 @click.argument("server")
-@click.option("--format", "output_format", type=click.Choice(["json", "text"]), default="text",
-              help="Output format (json or text)")
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["json", "text"]),
+    default="text",
+    help="Output format (json or text)",
+)
 @pass_context
 def inspect(ctx, server, output_format):
     """List tools and resources from an MCP server.
