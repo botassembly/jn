@@ -59,6 +59,7 @@ FORMAT_DETECT = {
 
 class ProfileError(Exception):
     """Error in profile resolution."""
+
     pass
 
 
@@ -95,7 +96,7 @@ def substitute_env_vars(value: str) -> str:
     if not isinstance(value, str):
         return value
 
-    pattern = r'\$\{([A-Za-z_][A-Za-z0-9_]*)\}'
+    pattern = r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}"
 
     def replace_var(match):
         var_name = match.group(1)
@@ -119,7 +120,9 @@ def substitute_env_vars_recursive(data):
         return data
 
 
-def load_hierarchical_profile(api_name: str, source_name: Optional[str] = None) -> dict:
+def load_hierarchical_profile(
+    api_name: str, source_name: Optional[str] = None
+) -> dict:
     """Load hierarchical HTTP profile: _meta.json + optional source.json.
 
     Args:
@@ -160,7 +163,9 @@ def load_hierarchical_profile(api_name: str, source_name: Optional[str] = None) 
                     raise ProfileError(f"Invalid JSON in {source_file}: {e}")
             elif meta:
                 # _meta exists but source doesn't
-                raise ProfileError(f"Source not found: {api_name}/{source_name}")
+                raise ProfileError(
+                    f"Source not found: {api_name}/{source_name}"
+                )
 
         # If we found meta, we're done
         if meta:
@@ -203,8 +208,7 @@ def list_profile_sources(api_name: str) -> list[str]:
 
 
 def resolve_profile_reference(
-    reference: str,
-    params: Optional[Dict] = None
+    reference: str, params: Optional[Dict] = None
 ) -> Tuple[str, Dict[str, str], int, str]:
     """Resolve @api/source reference to URL, headers, timeout, and method.
 
@@ -219,7 +223,9 @@ def resolve_profile_reference(
         ProfileError: If profile not found
     """
     if not reference.startswith("@"):
-        raise ProfileError(f"Invalid profile reference (must start with @): {reference}")
+        raise ProfileError(
+            f"Invalid profile reference (must start with @): {reference}"
+        )
 
     # Parse reference: @api_name/source_name?query
     ref = reference[1:]  # Remove @
@@ -228,7 +234,10 @@ def resolve_profile_reference(
     if "?" in ref:
         ref_part, query_part = ref.split("?", 1)
         # Parse query string
-        query_params = {k: v[0] if len(v) == 1 else v for k, v in parse_qs(query_part).items()}
+        query_params = {
+            k: v[0] if len(v) == 1 else v
+            for k, v in parse_qs(query_part).items()
+        }
     else:
         ref_part = ref
         query_params = {}
@@ -284,7 +293,7 @@ def reads(
     timeout: int = 30,
     verify_ssl: bool = True,
     force_format: str | None = None,
-    **params
+    **params,
 ) -> Iterator[dict]:
     """Fetch data from HTTP/HTTPS URL or profile reference and yield NDJSON records.
 
@@ -309,7 +318,9 @@ def reads(
     if url.startswith("@"):
         try:
             # Resolve profile to URL, headers, timeout, and method
-            resolved_url, profile_headers, profile_timeout, profile_method = resolve_profile_reference(url, params)
+            resolved_url, profile_headers, profile_timeout, profile_method = (
+                resolve_profile_reference(url, params)
+            )
             url = resolved_url
             # Merge headers: explicit headers override profile headers
             headers = {**profile_headers, **(headers or {})}
@@ -323,7 +334,9 @@ def reads(
             yield error_record("profile_error", str(e))
             return
         except Exception as e:
-            yield error_record("profile_error", str(e), exception_type=type(e).__name__)
+            yield error_record(
+                "profile_error", str(e), exception_type=type(e).__name__
+            )
             return
 
     headers = headers or {}
@@ -380,7 +393,11 @@ def reads(
             {"content": response.text, "content_type": "text/csv", "url": url}
         ],
         "text": lambda: [
-            {"content": response.text, "content_type": content_type, "url": url}
+            {
+                "content": response.text,
+                "content_type": content_type,
+                "url": url,
+            }
         ],
     }
 
@@ -470,20 +487,26 @@ def inspects(url: str, **config) -> dict:
                 "api": api_name,
                 "base_url": profile.get("base_url", ""),
                 "transport": "http",
-                "sources": []
+                "sources": [],
             }
 
             # Load each source to get metadata
             for source_name in sources:
                 try:
-                    source_profile = load_hierarchical_profile(api_name, source_name)
-                    result["sources"].append({
-                        "name": source_name,
-                        "path": source_profile.get("path", ""),
-                        "description": source_profile.get("description", ""),
-                        "method": source_profile.get("method", "GET"),
-                        "params": source_profile.get("params", [])
-                    })
+                    source_profile = load_hierarchical_profile(
+                        api_name, source_name
+                    )
+                    result["sources"].append(
+                        {
+                            "name": source_name,
+                            "path": source_profile.get("path", ""),
+                            "description": source_profile.get(
+                                "description", ""
+                            ),
+                            "method": source_profile.get("method", "GET"),
+                            "params": source_profile.get("params", []),
+                        }
+                    )
                 except ProfileError:
                     # Skip sources that fail to load
                     pass
@@ -499,14 +522,23 @@ def inspects(url: str, **config) -> dict:
                 "scheme": parsed.scheme,
                 "host": parsed.netloc,
                 "path": parsed.path,
-                "description": "HTTP endpoint (no profile)"
+                "description": "HTTP endpoint (no profile)",
             }
 
     except Exception as e:
-        return error_record("inspect_error", str(e), exception_type=type(e).__name__)
+        return error_record(
+            "inspect_error", str(e), exception_type=type(e).__name__
+        )
 
 
-def _stream_raw(url: str, method: str, headers: dict, auth: tuple | None, timeout: int, verify_ssl: bool) -> int:
+def _stream_raw(
+    url: str,
+    method: str,
+    headers: dict,
+    auth: tuple | None,
+    timeout: int,
+    verify_ssl: bool,
+) -> int:
     """Stream response body as raw bytes to stdout. Returns exit code."""
     try:
         with requests.request(
@@ -541,7 +573,8 @@ def _stream_raw(url: str, method: str, headers: dict, auth: tuple | None, timeou
     except requests.exceptions.RequestException as e:
         # Propagate as error in raw mode (upstream should handle)
         sys.stderr.write(
-            json.dumps(error_record("request_exception", str(e), url=url)) + "\n"
+            json.dumps(error_record("request_exception", str(e), url=url))
+            + "\n"
         )
         return 1
 
@@ -551,8 +584,12 @@ if __name__ == "__main__":
     import os
 
     parser = argparse.ArgumentParser(description="HTTP protocol plugin")
-    parser.add_argument("--mode", choices=["read", "raw", "inspect"], help="Operation mode")
-    parser.add_argument("url", nargs="?", help="URL to fetch or profile reference")
+    parser.add_argument(
+        "--mode", choices=["read", "raw", "inspect"], help="Operation mode"
+    )
+    parser.add_argument(
+        "url", nargs="?", help="URL to fetch or profile reference"
+    )
     parser.add_argument(
         "--method",
         default="GET",
@@ -566,12 +603,19 @@ if __name__ == "__main__":
         help="HTTP headers as JSON",
     )
     parser.add_argument("--auth", help="Basic auth as 'username:password'")
-    parser.add_argument("--timeout", type=int, default=30, help="Request timeout")
     parser.add_argument(
-        "--no-verify-ssl", dest="verify_ssl", action="store_false", help="Disable SSL verification"
+        "--timeout", type=int, default=30, help="Request timeout"
     )
     parser.add_argument(
-        "--format", choices=["json", "ndjson", "csv", "text"], help="Force format"
+        "--no-verify-ssl",
+        dest="verify_ssl",
+        action="store_false",
+        help="Disable SSL verification",
+    )
+    parser.add_argument(
+        "--format",
+        choices=["json", "ndjson", "csv", "text"],
+        help="Force format",
     )
 
     args, unknown = parser.parse_known_args()
@@ -596,13 +640,20 @@ if __name__ == "__main__":
     # Substitute env vars in headers
     headers = {}
     for key, value in args.headers.items():
-        if isinstance(value, str) and value.startswith("${") and value.endswith("}"):
+        if (
+            isinstance(value, str)
+            and value.startswith("${")
+            and value.endswith("}")
+        ):
             env_var = value[2:-1]
             env_value = os.environ.get(env_var)
             if not env_value:
                 print(
                     json.dumps(
-                        error_record("env_var_not_set", f"Environment variable {env_var} not set")
+                        error_record(
+                            "env_var_not_set",
+                            f"Environment variable {env_var} not set",
+                        )
                     ),
                     flush=True,
                 )
@@ -641,13 +692,15 @@ if __name__ == "__main__":
                 timeout=args.timeout,
                 verify_ssl=args.verify_ssl,
                 force_format=args.format,
-                **params
+                **params,
             ):
                 print(json.dumps(record), flush=True)
         except requests.exceptions.RequestException as e:
             # Errors are data: emit an error record and exit successfully
             print(
-                json.dumps(error_record("request_exception", str(e), url=args.url)),
+                json.dumps(
+                    error_record("request_exception", str(e), url=args.url)
+                ),
                 flush=True,
             )
             sys.exit(0)
