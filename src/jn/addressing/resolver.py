@@ -99,11 +99,19 @@ class AddressResolver:
         # Determine plugin
         plugin_name, plugin_path = self._find_plugin(address, mode)
 
+        # Check if this is a protocol-role plugin
+        plugin = self._plugins.get(plugin_name)
+        is_protocol_plugin = plugin and plugin.role == "protocol"
+
         # Build configuration from parameters
-        config = self._build_config(address.parameters, plugin_name)
+        # For protocol plugins, parameters stay in URL (not extracted to config)
+        if is_protocol_plugin:
+            config = {}
+        else:
+            config = self._build_config(address.parameters, plugin_name)
 
         # Resolve URL and headers (for protocols/profiles)
-        url, headers = self._resolve_url_and_headers(address)
+        url, headers = self._resolve_url_and_headers(address, plugin_name)
 
         return ResolvedAddress(
             address=address,
@@ -161,7 +169,9 @@ class AddressResolver:
                 fmt_plugin = self._plugins[fmt_name]
 
                 # Resolve URL and headers
-                url, headers = self._resolve_url_and_headers(address)
+                url, headers = self._resolve_url_and_headers(
+                    address, proto_name
+                )
 
                 # Protocol stage: raw mode, URL as argument
                 protocol_stage = ExecutionStage(
@@ -482,12 +492,13 @@ class AddressResolver:
             return False
 
     def _resolve_url_and_headers(
-        self, address: Address
+        self, address: Address, plugin_name: str
     ) -> Tuple[Optional[str], Optional[Dict[str, str]]]:
         """Resolve URL and headers for address.
 
         Args:
             address: Parsed address
+            plugin_name: Name of the resolved plugin
 
         Returns:
             Tuple of (url, headers)
@@ -531,6 +542,14 @@ class AddressResolver:
                 return url, headers
             except HTTPProfileError as e:
                 raise AddressResolutionError(f"Profile resolution failed: {e}")
+
+        # Check if this is a protocol-role plugin (e.g., shell commands)
+        # Even if parsed as type="file", protocol-role plugins should get URL set
+        plugin = self._plugins.get(plugin_name)
+        if plugin and plugin.role == "protocol":
+            # Return full address (base + parameters) as URL
+            # This allows shell commands like "ls?path=/tmp" to work without "shell://" prefix
+            return str(address), None
 
         # File/stdio/plugin: no URL
         return None, None

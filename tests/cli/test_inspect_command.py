@@ -74,7 +74,9 @@ def test_inspect_default_format_is_text(invoke):
 def test_inspect_naked_uri_syntax_accepted(invoke):
     """Test that inspect accepts naked MCP URI syntax."""
     # Test with naked URI (will fail on missing server, but tests CLI parsing)
-    res = invoke(["inspect", "mcp+uvx://biomcp-python/biomcp", "--format", "json"])
+    res = invoke(
+        ["inspect", "mcp+uvx://biomcp-python/biomcp", "--format", "json"]
+    )
 
     # Should attempt to parse and execute (even if server not available)
     # Verify no syntax errors in parsing the URI
