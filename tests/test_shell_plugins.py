@@ -8,14 +8,14 @@ Tests cover:
 - Streaming behavior
 """
 
-import subprocess
 import json
 import os
+import subprocess
 import tempfile
 import time
-import pytest
 from pathlib import Path
 
+import pytest
 
 # Path to jn_home plugins
 PLUGIN_DIR = Path(__file__).parent.parent / "jn_home" / "plugins" / "protocols"
@@ -28,19 +28,18 @@ def run_plugin(plugin_name, url=None, config=None, stdin_data=None):
     if not plugin_path.exists():
         pytest.skip(f"Plugin not found: {plugin_path}")
 
-    cmd = ['python', str(plugin_path), '--mode', 'read']
+    cmd = ["python", str(plugin_path), "--mode", "read"]
     if url:
-        cmd.extend(['--url', url])
+        cmd.extend(["--url", url])
     elif config:
-        cmd.extend(['--config', json.dumps(config)])
+        cmd.extend(["--config", json.dumps(config)])
 
     result = subprocess.run(
         cmd,
         stdin=subprocess.PIPE if stdin_data else None,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         text=True,
-        input=stdin_data
+        input=stdin_data,
     )
 
     return result
@@ -51,34 +50,42 @@ class TestLsPlugin:
 
     def test_ls_basic(self):
         """Test basic ls execution."""
-        result = run_plugin('ls_shell.py', url='shell://ls?path=/tmp')
+        result = run_plugin("ls_shell.py", url="shell://ls?path=/tmp")
 
-        assert result.returncode == 0 or result.returncode == 1  # May fail if jc not installed
+        assert (
+            result.returncode == 0 or result.returncode == 1
+        )  # May fail if jc not installed
         if result.returncode == 0:
             # Should output NDJSON
-            lines = result.stdout.strip().split('\n')
+            lines = result.stdout.strip().split("\n")
             for line in lines:
                 record = json.loads(line)
-                assert 'filename' in record
+                assert "filename" in record
 
     def test_ls_long_format(self):
         """Test ls with long format."""
-        result = run_plugin('ls_shell.py', url='shell://ls?path=/tmp&long=true')
+        result = run_plugin(
+            "ls_shell.py", url="shell://ls?path=/tmp&long=true"
+        )
 
         if result.returncode == 0:
-            lines = result.stdout.strip().split('\n')
+            lines = result.stdout.strip().split("\n")
             if lines and lines[0]:
                 record = json.loads(lines[0])
                 # Long format should have more fields
-                assert 'filename' in record
+                assert "filename" in record
 
     def test_ls_nonexistent_path(self):
         """Test ls with nonexistent path."""
-        result = run_plugin('ls_shell.py', url='shell://ls?path=/nonexistent_path_12345')
+        result = run_plugin(
+            "ls_shell.py", url="shell://ls?path=/nonexistent_path_12345"
+        )
 
         assert result.returncode != 0
         # Should output error to stderr
-        assert '_error' in result.stderr or 'not found' in result.stderr.lower()
+        assert (
+            "_error" in result.stderr or "not found" in result.stderr.lower()
+        )
 
 
 class TestFindPlugin:
@@ -86,14 +93,20 @@ class TestFindPlugin:
 
     def test_find_basic(self):
         """Test basic find execution."""
-        result = run_plugin('find_shell.py', url='shell://find?path=/tmp&maxdepth=2')
+        result = run_plugin(
+            "find_shell.py", url="shell://find?path=/tmp&maxdepth=2"
+        )
 
-        assert result.returncode == 0 or result.returncode == 1  # May fail if jc not installed
+        assert (
+            result.returncode == 0 or result.returncode == 1
+        )  # May fail if jc not installed
         if result.returncode == 0:
-            lines = result.stdout.strip().split('\n')
+            lines = result.stdout.strip().split("\n")
             if lines and lines[0]:
                 record = json.loads(lines[0])
-                assert 'path' in record or 'node' in record or 'error' in record
+                assert (
+                    "path" in record or "node" in record or "error" in record
+                )
 
     def test_find_with_name_pattern(self):
         """Test find with name pattern."""
@@ -102,11 +115,13 @@ class TestFindPlugin:
             test_file = Path(tmpdir) / "test.txt"
             test_file.write_text("test")
 
-            result = run_plugin('find_shell.py', url=f'shell://find?path={tmpdir}&name=*.txt')
+            result = run_plugin(
+                "find_shell.py", url=f"shell://find?path={tmpdir}&name=*.txt"
+            )
 
             if result.returncode == 0:
                 output = result.stdout
-                assert 'test.txt' in output
+                assert "test.txt" in output
 
 
 class TestPsPlugin:
@@ -114,15 +129,19 @@ class TestPsPlugin:
 
     def test_ps_basic(self):
         """Test basic ps execution."""
-        result = run_plugin('ps_shell.py', url='shell://ps')
+        result = run_plugin("ps_shell.py", url="shell://ps")
 
-        assert result.returncode == 0 or result.returncode == 1  # May fail if jc not installed
+        assert (
+            result.returncode == 0 or result.returncode == 1
+        )  # May fail if jc not installed
         if result.returncode == 0:
-            lines = result.stdout.strip().split('\n')
+            lines = result.stdout.strip().split("\n")
             if lines and lines[0]:
                 record = json.loads(lines[0])
                 # Should have process fields
-                assert 'pid' in record or 'cmd' in record or 'command' in record
+                assert (
+                    "pid" in record or "cmd" in record or "command" in record
+                )
 
 
 class TestTailPlugin:
@@ -131,23 +150,25 @@ class TestTailPlugin:
     def test_tail_basic(self):
         """Test basic tail execution."""
         # Create temp file with content
-        with tempfile.NamedTemporaryFile(mode='w', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as f:
             for i in range(20):
                 f.write(f"Line {i}\n")
             temp_path = f.name
 
         try:
-            result = run_plugin('tail_shell.py', url=f'shell://tail?path={temp_path}&lines=5')
+            result = run_plugin(
+                "tail_shell.py", url=f"shell://tail?path={temp_path}&lines=5"
+            )
 
             assert result.returncode == 0
-            lines = result.stdout.strip().split('\n')
+            lines = result.stdout.strip().split("\n")
             assert len(lines) == 5
 
             # Parse first record
             record = json.loads(lines[0])
-            assert 'line' in record
-            assert 'path' in record
-            assert record['path'] == temp_path
+            assert "line" in record
+            assert "path" in record
+            assert record["path"] == temp_path
 
         finally:
             os.unlink(temp_path)
@@ -155,7 +176,7 @@ class TestTailPlugin:
     def test_tail_follow_mode_termination(self):
         """Test that tail follow mode can be terminated early."""
         # Create temp file
-        with tempfile.NamedTemporaryFile(mode='w', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as f:
             f.write("Initial line\n")
             temp_path = f.name
 
@@ -163,15 +184,21 @@ class TestTailPlugin:
             # Start tail -f process
             plugin_path = PLUGIN_DIR / "tail_shell.py"
             proc = subprocess.Popen(
-                ['python', str(plugin_path), '--mode', 'read',
-                 '--url', f'shell://tail?path={temp_path}&follow=true&lines=0'],
+                [
+                    "python",
+                    str(plugin_path),
+                    "--mode",
+                    "read",
+                    "--url",
+                    f"shell://tail?path={temp_path}&follow=true&lines=0",
+                ],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                text=True
+                text=True,
             )
 
             # Write a few lines
-            with open(temp_path, 'a') as f:
+            with open(temp_path, "a") as f:
                 for i in range(3):
                     f.write(f"New line {i}\n")
                     f.flush()
@@ -190,7 +217,7 @@ class TestTailPlugin:
         finally:
             try:
                 os.unlink(temp_path)
-            except:
+            except FileNotFoundError:
                 pass
 
 
@@ -199,23 +226,25 @@ class TestEnvPlugin:
 
     def test_env_basic(self):
         """Test basic env execution."""
-        result = run_plugin('env_shell.py', url='shell://env')
+        result = run_plugin("env_shell.py", url="shell://env")
 
-        assert result.returncode == 0 or result.returncode == 1  # May fail if jc not installed
+        assert (
+            result.returncode == 0 or result.returncode == 1
+        )  # May fail if jc not installed
         if result.returncode == 0:
-            lines = result.stdout.strip().split('\n')
+            lines = result.stdout.strip().split("\n")
             if lines and lines[0]:
                 record = json.loads(lines[0])
-                assert 'name' in record
-                assert 'value' in record
+                assert "name" in record
+                assert "value" in record
 
     def test_env_has_path(self):
         """Test that PATH variable is in output."""
-        result = run_plugin('env_shell.py', url='shell://env')
+        result = run_plugin("env_shell.py", url="shell://env")
 
         if result.returncode == 0:
             output = result.stdout
-            assert 'PATH' in output
+            assert "PATH" in output
 
 
 class TestBackpressure:
@@ -228,10 +257,16 @@ class TestBackpressure:
 
         # Start ls process
         ls_proc = subprocess.Popen(
-            ['python', str(plugin_path), '--mode', 'read',
-             '--url', 'shell://ls?path=/usr/bin&long=true'],
+            [
+                "python",
+                str(plugin_path),
+                "--mode",
+                "read",
+                "--url",
+                "shell://ls?path=/usr/bin&long=true",
+            ],
             stdout=subprocess.PIPE,
-            text=True
+            text=True,
         )
 
         # Read only 5 lines
@@ -265,10 +300,16 @@ class TestBackpressure:
 
         # Start find process on large directory
         find_proc = subprocess.Popen(
-            ['python', str(plugin_path), '--mode', 'read',
-             '--url', 'shell://find?path=/usr'],
+            [
+                "python",
+                str(plugin_path),
+                "--mode",
+                "read",
+                "--url",
+                "shell://find?path=/usr",
+            ],
             stdout=subprocess.PIPE,
-            text=True
+            text=True,
         )
 
         # Read only 10 lines
@@ -291,5 +332,5 @@ class TestBackpressure:
         assert lines_read == 10
 
 
-if __name__ == '__main__':
-    pytest.main([__file__, '-v'])
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])
