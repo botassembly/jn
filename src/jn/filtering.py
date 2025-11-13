@@ -122,14 +122,18 @@ def format_jq_condition(field: str, operator: str, value: any) -> str:
 
     Examples:
         >>> format_jq_condition("revenue", ">", 1000)
-        ".revenue > 1000"
+        "(.revenue | tonumber) > 1000"
         >>> format_jq_condition("category", "==", "Electronics")
         '.category == "Electronics"'
     """
     # Format value as JSON (handles strings, numbers, booleans)
     value_str = json.dumps(value)
 
-    return f".{field} {operator} {value_str}"
+    # For numeric comparisons, add tonumber conversion to handle string fields
+    if operator in (">", "<", ">=", "<=") and isinstance(value, (int, float)):
+        return f"(.{field} | tonumber) {operator} {value_str}"
+    else:
+        return f".{field} {operator} {value_str}"
 
 
 def build_jq_filter(filters: List[Tuple[str, str, str]]) -> str:
@@ -188,8 +192,11 @@ def separate_config_and_filters(
 ) -> Tuple[Dict[str, str], List[Tuple[str, str, str]]]:
     """Separate query parameters into config and filter groups.
 
+    Handles comma-separated values (from duplicate query params) by splitting
+    them into multiple filter entries for OR logic.
+
     Args:
-        params: All query parameters
+        params: All query parameters (values may be comma-separated)
         config_param_names: List of parameter names that are config (from introspection)
 
     Returns:
@@ -201,20 +208,31 @@ def separate_config_and_filters(
         ...     ["method", "limit"]
         ... )
         ({"method": "POST", "limit": "100"}, [("gene", "==", "BRAF")])
+
+        >>> separate_config_and_filters(
+        ...     {"city": "NYC,SF"},  # From ?city=NYC&city=SF
+        ...     []
+        ... )
+        ({}, [("city", "==", "NYC"), ("city", "==", "SF")])
     """
     config = {}
-    filter_params = {}
+    filters = []
 
     for param_name, value in params.items():
         # Extract base field name (without operator)
-        field, _ = parse_operator(param_name)
+        field, operator = parse_operator(param_name)
 
         if field in config_param_names:
             # This is a config parameter
             config[field] = value
         else:
             # This is a filter parameter
-            filter_params[param_name] = value
+            # Check if value is comma-separated (from duplicate params)
+            if "," in value:
+                # Split and add each value as separate filter for OR logic
+                for val in value.split(","):
+                    filters.append((field, operator, val.strip()))
+            else:
+                filters.append((field, operator, value))
 
-    filters = parse_filter_params(filter_params)
     return config, filters

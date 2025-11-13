@@ -98,6 +98,9 @@ def get_plugin_config_params(plugin_path: str) -> List[str]:
 
     This is a convenience wrapper that loads the plugin and introspects it.
 
+    For plugins using the config dict pattern (config: Optional[dict]),
+    returns a list of common config parameter names.
+
     Args:
         plugin_path: Path to plugin .py file
 
@@ -108,4 +111,14 @@ def get_plugin_config_params(plugin_path: str) -> List[str]:
     if not func:
         return []
 
-    return get_config_params(func)
+    params = get_config_params(func)
+
+    # If function uses config dict pattern, return common config params
+    if is_config_dict_pattern(func):
+        # Common config parameters that should not be treated as filters
+        return [
+            "limit", "offset", "delimiter", "skip_rows", "header",
+            "method", "timeout", "headers", "format"
+        ]
+
+    return params

@@ -3,6 +3,7 @@
 import json
 import subprocess
 import sys
+from urllib.parse import urlencode
 
 import click
 
@@ -14,6 +15,8 @@ from ...addressing import (
     parse_address,
 )
 from ...context import pass_context
+from ...filtering import build_jq_filter, separate_config_and_filters
+from ...introspection import get_plugin_config_params
 from ...shell.jc_fallback import execute_with_jc, supports_command
 from ..helpers import build_subprocess_env_for_coverage, check_uv_available
 
@@ -44,107 +47,135 @@ def _build_command(stage: ExecutionStage, command_str: str = None) -> list:
     return cmd
 
 
-def _execute_single_stage_read(stage: ExecutionStage, addr: Address) -> None:
-    """Execute single-stage read pipeline."""
-    # Check if this is a shell command plugin
-    is_shell_plugin = "/shell/" in stage.plugin_path
+def _execute_with_filter(stages, addr, filters):
+    """Execute pipeline with optional filter stage.
 
-    # Build command - for shell plugins, pass the command string
-    if is_shell_plugin:
-        cmd = _build_command(stage, command_str=addr.base)
+    Args:
+        stages: List of execution stages (1 or 2)
+        addr: Parsed address
+        filters: List of filter tuples, or empty list
+    """
+    # Build reader processes
+    if len(stages) == 2:
+        # Two-stage: protocol + format
+        protocol_cmd = _build_command(stages[0])
+        format_cmd = _build_command(stages[1])
+
+        protocol_proc = subprocess.Popen(
+            protocol_cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=False,
+            env=build_subprocess_env_for_coverage(),
+        )
+
+        format_proc = subprocess.Popen(
+            format_cmd,
+            stdin=protocol_proc.stdout,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=build_subprocess_env_for_coverage(),
+        )
+
+        protocol_proc.stdout.close()
+        reader_stdout = format_proc.stdout
+        reader_stderr = format_proc.stderr
+        reader_proc = format_proc
+        other_proc = protocol_proc
+
+    elif len(stages) == 1:
+        # Single-stage
+        stage = stages[0]
+        is_shell_plugin = "/shell/" in stage.plugin_path
+
+        if is_shell_plugin:
+            cmd = _build_command(stage, command_str=addr.base)
+        else:
+            cmd = _build_command(stage)
+
+        # Determine input source
+        if is_shell_plugin or stage.url:
+            stdin_source = subprocess.DEVNULL
+            infile = None
+        elif addr.type == "stdio":
+            stdin_source = sys.stdin
+            infile = None
+        else:
+            infile = open(addr.base)
+            stdin_source = infile
+
+        reader_proc = subprocess.Popen(
+            cmd,
+            stdin=stdin_source,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=build_subprocess_env_for_coverage(),
+        )
+
+        reader_stdout = reader_proc.stdout
+        reader_stderr = reader_proc.stderr
+        other_proc = None
+        infile_handle = infile if 'infile' in locals() else None
     else:
-        cmd = _build_command(stage)
+        # Pass-through (no stages)
+        for line in sys.stdin:
+            sys.stdout.write(line)
+        return
 
-    # Determine input source
-    if is_shell_plugin or stage.url:
-        # Shell command or protocol - command/URL passed as argument
-        stdin_source = subprocess.DEVNULL
-        infile = None
-    elif addr.type == "stdio":
-        # Stdin
-        stdin_source = sys.stdin
-        infile = None
+    # Add filter stage if filters exist
+    if filters:
+        jq_expr = build_jq_filter(filters)
+
+        filter_proc = subprocess.Popen(
+            ["jn", "filter", jq_expr],
+            stdin=reader_stdout,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=build_subprocess_env_for_coverage(),
+        )
+
+        reader_stdout.close()  # Close reader stdout in parent
+        output_stdout = filter_proc.stdout
+        final_proc = filter_proc
     else:
-        # File - open and pass as stdin
-        infile = open(addr.base)
-        stdin_source = infile
-
-    # Execute plugin
-    proc = subprocess.Popen(
-        cmd,
-        stdin=stdin_source,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        env=build_subprocess_env_for_coverage(),
-    )
+        output_stdout = reader_stdout
+        final_proc = reader_proc
 
     # Stream output
-    for line in proc.stdout:
+    for line in output_stdout:
         sys.stdout.write(line)
 
-    proc.wait()
+    # Wait for all processes
+    final_proc.wait()
+    reader_proc.wait()
+    if other_proc:
+        other_proc.wait()
 
     # Close file if opened
-    if infile:
-        infile.close()
+    if len(stages) == 1 and 'infile_handle' in locals() and infile_handle:
+        infile_handle.close()
 
     # Check for errors
-    if proc.returncode != 0:
-        error_msg = proc.stderr.read()
+    if final_proc.returncode != 0:
+        error_msg = final_proc.stderr.read() if filters else ""
+        if error_msg:
+            click.echo(f"Error: Filter error: {error_msg}", err=True)
+        sys.exit(1)
+
+    if reader_proc.returncode != 0:
+        error_msg = reader_stderr.read()
         click.echo(f"Error: Reader error: {error_msg}", err=True)
         sys.exit(1)
 
-
-def _execute_two_stage_read(
-    protocol_stage: ExecutionStage, format_stage: ExecutionStage
-) -> None:
-    """Execute two-stage read pipeline: protocol (raw) → format (read)."""
-    # Build commands
-    protocol_cmd = _build_command(protocol_stage)
-    format_cmd = _build_command(format_stage)
-
-    # Start protocol plugin (fetches raw bytes)
-    protocol_proc = subprocess.Popen(
-        protocol_cmd,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=False,  # Binary mode for raw bytes
-        env=build_subprocess_env_for_coverage(),
-    )
-
-    # Start format plugin (parses bytes to NDJSON)
-    # Keep in binary mode since stdin needs to receive binary data
-    format_proc = subprocess.Popen(
-        format_cmd,
-        stdin=protocol_proc.stdout,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=False,  # Binary mode for stdin (receives raw bytes)
-        env=build_subprocess_env_for_coverage(),
-    )
-
-    # Close protocol stdout in parent (critical for SIGPIPE)
-    protocol_proc.stdout.close()
-
-    # Stream output (decode text from binary stdout)
-    for line in format_proc.stdout:
-        sys.stdout.write(line.decode("utf-8"))
-
-    # Wait for both processes
-    format_proc.wait()
-    protocol_proc.wait()
-
-    # Check for errors (decode binary stderr)
-    if format_proc.returncode != 0:
-        error_msg = format_proc.stderr.read().decode("utf-8")
-        click.echo(f"Error: Format reader error: {error_msg}", err=True)
-        sys.exit(1)
-
-    if protocol_proc.returncode != 0:
-        error_msg = protocol_proc.stderr.read().decode("utf-8")
-        click.echo(f"Error: Protocol reader error: {error_msg}", err=True)
+    if other_proc and other_proc.returncode != 0:
+        error_msg = other_proc.stderr.read()
+        if isinstance(error_msg, bytes):
+            error_msg = error_msg.decode("utf-8")
+        click.echo(f"Error: Protocol error: {error_msg}", err=True)
         sys.exit(1)
 
 
@@ -156,11 +187,25 @@ def cat(ctx, input_file):
 
     Supports universal addressing syntax: address[~format][?parameters]
 
+    Query parameters can be either config or filters:
+    - Config params (delimiter, limit, etc.) are passed to the plugin
+    - Filter params (field=value) are applied as jq filters after reading
+
+    Filter syntax:
+    - Same field multiple times: OR logic (city=NYC&city=LA)
+    - Different fields: AND logic (city=NYC&age>25)
+
     Examples:
         # Basic files
         jn cat data.csv                        # Auto-detect format
         jn cat data.txt~csv                    # Force CSV format
         jn cat data.csv~csv?delimiter=;        # CSV with semicolon delimiter
+
+        # Filtering
+        jn cat 'data.csv?city=NYC'             # Filter: city equals NYC
+        jn cat 'data.csv?city=NYC&city=LA'     # Filter: city equals NYC OR LA
+        jn cat 'data.csv?city=NYC&age>25'      # Filter: city=NYC AND age>25
+        jn cat 'data.csv?limit=100&city=NYC'   # Config (limit) + filter (city)
 
         # Stdin
         cat data.csv | jn cat "-~csv"          # Read stdin as CSV
@@ -185,31 +230,71 @@ def cat(ctx, input_file):
         # Parse address
         addr = parse_address(input_file)
 
-        # Plan execution (may be 1 or 2 stages)
+        # If no parameters, use original fast path
+        if not addr.parameters:
+            resolver = AddressResolver(ctx.plugin_dir, ctx.cache_path)
+
+            try:
+                stages = resolver.plan_execution(addr, mode="read")
+            except AddressResolutionError:
+                command_name = input_file.split()[0] if ' ' in input_file else input_file
+                if supports_command(command_name):
+                    exit_code = execute_with_jc(input_file)
+                    sys.exit(exit_code)
+                else:
+                    raise
+
+            _execute_with_filter(stages, addr, filters=[])
+            return
+
+        # Parameters exist - separate config from filters
         resolver = AddressResolver(ctx.plugin_dir, ctx.cache_path)
 
         try:
             stages = resolver.plan_execution(addr, mode="read")
         except AddressResolutionError:
-            # No plugin found - try jc fallback for shell commands
             command_name = input_file.split()[0] if ' ' in input_file else input_file
             if supports_command(command_name):
                 exit_code = execute_with_jc(input_file)
                 sys.exit(exit_code)
             else:
-                # Re-raise if jc doesn't support it either
                 raise
 
-        if len(stages) == 2:
-            # Two-stage pipeline: protocol (raw) → format (read)
-            _execute_two_stage_read(stages[0], stages[1])
-        elif len(stages) == 1:
-            # Single-stage execution
-            _execute_single_stage_read(stages[0], addr)
-        else:
-            # Pass-through NDJSON from stdin when no plugin stage is needed
+        # Get the final stage (the one that will read data)
+        if not stages:
+            # No stages - pass through stdin
             for line in sys.stdin:
                 sys.stdout.write(line)
+            return
+
+        final_stage = stages[-1]
+
+        # Introspect plugin to get config params
+        config_params = get_plugin_config_params(final_stage.plugin_path)
+
+        # Separate config from filters
+        config, filters = separate_config_and_filters(addr.parameters, config_params)
+
+        # Rebuild address with ONLY config parameters (removing filters)
+        # Reconstruct address with only config
+        base_addr = addr.base
+        if addr.format_override:
+            base_addr = f"{base_addr}~{addr.format_override}"
+
+        if config:
+            # Build new address with config params
+            query_str = urlencode(config)
+            new_input = f"{base_addr}?{query_str}"
+        else:
+            # No config - just base address
+            new_input = base_addr
+
+        # Re-parse and re-plan with config-only address
+        addr = parse_address(new_input)
+        stages = resolver.plan_execution(addr, mode="read")
+
+        # Execute with filter stage if needed
+        _execute_with_filter(stages, addr, filters)
 
     except ValueError as e:
         click.echo(f"Error: Invalid address syntax: {e}", err=True)

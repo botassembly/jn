@@ -13,7 +13,9 @@ from ...addressing import (
 )
 from ...context import pass_context
 from ...core.streaming import tail as stream_tail
-from ..helpers import check_uv_available
+from ...filtering import build_jq_filter, separate_config_and_filters
+from ...introspection import get_plugin_config_params
+from ..helpers import build_subprocess_env_for_coverage, check_uv_available
 
 
 @click.command()
@@ -62,9 +64,36 @@ def tail(ctx, source, n):
             # Parse address
             addr = parse_address(source)
 
-            # Create resolver and resolve address
+            # Create resolver and do initial resolution to get plugin path
             resolver = AddressResolver(ctx.plugin_dir, ctx.cache_path)
             resolved = resolver.resolve(addr, mode="read")
+
+            # Separate config parameters from filters if parameters exist
+            filters = []
+            if addr.parameters:
+                # Get config params from plugin
+                config_params = get_plugin_config_params(resolved.plugin_path)
+                config, filters = separate_config_and_filters(
+                    addr.parameters, config_params
+                )
+
+                # Rebuild address with only config parameters if filters exist
+                if filters:
+                    from urllib.parse import urlencode
+
+                    base_uri = addr.base
+                    if addr.format_override:
+                        base_uri = f"{base_uri}~{addr.format_override}"
+
+                    if config:
+                        query_str = urlencode(config)
+                        full_uri = f"{base_uri}?{query_str}"
+                    else:
+                        full_uri = base_uri
+
+                    # Re-parse and re-resolve the cleaned address
+                    addr = parse_address(full_uri)
+                    resolved = resolver.resolve(addr, mode="read")
 
             # Build command
             cmd = [
@@ -98,25 +127,52 @@ def tail(ctx, source, n):
                 stdin_source = infile
 
             # Execute plugin
-            proc = subprocess.Popen(
+            reader_proc = subprocess.Popen(
                 cmd,
                 stdin=stdin_source,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                env=build_subprocess_env_for_coverage(),
             )
 
+            # Add filter stage if filters exist
+            if filters:
+                jq_expr = build_jq_filter(filters)
+                filter_proc = subprocess.Popen(
+                    ["jn", "filter", jq_expr],
+                    stdin=reader_proc.stdout,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    env=build_subprocess_env_for_coverage(),
+                )
+                reader_proc.stdout.close()  # Allow reader to receive SIGPIPE
+                output_stream = filter_proc.stdout
+            else:
+                filter_proc = None
+                output_stream = reader_proc.stdout
+
             # Stream last n lines
-            stream_tail(proc.stdout, n, sys.stdout)
-            proc.wait()
+            stream_tail(output_stream, n, sys.stdout)
+
+            # Wait for processes
+            if filter_proc:
+                filter_proc.wait()
+            reader_proc.wait()
 
             # Close file if opened
             if infile:
                 infile.close()
 
             # Check for errors
-            if proc.returncode != 0:
-                error_msg = proc.stderr.read()
+            if filter_proc and filter_proc.returncode != 0:
+                error_msg = filter_proc.stderr.read()
+                click.echo(f"Error: Filter failed: {error_msg}", err=True)
+                sys.exit(1)
+
+            if reader_proc.returncode != 0:
+                error_msg = reader_proc.stderr.read()
                 click.echo(f"Error: {error_msg}", err=True)
                 sys.exit(1)
         else:
