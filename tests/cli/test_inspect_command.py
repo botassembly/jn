@@ -115,6 +115,7 @@ def test_inspect_help_text(invoke):
 def test_inspect_ambiguous_profile_error(cli_runner, tmp_path):
     """Test that ambiguous profiles (same name in multiple protocols) error clearly."""
     from pathlib import Path
+
     from jn.cli import cli
 
     # Use isolated filesystem from CliRunner
@@ -129,7 +130,9 @@ def test_inspect_ambiguous_profile_error(cli_runner, tmp_path):
 
         # Add minimal metadata so they're valid profiles
         (mcp_profile / "_meta.json").write_text('{"command": "echo"}')
-        (http_profile / "_meta.json").write_text('{"base_url": "https://example.com"}')
+        (http_profile / "_meta.json").write_text(
+            '{"base_url": "https://example.com"}'
+        )
 
         # Try to inspect the ambiguous profile
         res = cli_runner.invoke(cli, ["inspect", "@testapi"])

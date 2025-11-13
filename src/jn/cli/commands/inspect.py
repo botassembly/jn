@@ -173,7 +173,9 @@ def inspect(ctx, server, output_format):
         # Detect which plugin to use based on URL pattern
         from ...plugins.discovery import get_cached_plugins_with_fallback
 
-        plugins = get_cached_plugins_with_fallback(ctx.plugin_dir, ctx.cache_path)
+        plugins = get_cached_plugins_with_fallback(
+            ctx.plugin_dir, ctx.cache_path
+        )
 
         # Determine plugin based on URL pattern
         plugin_name = None
@@ -190,6 +192,7 @@ def inspect(ctx, server, output_format):
 
             # Check which profile directory contains this profile
             from pathlib import Path
+
             profile_type = None
 
             # Search order: project → user → bundled
@@ -200,12 +203,17 @@ def inspect(ctx, server, output_format):
 
             # Add JN_HOME if set
             import os
+
             jn_home = os.environ.get("JN_HOME")
             if jn_home:
                 search_paths.append(Path(jn_home) / "profiles")
             else:
                 # Fallback to bundled (3 levels up from this file)
-                bundled = Path(__file__).parent.parent.parent.parent / "jn_home" / "profiles"
+                bundled = (
+                    Path(__file__).parent.parent.parent.parent
+                    / "jn_home"
+                    / "profiles"
+                )
                 if bundled.exists():
                     search_paths.append(bundled)
 
@@ -306,7 +314,9 @@ def inspect(ctx, server, output_format):
 
         # Check for _error in response
         if result.get("_error"):
-            click.echo(f"Error: {result.get('message', 'Unknown error')}", err=True)
+            click.echo(
+                f"Error: {result.get('message', 'Unknown error')}", err=True
+            )
             sys.exit(1)
 
         # Output
