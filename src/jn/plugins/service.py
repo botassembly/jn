@@ -1,6 +1,7 @@
 """Plugin business logic and introspection (service façade)."""
 
 import io
+import logging
 import re
 import shutil
 import subprocess
@@ -10,10 +11,13 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from ..cli.helpers import build_subprocess_env_for_coverage
+from ..process_utils import popen_with_validation
 from .discovery import (
     PluginMetadata,
     get_cached_plugins_with_fallback,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _check_uv_available() -> None:
@@ -167,7 +171,7 @@ def call_plugin(plugin_path: str, args: List[str]) -> int:
 
     # Always use binary mode for the subprocess
     # This allows plugins to output either text (NDJSON) or binary (XLSX, PDF, etc.)
-    proc = subprocess.Popen(
+    proc = popen_with_validation(
         ["uv", "run", "--script", plugin_path, *args],
         stdin=stdin_source,
         stdout=subprocess.PIPE,
@@ -202,7 +206,7 @@ def call_plugin(plugin_path: str, args: List[str]) -> int:
                 # Ensure bytes go to a binary-capable stream
                 sys.stderr.buffer.write(err_data)  # type: ignore[attr-defined]
                 sys.stderr.buffer.flush()  # type: ignore[attr-defined]
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed to forward plugin stderr: %s", exc)
 
     return proc.returncode

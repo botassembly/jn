@@ -35,7 +35,7 @@ def test_jn_cat_xlsx_file(invoke):
         result = invoke(["cat", temp_path])
         assert result.exit_code == 0, f"Failed with: {result.output}"
 
-        lines = [l for l in result.output.strip().split("\n") if l]
+        lines = [line for line in result.output.strip().split("\n") if line]
         assert len(lines) == 2
 
         record1 = json.loads(lines[0])
@@ -150,7 +150,7 @@ def test_jn_cat_xlsx_empty_rows(invoke):
         result = invoke(["cat", temp_path])
         assert result.exit_code == 0
 
-        lines = [l for l in result.output.strip().split("\n") if l]
+        lines = [line for line in result.output.strip().split("\n") if line]
         assert len(lines) == 2  # Empty row should be skipped
 
         assert json.loads(lines[0])["name"] == "First"

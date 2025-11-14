@@ -4,7 +4,7 @@ def test_plugin_call_yaml_read_multi_doc(invoke):
         ["plugin", "call", "yaml_", "--mode", "read"], input_data=yaml
     )
     assert res.exit_code == 0
-    lines = [l for l in res.output.strip().split("\n") if l]
+    lines = [line for line in res.output.strip().split("\n") if line]
     assert len(lines) == 2
 
 

@@ -178,7 +178,7 @@ def get_cached_plugins_with_fallback(
         builtin_dir = _builtin_plugins_dir()
         if builtin_dir and builtin_dir.exists():
             builtin_plugins = discover_plugins(builtin_dir)
-            for name, meta in builtin_plugins.items():
+            for _name, meta in builtin_plugins.items():
                 meta.path = str(builtin_dir / meta.path)
             result = builtin_plugins
 

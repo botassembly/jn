@@ -16,7 +16,7 @@ ruamel-yaml = ">=0.18.0"
         ["plugin", "call", "toml_", "--mode", "read"], input_data=toml_content
     )
     assert res.exit_code == 0
-    lines = [l for l in res.output.strip().split("\n") if l]
+    lines = [line for line in res.output.strip().split("\n") if line]
     assert len(lines) == 1
     data = json.loads(lines[0])
     assert data["project"]["name"] == "jn"

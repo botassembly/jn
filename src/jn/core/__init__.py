@@ -21,15 +21,12 @@ from .plugins import (
 from .streaming import head, tail
 
 __all__ = [
-    # Pipeline
     "PipelineError",
-    # Plugins
     "PluginInfo",
-    "list_plugins",
-    "find_plugin",
     "call_plugin",
-    "infer_plugin_type",
-    # Streaming
+    "find_plugin",
     "head",
+    "infer_plugin_type",
+    "list_plugins",
     "tail",
 ]

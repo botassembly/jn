@@ -59,7 +59,7 @@ def test_plugin_call_table_read_pipe(invoke):
         input_data=table,
     )
     assert res.exit_code == 0
-    lines = [l for l in res.output.strip().split("\n") if l]
+    lines = [line for line in res.output.strip().split("\n") if line]
     assert len(lines) == 2
 
     record1 = json.loads(lines[0])
@@ -81,7 +81,7 @@ def test_plugin_call_table_read_grid(invoke):
         input_data=table,
     )
     assert res.exit_code == 0
-    lines = [l for l in res.output.strip().split("\n") if l]
+    lines = [line for line in res.output.strip().split("\n") if line]
     assert len(lines) == 2
 
     record1 = json.loads(lines[0])
@@ -102,7 +102,7 @@ def test_plugin_call_table_read_html(invoke):
         input_data=table,
     )
     assert res.exit_code == 0
-    lines = [l for l in res.output.strip().split("\n") if l]
+    lines = [line for line in res.output.strip().split("\n") if line]
     assert len(lines) == 2
 
     record1 = json.loads(lines[0])
@@ -141,7 +141,9 @@ def test_plugin_call_table_roundtrip_grid(invoke):
     assert len(roundtrip_records) == len(original_records)
 
     # Verify data matches
-    for orig, roundtrip in zip(original_records, roundtrip_records):
+    for orig, roundtrip in zip(
+        original_records, roundtrip_records, strict=True
+    ):
         assert orig["name"] == roundtrip["name"]
         assert orig["age"] == roundtrip["age"]
         assert orig["score"] == roundtrip["score"]
@@ -178,7 +180,9 @@ def test_plugin_call_table_roundtrip_pipe(invoke):
     assert len(roundtrip_records) == len(original_records)
 
     # Verify data matches
-    for orig, roundtrip in zip(original_records, roundtrip_records):
+    for orig, roundtrip in zip(
+        original_records, roundtrip_records, strict=True
+    ):
         assert orig["name"] == roundtrip["name"]
         assert orig["age"] == roundtrip["age"]
 
@@ -214,7 +218,9 @@ def test_plugin_call_table_roundtrip_html(invoke):
     assert len(roundtrip_records) == len(original_records)
 
     # Verify data matches
-    for orig, roundtrip in zip(original_records, roundtrip_records):
+    for orig, roundtrip in zip(
+        original_records, roundtrip_records, strict=True
+    ):
         assert orig["name"] == roundtrip["name"]
         assert orig["age"] == roundtrip["age"]
 
