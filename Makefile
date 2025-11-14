@@ -9,7 +9,9 @@ check:
 	@uv run ruff check --select I --fix src/jn tests
 	@uv run ruff check --fix src/jn tests
 	@uv run ruff check src/jn tests
-	@uv run lint-imports --config importlinter.ini || true
+	# Run mypy on a high-signal subset for now (expand over time)
+	@uv run mypy src/jn/core/streaming.py src/jn/addressing/types.py src/jn/addressing/parser.py
+	@uv run lint-imports --config importlinter.ini
 	@echo "Validating plugins and core with 'jn check'"
 	@uv run python -m jn.cli.main check plugins --format summary
 	@uv run python -m jn.cli.main check core --format summary
@@ -20,9 +22,11 @@ test:
 coverage:
 	uv run coverage erase
 	COVERAGE_PROCESS_START=$(PWD)/.coveragerc uv run coverage run -m pytest -q
-	uv run coverage combine
-	uv run coverage html
-	uv run coverage xml
+	uv run coverage combine -q
+	# Remove per-process coverage artifacts to reduce noise
+	find . -maxdepth 1 -name ".coverage.*" -delete || true
+	uv run coverage html -q
+	uv run coverage xml -q
 	# Single, authoritative coverage report (core only per .coveragerc)
 	uv run coverage report --fail-under=70
 

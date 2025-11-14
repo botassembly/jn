@@ -13,7 +13,7 @@ from ...introspection import get_plugin_config_params
 from ...process_utils import popen_with_validation
 from ..helpers import build_subprocess_env_for_coverage, check_uv_available
 
-JN_CLI = [sys.executable, "-m", "jn"]
+JN_CLI = [sys.executable, "-m", "jn.cli.main"]
 
 
 def _is_container(address_str: str) -> bool:

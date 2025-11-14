@@ -141,7 +141,7 @@ def _execute_with_filter(stages, addr, filters):
         if filters:
             jq_expr = build_jq_filter(filters)
             filter_proc = popen_with_validation(
-                [sys.executable, "-m", "jn", "filter", jq_expr],
+                [sys.executable, "-m", "jn.cli.main", "filter", jq_expr],
                 stdin=reader_stdout,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,

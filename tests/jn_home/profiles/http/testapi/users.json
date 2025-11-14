@@ -1,0 +1,7 @@
+{
+  "path": "/users",
+  "method": "GET",
+  "description": "List users",
+  "params": ["page", "limit"]
+}
+

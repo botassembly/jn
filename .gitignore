@@ -18,3 +18,4 @@ jn.json
 cache.json
 **/cache.json
 vendor
+.importlinter

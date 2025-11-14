@@ -163,19 +163,31 @@ def test_jn_sh_pipeline_with_head(jn_cli, tmp_path):
     for i in range(100):
         (tmp_path / f"file{i:03d}.txt").write_text(f"content{i}")
 
-    # Use an actual shell pipeline (note: -l required for jc streaming parser)
-    pipeline_cmd = (
-        f"{shlex.join(jn_cli)} sh ls -l {shlex.quote(str(tmp_path))} | head -n 5"
+    # Build the pipeline without shell=True to satisfy security checks.
+    # Critical: close reader stdout in parent for SIGPIPE backpressure.
+    p_reader = subprocess.Popen(
+        [*jn_cli, "sh", "ls", "-l", str(tmp_path)],
+        stdout=subprocess.PIPE,
     )
-    result = subprocess.run(
-        pipeline_cmd,
-        shell=True,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        p_head = subprocess.Popen(
+            ["head", "-n", "5"],
+            stdin=p_reader.stdout,
+            stdout=subprocess.PIPE,
+        )
+        # Critical for SIGPIPE propagation per backpressure spec
+        if p_reader.stdout is not None:
+            p_reader.stdout.close()
 
-    assert result.returncode == 0
-    lines = [line for line in result.stdout.strip().split("\n") if line]
+        stdout, _ = p_head.communicate()
+        returncode = p_head.returncode
+        output = stdout.decode()
+    finally:
+        # Ensure reader process is reaped
+        p_reader.wait()
+
+    assert returncode == 0
+    lines = [line for line in output.strip().split("\n") if line]
     assert len(lines) == 5  # head should limit to 5
 
     # All should be valid JSON

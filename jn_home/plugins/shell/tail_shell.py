@@ -47,7 +47,7 @@ def reads(command_str=None):
     """
     if not command_str:
         error = {"_error": "tail requires a file argument"}
-        print(json.dumps(error), file=sys.stderr)
+        print(json.dumps(error), file=sys.stderr, flush=True)
         sys.exit(1)
 
     # Parse command string into args
@@ -55,14 +55,15 @@ def reads(command_str=None):
         args = shlex.split(command_str)
     except ValueError as e:
         error = {"_error": f"Invalid command syntax: {e}"}
-        print(json.dumps(error), file=sys.stderr)
+        print(json.dumps(error), file=sys.stderr, flush=True)
         sys.exit(1)
 
     if not args or args[0] != 'tail':
         error = {"_error": f"Expected tail command, got: {command_str}"}
-        print(json.dumps(error), file=sys.stderr)
+        print(json.dumps(error), file=sys.stderr, flush=True)
         sys.exit(1)
 
+    proc = None
     try:
         # Spawn tail process
         proc = subprocess.Popen(
@@ -81,14 +82,18 @@ def reads(command_str=None):
                 "line": line.rstrip(),
                 "line_number": line_number
             }
-            print(json.dumps(record))
+            print(json.dumps(record), flush=True)
             sys.stdout.flush()
+
+        # Close stdout to propagate SIGPIPE and release resources
+        if proc.stdout is not None:
+            proc.stdout.close()
 
         proc.wait()
 
     except FileNotFoundError as e:
         error = {"_error": f"Command not found: {e}"}
-        print(json.dumps(error), file=sys.stderr)
+        print(json.dumps(error), file=sys.stderr, flush=True)
         sys.exit(1)
     except BrokenPipeError:
         # Downstream closed pipe (e.g., head -n 10)
@@ -99,13 +104,15 @@ def reads(command_str=None):
     finally:
         # Clean up subprocess
         try:
-            proc.terminate()
-            proc.wait(timeout=1)
-        except:
-            try:
-                proc.kill()
-            except:
-                pass
+            if proc is not None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+        except Exception:
+            # Best-effort cleanup
+            pass
 
 
 if __name__ == '__main__':
@@ -121,5 +128,5 @@ if __name__ == '__main__':
         reads(args.address)
     else:
         error = {"_error": f"Unsupported mode: {args.mode}. Only 'read' supported."}
-        print(json.dumps(error), file=sys.stderr)
+        print(json.dumps(error), file=sys.stderr, flush=True)
         sys.exit(1)

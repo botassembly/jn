@@ -73,7 +73,7 @@ def execute_with_jc(command_str: str) -> int:
             "_error": "jc not found. Install: pip install jc",
             "hint": "https://github.com/kellyjonbrazil/jc",
         }
-        print(json.dumps(error), file=sys.stderr)
+        print(json.dumps(error), file=sys.stderr, flush=True)
         return 1
 
     # Parse command safely
@@ -81,12 +81,12 @@ def execute_with_jc(command_str: str) -> int:
         args = shlex.split(command_str)
     except ValueError as e:
         error = {"_error": f"Invalid command syntax: {e}"}
-        print(json.dumps(error), file=sys.stderr)
+        print(json.dumps(error), file=sys.stderr, flush=True)
         return 1
 
     if not args:
         error = {"_error": "Empty command"}
-        print(json.dumps(error), file=sys.stderr)
+        print(json.dumps(error), file=sys.stderr, flush=True)
         return 1
 
     command = args[0]
@@ -97,7 +97,7 @@ def execute_with_jc(command_str: str) -> int:
             "_error": f"jc does not support command: {command}",
             "hint": "Run 'jc --help' to see supported commands",
         }
-        print(json.dumps(error), file=sys.stderr)
+        print(json.dumps(error), file=sys.stderr, flush=True)
         return 1
 
     # Determine if streaming parser is appropriate
@@ -145,20 +145,23 @@ def execute_with_jc(command_str: str) -> int:
                 sys.stdout.flush()
         else:
             # Batch parser outputs JSON array - convert to NDJSON
-            output = jc_proc.stdout.read()
+            chunks = []
+            for line in jc_proc.stdout:
+                chunks.append(line)
+            output = "".join(chunks)
             try:
                 records = json.loads(output) if output.strip() else []
 
                 # Handle both arrays and single objects
                 if isinstance(records, list):
                     for record in records:
-                        print(json.dumps(record))
+                        print(json.dumps(record), flush=True)
                 else:
-                    print(json.dumps(records))
+                    print(json.dumps(records), flush=True)
 
             except json.JSONDecodeError as e:
                 error = {"_error": f"Failed to parse jc output: {e}"}
-                print(json.dumps(error), file=sys.stderr)
+                print(json.dumps(error), file=sys.stderr, flush=True)
                 return 1
 
         # Wait for both processes
@@ -175,7 +178,7 @@ def execute_with_jc(command_str: str) -> int:
 
     except FileNotFoundError as e:
         error = {"_error": f"Command not found: {e}"}
-        print(json.dumps(error), file=sys.stderr)
+        print(json.dumps(error), file=sys.stderr, flush=True)
         return 1
     except BrokenPipeError:
         # Downstream closed pipe (e.g., head -n 10) - normal

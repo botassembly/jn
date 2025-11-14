@@ -1,0 +1,7 @@
+{
+  "path": "/projects",
+  "method": "GET",
+  "description": "List projects",
+  "params": ["owner"]
+}
+

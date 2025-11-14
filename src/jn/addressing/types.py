@@ -1,7 +1,7 @@
 """Address types for the universal addressability system."""
 
 from dataclasses import dataclass, field
-from typing import Dict, Literal, Optional
+from typing import Any, Dict, Literal, Optional
 
 AddressType = Literal["file", "protocol", "profile", "plugin", "stdio"]
 
@@ -91,7 +91,7 @@ class ResolvedAddress:
     plugin_path: str
     """Full path to the plugin script."""
 
-    config: Dict[str, any] = field(default_factory=dict)
+    config: Dict[str, Any] = field(default_factory=dict)
     """Plugin configuration built from parameters.
 
     Examples:

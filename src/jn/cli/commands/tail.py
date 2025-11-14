@@ -132,7 +132,13 @@ def tail(ctx, source, n):
                 if filters:
                     jq_expr = build_jq_filter(filters)
                     filter_proc = popen_with_validation(
-                        [sys.executable, "-m", "jn", "filter", jq_expr],
+                        [
+                            sys.executable,
+                            "-m",
+                            "jn.cli.main",
+                            "filter",
+                            jq_expr,
+                        ],
                         stdin=reader_proc.stdout,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,

@@ -137,17 +137,13 @@ def test_inspect_ambiguous_profile_error(cli_runner, tmp_path):
             '{"base_url": "https://example.com"}'
         )
 
-        # Try to inspect an invalid plugin reference
-        # @testapi is interpreted as a plugin (not profile), which doesn't exist
+        # Try to inspect a container; with only _meta.json and no sources, the
+        # HTTP profile container will list nothing and return an error message.
         res = cli_runner.invoke(cli, ["inspect", "@testapi"])
 
-        # Should error with clear message
+        # Should error with a clear container message (no listings found)
         assert res.exit_code == 1
-        assert "testapi" in res.output
-        assert (
-            "not found" in res.output.lower() or "error" in res.output.lower()
-        )
-        assert "http" in res.output
+        assert "No listings found" in res.output
 
 
 if __name__ == "__main__":
