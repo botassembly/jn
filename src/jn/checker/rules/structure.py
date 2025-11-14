@@ -168,19 +168,18 @@ class StructureChecker(BaseChecker):
                                 reference="spec/design/plugin-specification.md",
                             )
                             missing.remove(module)
-                elif isinstance(node, ast.ImportFrom):
-                    if node.module:
-                        module = node.module.split(".")[0]
-                        if module in missing:
-                            self.add_violation(
-                                rule="missing_dependency",
-                                severity=Severity.ERROR,
-                                message=f"Import '{module}' not declared in PEP 723 dependencies",
-                                line=node.lineno,
-                                fix=f"Add '{module}' to dependencies list",
-                                reference="spec/design/plugin-specification.md",
-                            )
-                            missing.remove(module)
+                elif isinstance(node, ast.ImportFrom) and node.module:
+                    module = node.module.split(".")[0]
+                    if module in missing:
+                        self.add_violation(
+                            rule="missing_dependency",
+                            severity=Severity.ERROR,
+                            message=f"Import '{module}' not declared in PEP 723 dependencies",
+                            line=node.lineno,
+                            fix=f"Add '{module}' to dependencies list",
+                            reference="spec/design/plugin-specification.md",
+                        )
+                        missing.remove(module)
 
     def visit_Module(self, node: ast.Module) -> None:
         """Check module-level docstring."""

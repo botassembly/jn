@@ -4,6 +4,7 @@ import io
 import json
 import subprocess
 import sys
+from contextlib import ExitStack
 
 import click
 
@@ -14,6 +15,7 @@ from ...addressing import (
     parse_address,
 )
 from ...context import pass_context
+from ...process_utils import popen_with_validation
 from ..helpers import build_subprocess_env_for_coverage, check_uv_available
 
 
@@ -74,7 +76,6 @@ def run(ctx, input_file, output_file):
         input_stages = resolver.plan_execution(input_addr, mode="read")
         output_resolved = resolver.resolve(output_addr, mode="write")
 
-        # Build writer command
         writer_cmd = _build_command(
             ExecutionStage(
                 plugin_path=output_resolved.plugin_path,
@@ -85,152 +86,119 @@ def run(ctx, input_file, output_file):
             )
         )
 
-        # Create reader process (may be 0, 1, or 2 stages)
-        if len(input_stages) == 2:
-            # Two-stage read: protocol (raw) → format (read)
-            protocol_cmd = _build_command(input_stages[0])
-            format_cmd = _build_command(input_stages[1])
+        with ExitStack() as stack:
+            if len(input_stages) == 2:
+                protocol_cmd = _build_command(input_stages[0])
+                format_cmd = _build_command(input_stages[1])
 
-            # Start protocol plugin
-            protocol_proc = subprocess.Popen(
-                protocol_cmd,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=False,  # Binary for raw mode
-                env=build_subprocess_env_for_coverage(),
-            )
+                protocol_proc = popen_with_validation(
+                    protocol_cmd,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=False,
+                    env=build_subprocess_env_for_coverage(),
+                )
 
-            # Start format plugin (reads from protocol)
-            # Keep in binary mode since stdin receives binary from protocol
-            reader_proc = subprocess.Popen(
-                format_cmd,
-                stdin=protocol_proc.stdout,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=False,  # Binary mode (stdin receives raw bytes)
-                env=build_subprocess_env_for_coverage(),
-            )
+                reader_proc = popen_with_validation(
+                    format_cmd,
+                    stdin=protocol_proc.stdout,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=False,
+                    env=build_subprocess_env_for_coverage(),
+                )
 
-            # Close protocol stdout in parent
-            protocol_proc.stdout.close()
-            infile = None
-            protocol_error_proc = protocol_proc  # Save for error checking
-        elif len(input_stages) == 1:
-            # Single-stage read
-            reader_cmd = _build_command(input_stages[0])
+                protocol_proc.stdout.close()
+                protocol_error_proc = protocol_proc
+            elif len(input_stages) == 1:
+                reader_cmd = _build_command(input_stages[0])
 
-            # Determine input source
-            if input_stages[0].url:
-                # Protocol or profile
-                reader_stdin = subprocess.DEVNULL
-                infile = None
-            elif input_addr.type == "stdio":
-                # Stdin
-                reader_stdin = sys.stdin
-                infile = None
+                if input_stages[0].url:
+                    reader_stdin = subprocess.DEVNULL
+                elif input_addr.type == "stdio":
+                    reader_stdin = sys.stdin
+                else:
+                    reader_stdin = stack.enter_context(open(input_addr.base))
+
+                reader_proc = popen_with_validation(
+                    reader_cmd,
+                    stdin=reader_stdin,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    env=build_subprocess_env_for_coverage(),
+                )
+                protocol_error_proc = None
             else:
-                # File
-                infile = open(input_addr.base)
-                reader_stdin = infile
+                reader_proc = None
+                protocol_error_proc = None
 
-            # Start reader
-            reader_proc = subprocess.Popen(
-                reader_cmd,
-                stdin=reader_stdin,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                env=build_subprocess_env_for_coverage(),
-            )
-            protocol_error_proc = None
-        else:
-            # Pass-through stdin (no reader plugin)
-            reader_proc = None
-            protocol_error_proc = None
-            infile = None
+            if output_resolved.url:
+                writer_stdout = subprocess.PIPE
+            elif output_addr.type == "stdio":
+                writer_stdout = sys.stdout
+            else:
+                writer_stdout = stack.enter_context(
+                    open(output_addr.base, "w")
+                )
 
-        # Determine writer output and create writer process
-        if output_resolved.url:
-            # Protocol or profile destination - plugin handles remote write
-            writer_stdout = subprocess.PIPE
-        elif output_addr.type == "stdio":
-            # Write to stdout
-            writer_stdout = sys.stdout
-        else:
-            # Write to file
-            writer_stdout = open(output_addr.base, "w")
+            if reader_proc is not None:
+                writer = popen_with_validation(
+                    writer_cmd,
+                    stdin=reader_proc.stdout,
+                    stdout=writer_stdout,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    env=build_subprocess_env_for_coverage(),
+                )
+                reader_proc.stdout.close()
+            else:
+                try:
+                    sys.stdin.fileno()  # type: ignore[attr-defined]
+                    stdin_source = sys.stdin
+                    use_pipe = False
+                except (AttributeError, OSError, io.UnsupportedOperation):
+                    stdin_source = subprocess.PIPE
+                    use_pipe = True
 
-        # Start writer (reads from reader_proc or directly from stdin)
-        if reader_proc is not None:
-            writer = subprocess.Popen(
-                writer_cmd,
-                stdin=reader_proc.stdout,
-                stdout=writer_stdout,
-                stderr=subprocess.PIPE,
-                text=True,
-                env=build_subprocess_env_for_coverage(),
-            )
-            # Close reader stdout in parent (critical for SIGPIPE)
-            reader_proc.stdout.close()
-        else:
-            # Pass-through stdin to writer without buffering entire input
-            try:
-                sys.stdin.fileno()  # type: ignore[attr-defined]
-                stdin_source = sys.stdin
-                use_pipe = False
-            except (AttributeError, OSError, io.UnsupportedOperation):
-                stdin_source = subprocess.PIPE
-                use_pipe = True
+                writer = popen_with_validation(
+                    writer_cmd,
+                    stdin=stdin_source,
+                    stdout=writer_stdout,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    env=build_subprocess_env_for_coverage(),
+                )
 
-            writer = subprocess.Popen(
-                writer_cmd,
-                stdin=stdin_source,
-                stdout=writer_stdout,
-                stderr=subprocess.PIPE,
-                text=True,
-                env=build_subprocess_env_for_coverage(),
-            )
+                if use_pipe:
+                    while True:
+                        chunk = sys.stdin.read(8192)
+                        if not chunk:
+                            break
+                        writer.stdin.write(chunk)  # type: ignore[union-attr]
+                    writer.stdin.close()  # type: ignore[union-attr]
 
-            if use_pipe:
-                # Stream chunks from sys.stdin into writer without full buffering
-                while True:
-                    chunk = sys.stdin.read(8192)
-                    if not chunk:
-                        break
-                    writer.stdin.write(chunk)  # type: ignore[union-attr]
-                writer.stdin.close()  # type: ignore[union-attr]
+            writer.wait()
+            if reader_proc is not None:
+                reader_proc.wait()
+            if protocol_error_proc:
+                protocol_error_proc.wait()
 
-        # Wait for all processes
-        writer.wait()
-        if reader_proc is not None:
-            reader_proc.wait()
-        if protocol_error_proc:
-            protocol_error_proc.wait()
+            if writer.returncode != 0:
+                error_msg = writer.stderr.read()
+                click.echo(f"Error: Writer error: {error_msg}", err=True)
+                sys.exit(1)
 
-        # Close input file if opened
-        if infile:
-            infile.close()
+            if reader_proc is not None and reader_proc.returncode != 0:
+                error_msg = reader_proc.stderr.read()
+                click.echo(f"Error: Reader error: {error_msg}", err=True)
+                sys.exit(1)
 
-        # Close output file if opened
-        if not output_resolved.url and output_addr.type != "stdio":
-            writer_stdout.close()
-
-        # Check for errors
-        if writer.returncode != 0:
-            error_msg = writer.stderr.read()
-            click.echo(f"Error: Writer error: {error_msg}", err=True)
-            sys.exit(1)
-
-        if reader_proc is not None and reader_proc.returncode != 0:
-            error_msg = reader_proc.stderr.read()
-            click.echo(f"Error: Reader error: {error_msg}", err=True)
-            sys.exit(1)
-
-        if protocol_error_proc and protocol_error_proc.returncode != 0:
-            error_msg = protocol_error_proc.stderr.read()
-            click.echo(f"Error: Protocol error: {error_msg}", err=True)
-            sys.exit(1)
+            if protocol_error_proc and protocol_error_proc.returncode != 0:
+                error_msg = protocol_error_proc.stderr.read()
+                click.echo(f"Error: Protocol error: {error_msg}", err=True)
+                sys.exit(1)
 
     except ValueError as e:
         click.echo(f"Error: Invalid address syntax: {e}", err=True)

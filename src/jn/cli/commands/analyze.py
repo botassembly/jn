@@ -1,7 +1,7 @@
 """Analyze command - inspect NDJSON stream for schema, stats, facets, samples."""
 
 import json
-import random
+import secrets
 import sys
 from collections import Counter, deque
 from typing import Any, Dict, List, Optional
@@ -225,7 +225,7 @@ class StreamingAnalyzer:
             self.random_samples.append(record)
         else:
             # Randomly replace with decreasing probability
-            i = random.randint(0, self.row_count - 1)
+            i = secrets.randbelow(self.row_count)
             if i < self.sample_size:
                 self.random_samples[i] = record
 

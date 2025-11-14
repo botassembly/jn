@@ -11,6 +11,7 @@ from ...addressing import (
     parse_address,
 )
 from ...context import pass_context
+from ...process_utils import popen_with_validation
 from ...shell.jc_fallback import execute_with_jc, supports_command
 from ..helpers import build_subprocess_env_for_coverage, check_uv_available
 
@@ -89,7 +90,7 @@ def sh(ctx, command):
         # Execute plugin
         cmd = _build_command(stage, command_str)
 
-        proc = subprocess.Popen(
+        proc = popen_with_validation(
             cmd,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,

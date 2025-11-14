@@ -145,11 +145,13 @@ class Whitelist:
             True if violation is whitelisted
         """
         # Check inline ignores first (highest priority)
-        if file_path in self.inline_ignores:
-            if line in self.inline_ignores[file_path]:
-                ignored_rules = self.inline_ignores[file_path][line]
-                if "*" in ignored_rules or rule in ignored_rules:
-                    return True
+        if (
+            file_path in self.inline_ignores
+            and line in self.inline_ignores[file_path]
+        ):
+            ignored_rules = self.inline_ignores[file_path][line]
+            if "*" in ignored_rules or rule in ignored_rules:
+                return True
 
         # Check config file entries
         for entry in self.entries:
@@ -201,7 +203,6 @@ class Whitelist:
         if file_path_obj.is_absolute():
             # Try to extract relative path by finding pattern prefix in file path
             # Look for pattern prefix anywhere in the file path
-            pattern_parts = pattern_obj.parts
             file_parts = file_path_obj.parts
 
             # Try to find where pattern starts in file path
@@ -238,12 +239,9 @@ class Whitelist:
                 return True
 
         # Try basename match
-        if fnmatch(file_path_obj.name, pattern_str):
-            return True
-        if fnmatch(file_path_obj.name, pattern_obj.name):
-            return True
-
-        return False
+        return fnmatch(file_path_obj.name, pattern_str) or fnmatch(
+            file_path_obj.name, pattern_obj.name
+        )
 
     def get_reason(
         self, file_path: str, rule: str, line: int
