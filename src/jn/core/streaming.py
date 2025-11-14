@@ -7,6 +7,7 @@ Utilities for manipulating NDJSON streams:
 """
 
 from collections import deque
+from collections import deque as DequeType
 from typing import TextIO
 
 
@@ -35,7 +36,7 @@ def tail(input_stream: TextIO, n: int, output_stream: TextIO) -> None:
         output_stream: Output stream to write to
     """
     # Use deque with maxlen for efficient circular buffer
-    buffer = deque(maxlen=n)
+    buffer: DequeType[str] = deque(maxlen=n)
 
     # Read all lines into buffer (only last N kept)
     for line in input_stream:

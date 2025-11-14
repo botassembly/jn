@@ -350,6 +350,22 @@ class AddressResolver:
         # Case 4: Direct plugin reference
         if address.type == "plugin":
             plugin_name = address.base[1:]  # Remove @ prefix
+
+            # If a matching HTTP profile exists for this name, treat as a
+            # profile container and route through the HTTP plugin instead of
+            # a direct plugin reference.
+            try:
+                from ..profiles.http import find_profile_paths  # lazy import
+            except ImportError:
+                find_profile_paths = None  # type: ignore[assignment]
+
+            if find_profile_paths is not None:
+                for search_dir in find_profile_paths():
+                    api_dir = search_dir / plugin_name
+                    if api_dir.exists():
+                        # Use HTTP plugin for container handling
+                        return self._find_plugin_by_name("http")
+
             return self._find_plugin_by_name(plugin_name)
 
         # Case 5: Stdio - default to NDJSON if no override
@@ -612,7 +628,28 @@ class AddressResolver:
         # Profile references: resolve via appropriate profile system
         if address.type == "profile":
             # Determine which profile system based on namespace
-            namespace = address.base[1:].split("/")[0]
+            raw_ref = address.base
+            parts = raw_ref[1:].split("/")  # Strip leading '@'
+            namespace = parts[0]
+
+            # Special case: bare '@name' (container reference)
+            # If an HTTP profile exists for this namespace, route through the
+            # HTTP plugin by returning the raw reference ('@name') as the URL.
+            # This allows the HTTP plugin to emit a container listing.
+            if len(parts) == 1:
+                try:
+                    from ..profiles.http import (
+                        find_profile_paths,
+                    )  # lazy import
+                except ImportError:
+                    find_profile_paths = None  # type: ignore[assignment]
+
+                if find_profile_paths is not None:
+                    for search_dir in find_profile_paths():
+                        api_dir = search_dir / namespace
+                        if api_dir.exists():
+                            # Hand raw '@name' to the HTTP plugin
+                            return raw_ref, None
 
             # Gmail profiles
             if namespace == "gmail":

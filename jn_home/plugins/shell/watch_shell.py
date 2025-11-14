@@ -25,8 +25,6 @@ Notes:
     - Backpressure propagates via OS pipes; memory stays constant
 """
 
-from __future__ import annotations
-
 import argparse
 import fnmatch
 import json
@@ -75,6 +73,11 @@ def _matches(path: str, includes: List[str], excludes: List[str]) -> bool:
 
 
 def reads(command_str: str | None = None) -> None:
+    """Watch a directory and emit NDJSON change events.
+
+    Args:
+        command_str: Raw command string (e.g., "watch . --recursive").
+    """
     if not command_str:
         _emit({"_error": "watch requires a directory path"})
         sys.exit(1)
@@ -173,4 +176,3 @@ if __name__ == "__main__":
     else:
         _emit({"_error": f"Unsupported mode: {_args.mode}. Only 'read' supported."})
         sys.exit(1)
-

@@ -1,0 +1,8 @@
+{
+  "base_url": "https://api.example.com",
+  "headers": {
+    "User-Agent": "jn-tests"
+  },
+  "timeout": 5
+}
+
