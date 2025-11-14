@@ -1,6 +1,7 @@
 """Integration tests for shell commands via actual CLI (not CliRunner)."""
 
 import json
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -28,7 +29,7 @@ def test_jn_sh_ls(jn_cli, tmp_path):
     (tmp_path / "file2.txt").write_text("content2")
 
     result = subprocess.run(
-        jn_cli + ["sh", "ls", "-l", str(tmp_path)],
+        [*jn_cli, "sh", "ls", "-l", str(tmp_path)],
         capture_output=True,
         text=True,
     )
@@ -80,7 +81,7 @@ def test_jn_cat_ls(jn_cli, tmp_path):
     (tmp_path / "test.txt").write_text("content")
 
     result = subprocess.run(
-        jn_cli + ["cat", f"ls -l {tmp_path}"], capture_output=True, text=True
+        [*jn_cli, "cat", f"ls -l {tmp_path}"], capture_output=True, text=True
     )
 
     assert result.returncode == 0
@@ -95,7 +96,7 @@ def test_jn_cat_ls(jn_cli, tmp_path):
 def test_jn_sh_ps(jn_cli):
     """Test jn sh ps aux command."""
     result = subprocess.run(
-        jn_cli + ["sh", "ps", "aux"], capture_output=True, text=True
+        [*jn_cli, "sh", "ps", "aux"], capture_output=True, text=True
     )
 
     assert result.returncode == 0
@@ -112,7 +113,7 @@ def test_jn_sh_ps(jn_cli):
 def test_jn_sh_env(jn_cli):
     """Test jn sh env command."""
     result = subprocess.run(
-        jn_cli + ["sh", "env"], capture_output=True, text=True
+        [*jn_cli, "sh", "env"], capture_output=True, text=True
     )
 
     assert result.returncode == 0
@@ -131,7 +132,7 @@ def test_jn_sh_env(jn_cli):
 def test_jn_sh_df(jn_cli):
     """Test jn sh df -h command."""
     result = subprocess.run(
-        jn_cli + ["sh", "df", "-h"], capture_output=True, text=True
+        [*jn_cli, "sh", "df", "-h"], capture_output=True, text=True
     )
 
     assert result.returncode == 0
@@ -147,7 +148,7 @@ def test_jn_sh_df(jn_cli):
 def test_jn_sh_unsupported_command(jn_cli):
     """Test that unsupported commands give clear error."""
     result = subprocess.run(
-        jn_cli + ["sh", "totally_fake_command_xyz"],
+        [*jn_cli, "sh", "totally_fake_command_xyz"],
         capture_output=True,
         text=True,
     )
@@ -162,9 +163,12 @@ def test_jn_sh_pipeline_with_head(jn_cli, tmp_path):
     for i in range(100):
         (tmp_path / f"file{i:03d}.txt").write_text(f"content{i}")
 
-    # Use shell pipeline to limit output (note: -l required for jc streaming parser)
+    # Use an actual shell pipeline (note: -l required for jc streaming parser)
+    pipeline_cmd = (
+        f"{shlex.join(jn_cli)} sh ls -l {shlex.quote(str(tmp_path))} | head -n 5"
+    )
     result = subprocess.run(
-        f"{' '.join(jn_cli)} sh ls -l {tmp_path} | head -n 5",
+        pipeline_cmd,
         shell=True,
         capture_output=True,
         text=True,
@@ -194,7 +198,7 @@ def test_custom_plugin_takes_priority_over_jc(jn_cli):
 
     try:
         result = subprocess.run(
-            jn_cli + ["sh", "tail", "-n", "2", temp_file],
+            [*jn_cli, "sh", "tail", "-n", "2", temp_file],
             capture_output=True,
             text=True,
         )
@@ -226,7 +230,7 @@ def test_jn_cat_with_shell_command(jn_cli):
     try:
         # Test jn cat with tail command (should use tail_shell plugin)
         result = subprocess.run(
-            jn_cli + ["cat", f"tail -n 3 {temp_file}"],
+            [*jn_cli, "cat", f"tail -n 3 {temp_file}"],
             capture_output=True,
             text=True,
         )

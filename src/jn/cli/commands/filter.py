@@ -8,6 +8,7 @@ import click
 
 from ...addressing import parse_address
 from ...context import pass_context
+from ...process_utils import popen_with_validation
 from ...profiles.resolver import ProfileError, resolve_profile
 from ..helpers import check_jq_available, check_uv_available
 
@@ -75,7 +76,7 @@ def filter(ctx, query):
             text_mode = isinstance(input_data, str)
 
         # Execute filter - pass query as argument
-        proc = subprocess.Popen(
+        proc = popen_with_validation(
             ["uv", "run", "--script", plugin.path, query],
             stdin=stdin_source,
             stdout=subprocess.PIPE,

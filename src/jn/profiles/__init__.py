@@ -10,10 +10,8 @@ from .http import resolve_profile_reference
 from .resolver import ProfileError, resolve_profile
 
 __all__ = [
-    # HTTP-specific (legacy, for backward compatibility)
     "HTTPProfileError",
-    "resolve_profile_reference",
-    # Generic system (use this for new code)
     "ProfileError",
     "resolve_profile",
+    "resolve_profile_reference",
 ]

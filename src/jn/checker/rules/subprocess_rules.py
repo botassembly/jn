@@ -36,20 +36,20 @@ class SubprocessChecker(BaseChecker):
         # Check 1: subprocess.run with capture_output=True
         if self._is_subprocess_run(node):
             for kw in node.keywords:
-                if kw.arg == "capture_output":
-                    if (
-                        isinstance(kw.value, ast.Constant)
-                        and kw.value.value is True
-                    ):
-                        self.add_violation(
-                            rule="subprocess_capture_output",
-                            severity=Severity.ERROR,
-                            message="subprocess.run with capture_output=True buffers entire output",
-                            line=node.lineno,
-                            column=node.col_offset,
-                            fix="Use subprocess.Popen with stdout=PIPE for streaming",
-                            reference="spec/arch/backpressure.md:18-29",
-                        )
+                if (
+                    kw.arg == "capture_output"
+                    and isinstance(kw.value, ast.Constant)
+                    and kw.value.value is True
+                ):
+                    self.add_violation(
+                        rule="subprocess_capture_output",
+                        severity=Severity.ERROR,
+                        message="subprocess.run with capture_output=True buffers entire output",
+                        line=node.lineno,
+                        column=node.col_offset,
+                        fix="Use subprocess.Popen with stdout=PIPE for streaming",
+                        reference="spec/arch/backpressure.md:18-29",
+                    )
 
         # Check 2: process.stdout.read() without size argument (reads all)
         if self._is_stdout_read_all(node):
@@ -100,24 +100,26 @@ class SubprocessChecker(BaseChecker):
             pass
 
         # Check 5: Check for .close() calls on stdout
-        if self._is_stdout_close(node):
-            # Mark that we found a close() call
-            if isinstance(node.func, ast.Attribute):
-                if isinstance(node.func.value, ast.Attribute):
-                    # e.g., fetch.stdout.close()
-                    if node.func.value.attr == "stdout":
-                        if isinstance(node.func.value.value, ast.Name):
-                            var_name = node.func.value.value.id
-                            if var_name in self.popen_vars:
-                                self.popen_vars[var_name]["closed"] = True
+        if (
+            self._is_stdout_close(node)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Attribute)
+            and node.func.value.attr == "stdout"
+            and isinstance(node.func.value.value, ast.Name)
+        ):
+            var_name = node.func.value.value.id
+            if var_name in self.popen_vars:
+                self.popen_vars[var_name]["closed"] = True
 
         # Check 6: Check for .wait() calls
-        if self._is_wait_call(node):
-            if isinstance(node.func, ast.Attribute):
-                if isinstance(node.func.value, ast.Name):
-                    var_name = node.func.value.id
-                    if var_name in self.popen_vars:
-                        self.popen_vars[var_name]["waited"] = True
+        if (
+            self._is_wait_call(node)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+        ):
+            var_name = node.func.value.id
+            if var_name in self.popen_vars:
+                self.popen_vars[var_name]["waited"] = True
 
         # Check 7: threading.Thread usage
         if self.has_threading and self._is_thread_create(node):
@@ -205,14 +207,14 @@ class SubprocessChecker(BaseChecker):
     def _has_stdout_pipe(self, node: ast.Call) -> bool:
         """Check if Popen call has stdout=PIPE."""
         for kw in node.keywords:
-            if kw.arg == "stdout":
-                if isinstance(kw.value, ast.Attribute):
-                    if (
-                        kw.value.attr == "PIPE"
-                        and isinstance(kw.value.value, ast.Name)
-                        and kw.value.value.id == "subprocess"
-                    ):
-                        return True
+            if (
+                kw.arg == "stdout"
+                and isinstance(kw.value, ast.Attribute)
+                and kw.value.attr == "PIPE"
+                and isinstance(kw.value.value, ast.Name)
+                and kw.value.value.id == "subprocess"
+            ):
+                return True
         return False
 
     def _is_stdout_read_all(self, node: ast.Call) -> bool:
@@ -244,12 +246,14 @@ class SubprocessChecker(BaseChecker):
 
         # Check if it's sys.stdin.buffer.read()
         # Pattern: Attribute(attr='read', value=Attribute(attr='buffer', value=Attribute(attr='stdin', value=Name(id='sys'))))
-        if isinstance(node.func.value, ast.Attribute):
-            if node.func.value.attr == "buffer":
-                if isinstance(node.func.value.value, ast.Attribute):
-                    if node.func.value.value.attr == "stdin":
-                        if isinstance(node.func.value.value.value, ast.Name):
-                            return node.func.value.value.value.id == "sys"
+        if (
+            isinstance(node.func.value, ast.Attribute)
+            and node.func.value.attr == "buffer"
+            and isinstance(node.func.value.value, ast.Attribute)
+            and node.func.value.value.attr == "stdin"
+            and isinstance(node.func.value.value.value, ast.Name)
+        ):
+            return node.func.value.value.value.id == "sys"
         return False
 
     def _is_print_json_dumps(self, node: ast.Call) -> bool:
@@ -257,19 +261,17 @@ class SubprocessChecker(BaseChecker):
         if not (isinstance(node.func, ast.Name) and node.func.id == "print"):
             return False
 
-        # Check if first argument is json.dumps()
         if not node.args:
             return False
 
         first_arg = node.args[0]
-        if isinstance(first_arg, ast.Call):
-            if isinstance(first_arg.func, ast.Attribute):
-                return (
-                    first_arg.func.attr == "dumps"
-                    and isinstance(first_arg.func.value, ast.Name)
-                    and first_arg.func.value.id == "json"
-                )
-        return False
+        return (
+            isinstance(first_arg, ast.Call)
+            and isinstance(first_arg.func, ast.Attribute)
+            and first_arg.func.attr == "dumps"
+            and isinstance(first_arg.func.value, ast.Name)
+            and first_arg.func.value.id == "json"
+        )
 
     def _is_stdout_close(self, node: ast.Call) -> bool:
         """Check if call is .stdout.close()."""
