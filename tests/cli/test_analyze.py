@@ -13,9 +13,7 @@ def test_analyze_basic_csv(invoke, tmp_path):
         "name,age,city\n" "Alice,30,NYC\n" "Bob,25,SF\n" "Carol,35,NYC\n"
     )
 
-    result = invoke(
-        ["cat", str(data_file), "|", "jn", "analyze", "--format", "json"]
-    )
+    invoke(["cat", str(data_file), "|", "jn", "analyze", "--format", "json"])
     # Note: pipe doesn't work in Click runner, so test directly
     cat_result = invoke(["cat", str(data_file)])
     assert cat_result.exit_code == 0

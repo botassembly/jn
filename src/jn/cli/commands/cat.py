@@ -3,6 +3,7 @@
 import json
 import subprocess
 import sys
+from contextlib import ExitStack
 from urllib.parse import urlencode
 
 import click
@@ -16,11 +17,14 @@ from ...addressing import (
 from ...context import pass_context
 from ...filtering import build_jq_filter, separate_config_and_filters
 from ...introspection import get_plugin_config_params
+from ...process_utils import popen_with_validation
 from ...shell.jc_fallback import execute_with_jc, supports_command
 from ..helpers import build_subprocess_env_for_coverage, check_uv_available
 
 
-def _build_command(stage: ExecutionStage, command_str: str = None) -> list:
+def _build_command(
+    stage: ExecutionStage, command_str: str | None = None
+) -> list[str]:
     """Build command from execution stage.
 
     Args:
@@ -47,195 +51,159 @@ def _build_command(stage: ExecutionStage, command_str: str = None) -> list:
 
 
 def _execute_with_filter(stages, addr, filters):
-    """Execute pipeline with optional filter stage.
+    """Execute pipeline with optional filter stage."""
 
-    Args:
-        stages: List of execution stages (1-3)
-        addr: Parsed address
-        filters: List of filter tuples, or empty list
-    """
-    # Build reader processes
-    if len(stages) >= 2:
-        # Multi-stage pipeline (2 or 3 stages)
-        # Examples:
-        #   2-stage: protocol (raw) → format (read)
-        #   2-stage: decompress (raw) → format (read)  [for local .gz files]
-        #   3-stage: protocol (raw) → decompress (raw) → format (read)
+    with ExitStack() as stack:
+        if len(stages) >= 2:
+            # Multi-stage pipeline (2 or 3 stages)
+            procs = []
+            prev_proc = None
 
-        procs = []
-        prev_proc = None
-        infile_handle = None
+            for i, stage in enumerate(stages):
+                cmd = _build_command(stage)
+                is_last = i == len(stages) - 1
+                is_first = i == 0
 
-        for i, stage in enumerate(stages):
-            cmd = _build_command(stage)
-            is_last = i == len(stages) - 1
-            is_first = i == 0
-
-            # Determine stdin source
-            if is_first:
-                # First stage: check if it has a URL or needs file input
-                if stage.url:
-                    # Protocol stage: DEVNULL (gets URL argument)
-                    stdin_source = subprocess.DEVNULL
-                elif addr.type == "file":
-                    # Local file: reconstruct file path with compression extension
-                    file_path = addr.base
-                    if addr.compression:
-                        file_path = f"{file_path}.{addr.compression}"
-                    infile_handle = open(file_path, "rb")
-                    stdin_source = infile_handle
-                elif addr.type == "stdio":
-                    stdin_source = sys.stdin.buffer
+                # Determine stdin source
+                if is_first:
+                    if stage.url:
+                        stdin_source = subprocess.DEVNULL
+                    elif addr.type == "file":
+                        file_path = addr.base
+                        if addr.compression:
+                            file_path = f"{file_path}.{addr.compression}"
+                        stdin_source = stack.enter_context(
+                            open(file_path, "rb")
+                        )
+                    elif addr.type == "stdio":
+                        stdin_source = sys.stdin.buffer
+                    else:
+                        stdin_source = subprocess.DEVNULL
                 else:
-                    stdin_source = subprocess.DEVNULL
+                    stdin_source = prev_proc.stdout
+
+                text_mode = is_last and stage.mode == "read"
+                proc = popen_with_validation(
+                    cmd,
+                    stdin=stdin_source,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=text_mode,
+                    env=build_subprocess_env_for_coverage(),
+                )
+
+                if prev_proc:
+                    prev_proc.stdout.close()
+
+                procs.append(proc)
+                prev_proc = proc
+
+            reader_proc = procs[-1]
+            reader_stdout = reader_proc.stdout
+            reader_stderr = reader_proc.stderr
+            other_proc = procs[0] if len(procs) > 1 else None
+            all_procs = procs
+        elif len(stages) == 1:
+            stage = stages[0]
+            is_shell_plugin = "/shell/" in stage.plugin_path
+
+            cmd = (
+                _build_command(stage, command_str=addr.base)
+                if is_shell_plugin
+                else _build_command(stage)
+            )
+
+            if is_shell_plugin or stage.url:
+                stdin_source = subprocess.DEVNULL
+            elif addr.type == "stdio":
+                stdin_source = sys.stdin
             else:
-                # Subsequent stages: pipe from previous
-                stdin_source = prev_proc.stdout
+                stdin_source = stack.enter_context(open(addr.base))
 
-            # Determine output text mode
-            # Last stage outputs NDJSON (text), others output raw bytes
-            text_mode = is_last and stage.mode == "read"
-
-            proc = subprocess.Popen(
+            reader_proc = popen_with_validation(
                 cmd,
                 stdin=stdin_source,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                text=text_mode,
+                text=True,
                 env=build_subprocess_env_for_coverage(),
             )
 
-            # Close previous stdout in parent to enable SIGPIPE
-            if prev_proc:
-                prev_proc.stdout.close()
-
-            procs.append(proc)
-            prev_proc = proc
-
-        # Last process is the reader
-        reader_proc = procs[-1]
-        reader_stdout = reader_proc.stdout
-        reader_stderr = reader_proc.stderr
-        other_proc = procs[0] if len(procs) > 1 else None
-        # Store all procs for cleanup
-        all_procs = procs
-
-    elif len(stages) == 1:
-        # Single-stage
-        stage = stages[0]
-        is_shell_plugin = "/shell/" in stage.plugin_path
-
-        if is_shell_plugin:
-            cmd = _build_command(stage, command_str=addr.base)
+            reader_stdout = reader_proc.stdout
+            reader_stderr = reader_proc.stderr
+            other_proc = None
+            all_procs = None
         else:
-            cmd = _build_command(stage)
+            for line in sys.stdin:
+                sys.stdout.write(line)
+            return
 
-        # Determine input source
-        if is_shell_plugin or stage.url:
-            stdin_source = subprocess.DEVNULL
-            infile = None
-        elif addr.type == "stdio":
-            stdin_source = sys.stdin
-            infile = None
+        if filters:
+            jq_expr = build_jq_filter(filters)
+            filter_proc = popen_with_validation(
+                [sys.executable, "-m", "jn", "filter", jq_expr],
+                stdin=reader_stdout,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=build_subprocess_env_for_coverage(),
+            )
+            reader_stdout.close()
+            output_stdout = filter_proc.stdout
+            final_proc = filter_proc
         else:
-            infile = open(addr.base)
-            stdin_source = infile
+            output_stdout = reader_stdout
+            final_proc = reader_proc
 
-        reader_proc = subprocess.Popen(
-            cmd,
-            stdin=stdin_source,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            env=build_subprocess_env_for_coverage(),
-        )
-
-        reader_stdout = reader_proc.stdout
-        reader_stderr = reader_proc.stderr
-        other_proc = None
-        infile_handle = infile if "infile" in locals() else None
-    else:
-        # Pass-through (no stages)
-        for line in sys.stdin:
+        for line in output_stdout:
             sys.stdout.write(line)
-        return
 
-    # Add filter stage if filters exist
-    if filters:
-        jq_expr = build_jq_filter(filters)
+        final_proc.wait()
+        reader_proc.wait()
 
-        filter_proc = subprocess.Popen(
-            ["jn", "filter", jq_expr],
-            stdin=reader_stdout,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            env=build_subprocess_env_for_coverage(),
-        )
+        if all_procs:
+            for proc in all_procs:
+                if proc != reader_proc:
+                    proc.wait()
+        elif other_proc:
+            other_proc.wait()
 
-        reader_stdout.close()  # Close reader stdout in parent
-        output_stdout = filter_proc.stdout
-        final_proc = filter_proc
-    else:
-        output_stdout = reader_stdout
-        final_proc = reader_proc
+        if final_proc.returncode != 0:
+            error_msg = final_proc.stderr.read() if filters else ""
+            if error_msg:
+                click.echo(f"Error: Filter error: {error_msg}", err=True)
+            sys.exit(1)
 
-    # Stream output
-    for line in output_stdout:
-        sys.stdout.write(line)
+        if reader_proc.returncode != 0:
+            error_msg = reader_stderr.read()
+            click.echo(f"Error: Reader error: {error_msg}", err=True)
+            sys.exit(1)
 
-    # Wait for all processes
-    final_proc.wait()
-    reader_proc.wait()
-
-    # Wait for all intermediate processes
-    if "all_procs" in locals():
-        for proc in all_procs:
-            if proc != reader_proc:
-                proc.wait()
-    elif other_proc:
-        other_proc.wait()
-
-    # Close file if opened
-    if "infile_handle" in locals() and infile_handle:
-        infile_handle.close()
-
-    # Check for errors
-    if final_proc.returncode != 0:
-        error_msg = final_proc.stderr.read() if filters else ""
-        if error_msg:
-            click.echo(f"Error: Filter error: {error_msg}", err=True)
-        sys.exit(1)
-
-    if reader_proc.returncode != 0:
-        error_msg = reader_stderr.read()
-        click.echo(f"Error: Reader error: {error_msg}", err=True)
-        sys.exit(1)
-
-    # Check all intermediate processes for errors
-    if "all_procs" in locals():
-        for i, proc in enumerate(all_procs):
-            if proc != reader_proc and proc.returncode != 0:
-                error_msg = proc.stderr.read()
-                if isinstance(error_msg, bytes):
-                    error_msg = error_msg.decode("utf-8")
-                stage_name = (
-                    "Stage"
-                    if i == 0
-                    else (
-                        "Decompression"
-                        if i == 1 and len(all_procs) == 3
-                        else "Protocol"
+        if all_procs:
+            for i, proc in enumerate(all_procs):
+                if proc != reader_proc and proc.returncode != 0:
+                    error_msg = proc.stderr.read()
+                    if isinstance(error_msg, bytes):
+                        error_msg = error_msg.decode("utf-8")
+                    stage_name = (
+                        "Stage"
+                        if i == 0
+                        else (
+                            "Decompression"
+                            if i == 1 and len(all_procs) == 3
+                            else "Protocol"
+                        )
                     )
-                )
-                click.echo(f"Error: {stage_name} error: {error_msg}", err=True)
-                sys.exit(1)
-    elif other_proc and other_proc.returncode != 0:
-        error_msg = other_proc.stderr.read()
-        if isinstance(error_msg, bytes):
-            error_msg = error_msg.decode("utf-8")
-        click.echo(f"Error: Protocol error: {error_msg}", err=True)
-        sys.exit(1)
+                    click.echo(
+                        f"Error: {stage_name} error: {error_msg}", err=True
+                    )
+                    sys.exit(1)
+        elif other_proc and other_proc.returncode != 0:
+            error_msg = other_proc.stderr.read()
+            if isinstance(error_msg, bytes):
+                error_msg = error_msg.decode("utf-8")
+            click.echo(f"Error: Protocol error: {error_msg}", err=True)
+            sys.exit(1)
 
 
 @click.command()

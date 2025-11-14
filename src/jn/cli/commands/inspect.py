@@ -10,7 +10,10 @@ from ...addressing import parse_address
 from ...context import pass_context
 from ...filtering import build_jq_filter, separate_config_and_filters
 from ...introspection import get_plugin_config_params
+from ...process_utils import popen_with_validation
 from ..helpers import build_subprocess_env_for_coverage, check_uv_available
+
+JN_CLI = [sys.executable, "-m", "jn"]
 
 
 def _is_container(address_str: str) -> bool:
@@ -221,8 +224,8 @@ def _format_data_text(result: dict) -> str:
 def _inspect_container(address_str: str) -> dict:
     """Inspect container - call cat and aggregate listings."""
     # Execute: jn cat <container>
-    proc = subprocess.Popen(
-        ["jn", "cat", address_str],
+    proc = popen_with_validation(
+        [*JN_CLI, "cat", address_str],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -315,9 +318,7 @@ def _inspect_data(ctx, address_str: str, limit: int) -> dict:
 
     # Get plugin path to introspect config params
     from ...addressing import AddressResolver
-    from ...plugins.discovery import get_cached_plugins_with_fallback
 
-    plugins = get_cached_plugins_with_fallback(ctx.plugin_dir, ctx.cache_path)
     resolver = AddressResolver(ctx.plugin_dir, ctx.cache_path)
 
     # Resolve to get plugin
@@ -354,8 +355,8 @@ def _inspect_data(ctx, address_str: str, limit: int) -> dict:
         full_uri = base_uri
 
     # Start cat process
-    cat_proc = subprocess.Popen(
-        ["jn", "cat", full_uri],
+    cat_proc = popen_with_validation(
+        [*JN_CLI, "cat", full_uri],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         env=build_subprocess_env_for_coverage(),
@@ -364,8 +365,8 @@ def _inspect_data(ctx, address_str: str, limit: int) -> dict:
     # Add filter if needed
     if filters:
         jq_expr = build_jq_filter(filters)
-        filter_proc = subprocess.Popen(
-            ["jn", "filter", jq_expr],
+        filter_proc = popen_with_validation(
+            [*JN_CLI, "filter", jq_expr],
             stdin=cat_proc.stdout,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -378,8 +379,8 @@ def _inspect_data(ctx, address_str: str, limit: int) -> dict:
         analyze_stdin = cat_proc.stdout
 
     # Analyze
-    analyze_proc = subprocess.Popen(
-        ["jn", "analyze", "--format", "json"],
+    analyze_proc = popen_with_validation(
+        [*JN_CLI, "analyze", "--format", "json"],
         stdin=analyze_stdin,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,

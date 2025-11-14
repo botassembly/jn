@@ -49,7 +49,7 @@ def test_gz_streams_and_handles_broken_pipe(tmp_path: Path):
     if gz_proc.stdout:
         gz_proc.stdout.close()
 
-    out, err = head_proc.communicate(timeout=10)
+    out, _err = head_proc.communicate(timeout=10)
     assert head_proc.returncode == 0
     assert len(out) <= 100
 

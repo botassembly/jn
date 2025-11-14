@@ -7,7 +7,7 @@ def test_plugin_call_json_read_array(invoke):
         ["plugin", "call", "json_", "--mode", "read"], input_data=payload
     )
     assert res.exit_code == 0
-    lines = [l for l in res.output.strip().split("\n") if l]
+    lines = [line for line in res.output.strip().split("\n") if line]
     assert len(lines) == 2
     assert json.loads(lines[0])["name"] == "Alice"
 

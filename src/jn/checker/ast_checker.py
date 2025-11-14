@@ -3,7 +3,7 @@
 import ast
 import re
 from pathlib import Path
-from typing import List, Set
+from typing import List, Optional, Set
 
 from .violation import Severity, Violation
 
@@ -38,8 +38,8 @@ class BaseChecker(ast.NodeVisitor):
         message: str,
         line: int,
         column: int = 0,
-        fix: str = None,
-        reference: str = None,
+        fix: Optional[str] = None,
+        reference: Optional[str] = None,
     ) -> None:
         """Add a violation to the results.
 
@@ -136,10 +136,9 @@ def get_imports(tree: ast.AST) -> Set[str]:
                 # Get top-level module (e.g., 'requests' from 'requests.auth')
                 module = alias.name.split(".")[0]
                 imports.add(module)
-        elif isinstance(node, ast.ImportFrom):
-            if node.module:
-                module = node.module.split(".")[0]
-                imports.add(module)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            module = node.module.split(".")[0]
+            imports.add(module)
     return imports
 
 

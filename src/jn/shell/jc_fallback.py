@@ -9,6 +9,8 @@ import shutil
 import subprocess
 import sys
 
+from ..process_utils import popen_with_validation, run_with_validation
+
 # jc commands that have streaming parsers (output NDJSON directly)
 # Note: some commands (e.g., ls) may require certain flags for streaming
 # to be valid. See logic in execute_with_jc for conditional handling.
@@ -45,7 +47,7 @@ def supports_command(command: str) -> bool:
 
     try:
         # jc --help lists all supported commands
-        result = subprocess.run(
+        result = run_with_validation(
             ["jc", "--help"], capture_output=True, text=True, timeout=2
         )
         # Look for --commandname in help output
@@ -118,11 +120,11 @@ def execute_with_jc(command_str: str) -> int:
 
     try:
         # Chain: command | jc
-        cmd_proc = subprocess.Popen(
+        cmd_proc = popen_with_validation(
             args, stdout=subprocess.PIPE, stderr=sys.stderr
         )
 
-        jc_proc = subprocess.Popen(
+        jc_proc = popen_with_validation(
             jc_cmd,
             stdin=cmd_proc.stdout,
             stdout=subprocess.PIPE,

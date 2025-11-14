@@ -56,7 +56,7 @@ def list_cmd(ctx, output_format):
         click.echo(json.dumps(output, indent=2))
     else:
         # Human-readable output
-        max_name_len = max(len(name) for name in plugins.keys())
+        max_name_len = max(len(name) for name in plugins)
 
         for name, info in sorted(plugins.items()):
             description = info.description

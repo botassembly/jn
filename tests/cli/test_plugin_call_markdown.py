@@ -17,7 +17,7 @@ This is a test document.
         input_data=markdown_content,
     )
     assert res.exit_code == 0
-    lines = [l for l in res.output.strip().split("\n") if l]
+    lines = [line for line in res.output.strip().split("\n") if line]
 
     # Parse records
     records = [json.loads(line) for line in lines]
@@ -70,7 +70,7 @@ Plain markdown without frontmatter.
         input_data=markdown_content,
     )
     assert res.exit_code == 0
-    lines = [l for l in res.output.strip().split("\n") if l]
+    lines = [line for line in res.output.strip().split("\n") if line]
     records = [json.loads(line) for line in lines]
 
     # Should not have frontmatter record
