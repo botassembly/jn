@@ -3,6 +3,7 @@
 import json
 import subprocess
 import sys
+from contextlib import ExitStack
 
 import click
 
@@ -15,6 +16,7 @@ from ...context import pass_context
 from ...core.streaming import head as stream_head
 from ...filtering import build_jq_filter, separate_config_and_filters
 from ...introspection import get_plugin_config_params
+from ...process_utils import popen_with_validation
 from ..helpers import build_subprocess_env_for_coverage, check_uv_available
 
 
@@ -95,75 +97,62 @@ def head(ctx, source, n):
                     addr = parse_address(full_uri)
                     resolved = resolver.resolve(addr, mode="read")
 
-            # Build command
-            cmd = [
-                "uv",
-                "run",
-                "--script",
-                resolved.plugin_path,
-                "--mode",
-                "read",
-            ]
+            with ExitStack() as stack:
+                # Build command
+                cmd = [
+                    "uv",
+                    "run",
+                    "--script",
+                    resolved.plugin_path,
+                    "--mode",
+                    "read",
+                ]
 
-            # Add configuration parameters
-            for key, value in resolved.config.items():
-                cmd.extend([f"--{key}", str(value)])
+                # Add configuration parameters
+                for key, value in resolved.config.items():
+                    cmd.extend([f"--{key}", str(value)])
 
-            # Determine input source
-            if resolved.url:
-                # Protocol or profile
-                if resolved.headers:
-                    cmd.extend(["--headers", json.dumps(resolved.headers)])
-                cmd.append(resolved.url)
-                stdin_source = subprocess.DEVNULL
-                infile = None
-            elif addr.type == "stdio":
-                # Stdin
-                stdin_source = sys.stdin
-                infile = None
-            else:
-                # File
-                infile = open(addr.base)
-                stdin_source = infile
+                # Determine input source
+                if resolved.url:
+                    if resolved.headers:
+                        cmd.extend(["--headers", json.dumps(resolved.headers)])
+                    cmd.append(resolved.url)
+                    stdin_source = subprocess.DEVNULL
+                elif addr.type == "stdio":
+                    stdin_source = sys.stdin
+                else:
+                    stdin_source = stack.enter_context(open(addr.base))
 
-            # Execute plugin
-            reader_proc = subprocess.Popen(
-                cmd,
-                stdin=stdin_source,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                env=build_subprocess_env_for_coverage(),
-            )
-
-            # Add filter stage if filters exist
-            if filters:
-                jq_expr = build_jq_filter(filters)
-                filter_proc = subprocess.Popen(
-                    ["jn", "filter", jq_expr],
-                    stdin=reader_proc.stdout,
+                reader_proc = popen_with_validation(
+                    cmd,
+                    stdin=stdin_source,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=True,
                     env=build_subprocess_env_for_coverage(),
                 )
-                reader_proc.stdout.close()  # Allow reader to receive SIGPIPE
-                output_stream = filter_proc.stdout
-            else:
-                filter_proc = None
-                output_stream = reader_proc.stdout
 
-            # Stream first n lines
-            stream_head(output_stream, n, sys.stdout)
+                if filters:
+                    jq_expr = build_jq_filter(filters)
+                    filter_proc = popen_with_validation(
+                        [sys.executable, "-m", "jn", "filter", jq_expr],
+                        stdin=reader_proc.stdout,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        env=build_subprocess_env_for_coverage(),
+                    )
+                    reader_proc.stdout.close()
+                    output_stream = filter_proc.stdout
+                else:
+                    filter_proc = None
+                    output_stream = reader_proc.stdout
 
-            # Wait for processes
-            if filter_proc:
-                filter_proc.wait()
-            reader_proc.wait()
+                stream_head(output_stream, n, sys.stdout)
 
-            # Close file if opened
-            if infile:
-                infile.close()
+                if filter_proc:
+                    filter_proc.wait()
+                reader_proc.wait()
 
             # Check for errors
             if filter_proc and filter_proc.returncode != 0:

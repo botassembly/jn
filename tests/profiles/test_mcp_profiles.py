@@ -97,7 +97,7 @@ def test_resolve_simple_reference():
 
 def test_resolve_with_tool_in_path():
     """Test @server/tool resolves to call_tool operation."""
-    server_config, operation = resolve_profile_reference("@biomcp/search")
+    _server_config, operation = resolve_profile_reference("@biomcp/search")
 
     assert operation["type"] == "call_tool"
     assert operation["tool"] == "search"
@@ -105,7 +105,7 @@ def test_resolve_with_tool_in_path():
 
 def test_resolve_with_query_params():
     """Test @server/tool?param=value merges params."""
-    server_config, operation = resolve_profile_reference(
+    _server_config, operation = resolve_profile_reference(
         "@biomcp/search?gene=BRAF&disease=Melanoma"
     )
 
@@ -117,14 +117,14 @@ def test_resolve_with_query_params():
 
 def test_resolve_with_list_operation():
     """Test @server?list=tools resolves to list_tools."""
-    server_config, operation = resolve_profile_reference("@biomcp?list=tools")
+    _server_config, operation = resolve_profile_reference("@biomcp?list=tools")
 
     assert operation["type"] == "list_tools"
 
 
 def test_resolve_with_resource():
     """Test @server?resource=uri resolves to read_resource."""
-    server_config, operation = resolve_profile_reference(
+    _server_config, operation = resolve_profile_reference(
         "@biomcp?resource=resource://trials/NCT12345"
     )
 
@@ -134,7 +134,7 @@ def test_resolve_with_resource():
 
 def test_resolve_with_params_dict():
     """Test params dict merges with URL query params."""
-    server_config, operation = resolve_profile_reference(
+    _server_config, operation = resolve_profile_reference(
         "@biomcp/search", params={"gene": "TP53"}
     )
 

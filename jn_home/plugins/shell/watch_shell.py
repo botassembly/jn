@@ -25,8 +25,6 @@ Notes:
     - Backpressure propagates via OS pipes; memory stays constant
 """
 
-from __future__ import annotations
-
 import argparse
 import fnmatch
 import json
@@ -34,7 +32,7 @@ import os
 import shlex
 import sys
 from pathlib import Path
-from typing import Iterable, List
+from typing import Iterable
 
 
 def safe_print_json(obj: dict) -> None:
@@ -66,7 +64,7 @@ def _snapshot(root: Path, recursive: bool) -> Iterable[Path]:
             yield p / f
 
 
-def _matches(path: str, includes: List[str], excludes: List[str]) -> bool:
+def _matches(path: str, includes: list[str], excludes: list[str]) -> bool:
     if includes and not any(fnmatch.fnmatch(path, pat) for pat in includes):
         return False
     if excludes and any(fnmatch.fnmatch(path, pat) for pat in excludes):
@@ -75,6 +73,7 @@ def _matches(path: str, includes: List[str], excludes: List[str]) -> bool:
 
 
 def reads(command_str: str | None = None) -> None:
+    """Execute a watch command string and stream filesystem events as NDJSON."""
     if not command_str:
         _emit({"_error": "watch requires a directory path"})
         sys.exit(1)

@@ -19,7 +19,7 @@ def test_jq_builtin_group_count(invoke):
 
     assert res.exit_code == 0, f"Command failed with output: {res.output}"
 
-    lines = [l for l in res.output.strip().split("\n") if l]
+    lines = [line for line in res.output.strip().split("\n") if line]
     records = [json.loads(line) for line in lines]
 
     # Should have 2 groups
@@ -51,7 +51,7 @@ def test_jq_builtin_group_sum(invoke):
 
     assert res.exit_code == 0, f"Command failed with output: {res.output}"
 
-    lines = [l for l in res.output.strip().split("\n") if l]
+    lines = [line for line in res.output.strip().split("\n") if line]
     records = [json.loads(line) for line in lines]
 
     assert len(records) == 2
@@ -79,7 +79,7 @@ def test_jq_builtin_stats(invoke):
 
     assert res.exit_code == 0, f"Command failed with output: {res.output}"
 
-    lines = [l for l in res.output.strip().split("\n") if l]
+    lines = [line for line in res.output.strip().split("\n") if line]
     assert len(lines) == 1
 
     stats = json.loads(lines[0])
@@ -103,7 +103,7 @@ def test_jq_builtin_flatten_nested(invoke):
 
     assert res.exit_code == 0, f"Command failed with output: {res.output}"
 
-    lines = [l for l in res.output.strip().split("\n") if l]
+    lines = [line for line in res.output.strip().split("\n") if line]
     assert len(lines) == 1
 
     flattened = json.loads(lines[0])
@@ -129,7 +129,7 @@ def test_jq_direct_query(invoke):
 
     assert res.exit_code == 0, f"Command failed with output: {res.output}"
 
-    lines = [l for l in res.output.strip().split("\n") if l]
+    lines = [line for line in res.output.strip().split("\n") if line]
     records = [json.loads(line) for line in lines]
 
     # Should have Alice and Charlie (ages 30 and 35)

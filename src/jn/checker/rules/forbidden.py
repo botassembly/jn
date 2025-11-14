@@ -22,20 +22,20 @@ class ForbiddenPatternsChecker(BaseChecker):
     def visit_If(self, node: ast.If) -> None:
         """Track if we're in if __name__ == '__main__' block."""
         # Check if this is: if __name__ == '__main__':
-        is_main_check = False
-        if isinstance(node.test, ast.Compare):
-            if (
-                isinstance(node.test.left, ast.Name)
-                and node.test.left.id == "__name__"
-            ):
-                if node.test.ops and isinstance(node.test.ops[0], ast.Eq):
-                    if node.test.comparators:
-                        comp = node.test.comparators[0]
-                        if (
-                            isinstance(comp, ast.Constant)
-                            and comp.value == "__main__"
-                        ):
-                            is_main_check = True
+        is_compare = (
+            isinstance(node.test, ast.Compare)
+            and isinstance(node.test.left, ast.Name)
+            and node.test.left.id == "__name__"
+            and node.test.ops
+            and isinstance(node.test.ops[0], ast.Eq)
+            and node.test.comparators
+        )
+        comp = node.test.comparators[0] if is_compare else None
+        is_main_check = bool(
+            comp
+            and isinstance(comp, ast.Constant)
+            and comp.value == "__main__"
+        )
 
         if is_main_check:
             self.in_main_block = True

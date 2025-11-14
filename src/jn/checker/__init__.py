@@ -30,8 +30,8 @@ def is_plugin_file(file_path: Path) -> bool:
 
 def check_file(
     file_path: Path,
-    rules: List[str] = None,
-    is_plugin: bool = None,
+    rules: Optional[List[str]] = None,
+    is_plugin: Optional[bool] = None,
     whitelist: Optional[Whitelist] = None,
 ) -> CheckResult:
     """Check a single file with all enabled rules.
@@ -127,8 +127,8 @@ def check_file(
 
 def check_files(
     file_paths: List[Path],
-    rules: List[str] = None,
-    is_plugin: bool = None,
+    rules: Optional[List[str]] = None,
+    is_plugin: Optional[bool] = None,
     whitelist: Optional[Whitelist] = None,
 ) -> List[CheckResult]:
     """Check multiple files.

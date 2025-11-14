@@ -38,6 +38,8 @@ import sys
 import json
 import shlex
 
+from typing import Optional
+
 
 def reads(command_str=None):
     """Execute tail command and stream NDJSON records.
@@ -47,7 +49,7 @@ def reads(command_str=None):
     """
     if not command_str:
         error = {"_error": "tail requires a file argument"}
-        print(json.dumps(error), file=sys.stderr)
+        print(json.dumps(error), file=sys.stderr, flush=True)
         sys.exit(1)
 
     # Parse command string into args
@@ -55,13 +57,15 @@ def reads(command_str=None):
         args = shlex.split(command_str)
     except ValueError as e:
         error = {"_error": f"Invalid command syntax: {e}"}
-        print(json.dumps(error), file=sys.stderr)
+        print(json.dumps(error), file=sys.stderr, flush=True)
         sys.exit(1)
 
     if not args or args[0] != 'tail':
         error = {"_error": f"Expected tail command, got: {command_str}"}
-        print(json.dumps(error), file=sys.stderr)
+        print(json.dumps(error), file=sys.stderr, flush=True)
         sys.exit(1)
+
+    proc: Optional[subprocess.Popen[str]] = None
 
     try:
         # Spawn tail process
@@ -75,20 +79,22 @@ def reads(command_str=None):
 
         # Stream output line-by-line
         line_number = 0
+        assert proc.stdout is not None
+
         for line in proc.stdout:
             line_number += 1
             record = {
                 "line": line.rstrip(),
                 "line_number": line_number
             }
-            print(json.dumps(record))
-            sys.stdout.flush()
+            print(json.dumps(record), flush=True)
 
+        proc.stdout.close()
         proc.wait()
 
     except FileNotFoundError as e:
         error = {"_error": f"Command not found: {e}"}
-        print(json.dumps(error), file=sys.stderr)
+        print(json.dumps(error), file=sys.stderr, flush=True)
         sys.exit(1)
     except BrokenPipeError:
         # Downstream closed pipe (e.g., head -n 10)
@@ -98,13 +104,19 @@ def reads(command_str=None):
         pass
     finally:
         # Clean up subprocess
-        try:
-            proc.terminate()
-            proc.wait(timeout=1)
-        except:
+        if proc is not None:
+            if proc.stdout and not proc.stdout.closed:
+                proc.stdout.close()
             try:
-                proc.kill()
-            except:
+                proc.terminate()
+                proc.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                try:
+                    proc.kill()
+                    proc.wait(timeout=1)
+                except OSError:
+                    pass
+            except (ProcessLookupError, OSError):
                 pass
 
 
@@ -121,5 +133,5 @@ if __name__ == '__main__':
         reads(args.address)
     else:
         error = {"_error": f"Unsupported mode: {args.mode}. Only 'read' supported."}
-        print(json.dumps(error), file=sys.stderr)
+        print(json.dumps(error), file=sys.stderr, flush=True)
         sys.exit(1)

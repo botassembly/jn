@@ -10,7 +10,7 @@ def test_plugin_call_csv_read(invoke, people_csv):
         )
 
     assert res.exit_code == 0
-    lines = [l for l in res.output.strip().split("\n") if l]
+    lines = [line for line in res.output.strip().split("\n") if line]
     assert len(lines) == 5
     first = json.loads(lines[0])
     assert first["name"] == "Alice"

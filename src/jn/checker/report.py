@@ -81,7 +81,7 @@ def format_text(results: List[CheckResult], verbose: bool = False) -> str:
             # Show infos (only in verbose mode)
             if verbose and infos:
                 for violation in infos:
-                    lines.append(f"ℹ️  INFO: {violation.rule}")
+                    lines.append(f"INFO: {violation.rule}")
                     lines.append(f"   {file_name}:{violation.line}")
                     lines.append(f"   {violation.message}")
                     lines.append("")

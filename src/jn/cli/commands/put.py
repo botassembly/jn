@@ -13,6 +13,7 @@ from ...addressing import (
     parse_address,
 )
 from ...context import pass_context
+from ...process_utils import popen_with_validation
 from ..helpers import build_subprocess_env_for_coverage, check_uv_available
 
 
@@ -90,7 +91,7 @@ def put(ctx, output_file):
                 cmd.extend(["--headers", json.dumps(resolved.headers)])
             cmd.append(resolved.url)
 
-            proc = subprocess.Popen(
+            proc = popen_with_validation(
                 cmd,
                 stdin=stdin_source,
                 stdout=subprocess.PIPE,
@@ -114,7 +115,7 @@ def put(ctx, output_file):
                 stdout_target = subprocess.PIPE
                 capture_output = True
 
-            proc = subprocess.Popen(
+            proc = popen_with_validation(
                 cmd,
                 stdin=(
                     subprocess.PIPE if input_data is not None else stdin_source
@@ -145,7 +146,7 @@ def put(ctx, output_file):
         else:
             # Write to local file
             with open(addr.base, "w") as outfile:
-                proc = subprocess.Popen(
+                proc = popen_with_validation(
                     cmd,
                     stdin=stdin_source,
                     stdout=outfile,

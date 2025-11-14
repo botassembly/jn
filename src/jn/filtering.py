@@ -180,10 +180,7 @@ def build_jq_filter(filters: List[Tuple[str, str, str]]) -> str:
             clauses.append(f"({' or '.join(parts)})")
 
     # Combine clauses with AND and wrap in select()
-    if len(clauses) == 1:
-        condition = clauses[0]
-    else:
-        condition = " and ".join(clauses)
+    condition = clauses[0] if len(clauses) == 1 else " and ".join(clauses)
 
     return f"select({condition})"
 

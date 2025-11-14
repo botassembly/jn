@@ -8,6 +8,9 @@ import shlex
 import shutil
 import subprocess
 import sys
+from typing import Any, Iterator, TextIO
+
+from ..process_utils import popen_with_validation, run_with_validation
 
 # jc commands that have streaming parsers (output NDJSON directly)
 # Note: some commands (e.g., ls) may require certain flags for streaming
@@ -45,7 +48,7 @@ def supports_command(command: str) -> bool:
 
     try:
         # jc --help lists all supported commands
-        result = subprocess.run(
+        result = run_with_validation(
             ["jc", "--help"], capture_output=True, text=True, timeout=2
         )
         # Look for --commandname in help output
@@ -71,7 +74,7 @@ def execute_with_jc(command_str: str) -> int:
             "_error": "jc not found. Install: pip install jc",
             "hint": "https://github.com/kellyjonbrazil/jc",
         }
-        print(json.dumps(error), file=sys.stderr)
+        print(json.dumps(error), file=sys.stderr, flush=True)
         return 1
 
     # Parse command safely
@@ -79,12 +82,12 @@ def execute_with_jc(command_str: str) -> int:
         args = shlex.split(command_str)
     except ValueError as e:
         error = {"_error": f"Invalid command syntax: {e}"}
-        print(json.dumps(error), file=sys.stderr)
+        print(json.dumps(error), file=sys.stderr, flush=True)
         return 1
 
     if not args:
         error = {"_error": "Empty command"}
-        print(json.dumps(error), file=sys.stderr)
+        print(json.dumps(error), file=sys.stderr, flush=True)
         return 1
 
     command = args[0]
@@ -95,7 +98,7 @@ def execute_with_jc(command_str: str) -> int:
             "_error": f"jc does not support command: {command}",
             "hint": "Run 'jc --help' to see supported commands",
         }
-        print(json.dumps(error), file=sys.stderr)
+        print(json.dumps(error), file=sys.stderr, flush=True)
         return 1
 
     # Determine if streaming parser is appropriate
@@ -118,11 +121,11 @@ def execute_with_jc(command_str: str) -> int:
 
     try:
         # Chain: command | jc
-        cmd_proc = subprocess.Popen(
+        cmd_proc = popen_with_validation(
             args, stdout=subprocess.PIPE, stderr=sys.stderr
         )
 
-        jc_proc = subprocess.Popen(
+        jc_proc = popen_with_validation(
             jc_cmd,
             stdin=cmd_proc.stdout,
             stdout=subprocess.PIPE,
@@ -138,26 +141,25 @@ def execute_with_jc(command_str: str) -> int:
         # Stream output
         if use_streaming:
             # Streaming parser outputs NDJSON directly
+            assert jc_proc.stdout is not None
+
             for line in jc_proc.stdout:
                 sys.stdout.write(line)
                 sys.stdout.flush()
         else:
             # Batch parser outputs JSON array - convert to NDJSON
-            output = jc_proc.stdout.read()
+            assert jc_proc.stdout is not None
+
             try:
-                records = json.loads(output) if output.strip() else []
-
-                # Handle both arrays and single objects
-                if isinstance(records, list):
-                    for record in records:
-                        print(json.dumps(record))
-                else:
-                    print(json.dumps(records))
-
+                for record in _iter_json_records(jc_proc.stdout):
+                    print(json.dumps(record), flush=True)
             except json.JSONDecodeError as e:
                 error = {"_error": f"Failed to parse jc output: {e}"}
-                print(json.dumps(error), file=sys.stderr)
+                print(json.dumps(error), file=sys.stderr, flush=True)
                 return 1
+
+        if jc_proc.stdout and not jc_proc.stdout.closed:
+            jc_proc.stdout.close()
 
         # Wait for both processes
         jc_exit = jc_proc.wait()
@@ -173,7 +175,7 @@ def execute_with_jc(command_str: str) -> int:
 
     except FileNotFoundError as e:
         error = {"_error": f"Command not found: {e}"}
-        print(json.dumps(error), file=sys.stderr)
+        print(json.dumps(error), file=sys.stderr, flush=True)
         return 1
     except BrokenPipeError:
         # Downstream closed pipe (e.g., head -n 10) - normal
@@ -181,3 +183,94 @@ def execute_with_jc(command_str: str) -> int:
     except KeyboardInterrupt:
         # User interrupted - normal
         return 0
+
+
+def _iter_json_records(stream: TextIO) -> Iterator[Any]:
+    """Stream JSON records from either an array or single JSON object."""
+
+    decoder = json.JSONDecoder()
+    buffer = ""
+    need_data = True
+    in_array: bool | None = None
+    eof = False
+
+    while True:
+        if (need_data or not buffer) and not eof:
+            chunk = stream.read(8192)
+            if chunk:
+                buffer += chunk
+                need_data = False
+            else:
+                eof = True
+
+        stripped = buffer.lstrip()
+        buffer = stripped
+
+        if not buffer:
+            if eof:
+                if in_array:
+                    raise json.JSONDecodeError(
+                        "Unexpected end of JSON array", buffer or "", 0
+                    )
+                return
+            need_data = True
+            continue
+
+        if in_array is None:
+            if buffer[0] == "[":
+                in_array = True
+                buffer = buffer[1:]
+                need_data = not buffer
+                continue
+
+            decoded = _try_decode(decoder, buffer)
+            if decoded is None:
+                if eof:
+                    raise json.JSONDecodeError(
+                        "Invalid JSON output", buffer, 0
+                    )
+                need_data = True
+                continue
+
+            value, idx = decoded
+            yield value
+            buffer = buffer[idx:]
+            buffer = buffer.lstrip()
+            if buffer:
+                raise json.JSONDecodeError(
+                    "Unexpected trailing data", buffer, 0
+                )
+            return
+
+        if buffer[0] == "]":
+            return
+
+        decoded = _try_decode(decoder, buffer)
+        if decoded is None:
+            if eof:
+                raise json.JSONDecodeError(
+                    "Invalid JSON array output", buffer, 0
+                )
+            need_data = True
+            continue
+
+        value, idx = decoded
+        yield value
+        buffer = buffer[idx:]
+        buffer = buffer.lstrip()
+
+        if buffer.startswith(","):
+            buffer = buffer[1:]
+        elif buffer.startswith("]"):
+            return
+
+        need_data = not buffer
+
+
+def _try_decode(
+    decoder: json.JSONDecoder, buffer: str
+) -> tuple[Any, int] | None:  # pragma: no cover - helper
+    try:
+        return decoder.raw_decode(buffer)
+    except json.JSONDecodeError:
+        return None
