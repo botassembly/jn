@@ -2,82 +2,57 @@
 
 ## Overview
 
-JN implements a powerful universal addressing system that allows **filtering at the source** through URI syntax, eliminating the need for intermediate `jn filter` commands. This document explains how it works and explores its implications.
+JN implements a universal addressing system that enables **filtering at the source** through URI syntax, eliminating intermediate `jn filter` commands.
 
-## Architecture
-
-### Three-Part URI Syntax
+## URI Syntax
 
 ```
 address[~format][?parameters]
 ```
 
 **Components:**
-1. **address**: Base address (file, URL, profile, plugin, stdin)
+1. **address**: Base (file, URL, @profile, @plugin, -)
 2. **~format**: Optional format override
-3. **?parameters**: Optional query parameters (config + filters)
+3. **?parameters**: Config + filter parameters
 
-### Examples from Real Usage
-
+**Examples:**
 ```bash
-# NCBI Gene Info - HTTP + gzip + CSV auto-detection + filtering
-jn head "https://ftp.ncbi.nlm.nih.gov/gene/DATA/GENE_INFO/Mammalia/Homo_sapiens.gene_info.gz~?chromosome=19&type_of_gene!=protein-coding"
+# HTTP + gzip + CSV + filtering
+jn head "https://ftp.ncbi.nlm.nih.gov/.../Homo_sapiens.gene_info.gz~?chromosome=19&type_of_gene!=protein-coding"
 
-# Local CSV with filter
+# Local file + filter
 jn inspect "./tests/data/people.csv?salary<80000"
 
-# HTTP with format override + delimiter detection
+# Format override + auto-delimiter
 jn inspect "https://...file.gz~csv?delimiter=auto"
 ```
 
 ## How It Works
 
-### 1. Address Parsing (`src/jn/addressing/parser.py`)
+### 1. Tilde (~) Separates URL from JN Parameters
 
-**The `~` operator separates URL query strings from JN filter parameters:**
-
-```python
-# For protocol URLs, the ~ is critical:
+```
 https://example.com/data?token=xyz~csv?chromosome=19
-#                          ^              ^
-#                  URL query string    JN parameters
+                            ^          ^           ^
+                    URL query      escape     JN filters
 ```
 
-**Parsing steps:**
-1. Detect if address contains `://` (protocol URL)
-2. Find `~` to separate base from format/parameters
-3. For protocol URLs: keep native query string in base
-4. Extract JN parameters after `~?`
-5. Detect compression (.gz, .bz2, .xz)
+**The `~` is critical for protocol URLs:**
+- Before `~`: Full URL (including native query string)
+- After `~`: Format override + JN parameters
+- URL-safe (RFC 3986 unreserved character)
 
-**Result:**
-- `base`: `https://...file.gz?token=xyz` (includes URL's query string)
-- `format_override`: `csv`
-- `parameters`: `{"chromosome": "19", "type_of_gene!=": "protein-coding"}`
-- `compression`: `gz`
+### 2. Filter Parameters → jq Expressions
 
-### 2. Filter Building (`src/jn/filtering.py`)
-
-**Query parameters are converted to jq filter expressions:**
-
-```python
-# Input parameters
-{"chromosome": "19", "type_of_gene!=": "protein-coding"}
-
-# Parsed as filters
-[("chromosome", "==", "19"), ("type_of_gene", "!=", "protein-coding")]
-
-# Built into jq expression
-'select(.chromosome == "19" and .type_of_gene != "protein-coding")'
+**Simple operators:**
 ```
-
-**Supported operators:**
-- `field=value` → `==` (equality)
-- `field!=value` → `!=` (not equal)
-- `field>value` → `>` (greater than)
-- `field<value` → `<` (less than)
-- `field>=value` → `>=` (greater than or equal)
-- `field<=value` → `<=` (less than or equal)
+field=value   → .field == "value"
+field!=value  → .field != "value"
+field>value   → (.field | tonumber) > value
+field<value   → (.field | tonumber) < value
+field>=value  → (.field | tonumber) >= value
+field<=value  → (.field | tonumber) <= value
+```
 
 **Type inference:**
 - `"123"` → `123` (integer)
@@ -85,290 +60,232 @@ https://example.com/data?token=xyz~csv?chromosome=19
 - `"true"` → `true` (boolean)
 - `"hello"` → `"hello"` (string)
 
+**Builder location:** `src/jn/filtering.py` (shared utility)
+
 ### 3. Execution Pipeline
 
 ```
-HTTP → gz decompress → CSV parse → jq filter → NDJSON → head
+HTTP → gz decompress → CSV parse → jq filter (subprocess) → NDJSON → head
 ```
 
-**Key insight:** The filter runs **inline** during the pipeline, not as a separate command.
+**Key:** Filter runs as **separate subprocess** for proper backpressure, using the actual `jq` binary (not reimplementing jq logic).
 
-## Delimiter Auto-Detection
+## Tilde (~) Evaluation
 
-The `delimiter=auto` parameter triggers intelligent delimiter detection in the CSV plugin:
+**Verdict: ✅ Keep it!**
 
+| ✅ Why | Details |
+|--------|---------|
+| **URL-safe** | RFC 3986 unreserved character |
+| **Rare in paths** | Only `~user` in Unix (clear context) |
+| **Semantic** | Reads as "treat AS" (file.txt~csv) |
+| **No conflicts** | Not used in protocols, shells, regex |
+
+**Alternatives rejected:** `:` (protocol conflict), `#` (fragment), `@` (profiles), `!` (shell)
+
+## Shared Filter Builder
+
+**No code duplication!** One builder (`filtering.py`) used by:
+- `head.py` - inline filters in address
+- `tail.py` - inline filters in address
+- `inspect.py` - inline filters in address
+- `cat.py` - inline filters in address
+- All execute via `jn filter '<jq-expr>'` subprocess
+
+**Architecture:**
+1. `filtering.py` - Generator (simple syntax → jq expressions)
+2. `jq_` plugin - Executor (runs jq binary)
+3. `jq` binary - Evaluator (actual filtering)
+
+## Inline vs. Piped Filters
+
+**Inline (using filtering.py):**
 ```bash
-jn inspect "https://...file.gz~csv?delimiter=auto"
+jn cat "data.csv?revenue>1000"
 ```
 
-**How it works:**
-1. CSV plugin reads first few lines
-2. Tries common delimiters: `\t` (tab), `,`, `;`, `|`
-3. Chooses delimiter that produces consistent column counts
-4. Applies delimiter to entire file
-
-## Tilde (~) as Format Escape: Good or Bad?
-
-### ✅ **GOOD: Tilde is an excellent choice**
-
-**Reasons:**
-
-1. **URL-safe**: RFC 3986 lists `~` as an unreserved character
-   - Safe in URLs without encoding
-   - Won't conflict with standard URL syntax
-
-2. **Rare in file paths**:
-   - Not used in Windows paths (`:`, `\`)
-   - Only appears in Unix home directories (`~user`)
-   - Context is clear: after file extension vs. standalone
-
-3. **Semantic clarity**:
-   - Visually distinct from `.` (extension) and `?` (query)
-   - Reads as "override" or "transform as"
-   - `file.txt~csv` → "treat text file AS CSV"
-
-4. **No conflicts with existing conventions**:
-   - Not a shell glob (`*`, `?`, `[]`)
-   - Not a regex operator
-   - Not used in HTTP headers or query strings
-
-### Alternative Characters Considered
-
-| Character | Issue |
-|-----------|-------|
-| `:` | Conflicts with `protocol://` and Windows paths |
-| `#` | URL fragment identifier (client-side only) |
-| `@` | Already used for profiles/plugins |
-| `!` | Shell history expansion |
-| `%` | URL encoding prefix |
-| `^` | Shell expansion in some contexts |
-
-**Verdict:** `~` is the right choice. Keep it.
-
-## Profiles as Query Adapters
-
-### Current Query Pattern
-
+**Piped (manual jq):**
 ```bash
-# User types this complex query
-jn head "https://ftp.ncbi.nlm.nih.gov/gene/DATA/GENE_INFO/Mammalia/Homo_sapiens.gene_info.gz~?chromosome=19&type_of_gene!=protein-coding&type_of_gene!=pseudo"
+jn cat data.csv | jn filter '.revenue > 1000'
 ```
 
-### Proposed: Auto-Capture as Profile
+**Both valid!** Inline for source filtering, pipes for complex transformations. Both use the same `jq` binary and executor.
 
-**Concept:** Complex queries can be "banked" as reusable profiles.
+## Future: Profile Save Feature
 
-**Workflow:**
+**Not implemented yet.** This section describes how query auto-capture could work.
+
+### Concept
+
+Complex queries can be "banked" as reusable profiles:
+
 ```bash
-# 1. User runs exploratory query
-jn head "https://ncbi.../Homo_sapiens.gene_info.gz~?chromosome=19&type_of_gene!=protein-coding" --save-as "@ncbi/chr19-non-coding"
+# Explore with inline filtering
+jn head "https://ftp.ncbi.nlm.nih.gov/.../Homo_sapiens.gene_info.gz~?chromosome=19&type_of_gene!=protein-coding"
 
-# 2. JN creates profile automatically
-# File: ~/.local/jn/profiles/http/ncbi/chr19-non-coding.json
-{
-  "base_url": "https://ftp.ncbi.nlm.nih.gov/gene/DATA/GENE_INFO/Mammalia",
-  "path": "/Homo_sapiens.gene_info.gz",
-  "format": "csv",
-  "compression": "gz",
-  "filters": {
-    "chromosome": "19",
-    "type_of_gene!=": ["protein-coding", "pseudo"]
-  },
-  "description": "Chromosome 19 non-coding genes from NCBI",
-  "created": "2025-11-15T22:24:00Z"
-}
+# Save as profile (proposed)
+jn head "..." --save-profile @ncbi/chr19-non-coding
 
-# 3. User can now reference it simply
+# Reuse
 jn head @ncbi/chr19-non-coding
-jn inspect @ncbi/chr19-non-coding
 ```
 
-### Profile Types: API vs. Data File
+### Saved Profile Format
 
-**Key distinction:**
+**Option 1: Keep whole URL structure (opaque blob)**
 
-| Type | Example | Characteristics |
-|------|---------|-----------------|
-| **Data File Profile** | NCBI gene info | Static URL + filters, no API params |
-| **API Profile** | GenomOncology | Dynamic base_url, headers, auth, API parameters |
-
-**Data File Profile:**
-```json
-{
-  "url": "https://ftp.ncbi.nlm.nih.gov/gene/DATA/GENE_INFO/Mammalia/Homo_sapiens.gene_info.gz",
-  "format": "csv",
-  "compression": "gz",
-  "delimiter": "auto",
-  "filters": {"chromosome": "19"},
-  "description": "NCBI Homo sapiens gene info for chr 19"
-}
-```
-
-**API Profile (GenomOncology):**
-```json
-{
-  "base_url": "https://${GENOMONCOLOGY_URL}/api",
-  "headers": {
-    "Authorization": "Token ${GENOMONCOLOGY_API_KEY}"
-  },
-  "path": "/alterations",
-  "method": "GET",
-  "params": ["gene", "mutation_type", "biomarker", "page", "limit"],
-  "description": "Genomic alterations endpoint"
-}
-```
-
-**Auto-capture logic:**
-1. **Has `://` but no env vars** → Data File Profile
-2. **Has `://` with `${VAR}`** → API Profile
-3. **Static filters in query** → Include in profile
-4. **Dynamic params (limit, page)** → Exclude from profile (keep as CLI params)
-
-## Implementation: Profile Auto-Capture
-
-### CLI Syntax
-
-```bash
-# Save current query as profile
-jn head <address> --save-profile "@namespace/name"
-jn inspect <address> --save-profile "@namespace/name"
-
-# Interactive prompt (suggests name based on query)
-jn head "https://ncbi.../file.gz~?chromosome=19" --save-profile
-# Suggests: "@ncbi/homo-sapiens-chr19"
-```
-
-### Auto-Generated Profile Structure
-
-**For data files:**
 ```json
 {
   "type": "data_file",
-  "url": "https://full-url-here",
-  "format": "csv",
-  "compression": "gz",
-  "delimiter": "auto",
-  "filters": {
-    "chromosome": "19",
-    "type_of_gene!=": ["protein-coding", "pseudo"]
-  },
-  "created_from_query": "https://ncbi.../file.gz~?chromosome=19&...",
-  "description": "Auto-generated from query on 2025-11-15",
-  "usage_examples": [
+  "full_address": "https://ftp.ncbi.nlm.nih.gov/.../Homo_sapiens.gene_info.gz~?chromosome=19&type_of_gene!=protein-coding",
+  "description": "Chromosome 19 non-coding genes from NCBI"
+}
+```
+
+**Execution:** Exact replay of original address.
+
+**Option 2: Decompose into structured adapters**
+
+```json
+{
+  "type": "data_file",
+  "url": "https://ftp.ncbi.nlm.nih.gov/gene/DATA/GENE_INFO/Mammalia/Homo_sapiens.gene_info.gz",
+  "adapters": [
     {
-      "command": "jn head @ncbi/chr19-non-coding",
-      "description": "Preview first 10 rows"
+      "type": "compression",
+      "format": "gz"
+    },
+    {
+      "type": "format",
+      "format": "csv",
+      "config": {"delimiter": "auto"}
+    },
+    {
+      "type": "filter",
+      "filters": {
+        "chromosome": "19",
+        "type_of_gene!=": ["protein-coding", "pseudo"]
+      }
     }
+  ],
+  "description": "Chromosome 19 non-coding genes from NCBI"
+}
+```
+
+**Execution:** Rebuild address from adapters, then execute normally.
+
+**Recommended: Option 2 (decomposed adapters)**
+
+**Why:**
+- **Editable**: Users can modify filters/config without parsing URIs
+- **Composable**: Can create variations easily
+- **Discoverable**: `jn profile info` shows structure clearly
+- **Flexible**: Can add/remove/reorder adapters
+
+### Multiple Profiles, Same URL
+
+**Yes!** Different filter adapters on same base URL:
+
+```json
+// ~/.local/jn/profiles/ncbi/chr1-protein-coding.json
+{
+  "url": "https://ftp.ncbi.nlm.nih.gov/.../Homo_sapiens.gene_info.gz",
+  "adapters": [
+    {"type": "compression", "format": "gz"},
+    {"type": "format", "format": "csv", "config": {"delimiter": "auto"}},
+    {"type": "filter", "filters": {"chromosome": "1", "type_of_gene": "protein-coding"}}
+  ]
+}
+
+// ~/.local/jn/profiles/ncbi/chr2-pseudogenes.json
+{
+  "url": "https://ftp.ncbi.nlm.nih.gov/.../Homo_sapiens.gene_info.gz",
+  "adapters": [
+    {"type": "compression", "format": "gz"},
+    {"type": "format", "format": "csv", "config": {"delimiter": "auto"}},
+    {"type": "filter", "filters": {"chromosome": "2", "type_of_gene": "pseudo"}}
   ]
 }
 ```
 
-**Benefits:**
-1. **Reproducibility**: Exact query is captured
-2. **Discoverability**: `jn profile list` shows all saved queries
-3. **Documentation**: Auto-generated description and examples
-4. **Iteration**: Easy to modify filters in JSON file
-
-## Relationship to Existing `jn filter`
-
-**Current flow (manual):**
+**Usage:**
 ```bash
-jn cat data.csv | jn filter '.revenue > 1000' | jn put output.json
+jn head @ncbi/chr1-protein-coding
+jn head @ncbi/chr2-pseudogenes
 ```
 
-**New flow (inline):**
-```bash
-jn cat "data.csv?revenue>1000" | jn put output.json
+### Adapter Execution Mapping
+
+**From profile → Reconstructed address → Same execution path:**
+
+```
+Profile adapters:
+  [compression: gz] + [format: csv, delimiter=auto] + [filter: chr=19, type!=protein-coding]
+          ↓
+Rebuild address:
+  https://...file.gz~csv?delimiter=auto&chromosome=19&type_of_gene!=protein-coding
+          ↓
+Parse (existing code):
+  base: https://...file.gz
+  compression: gz
+  format_override: csv
+  parameters: {delimiter: auto, chromosome: 19, type_of_gene!=: protein-coding}
+          ↓
+Execute (existing pipeline):
+  HTTP → gz decompress → CSV parse → jq filter → NDJSON
 ```
 
-**When to use each:**
+**No new execution code needed!** Profile just reconstructs the address string, then uses existing parser + pipeline.
 
-| Scenario | Syntax | Reason |
-|----------|--------|--------|
-| Simple source filter | `?revenue>1000` | Inline, efficient |
-| Complex transformation | `\| jn filter '@profile/transform'` | Reusable logic |
-| Multiple sources | `cat A \| filter \| cat B` | Pipeline composition |
-| Ad-hoc exploration | `?field=value` | Quick iteration |
+### Editing Profiles
 
-**Both coexist!** Inline filters for source filtering, pipe filters for transformation.
+**JSON files are human-editable:**
 
-## Next Steps
+```bash
+# Edit with any text editor
+vim ~/.local/jn/profiles/ncbi/chr19-non-coding.json
 
-### 1. Document in Architecture Specs
+# Change filter
+{
+  "filters": {
+    "chromosome": "19",          # Change to "1"
+    "type_of_gene!=": ["pseudo"]  # Add/remove values
+  }
+}
 
-- [x] Create this document
-- [ ] Update `spec/done/arch-design.md` with addressability section
-- [ ] Add filtering examples to `spec/done/inspect-design.md`
+# Or use jq to edit programmatically
+jq '.adapters[2].filters.chromosome = "1"' profile.json
+```
 
-### 2. Implement Profile Auto-Capture
+**Validation:**
+```bash
+jn profile check @ncbi/chr19-non-coding  # Validate syntax
+jn profile test @ncbi/chr19-non-coding   # Test execution
+```
 
+### Implementation Notes
+
+**CLI flag:**
 ```python
-# src/jn/cli/commands/head.py (add flag)
-@click.option("--save-profile", help="Save query as reusable profile")
+@click.option("--save-profile", help="Save query as profile @namespace/name")
 def head(ctx, source, n, save_profile):
     if save_profile:
-        # Extract components from address
-        # Generate profile JSON
-        # Save to ~/.local/jn/profiles/
-        pass
+        addr = parse_address(source)
+        profile = decompose_to_adapters(addr)
+        save_profile_json(save_profile, profile)
 ```
 
-### 3. Test GenomOncology API
+**Adapter types:**
+- `compression` - gz, bz2, xz
+- `format` - csv, json, yaml, etc. (with config)
+- `filter` - field operators (from filtering.py)
 
-Verify that API profiles work with the existing system:
-```bash
-# Should work today
-jn cat @genomoncology/alterations -p gene=BRAF
+**Data File vs. API Profile:**
+- **Data File**: Static URL, decomposed adapters (this section)
+- **API**: Dynamic base_url, headers, env vars (existing HTTP profiles)
 
-# Should also work with inline filters (if profile supports it)
-jn cat "@genomoncology/alterations?gene=BRAF"
-```
+### Open Questions
 
-### 4. Add Auto-Delimiter Detection Docs
-
-Document how `delimiter=auto` works in CSV plugin.
-
-## Security Considerations
-
-**Filter injection risk:**
-- Parameters are passed to jq via command args
-- jq is sandboxed (no file I/O, no command execution)
-- Type inference prevents code injection
-
-**URL validation:**
-- Protocol validation in address parser
-- No shell expansion in subprocess calls
-- All HTTP handled by requests library (safe)
-
-## Performance Impact
-
-**Inline filtering is FASTER than piped filtering:**
-
-```bash
-# Inline (1 jq process)
-jn cat "data.csv?revenue>1000"  # 0.5s
-
-# Piped (2 jq processes + pipe overhead)
-jn cat data.csv | jn filter '.revenue > 1000'  # 0.7s
-```
-
-**Why:**
-- Fewer process spawns
-- Less pipe buffering
-- Early termination propagates immediately
-
-## Conclusion
-
-The addressability + filtering system is **elegantly designed**:
-
-1. ✅ **Tilde (~) is the right escape character** - URL-safe, semantically clear
-2. ✅ **Inline filtering is powerful** - Reduces pipeline complexity
-3. ✅ **Profile auto-capture would be valuable** - Turns exploration into reusable assets
-4. ✅ **Data File vs. API profiles are distinct** - Different use cases, different structures
-5. ✅ **Coexists with `jn filter`** - Not a replacement, a complement
-
-**Recommendation:**
-- Keep current design
-- Add `--save-profile` flag to capture queries
-- Document the distinction between data file and API profiles
-- Celebrate this excellent architecture! 🎉
+1. **Adapter ordering**: Does order matter? (Yes - compression before format)
+2. **Adapter composition**: Can users chain multiple filters? (Yes, merge into single jq expression)
+3. **Template support**: Should profiles support `${VAR}` substitution? (Maybe for advanced use)
