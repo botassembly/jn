@@ -126,11 +126,12 @@ class StatsTracker:
 
     def __init__(self):
         self.count = 0
-        self.null_count = 0
         self.sum = 0.0
         self.sum_squared = 0.0
+        self.null_count = 0
         self.min_val = None
         self.max_val = None
+        self.seen_non_numeric = False
 
     def observe(self, value: Any) -> None:
         """Observe a value."""
@@ -142,6 +143,9 @@ class StatsTracker:
         try:
             num_val = float(value)
         except (TypeError, ValueError):
+            # Mixed-type fields (e.g., chromosome with X/Y) are not
+            # great candidates for numeric statistics.
+            self.seen_non_numeric = True
             return
 
         self.count += 1
@@ -157,6 +161,20 @@ class StatsTracker:
     def summarize(self) -> Optional[Dict[str, float]]:
         """Generate statistical summary."""
         if self.count == 0:
+            return None
+
+        # Skip fields that had any non-numeric data mixed in; these are
+        # typically identifiers or categorical values.
+        if self.seen_non_numeric:
+            return None
+
+        # Require well-defined bounds
+        if self.min_val is None or self.max_val is None:
+            return None
+
+        # Skip constant-valued fields (min == max); they don't provide
+        # useful distribution insight (e.g., tax_id=9606 for all rows).
+        if self.min_val == self.max_val:
             return None
 
         mean = self.sum / self.count
@@ -242,8 +260,30 @@ class StreamingAnalyzer:
         for field, tracker in self.facet_trackers.items():
             if tracker.should_facet():
                 field_facets = tracker.get_facets()
-                if field_facets:
-                    facets[field] = field_facets
+                if not field_facets:
+                    continue
+
+                total = sum(field_facets.values())
+                unique_count = len(field_facets)
+
+                # Skip trivially uninformative distributions:
+                # - All values identical (single category)
+                # - Every value unique (cardinality equals total count)
+                if unique_count == 1:
+                    continue
+                if unique_count == total:
+                    continue
+
+                # Skip fields where, in larger samples, only a single
+                # category appears more than once (e.g., "-" plus many
+                # singletons). These are usually not helpful for
+                # high-level faceting. For very small tables we keep
+                # them, since they can still be informative.
+                multi_counts = [c for c in field_facets.values() if c > 1]
+                if total >= 10 and len(multi_counts) <= 1:
+                    continue
+
+                facets[field] = field_facets
 
         # Build stats (only for numeric fields with data)
         stats = {}

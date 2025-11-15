@@ -619,11 +619,13 @@ class AddressResolver:
         Raises:
             AddressResolutionError: If resolution fails
         """
-        # Protocol URLs: use base directly
+        # Protocol URLs: use base directly (re-attaching compression
+        # extension when present so that URLs like *.gz resolve correctly).
         if address.type == "protocol":
-            # For protocols, the base is already a URL
-            # Parameters are part of the URL or will be passed to the plugin
-            return address.base, None
+            url = address.base
+            if getattr(address, "compression", None):
+                url = f"{url}.{address.compression}"
+            return url, None
 
         # Profile references: resolve via appropriate profile system
         if address.type == "profile":

@@ -125,22 +125,35 @@ def format_jq_condition(field: str, operator: str, value: any) -> str:
         >>> format_jq_condition("category", "==", "Electronics")
         '.category == "Electronics"'
     """
-    # Format value as JSON (handles strings, numbers, booleans)
-    value_str = json.dumps(value)
-
-    # For numeric comparisons, add tonumber conversion to handle string fields
+    # Numeric comparisons: compare as numbers, but allow the
+    # underlying data to be strings via `tonumber`.
     if operator in (">", "<", ">=", "<=") and isinstance(value, (int, float)):
+        value_str = json.dumps(value)
         return f"(.{field} | tonumber) {operator} {value_str}"
-    else:
-        return f".{field} {operator} {value_str}"
+
+    # Equality/inequality: compare on string representation so that
+    # numeric-looking CSV fields (stored as strings) still match.
+    if operator in ("==", "!="):
+        if isinstance(value, bool):
+            target = "true" if value else "false"
+        else:
+            target = str(value)
+        value_str = json.dumps(target)
+        return f"(.{field} | tostring) {operator} {value_str}"
+
+    # Fallback for other operators
+    value_str = json.dumps(value)
+    return f".{field} {operator} {value_str}"
 
 
 def build_jq_filter(filters: List[Tuple[str, str, str]]) -> str:
     """Build jq filter expression from filter parameters.
 
     Rules:
-    - Same field, multiple values → OR
     - Different fields → AND
+    - For a single field:
+      - Equality conditions (==) → OR between values
+      - All other operators (!=, >, >=, <, <=) → AND (e.g., ranges)
 
     Args:
         filters: List of (field, operator, value) tuples
@@ -168,16 +181,28 @@ def build_jq_filter(filters: List[Tuple[str, str, str]]) -> str:
     # Build clauses
     clauses = []
     for field, conditions in by_field.items():
-        if len(conditions) == 1:
-            # Single condition
-            operator, value = conditions[0]
-            clauses.append(format_jq_condition(field, operator, value))
-        else:
-            # Multiple conditions for same field → OR
-            parts = [
-                format_jq_condition(field, op, val) for op, val in conditions
-            ]
-            clauses.append(f"({' or '.join(parts)})")
+        eq_parts: List[str] = []
+        and_parts: List[str] = []
+
+        for operator, value in conditions:
+            expr = format_jq_condition(field, operator, value)
+            if operator == "==":
+                eq_parts.append(expr)
+            else:
+                and_parts.append(expr)
+
+        # Combine equality conditions with OR when present
+        if eq_parts:
+            if len(eq_parts) == 1:
+                and_parts.append(eq_parts[0])
+            else:
+                and_parts.append(f"({' or '.join(eq_parts)})")
+
+        if not and_parts:
+            continue
+
+        field_clause = " and ".join(and_parts)
+        clauses.append(field_clause)
 
     # Combine clauses with AND and wrap in select()
     condition = clauses[0] if len(clauses) == 1 else " and ".join(clauses)
@@ -225,10 +250,9 @@ def separate_config_and_filters(
             config[field] = value
         else:
             # This is a filter parameter
-            # Check if value is comma-separated (from duplicate params)
-            if "," in value:
-                # Split and add each value as separate filter for OR logic
-                for val in value.split(","):
+            # Support OR semantics via "||"-separated values, e.g. city=NYC||SF
+            if "||" in value:
+                for val in value.split("||"):
                     filters.append((field, operator, val.strip()))
             else:
                 filters.append((field, operator, value))

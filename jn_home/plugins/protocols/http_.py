@@ -412,6 +412,109 @@ def reads(
     content_type = response.headers.get("Content-Type", "")
     file_ext = "." + urlparse(url).path.split(".")[-1].lower()
 
+    # Special handling for gzip when no explicit format is provided.
+    # For responses that are clearly gzipped data but lack a known
+    # higher-level format, attempt to decompress and sniff as CSV in
+    # a streaming manner (respecting limit where possible).
+    if (
+        not force_format
+        and ("application/x-gzip" in content_type or file_ext == ".gz")
+    ):
+        import csv
+        import gzip
+        from io import TextIOWrapper
+        from itertools import chain
+        from urllib.parse import parse_qs
+
+        # Derive an effective limit: prefer explicit CLI limit, but fall
+        # back to any `limit` query parameter if present.
+        effective_limit = limit
+        if effective_limit is None:
+            qs = urlparse(url).query
+            if qs:
+                qs_params = parse_qs(qs)
+                if "limit" in qs_params and qs_params["limit"]:
+                    try:
+                        effective_limit = int(qs_params["limit"][0])
+                    except (TypeError, ValueError):
+                        effective_limit = None
+
+        try:
+            # Stream-decompress the response body.
+            gz = gzip.GzipFile(fileobj=response.raw, mode="rb")
+            text_stream = TextIOWrapper(
+                gz, encoding="utf-8", errors="replace"
+            )
+        except OSError as e:
+            yield error_record(
+                "gzip_decode_error", f"Failed to open gzip stream: {e}", url=url
+            )
+            return
+
+        # Read a small sample of lines for CSV dialect sniffing.
+        sample_lines: list[str] = []
+        try:
+            for _ in range(50):
+                line = text_stream.readline()
+                if not line:
+                    break
+                sample_lines.append(line)
+        except OSError as e:
+            yield error_record(
+                "gzip_decode_error", f"Failed to read gzip stream: {e}", url=url
+            )
+            return
+
+        if not sample_lines:
+            yield error_record(
+                "empty_gzip",
+                "Decompressed gzip response is empty",
+                url=url,
+                content_type=content_type,
+            )
+            return
+
+        sample = "".join(sample_lines)
+
+        try:
+            dialect = csv.Sniffer().sniff(sample, delimiters=",;\t|")
+        except csv.Error:
+            yield error_record(
+                "unknown_format",
+                "Decompressed gzip response is not recognized as CSV",
+                url=url,
+                content_type=content_type,
+            )
+            return
+
+        # Build a line iterator that replays the sampled lines then
+        # continues streaming from the remaining gzip content.
+        def line_iter():
+            yield from sample_lines
+            for line in text_stream:
+                yield line
+
+        reader = csv.DictReader(line_iter(), delimiter=dialect.delimiter)
+
+        count = 0
+        try:
+            for row in reader:
+                yield row
+                count += 1
+                if effective_limit and count >= effective_limit:
+                    break
+        finally:
+            try:
+                text_stream.close()
+            except Exception:
+                pass
+            try:
+                gz.close()
+            except Exception:
+                pass
+            response.close()
+        return
+
     # Determine format using lookup dict
     if force_format:
         fmt = force_format

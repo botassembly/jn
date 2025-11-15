@@ -13,11 +13,12 @@
 import csv
 import json
 import sys
-from io import StringIO
 from typing import Iterator, Optional
 
 
-def _detect_delimiter(sample_lines: list[str], candidates: str = ",;\t|") -> str:
+def _detect_delimiter(
+    sample_lines: list[str], candidates: str = ",;\t|"
+) -> tuple[str, bool]:
     """Auto-detect delimiter using heuristic scoring.
 
     Args:
@@ -25,7 +26,9 @@ def _detect_delimiter(sample_lines: list[str], candidates: str = ",;\t|") -> str
         candidates: String of candidate delimiters to try
 
     Returns:
-        Best delimiter character, or ',' as fallback
+        Tuple of (best_delimiter, has_evidence). If has_evidence is False,
+        no candidate had enough signal and the caller should fall back to
+        a safe default.
 
     Algorithm:
     - For each candidate delimiter:
@@ -35,10 +38,11 @@ def _detect_delimiter(sample_lines: list[str], candidates: str = ",;\t|") -> str
     - Pick delimiter with highest score
     """
     if not sample_lines:
-        return ","
+        return ",", False
 
     best_delim = ","
     best_score = float("-inf")
+    found = False
 
     for delim in candidates:
         col_counts = []
@@ -62,6 +66,8 @@ def _detect_delimiter(sample_lines: list[str], candidates: str = ",;\t|") -> str
         if len(col_counts) < 3:
             continue
 
+        found = True
+
         # Calculate metrics
         n = len(col_counts)
         mean_cols = sum(col_counts) / n
@@ -75,7 +81,7 @@ def _detect_delimiter(sample_lines: list[str], candidates: str = ",;\t|") -> str
             best_score = score
             best_delim = delim
 
-    return best_delim
+    return best_delim, found
 
 
 def reads(config: Optional[dict] = None) -> Iterator[dict]:
@@ -90,40 +96,53 @@ def reads(config: Optional[dict] = None) -> Iterator[dict]:
         Dict per CSV row with column headers as keys
     """
     config = config or {}
-    delimiter = config.get("delimiter", ",")
+    delimiter = config.get("delimiter", "auto")
     skip_rows = config.get("skip_rows", 0)
     limit = config.get("limit")
 
-    # Auto-detect delimiter if requested
+    # Always read a small sample so we can auto-detect delimiters and
+    # sanity-check explicit delimiters.
+    from itertools import chain
+
+    sample_lines: list[str] = []
+    line_count = 0
+    for line in sys.stdin:
+        sample_lines.append(line)
+        line_count += 1
+        if line_count >= 50:
+            break
+
+    detected_delim, has_evidence = _detect_delimiter(sample_lines)
+
     if delimiter == "auto":
-        # Read sample lines (buffer them for re-reading)
-        sample_lines = []
-        line_count = 0
-        for line in sys.stdin:
-            sample_lines.append(line)
-            line_count += 1
-            if line_count >= 50:  # Sample first 50 lines
-                break
-
-        # Detect delimiter from sample
-        delimiter = _detect_delimiter(sample_lines)
-
-        # Create a new stdin-like object from buffered lines + remaining stdin
-        from itertools import chain
-        stdin_content = chain(sample_lines, sys.stdin)
-
-        # Wrap in StringIO for csv.DictReader
-        class ChainedReader:
-            def __init__(self, iterator):
-                self.iterator = iterator
-            def __iter__(self):
-                return self.iterator
-            def __next__(self):
-                return next(self.iterator)
-
-        input_stream = ChainedReader(stdin_content)
+        # Auto-detect delimiter from sample when possible; fall back to comma
+        # when detection is inconclusive.
+        delimiter = detected_delim if has_evidence else ","
     else:
-        input_stream = sys.stdin
+        # Explicit delimiter was configured. If we have strong evidence that
+        # the data uses a different delimiter, fail early instead of emitting
+        # a misleading one-column schema.
+        if has_evidence and detected_delim != delimiter:
+            msg = (
+                f"Configured delimiter '{delimiter}' does not match detected "
+                f"delimiter '{detected_delim}'. Use delimiter=auto or the "
+                f"correct delimiter for this file."
+            )
+            raise SystemExit(msg)
+
+    stdin_content = chain(sample_lines, sys.stdin)
+
+    class ChainedReader:
+        def __init__(self, iterator):
+            self.iterator = iterator
+
+        def __iter__(self):
+            return self.iterator
+
+        def __next__(self):
+            return next(self.iterator)
+
+    input_stream = ChainedReader(stdin_content)
 
     # Skip header rows if requested
     for _ in range(skip_rows):
@@ -154,6 +173,8 @@ def writes(config: Optional[dict] = None) -> None:
     """
     config = config or {}
     delimiter = config.get("delimiter", ",")
+    if delimiter == "auto":
+        delimiter = ","
     include_header = config.get("header", True)
 
     # Collect all records (need to know all keys for CSV header)
@@ -205,7 +226,9 @@ if __name__ == "__main__":
         help="Operation mode: read CSV to NDJSON, or write NDJSON to CSV",
     )
     parser.add_argument(
-        "--delimiter", default=",", help="Field delimiter (default: comma)"
+        "--delimiter",
+        default="auto",
+        help="Field delimiter (default: auto-detect)",
     )
     parser.add_argument(
         "--skip-rows",

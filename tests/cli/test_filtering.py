@@ -34,7 +34,7 @@ def test_cat_filter_simple_equality(invoke, tmp_path):
 
 
 def test_cat_filter_or_logic(invoke, tmp_path):
-    """Test cat with OR logic (same field multiple times)."""
+    """Test cat with OR logic (multiple values for same field)."""
     data_file = tmp_path / "test.csv"
     data_file.write_text(
         "name,city,revenue\n"
@@ -44,8 +44,8 @@ def test_cat_filter_or_logic(invoke, tmp_path):
         "Dave,LA,800\n"
     )
 
-    # Filter by city=NYC OR city=SF
-    result = invoke(["cat", f"{data_file}?city=NYC&city=SF"])
+    # Filter by city=NYC OR city=SF (city=NYC||SF)
+    result = invoke(["cat", f"{data_file}?city=NYC||SF"])
     assert result.exit_code == 0
 
     lines = [line for line in result.output.strip().split("\n") if line]
@@ -124,6 +124,33 @@ def test_cat_filter_with_config_param(invoke, tmp_path):
     assert all(r["city"] == "SF" for r in records)
 
 
+def test_cat_filter_unencoded_greater_than(invoke, tmp_path):
+    """Test cat with unencoded '>' and '>=' operators."""
+    data_file = tmp_path / "test.csv"
+    data_file.write_text(
+        "name,salary\n"
+        "Alice,80000\n"
+        "Bob,95000\n"
+        "Carol,75000\n"
+        "David,70000\n"
+        "Eve,90000\n"
+    )
+
+    # salary>75000 → Alice, Bob, Eve (3 records)
+    result = invoke(["cat", f"{data_file}?salary>75000"])
+    assert result.exit_code == 0
+    lines = [line for line in result.output.strip().split("\n") if line]
+    records = [json.loads(line) for line in lines]
+    assert {r["name"] for r in records} == {"Alice", "Bob", "Eve"}
+
+    # salary>=75000 → Alice, Bob, Carol, Eve (4 records)
+    result = invoke(["cat", f"{data_file}?salary>=75000"])
+    assert result.exit_code == 0
+    lines = [line for line in result.output.strip().split("\n") if line]
+    records = [json.loads(line) for line in lines]
+    assert {r["name"] for r in records} == {"Alice", "Bob", "Carol", "Eve"}
+
+
 def test_head_filter_simple(invoke, tmp_path):
     """Test head with filtering."""
     data_file = tmp_path / "test.csv"
@@ -191,7 +218,7 @@ def test_filter_complex_and_or(invoke, tmp_path):
     )
 
     # Filter: (city=NYC OR city=SF) AND status=active
-    result = invoke(["cat", f"{data_file}?city=NYC&city=SF&status=active"])
+    result = invoke(["cat", f"{data_file}?city=NYC||SF&status=active"])
     assert result.exit_code == 0
 
     lines = [line for line in result.output.strip().split("\n") if line]
