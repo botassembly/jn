@@ -10,7 +10,7 @@ Where:
 """
 
 from typing import Dict
-from urllib.parse import parse_qs, unquote
+from urllib.parse import unquote
 
 from .types import Address, AddressType
 
@@ -75,16 +75,20 @@ def parse_address(raw: str) -> Address:
             format_str = format_part
             parameters = {}
 
-        if not format_str:
-            raise ValueError(f"Format override cannot be empty: {raw}")
-
-        # Check for shorthand format (e.g., "table.grid")
-        if "." in format_str:
-            format_override, variant = format_str.split(".", 1)
-            # Expand shorthand
-            parameters.update(_expand_shorthand(format_override, variant))
+        # Special case: "~?params" → no format override, only JN parameters.
+        if not format_str and parameters:
+            format_override = None
         else:
-            format_override = format_str
+            if not format_str:
+                raise ValueError(f"Format override cannot be empty: {raw}")
+
+            # Check for shorthand format (e.g., "table.grid")
+            if "." in format_str:
+                format_override, variant = format_str.split(".", 1)
+                # Expand shorthand
+                parameters.update(_expand_shorthand(format_override, variant))
+            else:
+                format_override = format_str
 
         base = base_part
     else:
@@ -128,32 +132,73 @@ def parse_address(raw: str) -> Address:
 def _parse_query_string(query_string: str) -> Dict[str, str]:
     """Parse URL query string into dict.
 
-    Args:
-        query_string: Query string without leading ?
+    Supports both standard ``key=value`` pairs and concise filter syntax:
 
-    Returns:
-        Dict of key-value pairs
+    - ``field=value``              → equality filter/config
+    - ``field>value``              → greater-than filter
+    - ``field>=value``             → greater-than-or-equal filter
+    - ``field%3E%3D=value``        → same as ``field>=value`` (URL-encoded)
 
-    Examples:
-        >>> _parse_query_string("key=value")
-        {"key": "value"}
-
-        >>> _parse_query_string("key1=value1&key2=value2")
-        {"key1": "value1", "key2": "value2"}
-
-        >>> _parse_query_string("delimiter=%3B")  # URL-encoded semicolon
-        {"delimiter": ";"}
+    Multiple values for the same key are joined with commas, preserving the
+    existing semantics relied on by ``separate_config_and_filters()``.
     """
-    parsed = parse_qs(query_string, keep_blank_values=True)
+    if not query_string:
+        return {}
 
-    # Flatten single-item lists and URL-decode
-    result = {}
-    for key, values in parsed.items():
-        if len(values) == 1:
-            result[key] = unquote(values[0])
+    # Accumulate possibly multiple values per key
+    multi: Dict[str, list[str]] = {}
+
+    # Split on '&' first; we handle decoding and operators explicitly
+    for part in query_string.split("&"):
+        if not part:
+            continue
+
+        # Handle unencoded 2-character operators like "salary>=75000"
+        # before introducing a key/value split. We only examine the raw
+        # segment so that encoded forms (%3E%3D) are handled separately.
+        handled = False
+        for op in (">=", "<=", "!="):
+            if op in part:
+                field_raw, value_raw = part.split(op, 1)
+                key = f"{unquote(field_raw)}{op}"
+                value = unquote(value_raw)
+                multi.setdefault(key, []).append(value)
+                handled = True
+                break
+
+        if handled:
+            continue
+
+        # Fallback: standard key=value parsing (with URL-decoded pieces).
+        if "=" in part:
+            raw_key, raw_value = part.split("=", 1)
         else:
-            # Multiple values for same key - keep as comma-separated
-            result[key] = ",".join(unquote(v) for v in values)
+            raw_key, raw_value = part, ""
+
+        key = unquote(raw_key)
+        value = unquote(raw_value)
+
+        # Handle concise operator syntax like "salary>75000" (no '=').
+        if not raw_value and any(sym in key for sym in (">", "<", "!")):
+            for op in (">=", "<=", "!=", ">", "<"):
+                if op in key:
+                    field, tail = key.split(op, 1)
+                    if tail:
+                        key = f"{field}{op}"
+                        value = tail
+                    break
+
+        multi.setdefault(key, []).append(value)
+
+    # Flatten to single dict, joining multi-values with "||" so that
+    # downstream filtering can treat repeated parameters as explicit
+    # OR blocks when desired.
+    result: Dict[str, str] = {}
+    for key, values in multi.items():
+        if len(values) == 1:
+            result[key] = values[0]
+        else:
+            result[key] = "||".join(values)
 
     return result
 

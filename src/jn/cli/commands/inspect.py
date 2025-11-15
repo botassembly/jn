@@ -169,7 +169,14 @@ def _format_data_text(result: dict) -> str:
         lines.append(f"Transport: {result['transport']}")
     if result.get("format"):
         lines.append(f"Format: {result['format']}")
-    lines.append(f"Rows: {result.get('rows', 0)}")
+
+    rows = result.get("rows", 0)
+    limit = result.get("limit")
+    if limit is not None:
+        lines.append(f"Rows: {rows} (sample, limit: {limit})")
+    else:
+        lines.append(f"Rows: {rows}")
+
     lines.append(f"Columns: {result.get('columns', 0)}")
     lines.append("")
 
@@ -191,16 +198,64 @@ def _format_data_text(result: dict) -> str:
             lines.append(line)
         lines.append("")
 
-    # Facets
+    # Facets (only fields the analyzer deemed interesting)
     facets = result.get("facets", {})
     if facets:
         lines.append("Facets:")
-        for field, counts in list(facets.items())[:5]:  # Limit to 5 fields
+        # Show up to 5 fields, rendered as simple ASCII tables
+        for field, counts in list(facets.items())[:5]:
+            items = list(counts.items())
+            if not items:
+                continue
+
+            # Sort by frequency (desc), then value (asc) for stability
+            items.sort(key=lambda kv: (-kv[1], str(kv[0])))
+            top_items = items[:10]
+
+            # Compute column widths, ensuring headers fit
+            count_width = max(
+                len("count"), max(len(str(c)) for _, c in top_items)
+            )
+            value_width = max(
+                len(field), max(len(str(v)) for v, _ in top_items)
+            )
+            value_width = min(max(value_width, 5), 40)
+
+            # Simple boxed table
+            border = (
+                "    +"
+                + "-" * (count_width + 2)
+                + "+"
+                + "-" * (value_width + 2)
+                + "+"
+            )
+
             lines.append(f"  {field}:")
-            for value, count in list(counts.items())[:10]:  # Top 10 per field
-                lines.append(f"    {value}: {count}")
-            if len(counts) > 10:
-                lines.append(f"    ... ({len(counts) - 10} more)")
+            lines.append(border)
+            header = (
+                f"    | {'count'.rjust(count_width)} "
+                f"| {field.ljust(value_width)} |"
+            )
+            lines.append(header)
+            lines.append(border)
+
+            for value, count in top_items:
+                value_str = str(value)
+                row = (
+                    f"    | {str(count).rjust(count_width)} "
+                    f"| {value_str.ljust(value_width)} |"
+                )
+                lines.append(row)
+
+            if len(items) > 10:
+                remaining = len(items) - 10
+                more_txt = f"... ({remaining} more)"
+                gutter_width = (
+                    count_width + 1 + 1 + value_width
+                )  # count + space + value
+                lines.append(f"    | {more_txt.ljust(gutter_width)} |")
+
+            lines.append(border)
             lines.append("")
 
     # Stats
@@ -427,6 +482,9 @@ def _inspect_data(ctx, address_str: str, limit: int) -> dict:
     result["transport"] = addr.type
     if addr.format_override:
         result["format"] = addr.format_override
+    # Expose the sampling limit so callers/text formatting can clarify
+    # that row counts are based on a sample, not full dataset cardinality.
+    result["limit"] = limit
 
     return result
 
