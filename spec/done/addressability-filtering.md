@@ -1,8 +1,4 @@
-# Universal Addressability with On-the-Fly Filtering
-
-## Overview
-
-JN implements a universal addressing system that enables **filtering at the source** through URI syntax, eliminating intermediate `jn filter` commands.
+# Universal Addressability and Inline Filtering
 
 ## URI Syntax
 
@@ -11,40 +7,125 @@ address[~format][?parameters]
 ```
 
 **Components:**
-1. **address**: Base (file, URL, @profile, @plugin, -)
-2. **~format**: Optional format override
-3. **?parameters**: Config + filter parameters
+1. **address**: Base resource (file path, URL, @profile, @plugin, -)
+2. **~format**: Optional format override (e.g., ~csv, ~json)
+3. **?parameters**: Config + filter parameters (e.g., ?delimiter=auto&salary>50000)
 
 **Examples:**
 ```bash
 # HTTP + gzip + CSV + filtering
-jn head "https://ftp.ncbi.nlm.nih.gov/.../Homo_sapiens.gene_info.gz~?chromosome=19&type_of_gene!=protein-coding"
+jn head "https://ftp.ncbi.nlm.nih.gov/.../file.gz~?chromosome=19&type_of_gene!=protein-coding"
 
 # Local file + filter
 jn inspect "./tests/data/people.csv?salary<80000"
 
-# Format override + auto-delimiter
-jn inspect "https://...file.gz~csv?delimiter=auto"
+# Format override
+jn cat "data.txt~json"
 ```
 
-## How It Works
+---
 
-### 1. Tilde (~) Separates URL from JN Parameters
+## Address Routing
+
+JN routes addresses by detecting patterns in the base address component:
+
+### Protocol URLs
+- **Pattern**: `http://` or `https://`
+- **Handler**: HTTP plugin fetches remote content
+- **Example**: `https://example.com/data.csv`
+
+### File Paths
+- **Absolute**: `/home/user/data.csv`
+- **Relative**: `data.csv` (resolved from current directory)
+- **Explicit relative**: `./data.csv` or `../data.csv`
+- **Handler**: File plugin reads from filesystem
+
+### Profiles
+- **Pattern**: `@namespace/name`
+- **Handler**: Profile plugin loads JSON config, resolves to actual address
+- **Example**: `@ncbi/genes` → `https://ftp.ncbi.nlm.nih.gov/.../Homo_sapiens.gene_info.gz`
+
+### Plugins
+- **Pattern**: `@plugin_name` (no slash)
+- **Handler**: Direct plugin invocation
+- **Example**: `@jq` for jq filter plugin
+
+### Stdin
+- **Pattern**: `-`
+- **Handler**: Read from stdin (for pipeline composition)
+
+---
+
+## Format Routing
+
+Formats are detected in two ways:
+
+### 1. File Extension Detection
+```bash
+data.csv        → CSV plugin
+data.json       → JSON plugin
+data.yaml       → YAML plugin
+data.csv.gz     → CSV plugin (after gz decompression)
+```
+
+Plugin declares patterns in `[tool.jn] matches = [".*\\.csv$", ".*\\.json$"]`
+
+### 2. Format Override (Tilde)
+```bash
+data.txt~csv    → CSV plugin (ignore .txt extension)
+data.gz~json    → JSON plugin (decompress, parse as JSON)
+```
+
+**Override wins over extension.**
+
+---
+
+## Tilde (~) Separator
+
+The `~` separates URL query strings from JN format/parameters:
 
 ```
 https://example.com/data?token=xyz~csv?chromosome=19
-                            ^          ^           ^
-                    URL query      escape     JN filters
+                            ^      ^               ^
+                    URL query  escape    JN format+filters
 ```
 
-**The `~` is critical for protocol URLs:**
-- Before `~`: Full URL (including native query string)
-- After `~`: Format override + JN parameters
+**Critical for protocol URLs:**
+- Before `~`: Full URL (including native `?query`)
+- After `~`: JN format override + parameters
+
+**Why tilde?**
 - URL-safe (RFC 3986 unreserved character)
+- Rare in file paths (only `~user` in Unix)
+- Semantic ("treat AS")
+- No conflicts with protocols, shells, regex
 
-### 2. Filter Parameters → jq Expressions
+**Alternatives rejected:** `:` (protocol conflict), `#` (fragment), `@` (profiles), `!` (shell)
 
-**Simple operators:**
+---
+
+## Query Parameters
+
+Parameters after `?` serve two purposes:
+
+### 1. Format Config
+```bash
+data.csv?delimiter=tab          # CSV with tab delimiter
+data.json?indent=2              # JSON with pretty-printing
+```
+
+Passed to format plugin as config dict.
+
+### 2. Filter Operators
+```bash
+data.csv?salary>50000           # Numeric comparison
+data.csv?name=Alice             # Equality
+data.csv?status!=inactive       # Inequality
+```
+
+Converted to jq expressions by `filtering.py`.
+
+**Operator mapping:**
 ```
 field=value   → .field == "value"
 field!=value  → .field != "value"
@@ -60,232 +141,74 @@ field<=value  → (.field | tonumber) <= value
 - `"true"` → `true` (boolean)
 - `"hello"` → `"hello"` (string)
 
-**Builder location:** `src/jn/filtering.py` (shared utility)
+---
 
-### 3. Execution Pipeline
+## JQ Streaming (The Right Way)
 
+Filters run as **separate subprocess** for proper backpressure:
+
+```python
+# reader process pipes to filter process
+reader = Popen([...], stdout=PIPE)
+filter = Popen(["jq", expr], stdin=reader.stdout, stdout=PIPE)
+reader.stdout.close()  # Critical for SIGPIPE
 ```
-HTTP → gz decompress → CSV parse → jq filter (subprocess) → NDJSON → head
+
+**Why subprocess, not inline?**
+1. **Automatic backpressure**: OS pipe buffers block when full
+2. **Parallel execution**: Reader and filter run simultaneously on different CPUs
+3. **Early termination**: `| head -n 10` sends SIGPIPE backward, stopping reader
+4. **Constant memory**: No buffering in Python process
+
+**Execution pipeline:**
+```
+HTTP fetch → gz decompress → CSV parse → jq filter (subprocess) → NDJSON → head
+    ↓             ↓              ↓              ↓                     ↓
+ Process 1    Process 2      Process 3      Process 4           Process 5
 ```
 
-**Key:** Filter runs as **separate subprocess** for proper backpressure, using the actual `jq` binary (not reimplementing jq logic).
+All stages run concurrently with automatic flow control via OS pipes.
 
-## Tilde (~) Evaluation
-
-**Verdict: ✅ Keep it!**
-
-| ✅ Why | Details |
-|--------|---------|
-| **URL-safe** | RFC 3986 unreserved character |
-| **Rare in paths** | Only `~user` in Unix (clear context) |
-| **Semantic** | Reads as "treat AS" (file.txt~csv) |
-| **No conflicts** | Not used in protocols, shells, regex |
-
-**Alternatives rejected:** `:` (protocol conflict), `#` (fragment), `@` (profiles), `!` (shell)
+---
 
 ## Shared Filter Builder
 
-**No code duplication!** One builder (`filtering.py`) used by:
-- `head.py` - inline filters in address
-- `tail.py` - inline filters in address
-- `inspect.py` - inline filters in address
-- `cat.py` - inline filters in address
-- All execute via `jn filter '<jq-expr>'` subprocess
+**One builder (`filtering.py`), no duplication:**
+
+```python
+# src/jn/filtering.py - Converts simple operators to jq expressions
+def build_jq_filter(filters: List[Tuple[str, str, str]]) -> str:
+    # [("salary", ">", "50000")] → 'select(.salary | tonumber) > 50000)'
+```
+
+**Used by all commands:**
+- `head.py` - Inline filters in address
+- `tail.py` - Inline filters in address
+- `cat.py` - Inline filters in address
+- `inspect.py` - Inline filters in address
 
 **Architecture:**
-1. `filtering.py` - Generator (simple syntax → jq expressions)
-2. `jq_` plugin - Executor (runs jq binary)
+1. `filtering.py` - Generator (simple syntax → jq expression string)
+2. `jq_` plugin - Executor (runs `jq` binary as subprocess)
 3. `jq` binary - Evaluator (actual filtering)
 
-## Inline vs. Piped Filters
+**No code duplication.** No reimplementing jq logic.
 
-**Inline (using filtering.py):**
+---
+
+## Inline vs. Piped
+
+**Inline (filter at source):**
 ```bash
 jn cat "data.csv?revenue>1000"
 ```
 
-**Piped (manual jq):**
+**Piped (filter downstream):**
 ```bash
 jn cat data.csv | jn filter '.revenue > 1000'
 ```
 
-**Both valid!** Inline for source filtering, pipes for complex transformations. Both use the same `jq` binary and executor.
-
-## Future: Profile Save Feature
-
-**Not implemented yet.** This section describes how query auto-capture could work.
-
-### Concept
-
-Complex queries can be "banked" as reusable profiles:
-
-```bash
-# Explore with inline filtering
-jn head "https://ftp.ncbi.nlm.nih.gov/.../Homo_sapiens.gene_info.gz~?chromosome=19&type_of_gene!=protein-coding"
-
-# Save as profile (proposed)
-jn head "..." --save-profile @ncbi/chr19-non-coding
-
-# Reuse
-jn head @ncbi/chr19-non-coding
-```
-
-### Saved Profile Format
-
-**Option 1: Keep whole URL structure (opaque blob)**
-
-```json
-{
-  "type": "data_file",
-  "full_address": "https://ftp.ncbi.nlm.nih.gov/.../Homo_sapiens.gene_info.gz~?chromosome=19&type_of_gene!=protein-coding",
-  "description": "Chromosome 19 non-coding genes from NCBI"
-}
-```
-
-**Execution:** Exact replay of original address.
-
-**Option 2: Decompose into structured adapters**
-
-```json
-{
-  "type": "data_file",
-  "url": "https://ftp.ncbi.nlm.nih.gov/gene/DATA/GENE_INFO/Mammalia/Homo_sapiens.gene_info.gz",
-  "adapters": [
-    {
-      "type": "compression",
-      "format": "gz"
-    },
-    {
-      "type": "format",
-      "format": "csv",
-      "config": {"delimiter": "auto"}
-    },
-    {
-      "type": "filter",
-      "filters": {
-        "chromosome": "19",
-        "type_of_gene!=": ["protein-coding", "pseudo"]
-      }
-    }
-  ],
-  "description": "Chromosome 19 non-coding genes from NCBI"
-}
-```
-
-**Execution:** Rebuild address from adapters, then execute normally.
-
-**Recommended: Option 2 (decomposed adapters)**
-
-**Why:**
-- **Editable**: Users can modify filters/config without parsing URIs
-- **Composable**: Can create variations easily
-- **Discoverable**: `jn profile info` shows structure clearly
-- **Flexible**: Can add/remove/reorder adapters
-
-### Multiple Profiles, Same URL
-
-**Yes!** Different filter adapters on same base URL:
-
-```json
-// ~/.local/jn/profiles/ncbi/chr1-protein-coding.json
-{
-  "url": "https://ftp.ncbi.nlm.nih.gov/.../Homo_sapiens.gene_info.gz",
-  "adapters": [
-    {"type": "compression", "format": "gz"},
-    {"type": "format", "format": "csv", "config": {"delimiter": "auto"}},
-    {"type": "filter", "filters": {"chromosome": "1", "type_of_gene": "protein-coding"}}
-  ]
-}
-
-// ~/.local/jn/profiles/ncbi/chr2-pseudogenes.json
-{
-  "url": "https://ftp.ncbi.nlm.nih.gov/.../Homo_sapiens.gene_info.gz",
-  "adapters": [
-    {"type": "compression", "format": "gz"},
-    {"type": "format", "format": "csv", "config": {"delimiter": "auto"}},
-    {"type": "filter", "filters": {"chromosome": "2", "type_of_gene": "pseudo"}}
-  ]
-}
-```
-
-**Usage:**
-```bash
-jn head @ncbi/chr1-protein-coding
-jn head @ncbi/chr2-pseudogenes
-```
-
-### Adapter Execution Mapping
-
-**From profile → Reconstructed address → Same execution path:**
-
-```
-Profile adapters:
-  [compression: gz] + [format: csv, delimiter=auto] + [filter: chr=19, type!=protein-coding]
-          ↓
-Rebuild address:
-  https://...file.gz~csv?delimiter=auto&chromosome=19&type_of_gene!=protein-coding
-          ↓
-Parse (existing code):
-  base: https://...file.gz
-  compression: gz
-  format_override: csv
-  parameters: {delimiter: auto, chromosome: 19, type_of_gene!=: protein-coding}
-          ↓
-Execute (existing pipeline):
-  HTTP → gz decompress → CSV parse → jq filter → NDJSON
-```
-
-**No new execution code needed!** Profile just reconstructs the address string, then uses existing parser + pipeline.
-
-### Editing Profiles
-
-**JSON files are human-editable:**
-
-```bash
-# Edit with any text editor
-vim ~/.local/jn/profiles/ncbi/chr19-non-coding.json
-
-# Change filter
-{
-  "filters": {
-    "chromosome": "19",          # Change to "1"
-    "type_of_gene!=": ["pseudo"]  # Add/remove values
-  }
-}
-
-# Or use jq to edit programmatically
-jq '.adapters[2].filters.chromosome = "1"' profile.json
-```
-
-**Validation:**
-```bash
-jn profile check @ncbi/chr19-non-coding  # Validate syntax
-jn profile test @ncbi/chr19-non-coding   # Test execution
-```
-
-### Implementation Notes
-
-**CLI flag:**
-```python
-@click.option("--save-profile", help="Save query as profile @namespace/name")
-def head(ctx, source, n, save_profile):
-    if save_profile:
-        addr = parse_address(source)
-        profile = decompose_to_adapters(addr)
-        save_profile_json(save_profile, profile)
-```
-
-**Adapter types:**
-- `compression` - gz, bz2, xz
-- `format` - csv, json, yaml, etc. (with config)
-- `filter` - field operators (from filtering.py)
-
-**Data File vs. API Profile:**
-- **Data File**: Static URL, decomposed adapters (this section)
-- **API**: Dynamic base_url, headers, env vars (existing HTTP profiles)
-
-### Open Questions
-
-1. **Adapter ordering**: Does order matter? (Yes - compression before format)
-2. **Adapter composition**: Can users chain multiple filters? (Yes, merge into single jq expression)
-3. **Template support**: Should profiles support `${VAR}` substitution? (Maybe for advanced use)
+**Both valid!**
+- Inline: Filter early (reduce data transfer)
+- Piped: Complex transformations (full jq expressions)
+- Both use same `jq` binary and subprocess architecture
