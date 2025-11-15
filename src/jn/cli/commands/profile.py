@@ -89,18 +89,24 @@ def list_cmd(ctx, query, output_format, type_filter):
             click.echo(f"\n{type_label}:")
 
             # List profiles in this type
-            type_profiles = sorted(by_type[profile_type], key=lambda p: p.reference)
+            type_profiles = sorted(
+                by_type[profile_type], key=lambda p: p.reference
+            )
 
             # Calculate max reference length for alignment
             max_ref_len = max(len(p.reference) for p in type_profiles)
 
             for p in type_profiles:
                 if p.description:
-                    click.echo(f"  {p.reference:{max_ref_len}}  {p.description}")
+                    click.echo(
+                        f"  {p.reference:{max_ref_len}}  {p.description}"
+                    )
                 else:
                     click.echo(f"  {p.reference}")
 
-        click.echo("\nUse 'jn profile info <reference>' for detailed information")
+        click.echo(
+            "\nUse 'jn profile info <reference>' for detailed information"
+        )
 
 
 @profile.command(name="info")
@@ -154,19 +160,19 @@ def info(ctx, reference, output_format):
         click.echo(f"Location: {profile.path}")
 
         if profile.description:
-            click.echo(f"\nDescription:")
+            click.echo("\nDescription:")
             click.echo(f"  {profile.description}")
 
         if profile.params:
-            click.echo(f"\nParameters:")
+            click.echo("\nParameters:")
             for param in profile.params:
                 click.echo(f"  {param}")
         else:
-            click.echo(f"\nParameters: (none)")
+            click.echo("\nParameters: (none)")
 
         # Show examples if available
         if profile.examples:
-            click.echo(f"\nExamples:")
+            click.echo("\nExamples:")
             for ex in profile.examples:
                 desc = ex.get("description", "")
                 cmd = ex.get("command", "")
@@ -177,7 +183,7 @@ def info(ctx, reference, output_format):
 
         # Generic usage examples based on type
         elif profile.type == "jq":
-            click.echo(f"\nUsage:")
+            click.echo("\nUsage:")
             click.echo(f"  jn cat data.json | jn filter '{profile.reference}'")
             if profile.params:
                 param_examples = " ".join(
@@ -187,7 +193,7 @@ def info(ctx, reference, output_format):
                     f"  jn cat data.json | jn filter '{profile.reference}' {param_examples}"
                 )
         elif profile.type in ["gmail", "http", "mcp"]:
-            click.echo(f"\nUsage:")
+            click.echo("\nUsage:")
             click.echo(f"  jn cat {profile.reference}")
             if profile.params:
                 param_examples = " ".join(
@@ -247,10 +253,7 @@ def tree(ctx, type_filter):
                 profile_prefix = "└──" if is_last_profile else "├──"
 
                 # Adjust indentation based on namespace position
-                if is_last_namespace:
-                    indent = "    "
-                else:
-                    indent = "│   "
+                indent = "    " if is_last_namespace else "│   "
 
                 desc = f" - {p.description}" if p.description else ""
                 click.echo(f"│   {indent}    {profile_prefix} {p.name}{desc}")

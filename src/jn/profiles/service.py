@@ -77,7 +77,11 @@ def _parse_jq_profile(jq_file: Path, profile_root: Path) -> ProfileInfo:
         # Description from first comment
         if line.startswith("#") and not description:
             desc_text = line.lstrip("#").strip()
-            if desc_text and not desc_text.startswith("Parameters:") and not desc_text.startswith("Usage:"):
+            if (
+                desc_text
+                and not desc_text.startswith("Parameters:")
+                and not desc_text.startswith("Usage:")
+            ):
                 description = desc_text
 
         # Parameters from "# Parameters: x, y, z" format
@@ -243,7 +247,8 @@ def search_profiles(
     matches = [
         p
         for p in all_profiles
-        if query_lower in p.name.lower() or query_lower in p.description.lower()
+        if query_lower in p.name.lower()
+        or query_lower in p.description.lower()
     ]
 
     return sorted(matches, key=lambda p: p.reference)
