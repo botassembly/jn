@@ -30,6 +30,7 @@ from .commands.check import check
 from .commands.filter import filter
 from .commands.head import head
 from .commands.inspect import inspect
+from .commands.profile import profile
 from .commands.put import put
 from .commands.run import run
 from .commands.sh import sh
@@ -47,6 +48,7 @@ cli.add_command(sh)
 cli.add_command(inspect)
 cli.add_command(check)
 cli.add_command(plugin)
+cli.add_command(profile)
 
 
 def main():
