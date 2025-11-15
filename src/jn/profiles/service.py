@@ -105,7 +105,8 @@ def _parse_jq_profile(jq_file: Path, profile_root: Path) -> ProfileInfo:
     parts = rel_path.with_suffix("").parts
 
     if len(parts) == 1:
-        namespace = "root"
+        # No subdirectory - use profile type as namespace
+        namespace = "jq"
         name = parts[0]
     else:
         namespace = parts[0]
@@ -145,7 +146,8 @@ def _parse_json_profile(
     parts = rel_path.with_suffix("").parts
 
     if len(parts) == 1:
-        namespace = "root"
+        # No subdirectory - use profile type as namespace
+        namespace = profile_type
         name = parts[0]
     else:
         namespace = parts[0]
