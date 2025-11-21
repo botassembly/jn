@@ -4,67 +4,100 @@ This directory contains all specification and design documents for the JN projec
 
 ## Directory Structure
 
-### `/done/` - Fully Implemented Specifications
+```
+spec/
+├── roadmap.md   # Project roadmap (top level for easy access)
+├── done/        # Implemented features
+└── todo/        # Planned features
+```
 
-Contains specifications and design documents for features that have been fully or almost fully implemented in the codebase. These documents accurately reflect the current state of the project and serve as reference documentation.
+### `roadmap.md` - Project Roadmap
 
-**Key documents:**
-- `arch-design.md` - Core v5 architecture (PEP 723, UV, NDJSON, Unix pipes)
+High-level project roadmap with current status (✅/🚧/🔲). Located at top level for easy access.
+
+### `/done/` - Implemented Features
+
+Specifications for features that have been fully implemented. These documents accurately reflect the current state of the project and serve as reference documentation.
+
+**Core architecture:**
+- `arch-design.md` - v5 architecture (PEP 723, UV, NDJSON, Unix pipes)
 - `arch-backpressure.md` - Backpressure and streaming architecture
-- `addressability.md` - Universal addressing system (`address[~format][?params]`)
+- `addressability.md` - Universal addressing (`address[~format][?params]`)
+- `addressability-filtering.md` - Filtering with universal addressing
+
+**Plugin system:**
 - `plugin-specification.md` - Plugin development standards
-- `plugin-checker.md` - AST-based static analysis tool
+- `plugin-checker.md` - AST-based static analysis
+- `checker-whitelist.md` - Plugin checker whitelisting
+
+**Profile system:**
 - `profile-usage.md` - Hierarchical profile system
+- `gmail-profile-architecture.md` - Gmail profiles
+- `restful-api-profile.md` - REST API profiles
+- `jq-profile.md` - JQ filter profiles
+
+**Formats:**
 - `format-design.md` - Format plugin architecture
+- `xlsx-format.md` - Excel format
+- `markdown-format.md` - Markdown format
+- `toml-format.md` - TOML format
+
+**Protocols:**
 - `http-design.md` - HTTP protocol plugin
+- `http-protocol.md` - HTTP protocol implementation
 - `mcp.md` - Model Context Protocol integration
-- `gmail-profile-architecture.md` - Gmail plugin architecture
-- `shell-commands.md` - Shell command handling (custom + jc fallback)
+- `mcp-protocol.md` - MCP implementation
+- `gmail-plugin.md` - Gmail plugin
+
+**Commands:**
 - `inspect-design.md` - Unified inspect command
-- `checker-whitelist.md` - Plugin checker whitelisting mechanism
+- `shell-commands.md` - Shell command handling (custom + jc fallback)
+- `jc-shell-plugins.md` - JC shell integration
 
-**Completed work tickets:**
-- `work-01-http-protocol.md` through `work-23-mcp-naked-access-refactor.md`
-- See individual files for implementation details
+**Utilities:**
+- `jtbl-renderer.md` - Table rendering
+- `ls-folder-reader.md` - Folder listing
+- `tail-file-follower.md` - File following
+- `watchdog-monitor.md` - File monitoring
 
-**Example workflows:**
-- `workflows-genomoncology-examples.md` - Real-world API integration examples
-- `workflows-gmail-examples.md` - Gmail data extraction workflows
+**Refactors:**
+- `addressability-refactor.md` - Addressability refactor
+- `mcp-naked-access-refactor.md` - MCP naked access
 
-### `/wip/` - Work in Progress
+**Workflows:**
+- `workflows-genomoncology-examples.md` - Real-world API examples
+- `workflows-gmail-examples.md` - Gmail workflows
 
-Contains living documents that are actively being updated as the project evolves. These documents contain both completed and planned items.
+### `/todo/` - Planned Features
 
-**Documents:**
-- `roadmap.md` - Project roadmap with current status (✅/🚧/🔲)
-- `design-index.md` - Index of all design documents (needs status updates)
+Specifications for features that are designed but not yet implemented. Developer-ready specs with complete designs and code examples.
 
-### `/plan/` - Planned Features
+**Databases:**
+- `duckdb-profiles.md` - **DuckDB profile system (comprehensive spec + code)**
+- `duckdb-implementation-guide.md` - **DuckDB developer guide (7-day plan)**
+- `duckdb-database.md` - DuckDB overview (points to other specs)
+- `sqlite-database.md` - SQLite plugin
+- `postgres-database.md` - PostgreSQL plugin
 
-Contains specifications for features that have been designed but not yet implemented. These documents represent the project's future direction.
+**Protocols:**
+- `s3-protocol.md` - S3 protocol plugin
+- `ftp-protocol.md` - FTP protocol plugin
 
-**Planned designs:**
-- `debug-explain-mode.md` - Debug and explain mode for pipelines
-- `profile-cli.md` - Profile management CLI commands
+**Formats:**
+- `parquet-format.md` - Parquet format plugin
+- `google-sheets.md` - Google Sheets plugin
 
-**Planned work tickets:**
-- `work-03-s3-protocol.md` - S3 protocol plugin
-- `work-04-ftp-protocol.md` - FTP protocol plugin
-- `work-06-sqlite-database.md` - SQLite plugin
-- `work-07-postgres-database.md` - PostgreSQL plugin
-- `work-13-duckdb-database.md` - DuckDB plugin
-- `work-17-parquet-format.md` - Parquet format plugin
-- `work-18-google-sheets.md` - Google Sheets plugin
+**Features:**
+- `debug-explain-mode.md` - Debug and explain mode
+- `profile-cli.md` - Profile management CLI
 
 ## Document Lifecycle
 
-As features are implemented, documents should be moved between directories:
+1. **Design** → Create in `/todo/`
+2. **Implementation** → Work from spec in `/todo/`
+3. **Complete** → Move to `/done/`
 
-1. **Initial design** → Create in `/plan/`
-2. **Implementation starts** → Move to `/wip/` (if it's a large, multi-phase feature)
-3. **Implementation complete** → Move to `/done/`
-
-For simple features, documents can move directly from `/plan/` to `/done/` upon completion.
+Simple and clear: TODO → DONE.
 
 ## Quick Reference
 

@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "jn"
 description = "JN: Agent-native ETL with NDJSON pipelines"
-version = "0.0.1dev1"
+version = "0.0.0dev1"
 readme = "README.md"
 classifiers = [
     "Development Status :: 3 - Alpha",
