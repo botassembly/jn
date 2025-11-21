@@ -44,6 +44,27 @@ jn cat data.csv --limit 5
 echo '{"name":"Alice","age":30}' | jn cat - | jq '.age' | jn put -
 ```
 
+### ⚠️ Golden Path: Use JN Commands, Not Direct Plugin Calls
+
+**✅ CORRECT - Use jn commands:**
+```bash
+jn cat data.csv | jn put output.json         # Auto-detects format
+jn cat data.csv | jn filter '.age > 25'      # Streams efficiently
+jn cat data.txt~csv?delimiter=tab            # Format override with params
+```
+
+**❌ WRONG - Don't call plugins directly:**
+```bash
+python csv_.py --mode read < data.csv        # Bypasses framework!
+uv run csv_.py --mode read < data.csv        # Loses backpressure!
+```
+
+**Why?** Direct plugin calls bypass:
+- Automatic backpressure and memory efficiency
+- Early termination support (`| head -n 10` stops upstream)
+- Parallel multi-stage execution
+- Better error messages and plugin discovery
+
 ## Core Commands
 
 ### Data Exploration
