@@ -1,5 +1,33 @@
 # JN Project - Context for Claude
 
+## ⚠️ CRITICAL: Always Use JN Commands (Golden Path)
+
+**DO THIS (Correct):**
+```bash
+jn cat data.csv | jn filter '.x > 10' | jn put output.json
+jn cat data.csv --limit 100
+jn cat https://api.com/data.json | jn put results.csv
+```
+
+**DON'T DO THIS (Wrong - Bypasses Architecture):**
+```bash
+python jn_home/plugins/formats/csv_.py --mode read < data.csv  # ❌ NO!
+python csv_.py --mode read < data.csv | python json_.py --mode write  # ❌ NO!
+uv run csv_.py --mode read < data.csv  # ❌ NO!
+```
+
+**Why the Golden Path Matters:**
+- ✅ Automatic backpressure via OS pipes
+- ✅ Memory-efficient streaming (constant memory, any file size)
+- ✅ Early termination (`| head -n 10` stops upstream processing)
+- ✅ Parallel multi-stage execution across CPUs
+- ✅ Better error messages and diagnostics
+- ✅ Automatic plugin discovery and format detection
+
+**When writing code or examples, ALWAYS use `jn cat`, `jn put`, `jn filter` - NEVER call plugins directly!**
+
+---
+
 ## What is JN?
 
 JN is an **agent-native ETL framework** that uses:

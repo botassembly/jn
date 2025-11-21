@@ -417,9 +417,16 @@ class AddressResolver:
             ):
                 return meta.name, meta.path
 
+        # Build list of available format plugins (exclude protocols, filters, etc.)
+        format_plugins = sorted([
+            name.rstrip('_') for name, meta in self._plugins.items()
+            if meta.role == 'format' or '/formats/' in meta.path
+        ])
+
         raise AddressResolutionError(
-            f"Plugin not found for format: {format_name}. "
-            f"Available plugins: {', '.join(sorted(self._plugins.keys()))}"
+            f"Plugin not found for format: {format_name}\n"
+            f"  Available format plugins: {', '.join(format_plugins)}\n"
+            f"  Usage: source~{format_name} or source?format={format_name}"
         )
 
     def _find_plugin_by_protocol(self, url: str) -> Tuple[str, str]:
@@ -456,9 +463,27 @@ class AddressResolver:
             plugin = self._plugins[matched_name]
             return plugin.name, plugin.path
 
+        # Build helpful error message with examples
+        common_protocols = {
+            'duckdb': 'duckdb://path/to/file.duckdb?query=SELECT * FROM table',
+            'sqlite': 'sqlite://path/to/file.db?query=SELECT * FROM table',
+            'postgres': 'postgres://host/db?query=SELECT * FROM table',
+            's3': 's3://bucket/key',
+            'ftp': 'ftp://host/path',
+        }
+
+        # List available protocol plugins
+        protocol_plugins = sorted([
+            name.rstrip('_') for name, meta in self._plugins.items()
+            if meta.role == 'protocol' or '://' in str(meta.matches)
+        ])
+
+        example = common_protocols.get(protocol, f"{protocol}://...")
+
         raise AddressResolutionError(
-            f"Plugin not found for protocol: {protocol}. "
-            f"Available plugins: {', '.join(sorted(self._plugins.keys()))}"
+            f"Plugin not found for protocol: {protocol}\n"
+            f"  Example usage: {example}\n"
+            f"  Available protocol plugins: {', '.join(protocol_plugins)}"
         )
 
     def _find_plugin_by_name(self, name: str) -> Tuple[str, str]:
@@ -505,9 +530,28 @@ class AddressResolver:
             plugin = self._plugins[matched_name]
             return plugin.name, plugin.path
 
+        # Build helpful error message with suggestions
+        from pathlib import Path
+        ext = Path(source).suffix.lower()
+
+        suggestions = []
+        if ext in ('.txt', '.dat', '.data'):
+            suggestions.append(f"  • Try CSV format: {source}~csv")
+            suggestions.append(f"  • Or with delimiter: {source}~csv?delimiter=\\t")
+        elif ext in ('.db', '.sqlite', '.sqlite3'):
+            suggestions.append(f"  • Try SQLite: sqlite://{source}?query=SELECT * FROM table_name")
+        elif ext in ('.duckdb', '.ddb'):
+            suggestions.append(f"  • Try DuckDB: duckdb://{source}?query=SELECT * FROM table_name")
+        elif not ext:
+            suggestions.append(f"  • Add file extension or use format override: {source}~csv")
+        else:
+            suggestions.append(f"  • Use format override: {source}~<format>")
+            suggestions.append(f"  • Example: {source}~csv or {source}~json")
+
+        suggestion_text = "\n" + "\n".join(suggestions) if suggestions else ""
+
         raise AddressResolutionError(
-            f"No plugin found for: {source}. "
-            f"Consider using format override: {source}~<format>"
+            f"No plugin found for: {source}{suggestion_text}"
         )
 
     def _build_config(
