@@ -420,7 +420,8 @@ class AddressResolver:
         # Build list of available format plugins (exclude protocols, filters, etc.)
         format_plugins = sorted([
             name.rstrip('_') for name, meta in self._plugins.items()
-            if meta.role == 'format' or '/formats/' in meta.path
+            if (getattr(meta, 'role', None) == 'format' or
+                '/formats/' in meta.path)
         ])
 
         raise AddressResolutionError(
@@ -475,7 +476,9 @@ class AddressResolver:
         # List available protocol plugins
         protocol_plugins = sorted([
             name.rstrip('_') for name, meta in self._plugins.items()
-            if meta.role == 'protocol' or '://' in str(meta.matches)
+            if (getattr(meta, 'role', None) == 'protocol' or
+                '/protocols/' in meta.path or
+                any('://' in str(m) for m in (meta.matches or [])))
         ])
 
         example = common_protocols.get(protocol, f"{protocol}://...")

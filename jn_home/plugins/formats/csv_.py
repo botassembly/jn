@@ -1,5 +1,11 @@
 #!/usr/bin/env -S uv run --script
-"""Parse CSV/TSV files and convert to/from NDJSON."""
+"""Parse CSV/TSV files and convert to/from NDJSON.
+
+Note: This plugin matches .txt files because they commonly contain
+tab-separated or comma-separated data. If a .txt file contains non-tabular
+data, the delimiter detection will fail gracefully or you can use a
+different format override (e.g., file.txt~ndjson).
+"""
 # /// script
 # requires-python = ">=3.11"
 # dependencies = []

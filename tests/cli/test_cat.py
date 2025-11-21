@@ -42,3 +42,29 @@ def test_cat_unsupported_format(invoke, tmp_path):
     result = invoke(["cat", str(unknown_file)])
     assert result.exit_code == 1
     assert "Error:" in result.output
+
+
+def test_cat_txt_file_auto_detection(invoke, tmp_path):
+    """Verify .txt files are auto-detected as CSV/TSV.
+
+    This test verifies the fix for developer feedback: .txt files commonly
+    contain tab-separated or comma-separated data and should be auto-detected.
+    """
+    # Create a tab-separated .txt file
+    txt_file = tmp_path / "data.txt"
+    txt_file.write_text("name\tage\nAlice\t30\nBob\t25\n")
+
+    # Should auto-detect as CSV and parse successfully
+    result = invoke(["cat", str(txt_file)])
+    assert result.exit_code == 0
+
+    lines = [line for line in result.output.strip().split("\n") if line]
+    assert len(lines) == 2  # Two data rows (header is consumed)
+
+    first = json.loads(lines[0])
+    assert first["name"] == "Alice"
+    assert first["age"] == "30"
+
+    second = json.loads(lines[1])
+    assert second["name"] == "Bob"
+    assert second["age"] == "25"
