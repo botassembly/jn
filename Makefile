@@ -45,3 +45,7 @@ clean:
 
 install:
 	uv sync --all-extras
+
+publish:
+	@uv build
+	@uvx twine upload -r pypi dist/*
