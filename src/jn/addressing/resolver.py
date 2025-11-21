@@ -418,11 +418,16 @@ class AddressResolver:
                 return meta.name, meta.path
 
         # Build list of available format plugins (exclude protocols, filters, etc.)
-        format_plugins = sorted([
-            name.rstrip('_') for name, meta in self._plugins.items()
-            if (getattr(meta, 'role', None) == 'format' or
-                '/formats/' in meta.path)
-        ])
+        format_plugins = sorted(
+            [
+                name.rstrip("_")
+                for name, meta in self._plugins.items()
+                if (
+                    getattr(meta, "role", None) == "format"
+                    or "/formats/" in meta.path
+                )
+            ]
+        )
 
         raise AddressResolutionError(
             f"Plugin not found for format: {format_name}\n"
@@ -466,20 +471,25 @@ class AddressResolver:
 
         # Build helpful error message with examples
         common_protocols = {
-            'duckdb': 'duckdb://path/to/file.duckdb?query=SELECT * FROM table',
-            'sqlite': 'sqlite://path/to/file.db?query=SELECT * FROM table',
-            'postgres': 'postgres://host/db?query=SELECT * FROM table',
-            's3': 's3://bucket/key',
-            'ftp': 'ftp://host/path',
+            "duckdb": "duckdb://path/to/file.duckdb?query=SELECT * FROM table",
+            "sqlite": "sqlite://path/to/file.db?query=SELECT * FROM table",
+            "postgres": "postgres://host/db?query=SELECT * FROM table",
+            "s3": "s3://bucket/key",
+            "ftp": "ftp://host/path",
         }
 
         # List available protocol plugins
-        protocol_plugins = sorted([
-            name.rstrip('_') for name, meta in self._plugins.items()
-            if (getattr(meta, 'role', None) == 'protocol' or
-                '/protocols/' in meta.path or
-                any('://' in str(m) for m in (meta.matches or [])))
-        ])
+        protocol_plugins = sorted(
+            [
+                name.rstrip("_")
+                for name, meta in self._plugins.items()
+                if (
+                    getattr(meta, "role", None) == "protocol"
+                    or "/protocols/" in meta.path
+                    or any("://" in str(m) for m in (meta.matches or []))
+                )
+            ]
+        )
 
         example = common_protocols.get(protocol, f"{protocol}://...")
 
@@ -535,18 +545,27 @@ class AddressResolver:
 
         # Build helpful error message with suggestions
         from pathlib import Path
+
         ext = Path(source).suffix.lower()
 
         suggestions = []
-        if ext in ('.txt', '.dat', '.data'):
+        if ext in (".txt", ".dat", ".data"):
             suggestions.append(f"  • Try CSV format: {source}~csv")
-            suggestions.append(f"  • Or with delimiter: {source}~csv?delimiter=\\t")
-        elif ext in ('.db', '.sqlite', '.sqlite3'):
-            suggestions.append(f"  • Try SQLite: sqlite://{source}?query=SELECT * FROM table_name")
-        elif ext in ('.duckdb', '.ddb'):
-            suggestions.append(f"  • Try DuckDB: duckdb://{source}?query=SELECT * FROM table_name")
+            suggestions.append(
+                f"  • Or with delimiter: {source}~csv?delimiter=\\t"
+            )
+        elif ext in (".db", ".sqlite", ".sqlite3"):
+            suggestions.append(
+                f"  • Try SQLite: sqlite://{source}?query=SELECT * FROM table_name"  # noqa: S608
+            )
+        elif ext in (".duckdb", ".ddb"):
+            suggestions.append(
+                f"  • Try DuckDB: duckdb://{source}?query=SELECT * FROM table_name"  # noqa: S608
+            )
         elif not ext:
-            suggestions.append(f"  • Add file extension or use format override: {source}~csv")
+            suggestions.append(
+                f"  • Add file extension or use format override: {source}~csv"
+            )
         else:
             suggestions.append(f"  • Use format override: {source}~<format>")
             suggestions.append(f"  • Example: {source}~csv or {source}~json")
