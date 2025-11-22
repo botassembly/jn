@@ -113,11 +113,6 @@ def get_plugin_config_params(plugin_path: str) -> List[str]:
     Returns:
         List of config parameter names, or empty list if can't introspect
     """
-    # Special case for DuckDB plugins - all params are config (SQL bind params)
-    # Check this before trying to load the plugin (which might fail due to deps)
-    if "duckdb" in plugin_path.lower():
-        return ["__ALL_PARAMS_ARE_CONFIG__", "limit", "offset", "format"]
-
     func = load_plugin_function(plugin_path, "reads")
     if not func:
         return []

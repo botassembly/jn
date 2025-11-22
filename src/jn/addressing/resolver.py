@@ -104,12 +104,9 @@ class AddressResolver:
         is_protocol_plugin = plugin and plugin.role == "protocol"
 
         # Build configuration from parameters
-        # DuckDB profiles need special config building
-        if address.type == "profile" and plugin_name == "duckdb_":
-
-            config = self._build_duckdb_profile_config(address)
-        # For protocol plugins, parameters stay in URL (not extracted to config)
-        elif is_protocol_plugin:
+        # For protocol plugins, parameters usually stay in URL (not extracted to config)
+        # Exception: profile-type addresses with protocol plugins need params in config
+        if is_protocol_plugin and address.type != "profile":
             config = {}
         else:
             config = self._build_config(address.parameters, plugin_name)
@@ -340,37 +337,38 @@ class AddressResolver:
 
             # Map known profile namespaces to plugins
             # Gmail profiles (@gmail/...) → gmail plugin
-            # DuckDB profiles (@test/..., etc.) → duckdb plugin
             # HTTP API profiles (@genomoncology/..., etc.) → http plugin
             # Future: MCP profiles (@mcp/...) → mcp plugin
-
-            # Check if this is a DuckDB profile namespace
-            # Do this BEFORE trying to find plugin by name
-            import os
-
-            jn_home = Path(os.getenv("JN_HOME", Path.home() / ".jn"))
-            duckdb_profile_dir = jn_home / "profiles" / "duckdb" / namespace
-            if duckdb_profile_dir.exists():
-                return self._find_plugin_by_name("duckdb")
 
             # Try to find plugin by namespace
             try:
                 return self._find_plugin_by_name(namespace)
             except AddressResolutionError:
+                # Check if any protocol plugin has profiles for this namespace
+                # This allows protocol plugins like duckdb to manage profile namespaces
+                import os
+                from pathlib import Path
+
+                jn_home = Path(os.getenv("JN_HOME", Path.home() / ".jn"))
+                project_profiles = Path.cwd() / ".jn" / "profiles"
+
+                # Check each protocol plugin's profile directory
+                for plugin_name, plugin_meta in self._plugins.items():
+                    if plugin_meta.role == "protocol":
+                        # Derive profile type from plugin name (e.g., duckdb_ -> duckdb)
+                        profile_type = plugin_name.rstrip("_")
+
+                        # Check if this plugin has a profile namespace directory
+                        for base_dir in [project_profiles, jn_home / "profiles"]:
+                            ns_dir = base_dir / profile_type / namespace
+                            if ns_dir.exists():
+                                return plugin_name, plugin_meta.path
                 # Default to HTTP plugin for API profiles
                 return self._find_plugin_by_name("http")
 
         # Case 4: Direct plugin reference
         if address.type == "plugin":
             plugin_name = address.base[1:]  # Remove @ prefix
-
-            # Check if this is a DuckDB profile namespace (takes precedence)
-            import os
-
-            jn_home = Path(os.getenv("JN_HOME", Path.home() / ".jn"))
-            duckdb_profile_dir = jn_home / "profiles" / "duckdb" / plugin_name
-            if duckdb_profile_dir.exists():
-                return self._find_plugin_by_name("duckdb")
 
             # If a matching HTTP profile exists for this name, treat as a
             # profile container and route through the HTTP plugin instead of
@@ -691,73 +689,6 @@ class AddressResolver:
         except ValueError:
             return False
 
-    def _build_duckdb_profile_config(self, address: Address) -> Dict:
-        """Build config for DuckDB profile.
-
-        Args:
-            address: Parsed address for DuckDB profile
-
-        Returns:
-            Configuration dict with profile_sql, db_path, and param-* keys
-
-        Raises:
-            AddressResolutionError: If profile not found or invalid
-        """
-        import json
-
-        from ..profiles.service import search_profiles
-
-        # Find profile
-        profiles = search_profiles(type_filter="duckdb")
-        profile = next(
-            (p for p in profiles if p.reference == address.base), None
-        )
-
-        if not profile:
-            raise AddressResolutionError(
-                f"DuckDB profile not found: {address.base}\n"
-                f"  Run 'jn profile list --type duckdb' to see available profiles"
-            )
-
-        # Load SQL
-        sql_content = profile.path.read_text()
-
-        # Load meta
-        meta_path = profile.path.parent.parent / "_meta.json"
-        if not meta_path.exists():
-            meta_path = profile.path.parent / "_meta.json"
-
-        if not meta_path.exists():
-            raise AddressResolutionError(
-                f"DuckDB profile meta file not found: {meta_path}\n"
-                f"  Create a _meta.json file with database path and settings"
-            )
-
-        meta = json.loads(meta_path.read_text())
-        db_path = meta.get("path")
-
-        if not db_path:
-            raise AddressResolutionError(
-                f"DuckDB profile missing 'path' in meta file: {meta_path}"
-            )
-
-        # Resolve relative paths
-        if not Path(db_path).is_absolute():
-            db_path = str(meta_path.parent / db_path)
-
-        # Build config with param-* keys for each parameter
-        config = {
-            "profile-sql": sql_content,
-            "db-path": db_path,
-        }
-
-        # Add parameters as param-* keys
-
-        for param_name, param_value in (address.parameters or {}).items():
-            config[f"param-{param_name}"] = param_value
-
-        return config
-
     def _resolve_url_and_headers(
         self, address: Address, plugin_name: str
     ) -> Tuple[Optional[str], Optional[Dict[str, str]]]:
@@ -788,14 +719,6 @@ class AddressResolver:
             parts = raw_ref[1:].split("/")  # Strip leading '@'
             namespace = parts[0]
 
-            # DuckDB profiles
-            if plugin_name == "duckdb_":
-                # Container mode: bare @namespace returns raw ref for listing
-                if len(parts) == 1:
-                    return raw_ref, None
-                # Leaf mode: @namespace/query returns None (uses config)
-                return None, None
-
             # Special case: bare '@name' (container reference)
             # If an HTTP profile exists for this namespace, route through the
             # HTTP plugin by returning the raw reference ('@name') as the URL.
@@ -814,6 +737,13 @@ class AddressResolver:
                         if api_dir.exists():
                             # Hand raw '@name' to the HTTP plugin
                             return raw_ref, None
+
+            # Check if this profile is managed by a protocol plugin (like duckdb)
+            # Protocol plugins handle profile resolution internally
+            plugin = self._plugins.get(plugin_name)
+            if plugin and plugin.role == "protocol" and plugin_name not in ["http_", "gmail_"]:
+                # Pass the raw reference to the plugin for internal resolution
+                return address.base, None
 
             # Gmail profiles
             if namespace == "gmail":
@@ -840,11 +770,6 @@ class AddressResolver:
                 return url, headers
             except HTTPProfileError as e:
                 raise AddressResolutionError(f"Profile resolution failed: {e}")
-
-        # Check if this is a DuckDB profile container (bare @namespace)
-        if address.type == "plugin" and plugin_name == "duckdb_":
-            # Return raw ref for listing queries
-            return address.base, None
 
         # Check if this is a protocol-role plugin (e.g., shell commands)
         # Even if parsed as type="file", protocol-role plugins should get URL set

@@ -238,11 +238,6 @@ def separate_config_and_filters(
         ... )
         ({}, [("city", "==", "NYC"), ("city", "==", "SF")])
     """
-    # Special case: If ALL params should be config (e.g., DuckDB bind params)
-    if "__ALL_PARAMS_ARE_CONFIG__" in config_param_names:
-        # Return all params as config, no filters
-        return dict(params), []
-
     config = {}
     filters = []
 

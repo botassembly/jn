@@ -80,13 +80,16 @@ def discover_plugins(plugin_dir: Path) -> Dict[str, PluginMetadata]:
         # Infer role from relative path (protocols/, formats/, filters/)
         rel_str = str(relative_path).replace("\\", "/")
         parts = rel_str.split("/")
-        role = None
-        if "protocols" in parts:
-            role = "protocol"
-        elif "formats" in parts:
-            role = "format"
-        elif "filters" in parts:
-            role = "filter"
+
+        # Check if role is explicitly set in metadata, otherwise infer from directory
+        role = tool_jn.get("role")
+        if not role:
+            if "protocols" in parts:
+                role = "protocol"
+            elif "formats" in parts:
+                role = "format"
+            elif "filters" in parts:
+                role = "filter"
 
         supports_raw = bool(tool_jn.get("supports_raw", False))
 

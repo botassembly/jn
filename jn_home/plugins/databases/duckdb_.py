@@ -3,7 +3,7 @@
 # requires-python = ">=3.11"
 # dependencies = ["duckdb>=1.0.0"]
 # [tool.jn]
-# matches = ["^duckdb://.*", ".*\\.duckdb$", ".*\\.ddb$"]
+# matches = ["^duckdb://.*", ".*\\.duckdb$", ".*\\.ddb$", "^@.*/.*"]
 # role = "protocol"
 # ///
 
@@ -18,6 +18,171 @@ from pathlib import Path
 from typing import Dict, Iterator, Optional, Tuple
 
 import duckdb
+
+
+def _get_profile_paths() -> list[Path]:
+    """Get profile search paths in priority order.
+
+    Vendored from framework to make plugin self-contained.
+    """
+    import os
+
+    paths = []
+
+    # 1. Project profiles (highest priority)
+    project_dir = Path.cwd() / ".jn" / "profiles" / "duckdb"
+    if project_dir.exists():
+        paths.append(project_dir)
+
+    # 2. User profiles
+    jn_home = Path(os.getenv("JN_HOME", Path.home() / ".jn"))
+    user_dir = jn_home / "profiles" / "duckdb"
+    if user_dir.exists():
+        paths.append(user_dir)
+
+    # 3. Bundled profiles (lowest priority)
+    jn_home_env = os.environ.get("JN_HOME")
+    if jn_home_env:
+        bundled_dir = Path(jn_home_env) / "profiles" / "duckdb"
+        if bundled_dir.exists():
+            paths.append(bundled_dir)
+
+    return paths
+
+
+def _load_profile(reference: str) -> Tuple[str, str, dict]:
+    """Load DuckDB profile from filesystem.
+
+    Vendored from framework to make plugin self-contained.
+
+    Args:
+        reference: Profile reference like "@test/all-users"
+
+    Returns:
+        Tuple of (db_path, sql_content, metadata)
+
+    Raises:
+        ValueError: If profile not found
+    """
+    if not reference.startswith("@"):
+        raise ValueError(f"Invalid profile reference: {reference}")
+
+    # Parse @namespace/query
+    parts = reference[1:].split("/", 1)
+    if len(parts) != 2:
+        raise ValueError(f"Invalid profile reference format: {reference}")
+
+    namespace, query_name = parts
+
+    # Search for profile in priority order
+    for profile_root in _get_profile_paths():
+        namespace_dir = profile_root / namespace
+        sql_file = namespace_dir / f"{query_name}.sql"
+
+        if sql_file.exists():
+            # Load SQL
+            sql_content = sql_file.read_text()
+
+            # Load _meta.json from namespace directory
+            meta_path = namespace_dir / "_meta.json"
+            if not meta_path.exists():
+                raise ValueError(
+                    f"Profile meta file not found: {meta_path}\n"
+                    f"  Create a _meta.json file with database path and settings"
+                )
+
+            meta = json.loads(meta_path.read_text())
+            db_path = meta.get("path")
+
+            if not db_path:
+                raise ValueError(
+                    f"Profile missing 'path' in meta file: {meta_path}"
+                )
+
+            # Resolve relative paths
+            if not Path(db_path).is_absolute():
+                db_path = str(meta_path.parent / db_path)
+
+            return db_path, sql_content, meta
+
+    # Profile not found
+    raise ValueError(
+        f"DuckDB profile not found: {reference}\n"
+        f"  Run 'jn profile list --type duckdb' to see available profiles"
+    )
+
+
+def inspect_profiles() -> Iterator[dict]:
+    """List all available DuckDB profiles.
+
+    Called by framework with --mode inspect-profiles.
+    Returns ProfileInfo-compatible records.
+    """
+    for profile_root in _get_profile_paths():
+        # Scan each namespace directory
+        for namespace_dir in sorted(profile_root.iterdir()):
+            if not namespace_dir.is_dir():
+                continue
+
+            namespace = namespace_dir.name
+
+            # Load namespace metadata
+            meta_path = namespace_dir / "_meta.json"
+            if not meta_path.exists():
+                continue
+
+            try:
+                meta = json.loads(meta_path.read_text())
+            except json.JSONDecodeError:
+                continue
+
+            # Scan .sql files in namespace
+            for sql_file in sorted(namespace_dir.glob("*.sql")):
+                if sql_file.name.startswith("_"):
+                    continue
+
+                # Parse profile metadata from SQL file
+                description = ""
+                params = []
+
+                try:
+                    content = sql_file.read_text()
+                    for line in content.split("\n")[:20]:
+                        line = line.strip()
+
+                        # Description from first comment
+                        if line.startswith("--") and not description:
+                            desc = line.lstrip("-").strip()
+                            if desc and not desc.startswith("Parameters:"):
+                                description = desc
+
+                        # Parameters from "-- Parameters: x, y, z"
+                        if "-- Parameters:" in line:
+                            params_text = line.split("Parameters:", 1)[1].strip()
+                            params = [p.split("(")[0].strip() for p in params_text.split(",")]
+                            break
+
+                    # If no explicit parameters, find $param or :param in SQL
+                    if not params:
+                        params = list(set(re.findall(r"[$:](\\w+)", content)))
+
+                except Exception:
+                    pass
+
+                # Build profile info
+                query_name = sql_file.stem
+                reference = f"@{namespace}/{query_name}"
+
+                yield {
+                    "reference": reference,
+                    "type": "duckdb",
+                    "namespace": namespace,
+                    "name": query_name,
+                    "path": str(sql_file),
+                    "description": description,
+                    "params": params,
+                    "examples": [],
+                }
 
 
 def _list_tables(db_path: str) -> Iterator[dict]:
@@ -116,37 +281,51 @@ def reads(config: Optional[dict] = None) -> Iterator[dict]:
     """Read from DuckDB database, yielding NDJSON records.
 
     Config keys:
-        path: Database file path
+        path: Database file path or @namespace/query reference
         query: SQL query to execute
         params: Dict of bind parameters
         limit: Optional row limit
-        profile_sql: SQL from profile file (takes precedence over query)
     """
     cfg = config or {}
 
+    raw_path = (
+        cfg.get("url") or  # URL includes parameters
+        cfg.get("path") or
+        cfg.get("address")
+    )
+
+    if not raw_path:
+        raise ValueError("Database path required")
+
     # Profile container mode: List queries in namespace
-    url = cfg.get("url") or cfg.get("path") or cfg.get("address")
-    if url and url.startswith("@") and "/" not in url[1:]:
+    if raw_path.startswith("@") and "/" not in raw_path[1:]:
         # Bare @namespace - list available queries
-        namespace = url[1:]
+        namespace = raw_path[1:]
         yield from _list_profile_queries(namespace)
         return
 
-    # Profile mode: SQL comes from .sql file
-    if cfg.get("profile_sql"):
-        db_path = cfg["db_path"]
-        query = cfg["profile_sql"]
-        params = cfg.get("params") or {}
-    # Direct mode: Parse address
-    else:
-        raw_path = (
-            cfg.get("path") or
-            cfg.get("address") or
-            cfg.get("url")
-        )
-        if not raw_path:
-            raise ValueError("Database path required")
+    # Profile query mode: Load from @namespace/query
+    if raw_path.startswith("@") and "/" in raw_path[1:]:
+        # Parse parameters from URL if present
+        import urllib.parse
 
+        if "?" in raw_path:
+            ref_part, query_string = raw_path.split("?", 1)
+            url_params = urllib.parse.parse_qs(query_string)
+            # Flatten lists to single values
+            url_params = {k: v[0] if len(v) == 1 else v for k, v in url_params.items()}
+        else:
+            ref_part = raw_path
+            url_params = {}
+
+        # Load profile
+        db_path, query, meta = _load_profile(ref_part)
+
+        # Get params from config and merge with URL params
+        config_params = cfg.get("params") or {}
+        params = {**url_params, **config_params}  # config params override URL params
+    # Direct mode: Parse duckdb:// address or file path
+    else:
         db_path, query, params, table = _parse_address(str(raw_path))
 
         # Merge params from config
@@ -270,12 +449,10 @@ if __name__ == "__main__":
     sys.stderr.flush()
 
     parser = argparse.ArgumentParser(description="JN DuckDB plugin")
-    parser.add_argument("--mode", required=True, choices=["read", "write"])
-    parser.add_argument("--path", help="Database path or duckdb:// URL")
+    parser.add_argument("--mode", required=True, choices=["read", "write", "inspect-profiles"])
+    parser.add_argument("--path", help="Database path or duckdb:// URL or @namespace/query")
     parser.add_argument("--query", help="SQL query")
     parser.add_argument("--limit", type=int, help="Row limit")
-    parser.add_argument("--db-path", help="Database path (for profile mode)")
-    parser.add_argument("--profile-sql", help="SQL from profile file")
     parser.add_argument("address", nargs="?", help="Alternative to --path")
 
     # Parse --param-* arguments
@@ -308,20 +485,23 @@ if __name__ == "__main__":
         sys.stderr.write("Write mode not supported\n")
         sys.exit(1)
 
-    # Build config
-    config = {"params": params}
+    # Handle inspect-profiles mode
+    if args.mode == "inspect-profiles":
+        try:
+            for profile in inspect_profiles():
+                print(json.dumps(profile), flush=True)
+        except Exception as e:
+            sys.stderr.write(f"Error listing profiles: {e}\n")
+            sys.exit(1)
+        sys.exit(0)
 
-    if args.profile_sql:
-        # Profile mode
-        config["profile_sql"] = args.profile_sql
-        config["db_path"] = args.db_path or args.path or args.address
-    else:
-        # Direct mode
-        config["path"] = args.path or args.address
-        if args.query:
-            config["query"] = args.query
-        if args.limit:
-            config["limit"] = args.limit
+    # Build config for read mode
+    config = {"params": params}
+    config["path"] = args.path or args.address
+    if args.query:
+        config["query"] = args.query
+    if args.limit:
+        config["limit"] = args.limit
 
     # Execute
     try:

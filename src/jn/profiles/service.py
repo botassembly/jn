@@ -171,60 +171,6 @@ def _parse_json_profile(
     )
 
 
-def _parse_duckdb_profile(
-    sql_file: Path, profile_root: Path
-) -> Optional[ProfileInfo]:
-    """Parse DuckDB .sql file into ProfileInfo.
-
-    Extracts:
-    - Description from first comment line
-    - Parameters from comment or SQL body
-    """
-    content = sql_file.read_text()
-
-    # Parse metadata from comments
-    description = ""
-    params = []
-
-    for line in content.split("\n")[:20]:
-        line = line.strip()
-
-        # Description from first comment
-        if line.startswith("--") and not description:
-            desc = line.lstrip("-").strip()
-            if desc and not desc.startswith("Parameters:"):
-                description = desc
-
-        # Parameters from "-- Parameters: x, y, z"
-        if "-- Parameters:" in line:
-            params_text = line.split("Parameters:", 1)[1].strip()
-            # Parse "gene (required), mutation_type (optional)"
-            params = [p.split("(")[0].strip() for p in params_text.split(",")]
-            break
-
-    # If no explicit parameters, find $param or :param in SQL
-    if not params:
-        params = list(set(re.findall(r"[$:](\w+)", content)))
-
-    # Build reference from path
-    # profiles/duckdb/genie/folfox.sql → @genie/folfox
-    rel_path = sql_file.relative_to(profile_root / "duckdb")
-    parts = rel_path.with_suffix("").parts
-
-    namespace = parts[0]
-    name = "/".join(parts[1:]) if len(parts) > 1 else parts[0]
-
-    return ProfileInfo(
-        reference=f"@{namespace}/{name}",
-        type="duckdb",
-        namespace=namespace,
-        name=name,
-        path=sql_file,
-        description=description,
-        params=params,
-    )
-
-
 def list_all_profiles() -> List[ProfileInfo]:
     """Scan filesystem and load all profiles.
 
@@ -234,6 +180,11 @@ def list_all_profiles() -> List[ProfileInfo]:
     Returns:
         List of all discovered profiles
     """
+    import subprocess
+    import sys
+    from ..plugins.discovery import get_cached_plugins_with_fallback
+    from ..context import resolve_home
+
     profiles = []
 
     for profile_root in _get_profile_paths():
@@ -267,13 +218,45 @@ def list_all_profiles() -> List[ProfileInfo]:
                 if profile:
                     profiles.append(profile)
 
-        # DuckDB profiles
-        duckdb_dir = profile_root / "duckdb"
-        if duckdb_dir.exists():
-            for sql_file in duckdb_dir.rglob("*.sql"):
-                profile = _parse_duckdb_profile(sql_file, profile_root)
-                if profile:
-                    profiles.append(profile)
+    # Call plugins with --mode inspect-profiles to discover plugin-managed profiles
+    home_paths = resolve_home(None)
+    all_plugins = get_cached_plugins_with_fallback(
+        home_paths.plugin_dir,
+        home_paths.cache_path,
+        fallback_to_builtin=True
+    )
+    for plugin in all_plugins.values():
+        try:
+            # Try calling plugin with --mode inspect-profiles
+            result = subprocess.run(
+                [sys.executable, str(plugin.path), "--mode", "inspect-profiles"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+
+            # If successful, parse NDJSON output
+            if result.returncode == 0 and result.stdout.strip():
+                for line in result.stdout.strip().split("\n"):
+                    try:
+                        data = json.loads(line)
+                        # Convert to ProfileInfo
+                        profiles.append(ProfileInfo(
+                            reference=data["reference"],
+                            type=data["type"],
+                            namespace=data["namespace"],
+                            name=data["name"],
+                            path=Path(data["path"]),
+                            description=data.get("description", ""),
+                            params=data.get("params", []),
+                            examples=data.get("examples", []),
+                        ))
+                    except (json.JSONDecodeError, KeyError):
+                        # Skip malformed lines
+                        pass
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            # Plugin doesn't support inspect-profiles or timed out
+            pass
 
     return profiles
 
