@@ -94,7 +94,7 @@ def sh(ctx, command):
             cmd,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=None,  # Let stderr pass through to parent
             text=True,
             env=build_subprocess_env_for_coverage(),
         )
@@ -102,13 +102,13 @@ def sh(ctx, command):
         # Stream output
         for line in proc.stdout:
             sys.stdout.write(line)
+            sys.stdout.flush()  # Critical for subprocess pipes
 
         proc.wait()
 
         # Check for errors
         if proc.returncode != 0:
-            error_msg = proc.stderr.read()
-            click.echo(f"Error: Command error: {error_msg}", err=True)
+            click.echo(f"Error: Command failed with exit code {proc.returncode}", err=True)
             sys.exit(1)
 
     except ValueError as e:
