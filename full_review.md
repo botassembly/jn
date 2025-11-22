@@ -182,6 +182,44 @@ jn_home/profiles/
 This allows a user to simply run:
 `jn cat @genomoncology/alterations?gene=BRAF`
 
+### Profile Types
+
+JN supports multiple profile types for different use cases:
+
+**HTTP API Profiles** - Curated REST API endpoints with authentication
+```bash
+jn cat "@genomoncology/alterations?gene=BRAF"
+```
+
+**DuckDB Query Profiles** - Named SQL queries against analytical databases
+```bash
+jn cat "@analytics/sales-summary"
+jn cat "@analytics/by-region?region=West"
+```
+
+**MCP Server Profiles** - Model Context Protocol tools with consistent parameters
+```bash
+jn cat "@biomcp/search?gene=EGFR"
+```
+
+**Gmail Profiles** - Email queries with saved filters
+```bash
+jn cat "@work/inbox?from=boss&newer_than=7d"
+```
+
+### Self-Contained Protocol Plugins
+
+JN uses a **self-contained architecture** for protocol plugins (databases, APIs with complex profiles):
+
+**Pattern:** Plugins vendor all profile-related logic and expose it via `--mode inspect-profiles`.
+
+**Benefits:**
+- Framework stays generic (no plugin-specific code)
+- Plugins are independently testable
+- Easy to add new database plugins (PostgreSQL, MySQL, SQLite)
+
+**Example:** The DuckDB plugin scans for `.sql` files, parses SQL metadata, and returns profile info to the framework—all without the framework knowing anything about SQL or DuckDB specifics.
+
 ---
 
 ## 6. MCP (Model Context Protocol) Integration
@@ -205,9 +243,12 @@ jn inspect "mcp+uvx://biomcp-python/biomcp"
 | :--- | :--- |
 | **Streaming** | Constant memory usage via Unix pipes. |
 | **Format Support** | CSV, JSON, NDJSON, YAML, TOML, Markdown, Excel (XLSX). |
-| **Protocols** | HTTP/HTTPS, Gmail (OAuth2), MCP, Local Files. |
+| **Protocols** | HTTP/HTTPS, Gmail (OAuth2), MCP, DuckDB, Local Files. |
 | **Shell Integration** | Fallback to `jc` to parse output of `ls`, `ps`, `dig`, etc. into JSON. |
 | **Filtering** | Built-in `jq` wrapper via `jn filter`. |
+| **Profile System** | HTTP APIs, DuckDB queries, MCP tools, Gmail—all addressable as `@namespace/name`. |
+| **Profile Discovery** | `jn profile list`, `jn profile info`, `jn profile tree` for exploration. |
 | **Isolation** | Every plugin runs in its own environment via `uv`. |
+| **Self-Contained Plugins** | Protocol plugins vendor their own logic, independently testable. |
 
 JN bridges the gap between the structured world of APIs/Databases and the unstructured world of CLI tools/Files, making them all speak a common language (NDJSON) that AI agents can easily read, write, and understand.
