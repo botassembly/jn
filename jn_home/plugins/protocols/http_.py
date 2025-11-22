@@ -54,8 +54,7 @@ FORMAT_DETECT = {
 
 
 # ============================================================================
-# VENDORED HTTP PROFILE RESOLVER (self-contained, no framework imports)
-# Copied from src/jn/profiles/http.py to maintain plugin self-containment
+# HTTP PROFILE RESOLVER (uses JN environment variables from framework)
 # ============================================================================
 
 
@@ -66,29 +65,24 @@ class ProfileError(Exception):
 
 
 def find_profile_paths() -> list[Path]:
-    """Get search paths for HTTP profiles (in priority order)."""
+    """Get search paths for HTTP profiles (in priority order).
+
+    Uses JN_HOME and JN_PROJECT_DIR environment variables set by framework.
+    """
     paths = []
 
-    # 1. Project profiles (highest priority)
-    project_profile_dir = Path.cwd() / ".jn" / "profiles" / "http"
-    if project_profile_dir.exists():
-        paths.append(project_profile_dir)
+    # 1. Project profiles (highest priority) - from JN_PROJECT_DIR
+    project_dir_env = os.getenv("JN_PROJECT_DIR")
+    if project_dir_env:
+        project_dir = Path(project_dir_env) / "profiles" / "http"
+        if project_dir.exists():
+            paths.append(project_dir)
 
-    # 2. User profiles
-    user_profile_dir = Path.home() / ".local" / "jn" / "profiles" / "http"
-    if user_profile_dir.exists():
-        paths.append(user_profile_dir)
-
-    # 3. Bundled profiles (lowest priority)
-    jn_home = os.environ.get("JN_HOME")
-    if jn_home:
-        bundled_dir = Path(jn_home) / "profiles" / "http"
-    else:
-        # Fallback: relative to this file (3 levels up to jn_home)
-        bundled_dir = Path(__file__).parent.parent.parent / "profiles" / "http"
-
-    if bundled_dir.exists():
-        paths.append(bundled_dir)
+    # 2. User profiles - from JN_HOME (framework always sets this)
+    jn_home = os.getenv("JN_HOME", str(Path.home() / ".jn"))
+    user_dir = Path(jn_home) / "profiles" / "http"
+    if user_dir.exists():
+        paths.append(user_dir)
 
     return paths
 
