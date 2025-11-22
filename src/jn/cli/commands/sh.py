@@ -54,7 +54,7 @@ def sh(ctx, command):
         addr = parse_address(command_str)
 
         # Plan execution
-        resolver = AddressResolver(ctx.plugin_dir, ctx.cache_path)
+        resolver = AddressResolver(ctx.plugin_dir, ctx.cache_path, ctx.home)
 
         try:
             stages = resolver.plan_execution(addr, mode="read")
@@ -108,7 +108,10 @@ def sh(ctx, command):
 
         # Check for errors
         if proc.returncode != 0:
-            click.echo(f"Error: Command failed with exit code {proc.returncode}", err=True)
+            click.echo(
+                f"Error: Command failed with exit code {proc.returncode}",
+                err=True,
+            )
             sys.exit(1)
 
     except ValueError as e:

@@ -15,29 +15,34 @@ def _get_profile_types():
 
     Returns list of profile types that have profiles or support profile management.
     """
-    # Get all plugins
-    jn_home = get_jn_home()
-    plugins = get_cached_plugins_with_fallback(
-        jn_home / "plugins",
-        jn_home / "cache.json",
-    )
+    # Start with known profile types as baseline
+    types = {"jq", "http", "gmail", "mcp", "duckdb"}
 
-    types = set()
+    # Try to add discovered plugins (this enriches the list with custom plugins)
+    try:
+        jn_home = get_jn_home()
+        plugins = get_cached_plugins_with_fallback(
+            jn_home / "plugins",
+            jn_home / "cache.json",
+        )
 
-    # Add protocol plugins that manage profiles
-    for plugin in plugins.values():
-        if plugin.role == "protocol":
-            # Derive profile type from plugin name (e.g., "duckdb_" -> "duckdb")
-            profile_type = plugin.name.rstrip("_")
-            types.add(profile_type)
+        # Add protocol plugins that manage profiles
+        for plugin in plugins.values():
+            if plugin.role == "protocol":
+                # Derive profile type from plugin name (e.g., "duckdb_" -> "duckdb")
+                profile_type = plugin.name.rstrip("_")
+                types.add(profile_type)
 
-    # Add filter plugins (jq)
-    for plugin in plugins.values():
-        if plugin.role == "filter":
-            types.add(plugin.name.rstrip("_"))
+        # Add filter plugins (jq)
+        for plugin in plugins.values():
+            if plugin.role == "filter":
+                types.add(plugin.name.rstrip("_"))
+    except Exception as e:
+        # If plugin discovery fails, just use baseline types
+        print(f"Warning: Failed to discover plugins: {e}", file=sys.stderr)
 
     # Return sorted list
-    return sorted(types) if types else ["jq", "http", "gmail", "mcp", "duckdb"]  # Fallback
+    return sorted(types)
 
 
 @click.group(invoke_without_command=True)
