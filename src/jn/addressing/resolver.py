@@ -104,9 +104,9 @@ class AddressResolver:
         is_protocol_plugin = plugin and plugin.role == "protocol"
 
         # Build configuration from parameters
-        # For protocol plugins, parameters usually stay in URL (not extracted to config)
-        # Exception: profile-type addresses with protocol plugins need params in config
-        if is_protocol_plugin and address.type != "profile":
+        # For protocol plugins, parameters stay in URL (not extracted to config)
+        # This allows self-contained plugins to handle their own parameter parsing
+        if is_protocol_plugin:
             config = {}
         else:
             config = self._build_config(address.parameters, plugin_name)
@@ -742,8 +742,8 @@ class AddressResolver:
             # Protocol plugins handle profile resolution internally
             plugin = self._plugins.get(plugin_name)
             if plugin and plugin.role == "protocol" and plugin_name not in ["http_", "gmail_"]:
-                # Pass the raw reference to the plugin for internal resolution
-                return address.base, None
+                # Pass the full address (including parameters) to the plugin for internal resolution
+                return str(address), None
 
             # Gmail profiles
             if namespace == "gmail":
