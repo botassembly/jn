@@ -186,7 +186,6 @@ def list_all_profiles(
         List of all discovered profiles
     """
     import subprocess
-    import sys
 
     profiles = []
 
@@ -225,10 +224,12 @@ def list_all_profiles(
     if discovered_plugins:
         for plugin in discovered_plugins.values():
             try:
-                # Use Popen for streaming, following JN architecture patterns
-                process = subprocess.Popen(  # noqa: S603 - plugin paths from discovery system, not user input
+                # Use uv run --script to ensure PEP 723 dependencies are available
+                process = subprocess.Popen(
                     [
-                        sys.executable,
+                        "uv",
+                        "run",
+                        "--script",
                         str(plugin.path),
                         "--mode",
                         "inspect-profiles",

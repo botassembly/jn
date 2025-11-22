@@ -350,8 +350,10 @@ def reads(config: Optional[dict] = None) -> Iterator[dict]:
     try:
         conn = duckdb.connect(db_path, read_only=True)
 
-        # Convert :param to $param for consistency
-        query = query.replace(":", "$")
+        # Convert :param to $param for consistency (only parameter tokens, not all colons)
+        # Negative lookbehind (?<!:) ensures we don't match :: cast operators
+        # Only match identifiers starting with letter/underscore to avoid time literals
+        query = re.sub(r"(?<!:):([a-zA-Z_]\w*)", r"$\1", query)
 
         # Execute with parameters
         cursor = conn.execute(query, params or None)
