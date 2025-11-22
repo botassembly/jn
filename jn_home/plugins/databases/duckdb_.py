@@ -20,6 +20,98 @@ from typing import Dict, Iterator, Optional, Tuple
 import duckdb
 
 
+def _list_tables(db_path: str) -> Iterator[dict]:
+    """List tables in DuckDB database (for container inspection).
+
+    Yields table listings compatible with inspect command.
+    """
+    conn = None
+    try:
+        conn = duckdb.connect(db_path, read_only=True)
+
+        # Query information schema for tables
+        cursor = conn.execute("""
+            SELECT
+                table_name,
+                table_type,
+                COALESCE(
+                    (SELECT COUNT(*) FROM information_schema.columns
+                     WHERE table_name = t.table_name),
+                    0
+                ) as column_count
+            FROM information_schema.tables t
+            WHERE table_schema = 'main'
+            ORDER BY table_name
+        """)
+
+        for row in cursor.fetchall():
+            table_name, table_type, column_count = row
+            yield {
+                "_type": "table",
+                "_container": db_path,
+                "name": table_name,
+                "type": table_type.lower(),
+                "columns": column_count,
+            }
+    except duckdb.Error as e:
+        raise RuntimeError(f"DuckDB error listing tables: {e}") from e
+    finally:
+        if conn:
+            conn.close()
+
+
+def _list_profile_queries(namespace: str) -> Iterator[dict]:
+    """List available queries in a DuckDB profile namespace.
+
+    Yields query listings compatible with inspect command.
+    """
+    from pathlib import Path
+    import os
+
+    # Find profile directory
+    jn_home = Path(os.getenv("JN_HOME", Path.home() / ".jn"))
+    profile_dir = jn_home / "profiles" / "duckdb" / namespace
+
+    if not profile_dir.exists():
+        return
+
+    # List .sql files
+    for sql_file in sorted(profile_dir.glob("*.sql")):
+        if sql_file.name == "_meta.sql":
+            continue
+
+        # Read first comment line as description
+        description = ""
+        params = []
+        try:
+            content = sql_file.read_text()
+            for line in content.split("\n")[:20]:
+                line = line.strip()
+                if line.startswith("--") and not description:
+                    desc = line.lstrip("-").strip()
+                    if desc and not desc.startswith("Parameters:"):
+                        description = desc
+                # Parse parameters
+                if "-- Parameters:" in line:
+                    params_text = line.split("Parameters:", 1)[1].strip()
+                    params = [p.split("(")[0].strip() for p in params_text.split(",")]
+                    break
+        except Exception:
+            pass
+
+        # Build query name from file name
+        query_name = sql_file.stem
+
+        yield {
+            "_type": "query",
+            "_container": f"@{namespace}",
+            "name": query_name,
+            "reference": f"@{namespace}/{query_name}",
+            "description": description,
+            "params": params,
+        }
+
+
 def reads(config: Optional[dict] = None) -> Iterator[dict]:
     """Read from DuckDB database, yielding NDJSON records.
 
@@ -31,6 +123,14 @@ def reads(config: Optional[dict] = None) -> Iterator[dict]:
         profile_sql: SQL from profile file (takes precedence over query)
     """
     cfg = config or {}
+
+    # Profile container mode: List queries in namespace
+    url = cfg.get("url") or cfg.get("path") or cfg.get("address")
+    if url and url.startswith("@") and "/" not in url[1:]:
+        # Bare @namespace - list available queries
+        namespace = url[1:]
+        yield from _list_profile_queries(namespace)
+        return
 
     # Profile mode: SQL comes from .sql file
     if cfg.get("profile_sql"):
@@ -59,14 +159,10 @@ def reads(config: Optional[dict] = None) -> Iterator[dict]:
         # Table shortcut: duckdb://db.duckdb/table_name
         elif table:
             query = f"SELECT * FROM {table}"
-
-        if not query:
-            raise ValueError(
-                "SQL query required. Use:\n"
-                "  duckdb://db.duckdb?query=SELECT * FROM table\n"
-                "  duckdb://db.duckdb/table_name (shortcut)\n"
-                "  jn cat '@profile/query'"
-            )
+        # Container mode: List tables (for inspect command)
+        elif not query:
+            yield from _list_tables(db_path)
+            return
 
     # Handle limit
     limit = cfg.get("limit")

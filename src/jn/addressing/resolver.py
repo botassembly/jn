@@ -344,25 +344,31 @@ class AddressResolver:
             # HTTP API profiles (@genomoncology/..., etc.) → http plugin
             # Future: MCP profiles (@mcp/...) → mcp plugin
 
-            # Try to find plugin by namespace first
+            # Check if this is a DuckDB profile namespace
+            # Do this BEFORE trying to find plugin by name
+            import os
+            jn_home = Path(os.getenv("JN_HOME", Path.home() / ".jn"))
+            duckdb_profile_dir = jn_home / "profiles" / "duckdb" / namespace
+            if duckdb_profile_dir.exists():
+                return self._find_plugin_by_name("duckdb")
+
+            # Try to find plugin by namespace
             try:
                 return self._find_plugin_by_name(namespace)
             except AddressResolutionError:
-                # Namespace doesn't match a plugin name
-                # Check if this is a DuckDB profile
-                from ..profiles.service import search_profiles
-
-                duckdb_profiles = search_profiles(type_filter="duckdb")
-                for profile in duckdb_profiles:
-                    if profile.namespace == namespace:
-                        return self._find_plugin_by_name("duckdb")
-
                 # Default to HTTP plugin for API profiles
                 return self._find_plugin_by_name("http")
 
         # Case 4: Direct plugin reference
         if address.type == "plugin":
             plugin_name = address.base[1:]  # Remove @ prefix
+
+            # Check if this is a DuckDB profile namespace (takes precedence)
+            import os
+            jn_home = Path(os.getenv("JN_HOME", Path.home() / ".jn"))
+            duckdb_profile_dir = jn_home / "profiles" / "duckdb" / plugin_name
+            if duckdb_profile_dir.exists():
+                return self._find_plugin_by_name("duckdb")
 
             # If a matching HTTP profile exists for this name, treat as a
             # profile container and route through the HTTP plugin instead of
@@ -780,9 +786,12 @@ class AddressResolver:
             parts = raw_ref[1:].split("/")  # Strip leading '@'
             namespace = parts[0]
 
-            # DuckDB profiles - no URL needed (plugin uses config, not URL)
-            # Cat command will use profile type for stdin handling
+            # DuckDB profiles
             if plugin_name == "duckdb_":
+                # Container mode: bare @namespace returns raw ref for listing
+                if len(parts) == 1:
+                    return raw_ref, None
+                # Leaf mode: @namespace/query returns None (uses config)
                 return None, None
 
             # Special case: bare '@name' (container reference)
@@ -829,6 +838,11 @@ class AddressResolver:
                 return url, headers
             except HTTPProfileError as e:
                 raise AddressResolutionError(f"Profile resolution failed: {e}")
+
+        # Check if this is a DuckDB profile container (bare @namespace)
+        if address.type == "plugin" and plugin_name == "duckdb_":
+            # Return raw ref for listing queries
+            return address.base, None
 
         # Check if this is a protocol-role plugin (e.g., shell commands)
         # Even if parsed as type="file", protocol-role plugins should get URL set
