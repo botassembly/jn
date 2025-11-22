@@ -55,7 +55,7 @@ def put(ctx, output_file):
         addr = parse_address(output_file)
 
         # Create resolver and resolve address
-        resolver = AddressResolver(ctx.plugin_dir, ctx.cache_path)
+        resolver = AddressResolver(ctx.plugin_dir, ctx.cache_path, ctx.home)
         resolved = resolver.resolve(addr, mode="write")
 
         # Build command

@@ -54,7 +54,7 @@ def sh(ctx, command):
         addr = parse_address(command_str)
 
         # Plan execution
-        resolver = AddressResolver(ctx.plugin_dir, ctx.cache_path)
+        resolver = AddressResolver(ctx.plugin_dir, ctx.cache_path, ctx.home)
 
         try:
             stages = resolver.plan_execution(addr, mode="read")

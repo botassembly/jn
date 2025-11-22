@@ -72,7 +72,7 @@ def run(ctx, input_file, output_file):
         output_addr = parse_address(output_file)
 
         # Plan execution stages
-        resolver = AddressResolver(ctx.plugin_dir, ctx.cache_path)
+        resolver = AddressResolver(ctx.plugin_dir, ctx.cache_path, ctx.home)
         input_stages = resolver.plan_execution(input_addr, mode="read")
         output_resolved = resolver.resolve(output_addr, mode="write")
 

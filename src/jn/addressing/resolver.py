@@ -61,15 +61,22 @@ class AddressResolver:
         run_plugin(resolved.plugin_path, resolved.config, mode="read")
     """
 
-    def __init__(self, plugin_dir: Path, cache_path: Optional[Path] = None):
+    def __init__(
+        self,
+        plugin_dir: Path,
+        cache_path: Optional[Path] = None,
+        home_dir: Optional[Path] = None,
+    ):
         """Initialize resolver with plugin directory.
 
         Args:
             plugin_dir: Directory containing custom plugins
             cache_path: Optional path to plugin cache file
+            home_dir: JN home directory (overrides $JN_HOME)
         """
         self.plugin_dir = plugin_dir
         self.cache_path = cache_path
+        self.home_dir = home_dir
         self._plugins: Optional[Dict[str, PluginMetadata]] = None
         self._registry = None
 
@@ -349,7 +356,11 @@ class AddressResolver:
                 import os
                 from pathlib import Path
 
-                jn_home = Path(os.getenv("JN_HOME", Path.home() / ".jn"))
+                # Use home_dir from context if provided, otherwise fall back to env/default
+                if self.home_dir:
+                    jn_home = self.home_dir
+                else:
+                    jn_home = Path(os.getenv("JN_HOME", Path.home() / ".jn"))
                 project_profiles = Path.cwd() / ".jn" / "profiles"
 
                 # Check each protocol plugin's profile directory

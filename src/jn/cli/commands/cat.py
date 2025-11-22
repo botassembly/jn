@@ -262,7 +262,7 @@ def cat(ctx, input_file):
 
         # If no parameters, use original fast path
         if not addr.parameters:
-            resolver = AddressResolver(ctx.plugin_dir, ctx.cache_path)
+            resolver = AddressResolver(ctx.plugin_dir, ctx.cache_path, ctx.home)
 
             try:
                 stages = resolver.plan_execution(addr, mode="read")
@@ -280,7 +280,7 @@ def cat(ctx, input_file):
             return
 
         # Parameters exist - separate config from filters
-        resolver = AddressResolver(ctx.plugin_dir, ctx.cache_path)
+        resolver = AddressResolver(ctx.plugin_dir, ctx.cache_path, ctx.home)
 
         try:
             stages = resolver.plan_execution(addr, mode="read")

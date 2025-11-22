@@ -401,7 +401,7 @@ def _inspect_data(ctx, address_str: str, limit: int) -> dict:
     # Get plugin path to introspect config params
     from ...addressing import AddressResolver
 
-    resolver = AddressResolver(ctx.plugin_dir, ctx.cache_path)
+    resolver = AddressResolver(ctx.plugin_dir, ctx.cache_path, ctx.home)
 
     # Resolve to get plugin
     try:
