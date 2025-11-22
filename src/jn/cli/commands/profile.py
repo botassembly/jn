@@ -37,7 +37,9 @@ def _get_profile_types():
             types.add(plugin.name.rstrip("_"))
 
     # Return sorted list
-    return sorted(types) if types else ["jq", "http", "gmail", "mcp", "duckdb"]  # Fallback
+    return (
+        sorted(types) if types else ["jq", "http", "gmail", "mcp", "duckdb"]
+    )  # Fallback
 
 
 @click.group(invoke_without_command=True)

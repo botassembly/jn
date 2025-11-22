@@ -78,7 +78,15 @@ def _format_container_text(result: dict) -> str:
 
     # Extract metadata
     plugin_name = result.get("_plugin", result.get("transport", "unknown"))
-    container = result.get("_container", result.get("database", result.get("api", result.get("server", result.get("account", "unknown")))))
+    container = result.get(
+        "_container",
+        result.get(
+            "database",
+            result.get(
+                "api", result.get("server", result.get("account", "unknown"))
+            ),
+        ),
+    )
 
     # Header
     lines.append(f"Container: {container} ({plugin_name})")
@@ -100,7 +108,22 @@ def _format_container_text(result: dict) -> str:
     lines.append("")
 
     # Items listing
-    items = result.get("items", result.get("sources", result.get("tools", result.get("resources", result.get("tables", result.get("queries", result.get("labels", [])))))))
+    items = result.get(
+        "items",
+        result.get(
+            "sources",
+            result.get(
+                "tools",
+                result.get(
+                    "resources",
+                    result.get(
+                        "tables",
+                        result.get("queries", result.get("labels", [])),
+                    ),
+                ),
+            ),
+        ),
+    )
 
     # Detect item type from field names or use generic
     item_type = "Items"
@@ -137,9 +160,13 @@ def _format_container_text(result: dict) -> str:
                     if isinstance(value, list):
                         if value:  # Non-empty list
                             if key == "params" or key == "parameters":
-                                lines.append(f"    {display_key}: {', '.join(str(v) for v in value)}")
+                                lines.append(
+                                    f"    {display_key}: {', '.join(str(v) for v in value)}"
+                                )
                             else:
-                                lines.append(f"    {display_key}: {len(value)} items")
+                                lines.append(
+                                    f"    {display_key}: {len(value)} items"
+                                )
                         # Skip empty lists
                     elif isinstance(value, dict):
                         # Handle nested structures (like inputSchema)
@@ -148,15 +175,24 @@ def _format_container_text(result: dict) -> str:
                             required = value.get("required", [])
                             if properties:
                                 lines.append("    Parameters:")
-                                for param_name, param_info in properties.items():
+                                for (
+                                    param_name,
+                                    param_info,
+                                ) in properties.items():
                                     param_type = param_info.get("type", "any")
-                                    param_desc = param_info.get("description", "")
-                                    req_marker = "*" if param_name in required else " "
+                                    param_desc = param_info.get(
+                                        "description", ""
+                                    )
+                                    req_marker = (
+                                        "*" if param_name in required else " "
+                                    )
                                     lines.append(
                                         f"      {req_marker} {param_name} ({param_type}): {param_desc}"
                                     )
                         else:
-                            lines.append(f"    {display_key}: {json.dumps(value)}")
+                            lines.append(
+                                f"    {display_key}: {json.dumps(value)}"
+                            )
                     else:
                         lines.append(f"    {display_key}: {value}")
 

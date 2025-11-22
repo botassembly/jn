@@ -108,7 +108,10 @@ def sh(ctx, command):
 
         # Check for errors
         if proc.returncode != 0:
-            click.echo(f"Error: Command failed with exit code {proc.returncode}", err=True)
+            click.echo(
+                f"Error: Command failed with exit code {proc.returncode}",
+                err=True,
+            )
             sys.exit(1)
 
     except ValueError as e:
