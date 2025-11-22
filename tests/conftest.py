@@ -34,6 +34,21 @@ def setup_test_jn_home():
     jn.context._cached_home = None
 
 
+@pytest.fixture(autouse=True)
+def clear_jn_cache():
+    """Clear JN context cache before each test to prevent pollution.
+
+    The _cached_home in jn.context persists across tests and can cause
+    tests to use wrong JN_HOME values. This fixture ensures a clean state
+    for each test.
+    """
+    import jn.context
+    jn.context._cached_home = None
+    yield
+    # Clear again after test
+    jn.context._cached_home = None
+
+
 @pytest.fixture
 def cli_runner():
     """Provide Click CLI test runner."""
