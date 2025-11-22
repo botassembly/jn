@@ -171,6 +171,61 @@ def _parse_json_profile(
     )
 
 
+def _parse_duckdb_profile(sql_file: Path, profile_root: Path) -> Optional[ProfileInfo]:
+    """Parse DuckDB .sql file into ProfileInfo.
+
+    Extracts:
+    - Description from first comment line
+    - Parameters from comment or SQL body
+    """
+    content = sql_file.read_text()
+
+    # Parse metadata from comments
+    description = ""
+    params = []
+
+    for line in content.split("\n")[:20]:
+        line = line.strip()
+
+        # Description from first comment
+        if line.startswith("--") and not description:
+            desc = line.lstrip("-").strip()
+            if desc and not desc.startswith("Parameters:"):
+                description = desc
+
+        # Parameters from "-- Parameters: x, y, z"
+        if "-- Parameters:" in line:
+            params_text = line.split("Parameters:", 1)[1].strip()
+            # Parse "gene (required), mutation_type (optional)"
+            params = [
+                p.split("(")[0].strip()
+                for p in params_text.split(",")
+            ]
+            break
+
+    # If no explicit parameters, find $param or :param in SQL
+    if not params:
+        params = list(set(re.findall(r'[$:](\w+)', content)))
+
+    # Build reference from path
+    # profiles/duckdb/genie/folfox.sql → @genie/folfox
+    rel_path = sql_file.relative_to(profile_root / "duckdb")
+    parts = rel_path.with_suffix("").parts
+
+    namespace = parts[0]
+    name = "/".join(parts[1:]) if len(parts) > 1 else parts[0]
+
+    return ProfileInfo(
+        reference=f"@{namespace}/{name}",
+        type="duckdb",
+        namespace=namespace,
+        name=name,
+        path=sql_file,
+        description=description,
+        params=params
+    )
+
+
 def list_all_profiles() -> List[ProfileInfo]:
     """Scan filesystem and load all profiles.
 
@@ -210,6 +265,14 @@ def list_all_profiles() -> List[ProfileInfo]:
         if mcp_dir.exists():
             for json_file in mcp_dir.rglob("*.json"):
                 profile = _parse_json_profile(json_file, profile_root, "mcp")
+                if profile:
+                    profiles.append(profile)
+
+        # DuckDB profiles
+        duckdb_dir = profile_root / "duckdb"
+        if duckdb_dir.exists():
+            for sql_file in duckdb_dir.rglob("*.sql"):
+                profile = _parse_duckdb_profile(sql_file, profile_root)
                 if profile:
                     profiles.append(profile)
 

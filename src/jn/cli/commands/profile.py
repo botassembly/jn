@@ -33,7 +33,7 @@ def profile(ctx):
 @click.option(
     "--type",
     "type_filter",
-    type=click.Choice(["jq", "gmail", "http", "mcp"]),
+    type=click.Choice(["jq", "gmail", "http", "mcp", "duckdb"]),
     help="Filter by profile type",
 )
 @pass_context
@@ -84,6 +84,7 @@ def list_cmd(ctx, query, output_format, type_filter):
                 "gmail": "Gmail Profiles",
                 "http": "HTTP API Profiles",
                 "mcp": "MCP Tool Profiles",
+                "duckdb": "DuckDB Query Profiles",
             }.get(profile_type, f"{profile_type.upper()} Profiles")
 
             click.echo(f"\n{type_label}:")
@@ -206,7 +207,7 @@ def info(ctx, reference, output_format):
 @click.option(
     "--type",
     "type_filter",
-    type=click.Choice(["jq", "gmail", "http", "mcp"]),
+    type=click.Choice(["jq", "gmail", "http", "mcp", "duckdb"]),
     help="Filter by profile type",
 )
 @pass_context

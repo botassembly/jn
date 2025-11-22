@@ -104,8 +104,14 @@ class AddressResolver:
         is_protocol_plugin = plugin and plugin.role == "protocol"
 
         # Build configuration from parameters
+        # DuckDB profiles need special config building
+        if address.type == "profile" and plugin_name == "duckdb_":
+            import sys
+            sys.stderr.write(f"DEBUG resolve: calling _build_duckdb_profile_config for {address.base} with params {address.parameters}\n")
+            sys.stderr.flush()
+            config = self._build_duckdb_profile_config(address)
         # For protocol plugins, parameters stay in URL (not extracted to config)
-        if is_protocol_plugin:
+        elif is_protocol_plugin:
             config = {}
         else:
             config = self._build_config(address.parameters, plugin_name)
@@ -336,6 +342,7 @@ class AddressResolver:
 
             # Map known profile namespaces to plugins
             # Gmail profiles (@gmail/...) → gmail plugin
+            # DuckDB profiles (@test/..., etc.) → duckdb plugin
             # HTTP API profiles (@genomoncology/..., etc.) → http plugin
             # Future: MCP profiles (@mcp/...) → mcp plugin
 
@@ -344,6 +351,14 @@ class AddressResolver:
                 return self._find_plugin_by_name(namespace)
             except AddressResolutionError:
                 # Namespace doesn't match a plugin name
+                # Check if this is a DuckDB profile
+                from ..profiles.service import search_profiles
+
+                duckdb_profiles = search_profiles(type_filter="duckdb")
+                for profile in duckdb_profiles:
+                    if profile.namespace == namespace:
+                        return self._find_plugin_by_name("duckdb")
+
                 # Default to HTTP plugin for API profiles
                 return self._find_plugin_by_name("http")
 
@@ -670,6 +685,77 @@ class AddressResolver:
         except ValueError:
             return False
 
+    def _build_duckdb_profile_config(self, address: Address) -> Dict:
+        """Build config for DuckDB profile.
+
+        Args:
+            address: Parsed address for DuckDB profile
+
+        Returns:
+            Configuration dict with profile_sql, db_path, and param-* keys
+
+        Raises:
+            AddressResolutionError: If profile not found or invalid
+        """
+        import json
+
+        from ..profiles.service import search_profiles
+
+        # Find profile
+        profiles = search_profiles(type_filter="duckdb")
+        profile = next((p for p in profiles if p.reference == address.base), None)
+
+        if not profile:
+            raise AddressResolutionError(
+                f"DuckDB profile not found: {address.base}\n"
+                f"  Run 'jn profile list --type duckdb' to see available profiles"
+            )
+
+        # Load SQL
+        sql_content = profile.path.read_text()
+
+        # Load meta
+        meta_path = profile.path.parent.parent / "_meta.json"
+        if not meta_path.exists():
+            meta_path = profile.path.parent / "_meta.json"
+
+        if not meta_path.exists():
+            raise AddressResolutionError(
+                f"DuckDB profile meta file not found: {meta_path}\n"
+                f"  Create a _meta.json file with database path and settings"
+            )
+
+        meta = json.loads(meta_path.read_text())
+        db_path = meta.get("path")
+
+        if not db_path:
+            raise AddressResolutionError(
+                f"DuckDB profile missing 'path' in meta file: {meta_path}"
+            )
+
+        # Resolve relative paths
+        if not Path(db_path).is_absolute():
+            db_path = str(meta_path.parent / db_path)
+
+        # Build config with param-* keys for each parameter
+        config = {
+            "profile-sql": sql_content,
+            "db-path": db_path,
+        }
+
+        # Add parameters as param-* keys
+        import sys
+        sys.stderr.write(f"DEBUG _build_duckdb_profile_config: address.parameters = {address.parameters}\n")
+        sys.stderr.flush()
+        for param_name, param_value in (address.parameters or {}).items():
+            sys.stderr.write(f"DEBUG _build_duckdb_profile_config: Adding param-{param_name} = {param_value}\n")
+            sys.stderr.flush()
+            config[f"param-{param_name}"] = param_value
+
+        sys.stderr.write(f"DEBUG _build_duckdb_profile_config: final config = {config}\n")
+        sys.stderr.flush()
+        return config
+
     def _resolve_url_and_headers(
         self, address: Address, plugin_name: str
     ) -> Tuple[Optional[str], Optional[Dict[str, str]]]:
@@ -699,6 +785,11 @@ class AddressResolver:
             raw_ref = address.base
             parts = raw_ref[1:].split("/")  # Strip leading '@'
             namespace = parts[0]
+
+            # DuckDB profiles - no URL needed (plugin uses config, not URL)
+            # Cat command will use profile type for stdin handling
+            if plugin_name == "duckdb_":
+                return None, None
 
             # Special case: bare '@name' (container reference)
             # If an HTTP profile exists for this namespace, route through the

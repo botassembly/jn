@@ -33,6 +33,10 @@ def _build_command(
     """
     cmd = ["uv", "run", "--script", stage.plugin_path, "--mode", stage.mode]
 
+    # DEBUG
+    sys.stderr.write(f"DEBUG _build_command: config = {stage.config}\n")
+    sys.stderr.flush()
+
     # Add configuration parameters
     for key, value in stage.config.items():
         cmd.extend([f"--{key}", str(value)])
@@ -66,7 +70,7 @@ def _execute_with_filter(stages, addr, filters):
 
                 # Determine stdin source
                 if is_first:
-                    if stage.url:
+                    if stage.url or addr.type == "profile":
                         stdin_source = subprocess.DEVNULL
                     elif addr.type == "file":
                         file_path = addr.base
@@ -113,7 +117,7 @@ def _execute_with_filter(stages, addr, filters):
                 else _build_command(stage)
             )
 
-            if is_shell_plugin or stage.url:
+            if is_shell_plugin or stage.url or addr.type == "profile":
                 stdin_source = subprocess.DEVNULL
             elif addr.type == "stdio":
                 stdin_source = sys.stdin
