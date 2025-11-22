@@ -37,9 +37,9 @@ def _get_profile_types():
         for plugin in plugins.values():
             if plugin.role == "filter":
                 types.add(plugin.name.rstrip("_"))
-    except Exception:
+    except Exception as e:
         # If plugin discovery fails, just use baseline types
-        pass
+        print(f"Warning: Failed to discover plugins: {e}", file=sys.stderr)
 
     # Return sorted list
     return sorted(types)

@@ -262,7 +262,9 @@ def cat(ctx, input_file):
 
         # If no parameters, use original fast path
         if not addr.parameters:
-            resolver = AddressResolver(ctx.plugin_dir, ctx.cache_path, ctx.home)
+            resolver = AddressResolver(
+                ctx.plugin_dir, ctx.cache_path, ctx.home
+            )
 
             try:
                 stages = resolver.plan_execution(addr, mode="read")
@@ -307,9 +309,8 @@ def cat(ctx, input_file):
         # These plugins manage their own parameter handling internally
         if addr.type == "profile" and final_stage.plugin_path:
             # Check plugin metadata to see if it manages its own parameters
-            from ...plugins.discovery import get_plugin_by_name
-            from ...plugins.service import get_cached_plugins_with_fallback
             from ...context import get_jn_home
+            from ...plugins.service import get_cached_plugins_with_fallback
 
             plugins = get_cached_plugins_with_fallback(
                 get_jn_home() / "plugins",
