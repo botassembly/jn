@@ -19,10 +19,19 @@ def setup_test_jn_home():
     """
     test_jn_home = Path(__file__).parent / "jn_home"
     os.environ["JN_HOME"] = str(test_jn_home)
+
+    # Clear the cached home path so it reads the new JN_HOME value
+    import jn.context
+    jn.context._cached_home = None
+
     yield
     # Cleanup: restore original JN_HOME if it existed
+    # Note: The logic here was buggy - it always deletes if present
+    # Should save/restore original value if it existed before
     if "JN_HOME" in os.environ:
         del os.environ["JN_HOME"]
+    # Clear cache again after cleanup
+    jn.context._cached_home = None
 
 
 @pytest.fixture

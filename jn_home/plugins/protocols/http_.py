@@ -642,13 +642,55 @@ def _stream_raw(
         os._exit(0)
 
 
+def inspect_profiles() -> Iterator[dict]:
+    """List all available HTTP profiles.
+
+    Called by framework with --mode inspect-profiles.
+    Returns ProfileInfo-compatible records.
+    """
+    for profile_root in find_profile_paths():
+        # Scan each API directory
+        for api_dir in sorted(profile_root.iterdir()):
+            if not api_dir.is_dir():
+                continue
+
+            api_name = api_dir.name
+
+            # Scan .json files in API directory (skip _meta.json)
+            for json_file in sorted(api_dir.glob("*.json")):
+                if json_file.name.startswith("_"):
+                    continue
+
+                # Parse profile metadata from JSON file
+                try:
+                    source_data = json.loads(json_file.read_text())
+                except json.JSONDecodeError:
+                    continue
+
+                source_name = json_file.stem  # filename without .json
+                description = source_data.get("description", "")
+                params = source_data.get("params", [])
+
+                # Emit profile record
+                yield {
+                    "_type": "profile",
+                    "reference": f"@{api_name}/{source_name}",
+                    "type": "http",
+                    "namespace": api_name,
+                    "name": source_name,
+                    "path": str(json_file),
+                    "description": description,
+                    "params": params,
+                }
+
+
 if __name__ == "__main__":
     import argparse
     import os
 
     parser = argparse.ArgumentParser(description="HTTP protocol plugin")
     parser.add_argument(
-        "--mode", choices=["read", "raw"], help="Operation mode"
+        "--mode", choices=["read", "raw", "inspect-profiles"], help="Operation mode"
     )
     parser.add_argument(
         "url", nargs="?", help="URL to fetch or profile reference"
@@ -688,6 +730,16 @@ if __name__ == "__main__":
     )
 
     args, unknown = parser.parse_known_args()
+
+    # Handle inspect-profiles mode
+    if args.mode == "inspect-profiles":
+        try:
+            for profile in inspect_profiles():
+                print(json.dumps(profile), flush=True)
+        except Exception as e:
+            sys.stderr.write(f"Error listing profiles: {e}\n")
+            sys.exit(1)
+        sys.exit(0)
 
     # Parse unknown args as parameters (--key=value) for profile references
     params = {}
