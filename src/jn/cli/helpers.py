@@ -41,8 +41,8 @@ def check_jq_available() -> None:
         sys.exit(1)
 
 
-def build_subprocess_env_for_coverage() -> dict:
+def build_subprocess_env_for_coverage(home_dir=None) -> dict:
     """Shim to keep CLI code stable; implementation lives in process_utils."""
     from ..process_utils import build_subprocess_env_for_coverage as _impl
 
-    return _impl()
+    return _impl(home_dir=home_dir)

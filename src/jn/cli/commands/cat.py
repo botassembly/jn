@@ -53,8 +53,15 @@ def _build_command(
     return cmd
 
 
-def _execute_with_filter(stages, addr, filters):
-    """Execute pipeline with optional filter stage."""
+def _execute_with_filter(stages, addr, filters, home_dir=None):
+    """Execute pipeline with optional filter stage.
+
+    Args:
+        stages: Execution stages to run
+        addr: Parsed address
+        filters: Optional jq filters to apply
+        home_dir: JN home directory (overrides $JN_HOME)
+    """
 
     with ExitStack() as stack:
         if len(stages) >= 2:
@@ -92,7 +99,7 @@ def _execute_with_filter(stages, addr, filters):
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=text_mode,
-                    env=build_subprocess_env_for_coverage(),
+                    env=build_subprocess_env_for_coverage(home_dir=home_dir),
                 )
 
                 if prev_proc:
@@ -129,7 +136,7 @@ def _execute_with_filter(stages, addr, filters):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                env=build_subprocess_env_for_coverage(),
+                env=build_subprocess_env_for_coverage(home_dir=home_dir),
             )
 
             reader_stdout = reader_proc.stdout
@@ -149,7 +156,7 @@ def _execute_with_filter(stages, addr, filters):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                env=build_subprocess_env_for_coverage(),
+                env=build_subprocess_env_for_coverage(home_dir=home_dir),
             )
             reader_stdout.close()
             output_stdout = filter_proc.stdout
@@ -278,7 +285,7 @@ def cat(ctx, input_file):
                 else:
                     raise
 
-            _execute_with_filter(stages, addr, filters=[])
+            _execute_with_filter(stages, addr, filters=[], home_dir=ctx.home)
             return
 
         # Parameters exist - separate config from filters
@@ -325,7 +332,7 @@ def cat(ctx, input_file):
 
             if plugin_meta and plugin_meta.manages_parameters:
                 # Plugin handles own parameter parsing - skip config/filter separation
-                _execute_with_filter(stages, addr, filters=[])
+                _execute_with_filter(stages, addr, filters=[], home_dir=ctx.home)
                 return
 
         # Introspect plugin to get config params
@@ -358,7 +365,7 @@ def cat(ctx, input_file):
         stages = resolver.plan_execution(addr, mode="read")
 
         # Execute with filter stage if needed
-        _execute_with_filter(stages, addr, filters)
+        _execute_with_filter(stages, addr, filters, home_dir=ctx.home)
 
     except ValueError as e:
         click.echo(f"Error: Invalid address syntax: {e}", err=True)
