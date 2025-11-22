@@ -227,7 +227,7 @@ def list_all_profiles(
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=True,
-                    env=build_subprocess_env_for_coverage(),
+                    env=build_subprocess_env_for_coverage(home_dir),
                 )
 
                 # Collect output with timeout

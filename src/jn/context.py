@@ -100,14 +100,22 @@ def get_profile_dir(profile_type: str) -> Path:
     return get_jn_home() / "profiles" / profile_type
 
 
-def get_plugin_env() -> dict:
+def get_plugin_env(home_dir: Optional[Path] = None) -> dict:
     """Get environment variables to pass to plugin subprocesses.
+
+    Args:
+        home_dir: JN home directory (overrides $JN_HOME)
 
     Returns:
         Dictionary of environment variables for plugin execution
     """
     env = os.environ.copy()
-    jn_home = get_jn_home()
+
+    # Use provided home_dir or fall back to get_jn_home()
+    if home_dir:
+        jn_home = home_dir
+    else:
+        jn_home = get_jn_home()
 
     # Set JN environment variables
     env["JN_HOME"] = str(jn_home)
