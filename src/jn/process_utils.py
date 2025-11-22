@@ -68,18 +68,21 @@ def _repo_root() -> Path:
     return Path.cwd()
 
 
-def build_subprocess_env_for_coverage() -> dict:
+def build_subprocess_env_for_coverage(home_dir: Path | None = None) -> dict:
     """Return an env dict that enables coverage in subprocesses.
 
     - If COVERAGE_PROCESS_START is set, ensure sitecustomize.py is importable by
       prepending the repo root to PYTHONPATH.
     - Force coverage data files to land in repo root so combine finds them.
     - Also includes JN environment variables (JN_HOME, JN_WORKING_DIR, etc.)
+
+    Args:
+        home_dir: JN home directory (overrides $JN_HOME)
     """
     # Start with JN environment variables
     from .context import get_plugin_env
 
-    env = get_plugin_env()
+    env = get_plugin_env(home_dir)
 
     # Add coverage configuration if needed
     if env.get("COVERAGE_PROCESS_START"):
