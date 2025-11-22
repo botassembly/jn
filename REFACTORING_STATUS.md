@@ -117,28 +117,43 @@ Successfully refactored the JN plugin architecture to eliminate protocol-specifi
 
 ## Test Status
 
-**Test run:** 2025-11-22 17:05
+### Initial Test Run (2025-11-22 17:05)
 **Result:** 16 failures (out of ~80+ tests)
 
-### Failed Tests
+**Failed Tests:**
 - 3 DuckDB tests (profile queries)
 - 8 Profile tests (listing, formatting)
 - 1 Inspect test (HTTP container formatting)
 - 4 Plugin tests (markdown, toml, yaml, xlsx)
 
-### Analysis
-The failures are primarily in:
-1. **Container formatting:** Generic formatter produces different output than protocol-specific formatters
-2. **Profile discovery:** Dynamic type discovery may affect test expectations
-3. **Environment variables:** Some tests may not properly set JN_HOME
+### Test Fixes (2025-11-22 17:30)
+**Result:** 4 failures (12 fixed!)
 
-### Recommendation
-These test failures are **expected** given the scope of changes. The failures indicate:
-- Tests need updating to match new generic output formats
-- Some tests may need to set environment variables explicitly
-- Integration tests may need fixtures updated
+**Root Causes Identified:**
+1. **Cache invalidation issue:** JN_HOME was cached before test fixture set it
+2. **Missing inspect-profiles mode:** HTTP plugin didn't support profile discovery
+3. **Missing "path" field:** HTTP plugin didn't emit required profile metadata
 
-**Next steps:** Fix failing tests by updating expectations and fixtures to match new architecture.
+**Fixes Applied:**
+1. **tests/conftest.py:**
+   - Clear `_cached_home` after setting JN_HOME in test fixture
+   - Ensures test processes use correct test profile directories
+2. **jn_home/plugins/protocols/http_.py:**
+   - Added `inspect_profiles()` function
+   - Added "inspect-profiles" to argparse choices
+   - Added "path" field to emitted profile records
+3. **tests/cli/test_inspect_container_text.py:**
+   - Updated expectations for new generic container format
+4. **src/jn/addressing/resolver.py:**
+   - Fixed plugin name reference ("http" → "http_")
+
+**Remaining 4 Failures:**
+1. **test_duckdb_profile_query** - Passes individually, test isolation issue with cache
+2. **test_duckdb_profile_parameterized** - Passes individually, test isolation issue
+3. **test_profile_list_text** - Requires MCP plugin inspect-profiles mode
+4. **test_jn_sh_watch_emits_on_change** - Timeout (unrelated to refactoring)
+
+**Success Rate:** 75% of refactoring-related failures fixed (12 of 16)
 
 ---
 
