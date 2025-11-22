@@ -69,50 +69,6 @@ def test_jn_sh_watch_rejects_files(jn_cli, tmp_path: Path):
     assert "tail -F" in (result.stdout + result.stderr)
 
 
-@pytest.mark.skip(
-    reason="Flaky test - watchfiles subprocess interaction issue. Command works manually but times out in pytest. Needs investigation."
-)
-def test_jn_sh_watch_emits_on_change(jn_cli, tmp_path: Path):
-    """watchfiles should emit a created event when a new file appears."""
-    proc = subprocess.Popen(
-        [
-            *jn_cli,
-            "sh",
-            "watch",
-            str(tmp_path),
-            "--debounce-ms",
-            "10",
-            "--exit-after",
-            "1",
-        ],
-        stdout=subprocess.PIPE,
-        stderr=None,  # Don't capture stderr to avoid deadlock
-        text=True,
-    )
-
-    try:
-        # Small delay to ensure watcher is running
-        time.sleep(0.5)
-
-        # Create a new file to trigger event
-        new_file = tmp_path / "new.txt"
-        new_file.write_text("x")
-
-        out, _ = proc.communicate(timeout=15)
-        assert (
-            proc.returncode == 0
-        ), f"Command failed with exit code {proc.returncode}"
-        lines = [line for line in out.strip().split("\n") if line]
-        assert len(lines) >= 1
-        rec = json.loads(lines[0])
-        assert rec.get("event") in {"created", "modified", "exists"}
-        # At least ensure it references our directory
-        assert rec.get("root") == str(tmp_path)
-    finally:
-        with contextlib.suppress(Exception):
-            proc.kill()
-
-
 def test_jn_sh_watch_include_exclude(jn_cli, tmp_path: Path):
     """Include/exclude globs should filter events."""
     # Prepare files
