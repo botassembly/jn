@@ -23,6 +23,8 @@ Examples:
 # matches = [
 #   "^mcp\\+[a-z]+://"
 # ]
+# manages_parameters = true
+# supports_container = true
 # ///
 
 import asyncio
@@ -727,13 +729,55 @@ def writes(url: str | None = None, **config) -> None:
         loop.close()
 
 
+def inspect_profiles() -> Iterator[dict]:
+    """List all available MCP profiles.
+
+    Called by framework with --mode inspect-profiles.
+    Returns ProfileInfo-compatible records.
+    """
+    for profile_root in find_profile_paths():
+        # Scan each server directory
+        for server_dir in sorted(profile_root.iterdir()):
+            if not server_dir.is_dir():
+                continue
+
+            server_name = server_dir.name
+
+            # Scan .json files in server directory (skip _meta.json)
+            for json_file in sorted(server_dir.glob("*.json")):
+                if json_file.name.startswith("_"):
+                    continue
+
+                # Parse tool metadata from JSON file
+                try:
+                    tool_data = json.loads(json_file.read_text())
+                except json.JSONDecodeError:
+                    continue
+
+                tool_name = json_file.stem  # filename without .json
+                description = tool_data.get("description", "")
+                params = list(tool_data.get("parameters", {}).keys())
+
+                # Emit profile record
+                yield {
+                    "_type": "profile",
+                    "reference": f"@{server_name}/{tool_name}",
+                    "type": "mcp",
+                    "namespace": server_name,
+                    "name": tool_name,
+                    "path": str(json_file),
+                    "description": description,
+                    "params": params,
+                }
+
+
 if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="MCP protocol plugin")
     parser.add_argument(
         "--mode",
-        choices=["read", "write"],
+        choices=["read", "write", "inspect-profiles"],
         required=True,
         help="Operation mode",
     )
@@ -748,6 +792,16 @@ if __name__ == "__main__":
     )
 
     args, unknown = parser.parse_known_args()
+
+    # Handle inspect-profiles mode
+    if args.mode == "inspect-profiles":
+        try:
+            for profile in inspect_profiles():
+                print(json.dumps(profile), flush=True)
+        except Exception as e:
+            sys.stderr.write(f"Error listing profiles: {e}\n")
+            sys.exit(1)
+        sys.exit(0)
 
     # Parse unknown args as parameters (--key=value)
     params = {}

@@ -95,7 +95,7 @@ def test_duckdb_profile_query(invoke, tmp_path, test_db, monkeypatch):
         "-- All users\nSELECT * FROM users;"
     )
 
-    # Set JN_HOME
+    # Set JN_HOME - reads fresh from environment now
     monkeypatch.setenv("JN_HOME", str(tmp_path))
 
     # Test the query
@@ -126,6 +126,7 @@ def test_duckdb_profile_parameterized(invoke, tmp_path, test_db, monkeypatch):
         "-- User by ID\n-- Parameters: user_id\nSELECT * FROM users WHERE id = $user_id;"
     )
 
+    # Set JN_HOME - reads fresh from environment now
     monkeypatch.setenv("JN_HOME", str(tmp_path))
 
     res = invoke(["cat", "@testdb/by-id?user_id=1"])

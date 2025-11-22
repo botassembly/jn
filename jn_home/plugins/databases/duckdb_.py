@@ -5,6 +5,8 @@
 # [tool.jn]
 # matches = ["^duckdb://.*", ".*\\.duckdb$", ".*\\.ddb$", "^@.*/.*"]
 # role = "protocol"
+# manages_parameters = true
+# supports_container = true
 # ///
 
 """DuckDB plugin for JN - query analytical databases."""
@@ -23,24 +25,22 @@ import duckdb
 def _get_profile_paths() -> list[Path]:
     """Get profile search paths in priority order.
 
-    Vendored from framework to make plugin self-contained.
+    Uses JN_HOME and JN_PROJECT_DIR environment variables passed by framework.
     """
     import os
 
     paths = []
 
-    # 1. Project profiles (highest priority)
-    project_dir = Path.cwd() / ".jn" / "profiles" / "duckdb"
-    if project_dir.exists():
-        paths.append(project_dir)
+    # 1. Project profiles (highest priority) - from JN_PROJECT_DIR env var
+    project_dir_env = os.getenv("JN_PROJECT_DIR")
+    if project_dir_env:
+        project_dir = Path(project_dir_env) / "profiles" / "duckdb"
+        if project_dir.exists():
+            paths.append(project_dir)
 
-    # 2. User profiles - either $JN_HOME or ~/.jn
-    jn_home = os.getenv("JN_HOME")
-    if jn_home:
-        user_dir = Path(jn_home) / "profiles" / "duckdb"
-    else:
-        user_dir = Path.home() / ".jn" / "profiles" / "duckdb"
-
+    # 2. User profiles - from JN_HOME env var (framework always sets this)
+    jn_home = os.getenv("JN_HOME", str(Path.home() / ".jn"))
+    user_dir = Path(jn_home) / "profiles" / "duckdb"
     if user_dir.exists():
         paths.append(user_dir)
 

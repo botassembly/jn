@@ -22,6 +22,8 @@ Examples:
 # matches = [
 #   "^gmail://.*"
 # ]
+# manages_parameters = true
+# supports_container = true
 # ///
 
 import base64
@@ -39,8 +41,12 @@ from googleapiclient.errors import HttpError
 # Gmail API scopes
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 
-# Default token path
-DEFAULT_TOKEN_PATH = Path.home() / ".jn" / "gmail-token.json"
+
+def _get_jn_home() -> Path:
+    """Get JN_HOME from environment variable set by framework."""
+    import os
+
+    return Path(os.getenv("JN_HOME", str(Path.home() / ".jn")))
 
 
 def error_record(error_type: str, message: str, **extra) -> dict:
@@ -54,16 +60,15 @@ def get_credentials(
     """Get or create Gmail API credentials with OAuth2.
 
     Args:
-        token_path: Path to save/load token (default: ~/.jn/gmail-token.json)
-        credentials_path: Path to OAuth2 credentials.json (default: ~/.jn/gmail-credentials.json)
+        token_path: Path to save/load token (default: $JN_HOME/gmail-token.json)
+        credentials_path: Path to OAuth2 credentials.json (default: $JN_HOME/gmail-credentials.json)
 
     Returns:
         Valid Credentials object
     """
-    token_path = token_path or DEFAULT_TOKEN_PATH
-    credentials_path = credentials_path or (
-        Path.home() / ".jn" / "gmail-credentials.json"
-    )
+    jn_home = _get_jn_home()
+    token_path = token_path or (jn_home / "gmail-token.json")
+    credentials_path = credentials_path or (jn_home / "gmail-credentials.json")
 
     creds = None
 

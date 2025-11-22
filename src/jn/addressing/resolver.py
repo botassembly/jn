@@ -367,7 +367,7 @@ class AddressResolver:
                             if ns_dir.exists():
                                 return plugin_name, plugin_meta.path
                 # Default to HTTP plugin for API profiles
-                return self._find_plugin_by_name("http")
+                return self._find_plugin_by_name("http_")
 
         # Case 4: Direct plugin reference
         if address.type == "plugin":
@@ -386,7 +386,7 @@ class AddressResolver:
                     api_dir = search_dir / plugin_name
                     if api_dir.exists():
                         # Use HTTP plugin for container handling
-                        return self._find_plugin_by_name("http")
+                        return self._find_plugin_by_name("http_")
 
             return self._find_plugin_by_name(plugin_name)
 

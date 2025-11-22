@@ -58,156 +58,111 @@ def _is_container(address_str: str) -> bool:
 
 
 def _format_container_text(result: dict) -> str:
-    """Format container listing as human-readable text."""
+    """Format container listing as human-readable text using generic formatter.
+
+    Plugins emit standardized container metadata with the following structure:
+    {
+        "_type": "container_listing",
+        "_plugin": "plugin_name",
+        "_container": "container_identifier",
+        "items": [...],
+        "metadata": {...}
+    }
+
+    This generic formatter works for all plugins without protocol-specific logic.
+    """
     if "_error" in result:
         return f"Error: {result['message']}"
 
     lines = []
-    transport = result.get("transport", "unknown")
 
-    # HTTP API format
-    if transport == "http":
-        lines.append(f"API: {result.get('api', 'unknown')}")
-        if result.get("base_url"):
-            lines.append(f"Base URL: {result['base_url']}")
-        lines.append(f"Transport: {transport}")
-        lines.append("")
+    # Extract metadata
+    plugin_name = result.get("_plugin", result.get("transport", "unknown"))
+    container = result.get("_container", result.get("database", result.get("api", result.get("server", result.get("account", "unknown")))))
 
-        sources = result.get("sources", [])
-        lines.append(f"Sources ({len(sources)}):")
-        if sources:
-            for source in sources:
-                lines.append(f"  • {source['name']}")
-                if source.get("description"):
-                    lines.append(f"    {source['description']}")
-                lines.append(f"    Path: {source.get('path', '')}")
-                lines.append(f"    Method: {source.get('method', 'GET')}")
-                params = source.get("params", [])
-                if params:
-                    lines.append(f"    Parameters: {', '.join(params)}")
-                lines.append("")
-        else:
-            lines.append("  (none)")
+    # Header
+    lines.append(f"Container: {container} ({plugin_name})")
 
-    # MCP server format
-    elif transport == "stdio":
-        lines.append(f"Server: {result.get('server', 'unknown')}")
-        lines.append(f"Transport: {transport}")
-        lines.append("")
+    # Additional metadata (skip internal fields starting with _)
+    metadata = result.get("metadata", {})
+    for key, value in metadata.items():
+        if not key.startswith("_"):
+            # Format key: convert snake_case to Title Case
+            display_key = key.replace("_", " ").title()
+            lines.append(f"{display_key}: {value}")
 
-        # Tools section
-        tools = result.get("tools", [])
-        lines.append(f"Tools ({len(tools)}):")
-        if tools:
-            for tool in tools:
-                lines.append(f"  • {tool['name']}")
-                if tool.get("description"):
-                    lines.append(f"    {tool['description']}")
+    # Legacy fields that might not be in metadata
+    for legacy_key in ["base_url", "email", "messagesTotal", "threadsTotal"]:
+        if legacy_key in result and legacy_key not in metadata:
+            display_key = legacy_key.replace("_", " ").title()
+            lines.append(f"{display_key}: {result[legacy_key]}")
 
-                # Show input schema
-                schema = tool.get("inputSchema", {})
-                properties = schema.get("properties", {})
-                required = schema.get("required", [])
+    lines.append("")
 
-                if properties:
-                    lines.append("    Parameters:")
-                    for param_name, param_info in properties.items():
-                        param_type = param_info.get("type", "any")
-                        param_desc = param_info.get("description", "")
-                        req_marker = "*" if param_name in required else " "
-                        lines.append(
-                            f"      {req_marker} {param_name} ({param_type}): {param_desc}"
-                        )
-                lines.append("")
-        else:
-            lines.append("  (none)")
+    # Items listing
+    items = result.get("items", result.get("sources", result.get("tools", result.get("resources", result.get("tables", result.get("queries", result.get("labels", [])))))))
+
+    # Detect item type from field names or use generic
+    item_type = "Items"
+    if "sources" in result:
+        item_type = "Sources"
+    elif "tools" in result or "resources" in result:
+        item_type = "Tools" if "tools" in result else "Resources"
+    elif "tables" in result:
+        item_type = "Tables"
+    elif "queries" in result:
+        item_type = "Queries"
+    elif "labels" in result:
+        item_type = "Labels"
+
+    lines.append(f"{item_type} ({len(items)}):")
+
+    if items:
+        for item in items:
+            # Item name
+            name = item.get("name", item.get("id", "unknown"))
+            lines.append(f"  • {name}")
+
+            # Description
+            if item.get("description"):
+                lines.append(f"    {item['description']}")
+
+            # Show other fields (skip internal ones and name/description)
+            skip_fields = {"name", "description", "_type", "_plugin"}
+            for key, value in item.items():
+                if key not in skip_fields and not key.startswith("_"):
+                    display_key = key.replace("_", " ").title()
+
+                    # Special formatting for common field types
+                    if isinstance(value, list):
+                        if value:  # Non-empty list
+                            if key == "params" or key == "parameters":
+                                lines.append(f"    {display_key}: {', '.join(str(v) for v in value)}")
+                            else:
+                                lines.append(f"    {display_key}: {len(value)} items")
+                        # Skip empty lists
+                    elif isinstance(value, dict):
+                        # Handle nested structures (like inputSchema)
+                        if key in ["inputSchema", "schema"]:
+                            properties = value.get("properties", {})
+                            required = value.get("required", [])
+                            if properties:
+                                lines.append("    Parameters:")
+                                for param_name, param_info in properties.items():
+                                    param_type = param_info.get("type", "any")
+                                    param_desc = param_info.get("description", "")
+                                    req_marker = "*" if param_name in required else " "
+                                    lines.append(
+                                        f"      {req_marker} {param_name} ({param_type}): {param_desc}"
+                                    )
+                        else:
+                            lines.append(f"    {display_key}: {json.dumps(value)}")
+                    else:
+                        lines.append(f"    {display_key}: {value}")
+
             lines.append("")
-
-        # Resources section
-        resources = result.get("resources", [])
-        lines.append(f"Resources ({len(resources)}):")
-        if resources:
-            for resource in resources:
-                lines.append(f"  • {resource['name']}")
-                if resource.get("description"):
-                    lines.append(f"    {resource['description']}")
-                lines.append(f"    URI: {resource['uri']}")
-                if resource.get("mimeType"):
-                    lines.append(f"    Type: {resource['mimeType']}")
-                lines.append("")
-        else:
-            lines.append("  (none)")
-
-    # DuckDB format
-    elif transport == "duckdb":
-        lines.append(f"Database: {result.get('database', 'unknown')}")
-        lines.append(f"Transport: {transport}")
-        lines.append("")
-
-        tables = result.get("tables", [])
-        lines.append(f"Tables ({len(tables)}):")
-        if tables:
-            for table in tables:
-                lines.append(f"  • {table['name']}")
-                lines.append(f"    Type: {table.get('type', 'table')}")
-                lines.append(f"    Columns: {table.get('columns', 0)}")
-                lines.append("")
-        else:
-            lines.append("  (none)")
-
-    # DuckDB profile format
-    elif transport == "duckdb-profile":
-        lines.append(f"Profile: {result.get('namespace', 'unknown')}")
-        lines.append(f"Transport: {transport}")
-        lines.append("")
-
-        queries = result.get("queries", [])
-        lines.append(f"Queries ({len(queries)}):")
-        if queries:
-            for query in queries:
-                lines.append(f"  • {query['name']}")
-                if query.get("description"):
-                    lines.append(f"    {query['description']}")
-                lines.append(f"    Reference: {query['reference']}")
-                params = query.get("params", [])
-                if params:
-                    lines.append(f"    Parameters: {', '.join(params)}")
-                lines.append("")
-        else:
-            lines.append("  (none)")
-
-    # Gmail format
-    elif transport == "gmail":
-        lines.append(f"Account: {result.get('account', 'unknown')}")
-        if result.get("email"):
-            lines.append(f"Email: {result['email']}")
-        lines.append(f"Transport: {transport}")
-        if result.get("messagesTotal"):
-            lines.append(f"Messages Total: {result['messagesTotal']}")
-        if result.get("threadsTotal"):
-            lines.append(f"Threads Total: {result['threadsTotal']}")
-        lines.append("")
-
-        labels = result.get("labels", [])
-        lines.append(f"Labels ({len(labels)}):")
-        if labels:
-            for label in labels:
-                lines.append(f"  • {label['name']} (ID: {label['id']})")
-                lines.append(f"    Type: {label.get('type', 'user')}")
-                lines.append(
-                    f"    Messages: {label.get('messagesTotal', 0)} ({label.get('messagesUnread', 0)} unread)"
-                )
-                lines.append("")
-        else:
-            lines.append("  (none)")
-
     else:
-        # Generic format
-        lines.append(f"Transport: {transport}")
-        lines.append("")
-        for key, value in result.items():
-            if key not in ["transport", "_error"]:
-                lines.append(f"{key}: {value}")
+        lines.append("  (none)")
 
     return "\n".join(lines)
 

@@ -14,8 +14,9 @@ def test_inspect_http_container_text(invoke):
     assert res.exit_code == 0, res.output
 
     out = res.output
-    assert "API: testapi" in out
-    assert "Transport: http" in out
+    # New generic format: "Container: testapi (http)"
+    assert "Container: testapi" in out
+    assert "(http)" in out
     # Should list sources defined in test fixture
     assert re.search(r"\n\s*•\s*users\b", out)
     assert re.search(r"\n\s*•\s*projects\b", out)
