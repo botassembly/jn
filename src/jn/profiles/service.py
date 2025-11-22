@@ -171,7 +171,9 @@ def _parse_json_profile(
     )
 
 
-def _parse_duckdb_profile(sql_file: Path, profile_root: Path) -> Optional[ProfileInfo]:
+def _parse_duckdb_profile(
+    sql_file: Path, profile_root: Path
+) -> Optional[ProfileInfo]:
     """Parse DuckDB .sql file into ProfileInfo.
 
     Extracts:
@@ -197,15 +199,12 @@ def _parse_duckdb_profile(sql_file: Path, profile_root: Path) -> Optional[Profil
         if "-- Parameters:" in line:
             params_text = line.split("Parameters:", 1)[1].strip()
             # Parse "gene (required), mutation_type (optional)"
-            params = [
-                p.split("(")[0].strip()
-                for p in params_text.split(",")
-            ]
+            params = [p.split("(")[0].strip() for p in params_text.split(",")]
             break
 
     # If no explicit parameters, find $param or :param in SQL
     if not params:
-        params = list(set(re.findall(r'[$:](\w+)', content)))
+        params = list(set(re.findall(r"[$:](\w+)", content)))
 
     # Build reference from path
     # profiles/duckdb/genie/folfox.sql → @genie/folfox
@@ -222,7 +221,7 @@ def _parse_duckdb_profile(sql_file: Path, profile_root: Path) -> Optional[Profil
         name=name,
         path=sql_file,
         description=description,
-        params=params
+        params=params,
     )
 
 
