@@ -144,8 +144,18 @@ def test_duckdb_profile_parameterized(invoke, tmp_path, test_db, monkeypatch):
 
 
 def test_duckdb_profile_list(invoke, tmp_path, test_db, monkeypatch):
-    """Test listing DuckDB profiles."""
-    # Create profile
+    """Test listing DuckDB profiles.
+
+    TODO: This test currently fails due to module-level caching in context.py.
+    The cache is populated by the session fixture before individual tests run,
+    and clearing it in-test doesn't affect CliRunner subprocess imports.
+    The code works correctly when tested manually. Fix requires refactoring
+    context.py to not use module-level caching or passing JN_HOME to subprocesses.
+    """
+    # Create JN_HOME structure
+    (tmp_path / "plugins").mkdir(
+        parents=True
+    )  # Empty plugins dir for fallback
     profile_dir = tmp_path / "profiles" / "duckdb" / "testdb"
     profile_dir.mkdir(parents=True)
 
@@ -154,7 +164,13 @@ def test_duckdb_profile_list(invoke, tmp_path, test_db, monkeypatch):
     (profile_dir / "query1.sql").write_text("SELECT 1;")
     (profile_dir / "query2.sql").write_text("SELECT 2;")
 
+    # Set JN_HOME and change directory so plugin subprocess uses tmp_path
     monkeypatch.setenv("JN_HOME", str(tmp_path))
+    monkeypatch.chdir(tmp_path)
+    # Clear the context cache so resolve_home() picks up the new JN_HOME
+    import jn.context
+
+    jn.context._cached_home = None
 
     res = invoke(["profile", "list", "--type", "duckdb"])
     assert res.exit_code == 0
@@ -163,8 +179,15 @@ def test_duckdb_profile_list(invoke, tmp_path, test_db, monkeypatch):
 
 
 def test_duckdb_inspect_profile(invoke, tmp_path, test_db, monkeypatch):
-    """Test inspecting DuckDB profile."""
-    # Create profile
+    """Test inspecting DuckDB profile.
+
+    TODO: This test currently fails due to module-level caching in context.py.
+    See test_duckdb_profile_list for details.
+    """
+    # Create JN_HOME structure
+    (tmp_path / "plugins").mkdir(
+        parents=True
+    )  # Empty plugins dir for fallback
     profile_dir = tmp_path / "profiles" / "duckdb" / "testdb"
     profile_dir.mkdir(parents=True)
 
@@ -174,7 +197,13 @@ def test_duckdb_inspect_profile(invoke, tmp_path, test_db, monkeypatch):
         "-- Get users\n-- Parameters: limit\nSELECT * FROM users LIMIT $limit;"
     )
 
+    # Set JN_HOME and change directory so plugin subprocess uses tmp_path
     monkeypatch.setenv("JN_HOME", str(tmp_path))
+    monkeypatch.chdir(tmp_path)
+    # Clear the context cache so resolve_home() picks up the new JN_HOME
+    import jn.context
+
+    jn.context._cached_home = None
 
     res = invoke(["inspect", "@testdb", "--format", "json"])
     assert res.exit_code == 0

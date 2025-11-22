@@ -225,24 +225,30 @@ def list_all_profiles(
     if discovered_plugins:
         for plugin in discovered_plugins.values():
             try:
-                # Try calling plugin with --mode inspect-profiles
-                # Note: Using capture_output=True is safe here - we're collecting small
-                # metadata (profile info), not streaming large data
-                result = subprocess.run(  # noqa: S603 - plugin paths from discovery system, not user input
+                # Use Popen for streaming, following JN architecture patterns
+                process = subprocess.Popen(  # noqa: S603 - plugin paths from discovery system, not user input
                     [
                         sys.executable,
                         str(plugin.path),
                         "--mode",
                         "inspect-profiles",
                     ],
-                    capture_output=True,  # Safe - small metadata only
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
                     text=True,
-                    timeout=5,
                 )
 
+                # Collect output with timeout
+                try:
+                    stdout, _ = process.communicate(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+                    continue
+
                 # If successful, parse NDJSON output
-                if result.returncode == 0 and result.stdout.strip():
-                    for line in result.stdout.strip().split("\n"):
+                if process.returncode == 0 and stdout.strip():
+                    for line in stdout.strip().split("\n"):
                         try:
                             data = json.loads(line)
                             # Convert to ProfileInfo
@@ -261,8 +267,8 @@ def list_all_profiles(
                         except (json.JSONDecodeError, KeyError):
                             # Skip malformed lines
                             pass
-            except (subprocess.TimeoutExpired, FileNotFoundError):
-                # Plugin doesn't support inspect-profiles or timed out
+            except FileNotFoundError:
+                # Plugin doesn't exist or isn't executable
                 pass
 
     return profiles

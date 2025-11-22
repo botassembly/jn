@@ -34,18 +34,15 @@ def _get_profile_paths() -> list[Path]:
     if project_dir.exists():
         paths.append(project_dir)
 
-    # 2. User profiles
-    jn_home = Path(os.getenv("JN_HOME", Path.home() / ".jn"))
-    user_dir = jn_home / "profiles" / "duckdb"
+    # 2. User profiles - either $JN_HOME or ~/.jn
+    jn_home = os.getenv("JN_HOME")
+    if jn_home:
+        user_dir = Path(jn_home) / "profiles" / "duckdb"
+    else:
+        user_dir = Path.home() / ".jn" / "profiles" / "duckdb"
+
     if user_dir.exists():
         paths.append(user_dir)
-
-    # 3. Bundled profiles (lowest priority)
-    jn_home_env = os.environ.get("JN_HOME")
-    if jn_home_env:
-        bundled_dir = Path(jn_home_env) / "profiles" / "duckdb"
-        if bundled_dir.exists():
-            paths.append(bundled_dir)
 
     return paths
 
