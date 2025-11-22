@@ -112,10 +112,7 @@ def get_plugin_env(home_dir: Optional[Path] = None) -> dict:
     env = os.environ.copy()
 
     # Use provided home_dir or fall back to get_jn_home()
-    if home_dir:
-        jn_home = home_dir
-    else:
-        jn_home = get_jn_home()
+    jn_home = home_dir or get_jn_home()
 
     # Set JN environment variables
     env["JN_HOME"] = str(jn_home)
