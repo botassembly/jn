@@ -17,10 +17,6 @@ class HomePaths:
     cache_path: Optional[Path]
 
 
-# Module-level cache for home resolution
-_cached_home: Optional[HomePaths] = None
-
-
 def _user_config_home() -> Path:
     """Return the user config directory for jn (XDG or ~/.config/jn)."""
     xdg = os.environ.get("XDG_CONFIG_HOME")
@@ -31,15 +27,16 @@ def _user_config_home() -> Path:
 def resolve_home(home_option: Optional[str]) -> HomePaths:
     """Resolve plugin root and cache path.
 
+    Reads fresh from environment each time. Path resolution is fast (~5µs),
+    so caching is unnecessary and creates fragility.
+
     Args:
         home_option: Value of --home CLI option if provided
 
     Returns:
         HomePaths with home_dir (may be None), plugin_dir, cache_path
     """
-    global _cached_home
-
-    # CLI --home overrides all (no caching when explicit)
+    # CLI --home overrides all
     if home_option:
         home_dir = Path(home_option)
         return HomePaths(
@@ -48,29 +45,23 @@ def resolve_home(home_option: Optional[str]) -> HomePaths:
             cache_path=home_dir / "cache.json",
         )
 
-    # Use cached value if available
-    if _cached_home is not None:
-        return _cached_home
-
     # $JN_HOME environment variable
     env_home = os.environ.get("JN_HOME")
     if env_home:
         home_dir = Path(env_home)
-        _cached_home = HomePaths(
+        return HomePaths(
             home_dir=home_dir,
             plugin_dir=home_dir / "plugins",
             cache_path=home_dir / "cache.json",
         )
-        return _cached_home
 
     # User config directory (no explicit home directory concept)
     user_dir = _user_config_home()
-    _cached_home = HomePaths(
+    return HomePaths(
         home_dir=None,
         plugin_dir=user_dir / "plugins",
         cache_path=user_dir / "cache.json",
     )
-    return _cached_home
 
 
 class JNContext:
@@ -84,18 +75,16 @@ pass_context = click.make_pass_decorator(JNContext, ensure=True)
 
 
 def get_jn_home() -> Path:
-    """Get JN_HOME directory (for backward compatibility with existing code).
+    """Get JN_HOME directory.
+
+    Reads fresh from environment each time. Fast enough for hot paths (~5µs).
 
     Returns:
         Path to JN_HOME (either from $JN_HOME env var or default ~/.jn)
     """
-    global _cached_home
-    if _cached_home is None:
-        _cached_home = resolve_home(None)
-
-    # Return explicit home_dir if set, otherwise default to ~/.jn
-    if _cached_home.home_dir:
-        return _cached_home.home_dir
+    home_paths = resolve_home(None)
+    if home_paths.home_dir:
+        return home_paths.home_dir
     return Path.home() / ".jn"
 
 

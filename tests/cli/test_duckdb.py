@@ -95,10 +95,8 @@ def test_duckdb_profile_query(invoke, tmp_path, test_db, monkeypatch):
         "-- All users\nSELECT * FROM users;"
     )
 
-    # Set JN_HOME and clear cache to ensure it's re-read
+    # Set JN_HOME - reads fresh from environment now
     monkeypatch.setenv("JN_HOME", str(tmp_path))
-    import jn.context
-    jn.context._cached_home = None
 
     # Test the query
     res = invoke(["cat", "@testdb/all-users"])
@@ -128,10 +126,8 @@ def test_duckdb_profile_parameterized(invoke, tmp_path, test_db, monkeypatch):
         "-- User by ID\n-- Parameters: user_id\nSELECT * FROM users WHERE id = $user_id;"
     )
 
-    # Set JN_HOME and clear cache to ensure it's re-read
+    # Set JN_HOME - reads fresh from environment now
     monkeypatch.setenv("JN_HOME", str(tmp_path))
-    import jn.context
-    jn.context._cached_home = None
 
     res = invoke(["cat", "@testdb/by-id?user_id=1"])
     assert res.exit_code == 0

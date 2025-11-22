@@ -18,35 +18,16 @@ def setup_test_jn_home():
     instead of the bundled ones in jn_home/.
     """
     test_jn_home = Path(__file__).parent / "jn_home"
+    original_jn_home = os.environ.get("JN_HOME")
     os.environ["JN_HOME"] = str(test_jn_home)
 
-    # Clear the cached home path so it reads the new JN_HOME value
-    import jn.context
-    jn.context._cached_home = None
-
     yield
-    # Cleanup: restore original JN_HOME if it existed
-    # Note: The logic here was buggy - it always deletes if present
-    # Should save/restore original value if it existed before
-    if "JN_HOME" in os.environ:
+
+    # Restore original JN_HOME
+    if original_jn_home is not None:
+        os.environ["JN_HOME"] = original_jn_home
+    elif "JN_HOME" in os.environ:
         del os.environ["JN_HOME"]
-    # Clear cache again after cleanup
-    jn.context._cached_home = None
-
-
-@pytest.fixture(autouse=True)
-def clear_jn_cache():
-    """Clear JN context cache before each test to prevent pollution.
-
-    The _cached_home in jn.context persists across tests and can cause
-    tests to use wrong JN_HOME values. This fixture ensures a clean state
-    for each test.
-    """
-    import jn.context
-    jn.context._cached_home = None
-    yield
-    # Clear again after test
-    jn.context._cached_home = None
 
 
 @pytest.fixture
