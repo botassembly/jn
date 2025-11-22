@@ -9,7 +9,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 
 @dataclass
@@ -171,19 +171,22 @@ def _parse_json_profile(
     )
 
 
-def list_all_profiles() -> List[ProfileInfo]:
+def list_all_profiles(
+    discovered_plugins: Optional[Dict] = None,
+) -> List[ProfileInfo]:
     """Scan filesystem and load all profiles.
 
     Fast enough to run every time (~4ms for 15 profiles).
     No caching needed until >1000 profiles.
+
+    Args:
+        discovered_plugins: Optional dict of discovered plugins for inspect-profiles mode
 
     Returns:
         List of all discovered profiles
     """
     import subprocess
     import sys
-    from ..plugins.discovery import get_cached_plugins_with_fallback
-    from ..context import resolve_home
 
     profiles = []
 
@@ -219,50 +222,56 @@ def list_all_profiles() -> List[ProfileInfo]:
                     profiles.append(profile)
 
     # Call plugins with --mode inspect-profiles to discover plugin-managed profiles
-    home_paths = resolve_home(None)
-    all_plugins = get_cached_plugins_with_fallback(
-        home_paths.plugin_dir,
-        home_paths.cache_path,
-        fallback_to_builtin=True
-    )
-    for plugin in all_plugins.values():
-        try:
-            # Try calling plugin with --mode inspect-profiles
-            result = subprocess.run(
-                [sys.executable, str(plugin.path), "--mode", "inspect-profiles"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
+    if discovered_plugins:
+        for plugin in discovered_plugins.values():
+            try:
+                # Try calling plugin with --mode inspect-profiles
+                # Note: Using capture_output=True is safe here - we're collecting small
+                # metadata (profile info), not streaming large data
+                result = subprocess.run(  # noqa: S603 - plugin paths from discovery system, not user input
+                    [
+                        sys.executable,
+                        str(plugin.path),
+                        "--mode",
+                        "inspect-profiles",
+                    ],
+                    capture_output=True,  # Safe - small metadata only
+                    text=True,
+                    timeout=5,
+                )
 
-            # If successful, parse NDJSON output
-            if result.returncode == 0 and result.stdout.strip():
-                for line in result.stdout.strip().split("\n"):
-                    try:
-                        data = json.loads(line)
-                        # Convert to ProfileInfo
-                        profiles.append(ProfileInfo(
-                            reference=data["reference"],
-                            type=data["type"],
-                            namespace=data["namespace"],
-                            name=data["name"],
-                            path=Path(data["path"]),
-                            description=data.get("description", ""),
-                            params=data.get("params", []),
-                            examples=data.get("examples", []),
-                        ))
-                    except (json.JSONDecodeError, KeyError):
-                        # Skip malformed lines
-                        pass
-        except (subprocess.TimeoutExpired, FileNotFoundError):
-            # Plugin doesn't support inspect-profiles or timed out
-            pass
+                # If successful, parse NDJSON output
+                if result.returncode == 0 and result.stdout.strip():
+                    for line in result.stdout.strip().split("\n"):
+                        try:
+                            data = json.loads(line)
+                            # Convert to ProfileInfo
+                            profiles.append(
+                                ProfileInfo(
+                                    reference=data["reference"],
+                                    type=data["type"],
+                                    namespace=data["namespace"],
+                                    name=data["name"],
+                                    path=Path(data["path"]),
+                                    description=data.get("description", ""),
+                                    params=data.get("params", []),
+                                    examples=data.get("examples", []),
+                                )
+                            )
+                        except (json.JSONDecodeError, KeyError):
+                            # Skip malformed lines
+                            pass
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                # Plugin doesn't support inspect-profiles or timed out
+                pass
 
     return profiles
 
 
 def search_profiles(
-    query: Optional[str] = None, type_filter: Optional[str] = None
+    query: Optional[str] = None,
+    type_filter: Optional[str] = None,
+    discovered_plugins: Optional[Dict] = None,
 ) -> List[ProfileInfo]:
     """Search profiles by name or description.
 
@@ -272,11 +281,12 @@ def search_profiles(
     Args:
         query: Search term (case-insensitive), or None for all
         type_filter: Optional filter by type ("jq", "gmail", "http", "mcp")
+        discovered_plugins: Optional dict of discovered plugins for inspect-profiles mode
 
     Returns:
         Matching profiles, sorted alphabetically by reference
     """
-    all_profiles = list_all_profiles()
+    all_profiles = list_all_profiles(discovered_plugins)
 
     # Filter by type
     if type_filter:
@@ -299,16 +309,19 @@ def search_profiles(
     return sorted(matches, key=lambda p: p.reference)
 
 
-def get_profile_info(reference: str) -> Optional[ProfileInfo]:
+def get_profile_info(
+    reference: str, discovered_plugins: Optional[Dict] = None
+) -> Optional[ProfileInfo]:
     """Get detailed info about a specific profile.
 
     Args:
         reference: Profile reference like "@gmail/inbox" or "@builtin/pivot"
+        discovered_plugins: Optional dict of discovered plugins for inspect-profiles mode
 
     Returns:
         ProfileInfo or None if not found
     """
-    all_profiles = list_all_profiles()
+    all_profiles = list_all_profiles(discovered_plugins)
 
     for profile in all_profiles:
         if profile.reference == reference:

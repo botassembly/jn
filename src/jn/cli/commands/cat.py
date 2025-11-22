@@ -305,11 +305,18 @@ def cat(ctx, input_file):
 
         # For protocol plugins handling profiles, skip config/filter separation
         # These plugins manage their own parameter handling internally
-        if addr.type == "profile" and final_stage.plugin_path and "/protocols/" not in final_stage.plugin_path:
+        if (
+            addr.type == "profile"
+            and final_stage.plugin_path
+            and "/protocols/" not in final_stage.plugin_path
+        ):
             # Check if this is a protocol-role plugin by checking metadata
             # For now, just check if it's a known self-contained plugin
             # In the future, this should check plugin.role == "protocol"
-            is_protocol_plugin = any(name in final_stage.plugin_path for name in ["duckdb_", "http_", "gmail_", "mcp_"])
+            is_protocol_plugin = any(
+                name in final_stage.plugin_path
+                for name in ["duckdb_", "http_", "gmail_", "mcp_"]
+            )
             if is_protocol_plugin:
                 # Use original address with all parameters intact
                 _execute_with_filter(stages, addr, filters=[])

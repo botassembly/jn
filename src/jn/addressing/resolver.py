@@ -359,7 +359,10 @@ class AddressResolver:
                         profile_type = plugin_name.rstrip("_")
 
                         # Check if this plugin has a profile namespace directory
-                        for base_dir in [project_profiles, jn_home / "profiles"]:
+                        for base_dir in [
+                            project_profiles,
+                            jn_home / "profiles",
+                        ]:
                             ns_dir = base_dir / profile_type / namespace
                             if ns_dir.exists():
                                 return plugin_name, plugin_meta.path
@@ -741,7 +744,11 @@ class AddressResolver:
             # Check if this profile is managed by a protocol plugin (like duckdb)
             # Protocol plugins handle profile resolution internally
             plugin = self._plugins.get(plugin_name)
-            if plugin and plugin.role == "protocol" and plugin_name not in ["http_", "gmail_"]:
+            if (
+                plugin
+                and plugin.role == "protocol"
+                and plugin_name not in ["http_", "gmail_"]
+            ):
                 # Pass the full address (including parameters) to the plugin for internal resolution
                 return str(address), None
 
