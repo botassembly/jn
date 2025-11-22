@@ -58,7 +58,9 @@ def _get_profile_paths(home_dir: Optional[Path] = None) -> List[Path]:
         else:
             # Fallback: relative to this file
             bundled_dir = (
-                Path(__file__).parent.parent.parent.parent / "jn_home" / "profiles"
+                Path(__file__).parent.parent.parent.parent
+                / "jn_home"
+                / "profiles"
             )
 
     if bundled_dir.exists():
