@@ -24,6 +24,8 @@ Examples:
 #   "^https?://.*"
 # ]
 # supports_raw = true
+# manages_parameters = true
+# supports_container = true
 # ///
 
 import json

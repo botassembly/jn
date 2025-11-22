@@ -222,6 +222,8 @@ def list_all_profiles(
 
     # Call plugins with --mode inspect-profiles to discover plugin-managed profiles
     if discovered_plugins:
+        from ..process_utils import build_subprocess_env_for_coverage
+
         for plugin in discovered_plugins.values():
             try:
                 # Use uv run --script to ensure PEP 723 dependencies are available
@@ -237,6 +239,7 @@ def list_all_profiles(
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=True,
+                    env=build_subprocess_env_for_coverage(),
                 )
 
                 # Collect output with timeout

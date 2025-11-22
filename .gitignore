@@ -19,3 +19,10 @@ cache.json
 **/cache.json
 vendor
 .import_linter_cache
+
+# Database files (test artifacts)
+*.duckdb
+*.ddb
+*.db
+*.sqlite
+*.sqlite3

@@ -5,6 +5,8 @@
 # [tool.jn]
 # matches = ["^duckdb://.*", ".*\\.duckdb$", ".*\\.ddb$", "^@.*/.*"]
 # role = "protocol"
+# manages_parameters = true
+# supports_container = true
 # ///
 
 """DuckDB plugin for JN - query analytical databases."""

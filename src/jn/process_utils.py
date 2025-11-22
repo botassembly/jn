@@ -74,9 +74,14 @@ def build_subprocess_env_for_coverage() -> dict:
     - If COVERAGE_PROCESS_START is set, ensure sitecustomize.py is importable by
       prepending the repo root to PYTHONPATH.
     - Force coverage data files to land in repo root so combine finds them.
+    - Also includes JN environment variables (JN_HOME, JN_WORKING_DIR, etc.)
     """
-    env = os.environ.copy()
+    # Start with JN environment variables
+    from .context import get_plugin_env
 
+    env = get_plugin_env()
+
+    # Add coverage configuration if needed
     if env.get("COVERAGE_PROCESS_START"):
         root = _repo_root()
         py_path = env.get("PYTHONPATH", "")

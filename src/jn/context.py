@@ -81,3 +81,52 @@ class JNContext:
 
 
 pass_context = click.make_pass_decorator(JNContext, ensure=True)
+
+
+def get_jn_home() -> Path:
+    """Get JN_HOME directory (for backward compatibility with existing code).
+
+    Returns:
+        Path to JN_HOME (either from $JN_HOME env var or default ~/.jn)
+    """
+    global _cached_home
+    if _cached_home is None:
+        _cached_home = resolve_home(None)
+
+    # Return explicit home_dir if set, otherwise default to ~/.jn
+    if _cached_home.home_dir:
+        return _cached_home.home_dir
+    return Path.home() / ".jn"
+
+
+def get_profile_dir(profile_type: str) -> Path:
+    """Get profile directory for a specific plugin type.
+
+    Args:
+        profile_type: Plugin type (e.g., "duckdb", "http", "gmail")
+
+    Returns:
+        Path to profile directory (e.g., $JN_HOME/profiles/duckdb)
+    """
+    return get_jn_home() / "profiles" / profile_type
+
+
+def get_plugin_env() -> dict:
+    """Get environment variables to pass to plugin subprocesses.
+
+    Returns:
+        Dictionary of environment variables for plugin execution
+    """
+    env = os.environ.copy()
+    jn_home = get_jn_home()
+
+    # Set JN environment variables
+    env["JN_HOME"] = str(jn_home)
+    env["JN_WORKING_DIR"] = str(Path.cwd())
+
+    # Check if project-specific .jn directory exists
+    project_dir = Path.cwd() / ".jn"
+    if project_dir.exists():
+        env["JN_PROJECT_DIR"] = str(project_dir)
+
+    return env

@@ -27,6 +27,9 @@ class PluginMetadata:
     dependencies: List[str] = None
     role: Optional[str] = None
     supports_raw: bool = False
+    manages_parameters: bool = False  # Plugin handles own parameter parsing
+    supports_container: bool = False  # Plugin supports container inspection
+    container_mode: Optional[str] = None  # e.g., "path_count", "query_param"
 
     def __post_init__(self):
         if self.dependencies is None:
@@ -92,6 +95,9 @@ def discover_plugins(plugin_dir: Path) -> Dict[str, PluginMetadata]:
                 role = "filter"
 
         supports_raw = bool(tool_jn.get("supports_raw", False))
+        manages_parameters = bool(tool_jn.get("manages_parameters", False))
+        supports_container = bool(tool_jn.get("supports_container", False))
+        container_mode = tool_jn.get("container_mode")
 
         plugins[name] = PluginMetadata(
             name=name,
@@ -102,6 +108,9 @@ def discover_plugins(plugin_dir: Path) -> Dict[str, PluginMetadata]:
             dependencies=metadata.get("dependencies", []),
             role=role,
             supports_raw=supports_raw,
+            manages_parameters=manages_parameters,
+            supports_container=supports_container,
+            container_mode=container_mode,
         )
 
     return plugins

@@ -22,6 +22,8 @@ Examples:
 # matches = [
 #   "^gmail://.*"
 # ]
+# manages_parameters = true
+# supports_container = true
 # ///
 
 import base64

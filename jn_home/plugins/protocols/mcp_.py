@@ -23,6 +23,8 @@ Examples:
 # matches = [
 #   "^mcp\\+[a-z]+://"
 # ]
+# manages_parameters = true
+# supports_container = true
 # ///
 
 import asyncio
