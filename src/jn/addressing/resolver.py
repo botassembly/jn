@@ -107,8 +107,6 @@ class AddressResolver:
         # DuckDB profiles need special config building
         if address.type == "profile" and plugin_name == "duckdb_":
             import sys
-            sys.stderr.write(f"DEBUG resolve: calling _build_duckdb_profile_config for {address.base} with params {address.parameters}\n")
-            sys.stderr.flush()
             config = self._build_duckdb_profile_config(address)
         # For protocol plugins, parameters stay in URL (not extracted to config)
         elif is_protocol_plugin:
@@ -745,15 +743,9 @@ class AddressResolver:
 
         # Add parameters as param-* keys
         import sys
-        sys.stderr.write(f"DEBUG _build_duckdb_profile_config: address.parameters = {address.parameters}\n")
-        sys.stderr.flush()
         for param_name, param_value in (address.parameters or {}).items():
-            sys.stderr.write(f"DEBUG _build_duckdb_profile_config: Adding param-{param_name} = {param_value}\n")
-            sys.stderr.flush()
             config[f"param-{param_name}"] = param_value
 
-        sys.stderr.write(f"DEBUG _build_duckdb_profile_config: final config = {config}\n")
-        sys.stderr.flush()
         return config
 
     def _resolve_url_and_headers(

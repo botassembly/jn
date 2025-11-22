@@ -34,7 +34,6 @@ def _build_command(
     cmd = ["uv", "run", "--script", stage.plugin_path, "--mode", stage.mode]
 
     # DEBUG
-    sys.stderr.write(f"DEBUG _build_command: config = {stage.config}\n")
     sys.stderr.flush()
 
     # Add configuration parameters

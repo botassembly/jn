@@ -171,7 +171,6 @@ def _apply_limit(query: str, limit: int) -> str:
 
 if __name__ == "__main__":
     # DEBUG
-    sys.stderr.write(f"DEBUG: sys.argv = {sys.argv}\n")
     sys.stderr.flush()
 
     parser = argparse.ArgumentParser(description="JN DuckDB plugin")
@@ -186,8 +185,11 @@ if __name__ == "__main__":
     # Parse --param-* arguments
     args, unknown = parser.parse_known_args()
 
+    # If address was captured as positional, add it to unknown args
+    if args.address:
+        unknown.append(args.address)
+
     # DEBUG
-    sys.stderr.write(f"DEBUG: unknown args = {unknown}\n")
     sys.stderr.flush()
 
     params = {}
@@ -195,11 +197,9 @@ if __name__ == "__main__":
     while i < len(unknown):
         if unknown[i].startswith("--param-"):
             param_name = unknown[i][8:]  # Strip '--param-'
-            sys.stderr.write(f"DEBUG: Found param {param_name} at index {i}, len={len(unknown)}\n")
             sys.stderr.flush()
             if i + 1 < len(unknown):
                 params[param_name] = unknown[i + 1]
-                sys.stderr.write(f"DEBUG: Set param {param_name} = {unknown[i + 1]}\n")
                 sys.stderr.flush()
                 i += 2
             else:
