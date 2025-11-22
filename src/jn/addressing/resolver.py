@@ -347,6 +347,7 @@ class AddressResolver:
             # Check if this is a DuckDB profile namespace
             # Do this BEFORE trying to find plugin by name
             import os
+
             jn_home = Path(os.getenv("JN_HOME", Path.home() / ".jn"))
             duckdb_profile_dir = jn_home / "profiles" / "duckdb" / namespace
             if duckdb_profile_dir.exists():
@@ -365,6 +366,7 @@ class AddressResolver:
 
             # Check if this is a DuckDB profile namespace (takes precedence)
             import os
+
             jn_home = Path(os.getenv("JN_HOME", Path.home() / ".jn"))
             duckdb_profile_dir = jn_home / "profiles" / "duckdb" / plugin_name
             if duckdb_profile_dir.exists():

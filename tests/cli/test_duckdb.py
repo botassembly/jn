@@ -1,9 +1,10 @@
 """Tests for DuckDB plugin and profiles."""
 
 import json
-import pytest
 import subprocess
 from pathlib import Path
+
+import pytest
 
 
 @pytest.fixture
@@ -40,7 +41,7 @@ def test_duckdb_direct_table(invoke, test_db):
     res = invoke(["cat", f"duckdb://{test_db}/users"])
     assert res.exit_code == 0
 
-    lines = [l for l in res.output.strip().split("\n") if l]
+    lines = [line for line in res.output.strip().split("\n") if line]
     assert len(lines) == 2
 
     # Check first row
@@ -55,7 +56,7 @@ def test_duckdb_direct_query(invoke, test_db):
     res = invoke(["cat", f"duckdb://{test_db}?query={query}"])
     assert res.exit_code == 0
 
-    lines = [l for l in res.output.strip().split("\n") if l]
+    lines = [line for line in res.output.strip().split("\n") if line]
     assert len(lines) == 1
 
     row = json.loads(lines[0])
@@ -101,7 +102,11 @@ def test_duckdb_profile_query(invoke, tmp_path, test_db, monkeypatch):
     res = invoke(["cat", "@testdb/all-users"])
     assert res.exit_code == 0
 
-    lines = [l for l in res.output.strip().split("\n") if l and not l.startswith("Installed")]
+    lines = [
+        line
+        for line in res.output.strip().split("\n")
+        if line and not line.startswith("Installed")
+    ]
     assert len(lines) == 2
 
 
@@ -126,7 +131,11 @@ def test_duckdb_profile_parameterized(invoke, tmp_path, test_db, monkeypatch):
     res = invoke(["cat", "@testdb/by-id?user_id=1"])
     assert res.exit_code == 0
 
-    lines = [l for l in res.output.strip().split("\n") if l and not l.startswith("Installed")]
+    lines = [
+        line
+        for line in res.output.strip().split("\n")
+        if line and not line.startswith("Installed")
+    ]
     assert len(lines) == 1
 
     row = json.loads(lines[0])
