@@ -309,12 +309,11 @@ def cat(ctx, input_file):
         # These plugins manage their own parameter handling internally
         if addr.type == "profile" and final_stage.plugin_path:
             # Check plugin metadata to see if it manages its own parameters
-            from ...context import get_jn_home
             from ...plugins.service import get_cached_plugins_with_fallback
 
             plugins = get_cached_plugins_with_fallback(
-                get_jn_home() / "plugins",
-                get_jn_home() / "cache.json",
+                ctx.plugin_dir,
+                ctx.cache_path,
             )
 
             # Find plugin metadata by path

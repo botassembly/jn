@@ -5,13 +5,18 @@ import sys
 
 import click
 
-from ...context import get_jn_home, pass_context
+from ...context import pass_context
 from ...plugins.discovery import get_cached_plugins_with_fallback
 from ...profiles.service import get_profile_info, search_profiles
 
 
-def _get_profile_types():
+def _get_profile_types(home_dir=None, plugin_dir=None, cache_path=None):
     """Get available profile types dynamically from plugins.
+
+    Args:
+        home_dir: JN home directory (overrides $JN_HOME)
+        plugin_dir: Plugin directory for discovery
+        cache_path: Cache file path
 
     Returns list of profile types that have profiles or support profile management.
     """
@@ -20,11 +25,17 @@ def _get_profile_types():
 
     # Try to add discovered plugins (this enriches the list with custom plugins)
     try:
-        jn_home = get_jn_home()
-        plugins = get_cached_plugins_with_fallback(
-            jn_home / "plugins",
-            jn_home / "cache.json",
-        )
+        if plugin_dir and cache_path:
+            plugins = get_cached_plugins_with_fallback(plugin_dir, cache_path)
+        else:
+            # Fallback to default paths if not provided
+            from ...context import get_jn_home
+
+            jn_home = get_jn_home()
+            plugins = get_cached_plugins_with_fallback(
+                jn_home / "plugins",
+                jn_home / "cache.json",
+            )
 
         # Add protocol plugins that manage profiles
         for plugin in plugins.values():
@@ -88,7 +99,10 @@ def list_cmd(ctx, query, output_format, type_filter):
     )
 
     profiles = search_profiles(
-        query=query, type_filter=type_filter, discovered_plugins=plugins
+        query=query,
+        type_filter=type_filter,
+        discovered_plugins=plugins,
+        home_dir=ctx.home,
     )
 
     if not profiles:
@@ -170,12 +184,16 @@ def info(ctx, reference, output_format):
         ctx.plugin_dir, ctx.cache_path, fallback_to_builtin=True
     )
 
-    profile = get_profile_info(reference, discovered_plugins=plugins)
+    profile = get_profile_info(
+        reference, discovered_plugins=plugins, home_dir=ctx.home
+    )
 
     if profile is None:
         click.echo(f"Error: Profile '{reference}' not found", err=True)
         click.echo("\nAvailable profiles:", err=True)
-        all_profiles = search_profiles(discovered_plugins=plugins)
+        all_profiles = search_profiles(
+            discovered_plugins=plugins, home_dir=ctx.home
+        )
         for p in sorted(all_profiles, key=lambda x: x.reference)[:10]:
             click.echo(f"  {p.reference}", err=True)
         if len(all_profiles) > 10:
@@ -267,7 +285,7 @@ def tree(ctx, type_filter):
     )
 
     profiles = search_profiles(
-        type_filter=type_filter, discovered_plugins=plugins
+        type_filter=type_filter, discovered_plugins=plugins, home_dir=ctx.home
     )
 
     if not profiles:

@@ -26,8 +26,11 @@ class ProfileInfo:
     examples: List[dict] = field(default_factory=list)
 
 
-def _get_profile_paths() -> List[Path]:
+def _get_profile_paths(home_dir: Optional[Path] = None) -> List[Path]:
     """Get profile search paths in priority order.
+
+    Args:
+        home_dir: JN home directory (overrides $JN_HOME)
 
     Returns:
         List of profile root directories
@@ -45,14 +48,18 @@ def _get_profile_paths() -> List[Path]:
         paths.append(user_dir)
 
     # 3. Bundled profiles (lowest priority)
-    jn_home = os.environ.get("JN_HOME")
-    if jn_home:
-        bundled_dir = Path(jn_home) / "profiles"
+    # Use home_dir from context if provided, otherwise fall back to env/default
+    if home_dir:
+        bundled_dir = home_dir / "profiles"
     else:
-        # Fallback: relative to this file
-        bundled_dir = (
-            Path(__file__).parent.parent.parent.parent / "jn_home" / "profiles"
-        )
+        jn_home = os.environ.get("JN_HOME")
+        if jn_home:
+            bundled_dir = Path(jn_home) / "profiles"
+        else:
+            # Fallback: relative to this file
+            bundled_dir = (
+                Path(__file__).parent.parent.parent.parent / "jn_home" / "profiles"
+            )
 
     if bundled_dir.exists():
         paths.append(bundled_dir)
@@ -173,6 +180,7 @@ def _parse_json_profile(
 
 def list_all_profiles(
     discovered_plugins: Optional[Dict] = None,
+    home_dir: Optional[Path] = None,
 ) -> List[ProfileInfo]:
     """Scan filesystem and load all profiles.
 
@@ -181,6 +189,7 @@ def list_all_profiles(
 
     Args:
         discovered_plugins: Optional dict of discovered plugins for inspect-profiles mode
+        home_dir: JN home directory (overrides $JN_HOME)
 
     Returns:
         List of all discovered profiles
@@ -190,7 +199,7 @@ def list_all_profiles(
     profiles = []
 
     # JQ profiles still use filesystem scanning (no plugin to call)
-    for profile_root in _get_profile_paths():
+    for profile_root in _get_profile_paths(home_dir):
         jq_dir = profile_root / "jq"
         if jq_dir.exists():
             for jq_file in jq_dir.rglob("*.jq"):
@@ -259,6 +268,7 @@ def search_profiles(
     query: Optional[str] = None,
     type_filter: Optional[str] = None,
     discovered_plugins: Optional[Dict] = None,
+    home_dir: Optional[Path] = None,
 ) -> List[ProfileInfo]:
     """Search profiles by name or description.
 
@@ -269,11 +279,12 @@ def search_profiles(
         query: Search term (case-insensitive), or None for all
         type_filter: Optional filter by type ("jq", "gmail", "http", "mcp")
         discovered_plugins: Optional dict of discovered plugins for inspect-profiles mode
+        home_dir: JN home directory (overrides $JN_HOME)
 
     Returns:
         Matching profiles, sorted alphabetically by reference
     """
-    all_profiles = list_all_profiles(discovered_plugins)
+    all_profiles = list_all_profiles(discovered_plugins, home_dir)
 
     # Filter by type
     if type_filter:
@@ -297,18 +308,21 @@ def search_profiles(
 
 
 def get_profile_info(
-    reference: str, discovered_plugins: Optional[Dict] = None
+    reference: str,
+    discovered_plugins: Optional[Dict] = None,
+    home_dir: Optional[Path] = None,
 ) -> Optional[ProfileInfo]:
     """Get detailed info about a specific profile.
 
     Args:
         reference: Profile reference like "@gmail/inbox" or "@builtin/pivot"
         discovered_plugins: Optional dict of discovered plugins for inspect-profiles mode
+        home_dir: JN home directory (overrides $JN_HOME)
 
     Returns:
         ProfileInfo or None if not found
     """
-    all_profiles = list_all_profiles(discovered_plugins)
+    all_profiles = list_all_profiles(discovered_plugins, home_dir)
 
     for profile in all_profiles:
         if profile.reference == reference:
