@@ -189,38 +189,15 @@ def list_all_profiles(
 
     profiles = []
 
+    # JQ profiles still use filesystem scanning (no plugin to call)
     for profile_root in _get_profile_paths():
-        # JQ profiles
         jq_dir = profile_root / "jq"
         if jq_dir.exists():
             for jq_file in jq_dir.rglob("*.jq"):
                 profiles.append(_parse_jq_profile(jq_file, profile_root))
 
-        # Gmail profiles
-        gmail_dir = profile_root / "gmail"
-        if gmail_dir.exists():
-            for json_file in gmail_dir.rglob("*.json"):
-                profile = _parse_json_profile(json_file, profile_root, "gmail")
-                if profile:  # Skip _meta.json
-                    profiles.append(profile)
-
-        # HTTP profiles (future)
-        http_dir = profile_root / "http"
-        if http_dir.exists():
-            for json_file in http_dir.rglob("*.json"):
-                profile = _parse_json_profile(json_file, profile_root, "http")
-                if profile:
-                    profiles.append(profile)
-
-        # MCP profiles (future)
-        mcp_dir = profile_root / "mcp"
-        if mcp_dir.exists():
-            for json_file in mcp_dir.rglob("*.json"):
-                profile = _parse_json_profile(json_file, profile_root, "mcp")
-                if profile:
-                    profiles.append(profile)
-
     # Call plugins with --mode inspect-profiles to discover plugin-managed profiles
+    # This replaces hardcoded directory scanning for http, gmail, mcp, duckdb, etc.
     if discovered_plugins:
         from ..process_utils import build_subprocess_env_for_coverage
 

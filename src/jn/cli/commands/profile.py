@@ -5,9 +5,39 @@ import sys
 
 import click
 
-from ...context import pass_context
+from ...context import get_jn_home, pass_context
 from ...plugins.discovery import get_cached_plugins_with_fallback
 from ...profiles.service import get_profile_info, search_profiles
+
+
+def _get_profile_types():
+    """Get available profile types dynamically from plugins.
+
+    Returns list of profile types that have profiles or support profile management.
+    """
+    # Get all plugins
+    jn_home = get_jn_home()
+    plugins = get_cached_plugins_with_fallback(
+        jn_home / "plugins",
+        jn_home / "cache.json",
+    )
+
+    types = set()
+
+    # Add protocol plugins that manage profiles
+    for plugin in plugins.values():
+        if plugin.role == "protocol":
+            # Derive profile type from plugin name (e.g., "duckdb_" -> "duckdb")
+            profile_type = plugin.name.rstrip("_")
+            types.add(profile_type)
+
+    # Add filter plugins (jq)
+    for plugin in plugins.values():
+        if plugin.role == "filter":
+            types.add(plugin.name.rstrip("_"))
+
+    # Return sorted list
+    return sorted(types) if types else ["jq", "http", "gmail", "mcp", "duckdb"]  # Fallback
 
 
 @click.group(invoke_without_command=True)
@@ -34,7 +64,7 @@ def profile(ctx):
 @click.option(
     "--type",
     "type_filter",
-    type=click.Choice(["jq", "gmail", "http", "mcp", "duckdb"]),
+    type=click.Choice(_get_profile_types(), case_sensitive=False),
     help="Filter by profile type",
 )
 @pass_context
@@ -86,14 +116,8 @@ def list_cmd(ctx, query, output_format, type_filter):
 
         # Sort types
         for profile_type in sorted(by_type.keys()):
-            # Type header
-            type_label = {
-                "jq": "JQ Filter Profiles",
-                "gmail": "Gmail Profiles",
-                "http": "HTTP API Profiles",
-                "mcp": "MCP Tool Profiles",
-                "duckdb": "DuckDB Query Profiles",
-            }.get(profile_type, f"{profile_type.upper()} Profiles")
+            # Type header - generate label dynamically
+            type_label = f"{profile_type.upper()} Profiles"
 
             click.echo(f"\n{type_label}:")
 
@@ -206,7 +230,8 @@ def info(ctx, reference, output_format):
                 click.echo(
                     f"  jn cat data.json | jn filter '{profile.reference}' {param_examples}"
                 )
-        elif profile.type in ["gmail", "http", "mcp"]:
+        else:
+            # All protocol profiles (http, gmail, mcp, duckdb, etc.) use jn cat
             click.echo("\nUsage:")
             click.echo(f"  jn cat {profile.reference}")
             if profile.params:
@@ -220,7 +245,7 @@ def info(ctx, reference, output_format):
 @click.option(
     "--type",
     "type_filter",
-    type=click.Choice(["jq", "gmail", "http", "mcp", "duckdb"]),
+    type=click.Choice(_get_profile_types(), case_sensitive=False),
     help="Filter by profile type",
 )
 @pass_context
