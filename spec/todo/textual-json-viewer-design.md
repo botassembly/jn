@@ -309,6 +309,592 @@ MAX_RECORDS = config.get('max_records', 10_000)
 
 ---
 
+## Polished Features & Professional UX
+
+This section describes advanced features that elevate the viewer from "functional" to "polished professional tool". These are prioritized by value/complexity ratio and alignment with JN's philosophy.
+
+### Tier 1: Core Polish (Must-Have)
+
+#### 1. Streaming/Incremental Rendering
+
+**What:**
+Display records as they arrive on stdin, not after buffering the entire stream.
+
+**Why:**
+- **JN's philosophy**: Unix pipes stream data, tools process incrementally
+- **User expectation**: `jn cat huge.json | jn put "-~viewer"` should show first records within 100ms, not after 30 seconds
+- **Real impact**: Difference between feeling "instant" vs "broken"
+- **Large datasets**: Users with 1M+ records need to see progress
+
+**How it Fits:**
+Textual is async-native and supports this pattern naturally. The `App.run()` method accepts an async callback that can read stdin while the UI is rendering.
+
+**Components:**
+- Textual `App` with async data loading
+- Reactive updates to tree/table as records arrive
+- Progress indicator showing "Loaded 1,234 records..."
+
+**User Experience:**
+```bash
+$ jn cat massive.json | jn put "-~viewer"
+# Viewer opens immediately with "Loading..." message
+# After 100ms: Shows first 10 records, "Loaded 10 records (streaming...)"
+# After 1s: Shows first 1000 records, user can already start exploring
+# After 10s: Full dataset loaded, "Loaded 1,234,567 records (complete)"
+```
+
+---
+
+#### 2. Statistics Panel
+
+**What:**
+Side panel (or collapsible section) showing dataset statistics:
+- Total record count
+- Field name list with null counts
+- Unique value counts for low-cardinality fields
+- Type distribution (50% strings, 30% ints, 20% nulls)
+
+**Why:**
+- **First question**: "What am I looking at?" - stats answer this immediately
+- **Informs decisions**: "90% have null emails" → filter strategy clear
+- **Data quality**: Spot issues (unexpected nulls, type inconsistencies)
+- **Professional expectation**: DBeaver, Excel, Pandas all show stats
+
+**How it Fits:**
+- Statistics are computed during data loading (single pass)
+- Displayed in a `Static` widget (collapsible to save space)
+- Updates incrementally if using streaming mode
+
+**Components:**
+- Textual `Container` with `Collapsible` widget
+- Statistics aggregator module (computes stats during load)
+- Reactive display that updates as records arrive
+
+**User Experience:**
+```
+┌─ Statistics ────────────────────────┐
+│ Records: 1,234                      │
+│ Fields: 15                          │
+│                                     │
+│ Field          Null%   Unique      │
+│ ──────────────────────────────────  │
+│ id             0%      1,234        │
+│ name           0%      892          │
+│ email          15%     1,050        │
+│ status         0%      3 (active,   │
+│                          pending,   │
+│                          inactive)  │
+│ age            5%      45           │
+└─────────────────────────────────────┘
+```
+
+---
+
+#### 3. Value Formatting
+
+**What:**
+Smart display formatting for common data types:
+- **Dates**: `2024-11-22T15:30:00Z` → `Nov 22, 3:30pm` (relative: "2 hours ago")
+- **Large numbers**: `1234567` → `1.2M`, `1234` → `1.2K`
+- **Currencies**: `1234.56` → `$1,234.56` (if field name contains "price"/"amount")
+- **Bytes**: `1073741824` → `1.0 GB`
+- **Percentages**: `0.453` → `45.3%` (if field name contains "percent"/"rate")
+- **URLs**: Clickable links (if terminal supports)
+
+**Why:**
+- **Readability**: Formatted values are easier to comprehend
+- **Context**: "2 hours ago" is more useful than ISO timestamp for recent data
+- **Professional polish**: Raw values feel unfinished
+- **Easy win**: Pure display logic, no architectural complexity
+
+**How it Fits:**
+Formatting layer sits between data model and display. Uses heuristics (field names, value patterns) to detect type and apply formatting.
+
+**Components:**
+- `ValueFormatter` module with formatters for each type
+- Pattern detection (regex for dates, field name hints for currencies)
+- Configuration option to disable formatting (show raw values)
+
+**User Experience:**
+```
+Before:
+  created_at: "2024-11-22T13:30:00Z"
+  file_size: 1073741824
+  price: 1234.56
+
+After:
+  created_at: Nov 22, 1:30pm (2 hours ago)
+  file_size: 1.0 GB
+  price: $1,234.56
+```
+
+---
+
+#### 4. Copy JSONPath to Current Node
+
+**What:**
+Press `p` (or `y` for "yank") to copy the JSONPath to the currently selected node to clipboard.
+
+**Why:**
+- **Workflow integration**: Viewer is exploration, jq/filter is manipulation
+- **Bridge the gap**: "Found the field!" → copy path → `jn filter '.users[0].address.city'`
+- **Developer-friendly**: JSONPath is precise, machine-readable
+- **Common task**: Every exploration session ends with "now filter on this field"
+
+**How it Fits:**
+During tree building, track the JSONPath to each node. When user presses `p`, copy current path to clipboard and show confirmation toast.
+
+**Components:**
+- Path tracking during tree construction (`$.users[0].address.city`)
+- Clipboard integration (use `pyperclip` or Textual's clipboard API)
+- Toast notification: "Copied: $.users[0].address.city"
+
+**User Experience:**
+```
+User navigates tree:
+  ▼ Record 0
+    ▼ address
+      ▶ city: "New York"  ← cursor here
+
+User presses 'p':
+  [Toast] Copied: $.records[0].address.city
+
+User in terminal:
+  $ jn cat data.json | jn filter '.records[0].address.city'
+  # Paste from clipboard: $.records[0].address.city
+```
+
+---
+
+### Tier 2: Enhanced Polish (Should-Have)
+
+#### 5. Quick Stats in Table Mode
+
+**What:**
+Footer row in table mode showing aggregations:
+- Numeric columns: sum, avg, min, max
+- String columns: unique count
+- All columns: null count
+
+**Why:**
+- **Table stakes**: Every spreadsheet/DB tool has column totals
+- **Immediate insight**: "Revenue sum: $1.2M" without leaving viewer
+- **Expected UX**: Tables without aggregations feel incomplete
+- **Low cost**: Single aggregation pass, DataTable supports footers
+
+**How it Fits:**
+When rendering table mode, compute aggregations and add as footer row. DataTable widget supports this natively with `add_row()` and styling.
+
+**Components:**
+- Aggregation module (sum/avg/min/max per column)
+- DataTable footer row with distinct styling
+- Configuration to show/hide footer
+
+**User Experience:**
+```
+┌──────────────────────────────────────────────────┐
+│ id  │ name           │ age │ revenue            │
+├─────┼────────────────┼─────┼────────────────────┤
+│ 1   │ Alice Johnson  │ 30  │ $50,000            │
+│ 2   │ Bob Smith      │ 25  │ $45,000            │
+│ 3   │ Carol Davis    │ 35  │ $60,000            │
+├─────┼────────────────┼─────┼────────────────────┤
+│ 3   │ 3 unique       │ avg │ sum                │
+│ recs│                │ 30  │ $155,000           │
+└─────┴────────────────┴─────┴────────────────────┘
+```
+
+---
+
+#### 6. Export Current View
+
+**What:**
+Press `x` to export currently visible data (respecting filters, collapsed nodes) to a file in JSON or CSV format.
+
+**Why:**
+- **Complete workflow**: Explore → filter → collapse → export subset
+- **Real use case**: "Found 10 anomalies in 10K records, save for analysis"
+- **JN philosophy**: Transformations are visible and exportable
+- **User control**: Export what you see, not the entire dataset
+
+**How it Fits:**
+When user presses `x`, prompt for filename and format. Write currently visible records (those not filtered out or hidden by collapsed nodes) to file.
+
+**Components:**
+- Export dialog (Textual `Input` widget for filename)
+- Format selector (JSON/CSV/NDJSON radio buttons)
+- File writer using existing json_/csv_ plugin logic
+
+**User Experience:**
+```
+User filters down to 10 interesting records, presses 'x':
+
+┌─ Export Current View ─────────────────┐
+│ Filename: anomalies.json              │
+│ Format:  ◉ JSON  ○ CSV  ○ NDJSON     │
+│                                       │
+│ Records to export: 10 of 1,234        │
+│                                       │
+│ [Export]  [Cancel]                    │
+└───────────────────────────────────────┘
+
+After export:
+  [Toast] Exported 10 records to anomalies.json
+```
+
+---
+
+#### 7. Command Palette
+
+**What:**
+Press `Ctrl+P` to open fuzzy-searchable command palette listing all available actions.
+
+**Why:**
+- **Discoverability**: 30 keyboard shortcuts is overwhelming
+- **Modern pattern**: VSCode, GitHub, Slack all use this
+- **Fuzzy search**: "exp" → "Expand All", "col" → "Collapse to Depth"
+- **New user friendly**: Don't need to memorize shortcuts upfront
+- **Power user friendly**: Still faster than mousing to menus
+
+**How it Fits:**
+Textual supports modal dialogs and input widgets. Command palette is a filterable list that executes actions when selected.
+
+**Components:**
+- Textual `Screen` (modal overlay)
+- Textual `Input` for fuzzy search
+- Textual `ListView` for filtered commands
+- Command registry mapping names to actions
+
+**User Experience:**
+```
+User presses Ctrl+P:
+
+┌─ Command Palette ──────────────────────┐
+│ > exp_                                 │
+├────────────────────────────────────────┤
+│ ▶ Expand All                           │
+│   Expand Current Node                  │
+│   Export Current View                  │
+│   Explore in Detail Mode               │
+└────────────────────────────────────────┘
+
+User types "col":
+
+┌─ Command Palette ──────────────────────┐
+│ > col_                                 │
+├────────────────────────────────────────┤
+│ ▶ Collapse All                         │
+│   Collapse to Depth 1                  │
+│   Collapse to Depth 2                  │
+│   Collapse Current Node                │
+└────────────────────────────────────────┘
+```
+
+---
+
+### Tier 3: Advanced Polish (Nice-to-Have)
+
+#### 8. Split View / Compare Mode
+
+**What:**
+View two records side by side with differences highlighted. Select a record and press `c` (compare), then select another record to see diff.
+
+**Why:**
+- **Debugging workflow**: "Why did request A succeed but B fail?"
+- **API responses**: Compare expected vs actual
+- **Data quality**: Find inconsistencies between similar records
+- **Visual clarity**: Side-by-side is easier than toggling
+
+**How it Fits:**
+Split screen into two `Tree` widgets side by side. Build both trees simultaneously, highlighting differing values with color (green=only in A, red=only in B, yellow=different values).
+
+**Components:**
+- Textual `Horizontal` container with two `Tree` widgets
+- Diff algorithm (deep comparison of objects)
+- Conditional styling for highlighting differences
+
+**User Experience:**
+```
+┌─ Compare: Record 0 vs Record 5 ────────────────────────┐
+│ Record 0                │ Record 5                     │
+├─────────────────────────┼──────────────────────────────┤
+│ ▼ Data                  │ ▼ Data                       │
+│   id: 1                 │   id: 6                      │
+│   name: "Alice"         │   name: "Alice"              │
+│   status: "active"      │   status: "failed"   [DIFF]  │
+│   error: null           │   error: "Timeout"   [DIFF]  │
+│   timestamp: ...        │   timestamp: ...             │
+└─────────────────────────┴──────────────────────────────┘
+```
+
+---
+
+#### 9. Type Inference Display
+
+**What:**
+Show inferred schema for the dataset: field names, types, and nullability.
+
+**Why:**
+- **Understand data shape**: Glance at schema, see structure
+- **Type issues**: "Wait, `age` is sometimes a string?"
+- **Documentation**: Schema is quick reference for fields
+- **Heterogeneous data**: See all possible fields across records
+
+**How it Fits:**
+During data loading, infer type for each field by examining all records. Display schema in statistics panel or separate tab.
+
+**Components:**
+- Type inference module (scan values, track types per field)
+- Schema display widget (tree or table showing `field: type`)
+- Nullability tracking (% of nulls per field)
+
+**User Experience:**
+```
+┌─ Inferred Schema ──────────────────────┐
+│ {                                      │
+│   id: int,                             │
+│   name: string,                        │
+│   email: string | null (15% null),     │
+│   age: int | null (5% null),           │
+│   status: enum("active", "pending",    │
+│                 "inactive"),           │
+│   address: {                           │
+│     city: string,                      │
+│     zip: string | int (mixed types!)   │
+│   },                                   │
+│   tags: array<string>                  │
+│ }                                      │
+└────────────────────────────────────────┘
+```
+
+---
+
+#### 10. Smart Column Width Allocation
+
+**What:**
+In table mode, dynamically size columns based on content, not fixed widths. Short values (like `id`) get narrow columns, long values (like `description`) get more space.
+
+**Why:**
+- **Space efficiency**: Don't waste columns on narrow data
+- **Readability**: Long text isn't truncated unnecessarily
+- **Professional polish**: Fixed-width tables feel primitive
+- **Adaptive**: Works on both wide (200 cols) and narrow (80 cols) terminals
+
+**How it Fits:**
+Before rendering table, scan all values in each column to compute max width. Allocate proportionally, with min/max constraints.
+
+**Components:**
+- Column width calculator (max content length per column)
+- Proportional allocation algorithm (respect terminal width)
+- DataTable column configuration
+
+**User Experience:**
+```
+Before (fixed widths):
+┌────────────────────┬────────────────────┬────────────────────┐
+│ id                 │ name               │ description        │
+├────────────────────┼────────────────────┼────────────────────┤
+│ 1                  │ Alice Johnson      │ Senior Engineer... │
+│ 2                  │ Bob Smith          │ Product Manager... │
+
+After (smart widths):
+┌────┬─────────────────┬─────────────────────────────────────┐
+│ id │ name            │ description                         │
+├────┼─────────────────┼─────────────────────────────────────┤
+│ 1  │ Alice Johnson   │ Senior Engineer with 10 years exp   │
+│ 2  │ Bob Smith       │ Product Manager focused on growth   │
+```
+
+---
+
+#### 11. Pattern Highlighting
+
+**What:**
+Automatically highlight interesting patterns in data:
+- **Duplicates**: Same value appears 5+ times → purple background
+- **Outliers**: Value > 2 std deviations from mean → yellow background
+- **Nulls**: Null values → dim red text
+- **Type mismatches**: String in mostly-int column → orange background
+
+**Why:**
+- **Visual scanning**: Spot issues without reading every value
+- **Data quality**: Find problems (duplicates, type errors, outliers)
+- **Exploration aid**: "Why is this record highlighted?" → investigate
+- **Low cognitive load**: Colors guide attention
+
+**How it Fits:**
+During data loading, compute statistics (value frequencies, type distributions, numeric stats). Apply conditional styling based on patterns.
+
+**Components:**
+- Pattern detection module (duplicates, outliers, type mismatches)
+- Conditional styling in Tree/DataTable (Textual's `Rich` styling)
+- Configuration to enable/disable highlighting
+
+**User Experience:**
+```
+┌─ Records (Pattern Highlighting ON) ────────────────┐
+│ ▼ Record 0                                         │
+│   id: 1                                            │
+│   name: "Alice"                                    │
+│   status: "active"  [PURPLE: 80% of records]      │
+│   age: 30                                          │
+│                                                    │
+│ ▼ Record 1                                         │
+│   id: 2                                            │
+│   name: "Bob"                                      │
+│   status: "active"  [PURPLE: duplicate]           │
+│   age: "unknown"    [ORANGE: type mismatch]       │
+└────────────────────────────────────────────────────┘
+```
+
+---
+
+## Integration Philosophy
+
+All polished features follow these principles:
+
+### 1. Progressive Disclosure
+Don't overwhelm users. Statistics panel is collapsible, command palette is hidden until Ctrl+P, advanced features are in menus not default UI.
+
+### 2. JN Workflow Integration
+Features bridge viewer → pipeline gap. Copy JSONPath feeds into `jn filter`, export creates files for further processing, stats inform filtering decisions.
+
+### 3. Keyboard-First, Mouse-Friendly
+Primary interaction is keyboard (fast, precise), but mouse works for casual users (clicking to expand, scrolling).
+
+### 4. Async & Responsive
+UI never blocks. Streaming loads in background, statistics update incrementally, large computations show progress.
+
+### 5. Graceful Degradation
+If terminal doesn't support color → use symbols. If clipboard unavailable → show path in dialog. If screen too small → hide panels.
+
+---
+
+## Architectural Considerations
+
+### Widget Hierarchy
+
+```
+JSONViewerApp (Textual App)
+├─ Header (built-in)
+├─ MainContainer (Horizontal or Vertical based on screen size)
+│  ├─ DataView (Tree or DataTable)
+│  └─ StatisticsPanel (Collapsible, optional)
+├─ StatusBar (custom widget)
+└─ Modals (conditional)
+   ├─ CommandPalette (Screen, appears on Ctrl+P)
+   ├─ ExportDialog (Screen, appears on 'x')
+   └─ CompareView (Screen, appears on 'c')
+```
+
+### Data Flow
+
+```
+stdin (NDJSON stream)
+  ↓
+StreamReader (async generator)
+  ↓
+DataModel (stores records, computes stats)
+  ├→ StatisticsPanel (reactive updates)
+  ├→ TreeView (incremental rendering)
+  └→ TableView (batch rendering)
+  ↓
+User interactions (keyboard/mouse)
+  ↓
+Actions (expand, filter, export, copy)
+  ↓
+State updates (reactive)
+  ↓
+UI re-renders (Textual handles diffing)
+```
+
+### Key Modules
+
+**Core:**
+- `json_viewer.py` - Main plugin entry point, CLI interface
+- `app.py` - JSONViewerApp (Textual App subclass)
+- `data_model.py` - DataModel (stores records, computes stats)
+
+**Views:**
+- `tree_view.py` - TreeView (hierarchical display)
+- `table_view.py` - TableView (tabular display)
+- `detail_view.py` - DetailView (single-record inspection)
+- `compare_view.py` - CompareView (side-by-side diff)
+
+**Components:**
+- `statistics_panel.py` - StatisticsPanel (dataset stats)
+- `status_bar.py` - StatusBar (hints, keybindings)
+- `command_palette.py` - CommandPalette (fuzzy command search)
+- `export_dialog.py` - ExportDialog (export UI)
+
+**Utilities:**
+- `formatters.py` - ValueFormatter (dates, numbers, bytes)
+- `path_tracker.py` - JSONPathTracker (build paths during traversal)
+- `type_inference.py` - TypeInferrer (infer schema from records)
+- `pattern_detector.py` - PatternDetector (duplicates, outliers)
+- `aggregators.py` - Aggregators (sum, avg, min, max)
+
+### Configuration Schema
+
+```python
+{
+  # View settings
+  "mode": "auto" | "tree" | "table" | "detail",
+  "depth": int,  # Initial expansion depth
+
+  # Field filtering
+  "fields": set[str],  # Include only these
+  "exclude": set[str],  # Exclude these
+  "priority": list[str],  # Show these first
+
+  # Display settings
+  "max_string_length": int,  # Truncate strings
+  "max_records": int,  # Limit dataset size
+  "show_stats": bool,  # Show statistics panel
+  "format_values": bool,  # Apply value formatting
+  "highlight_patterns": bool,  # Pattern highlighting
+
+  # Performance
+  "streaming": bool,  # Incremental rendering
+  "virtual_scroll": bool,  # Only render visible
+
+  # Export defaults
+  "export_format": "json" | "csv" | "ndjson",
+}
+```
+
+---
+
+## Why This Approach?
+
+### Focus on Workflows, Not Features
+
+Every polished feature answers a real question:
+- **Statistics panel**: "What am I looking at?"
+- **Copy JSONPath**: "How do I filter on this field?"
+- **Export current view**: "How do I save these 10 interesting records?"
+- **Value formatting**: "What does this timestamp mean?"
+- **Compare mode**: "Why did this request fail but that one succeed?"
+
+### Leverage Textual's Strengths
+
+We're not building a TUI framework - we're using one. Textual provides:
+- **Tree widget**: Handles expansion, navigation, rendering
+- **DataTable widget**: Handles sorting, selection, scrolling
+- **Screen/Modal**: Command palette, dialogs
+- **Reactive model**: State changes automatically update UI
+- **Async support**: Streaming data, non-blocking operations
+
+### Align with JN Philosophy
+
+JN is about **composable data pipelines**. The viewer:
+- **Fits in pipelines**: `jn cat | jn filter | jn put "-~viewer"`
+- **Exports back to pipelines**: Export → JSON file → `jn cat` again
+- **Bridges exploration & transformation**: Copy path → use in filter
+- **Streams data**: Respects Unix philosophy of incremental processing
+
+---
+
 ## Architecture
 
 ### Component Diagram
