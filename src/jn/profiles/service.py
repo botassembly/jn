@@ -9,7 +9,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 
 @dataclass
@@ -171,15 +171,22 @@ def _parse_json_profile(
     )
 
 
-def list_all_profiles() -> List[ProfileInfo]:
+def list_all_profiles(
+    discovered_plugins: Optional[Dict] = None,
+) -> List[ProfileInfo]:
     """Scan filesystem and load all profiles.
 
     Fast enough to run every time (~4ms for 15 profiles).
     No caching needed until >1000 profiles.
 
+    Args:
+        discovered_plugins: Optional dict of discovered plugins for inspect-profiles mode
+
     Returns:
         List of all discovered profiles
     """
+    import subprocess
+
     profiles = []
 
     for profile_root in _get_profile_paths():
@@ -213,11 +220,65 @@ def list_all_profiles() -> List[ProfileInfo]:
                 if profile:
                     profiles.append(profile)
 
+    # Call plugins with --mode inspect-profiles to discover plugin-managed profiles
+    if discovered_plugins:
+        for plugin in discovered_plugins.values():
+            try:
+                # Use uv run --script to ensure PEP 723 dependencies are available
+                process = subprocess.Popen(
+                    [
+                        "uv",
+                        "run",
+                        "--script",
+                        str(plugin.path),
+                        "--mode",
+                        "inspect-profiles",
+                    ],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+
+                # Collect output with timeout
+                try:
+                    stdout, _ = process.communicate(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+                    continue
+
+                # If successful, parse NDJSON output
+                if process.returncode == 0 and stdout.strip():
+                    for line in stdout.strip().split("\n"):
+                        try:
+                            data = json.loads(line)
+                            # Convert to ProfileInfo
+                            profiles.append(
+                                ProfileInfo(
+                                    reference=data["reference"],
+                                    type=data["type"],
+                                    namespace=data["namespace"],
+                                    name=data["name"],
+                                    path=Path(data["path"]),
+                                    description=data.get("description", ""),
+                                    params=data.get("params", []),
+                                    examples=data.get("examples", []),
+                                )
+                            )
+                        except (json.JSONDecodeError, KeyError):
+                            # Skip malformed lines
+                            pass
+            except FileNotFoundError:
+                # Plugin doesn't exist or isn't executable
+                pass
+
     return profiles
 
 
 def search_profiles(
-    query: Optional[str] = None, type_filter: Optional[str] = None
+    query: Optional[str] = None,
+    type_filter: Optional[str] = None,
+    discovered_plugins: Optional[Dict] = None,
 ) -> List[ProfileInfo]:
     """Search profiles by name or description.
 
@@ -227,11 +288,12 @@ def search_profiles(
     Args:
         query: Search term (case-insensitive), or None for all
         type_filter: Optional filter by type ("jq", "gmail", "http", "mcp")
+        discovered_plugins: Optional dict of discovered plugins for inspect-profiles mode
 
     Returns:
         Matching profiles, sorted alphabetically by reference
     """
-    all_profiles = list_all_profiles()
+    all_profiles = list_all_profiles(discovered_plugins)
 
     # Filter by type
     if type_filter:
@@ -254,16 +316,19 @@ def search_profiles(
     return sorted(matches, key=lambda p: p.reference)
 
 
-def get_profile_info(reference: str) -> Optional[ProfileInfo]:
+def get_profile_info(
+    reference: str, discovered_plugins: Optional[Dict] = None
+) -> Optional[ProfileInfo]:
     """Get detailed info about a specific profile.
 
     Args:
         reference: Profile reference like "@gmail/inbox" or "@builtin/pivot"
+        discovered_plugins: Optional dict of discovered plugins for inspect-profiles mode
 
     Returns:
         ProfileInfo or None if not found
     """
-    all_profiles = list_all_profiles()
+    all_profiles = list_all_profiles(discovered_plugins)
 
     for profile in all_profiles:
         if profile.reference == reference:

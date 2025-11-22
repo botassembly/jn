@@ -24,6 +24,7 @@ def _is_container(address_str: str) -> bool:
     - @biomcp (no tool)
     - gmail://me (no label/folder)
     - @plugin (standalone plugin reference)
+    - duckdb://file.duckdb (no table/query)
 
     Returns:
         True if container, False if leaf
@@ -33,6 +34,19 @@ def _is_container(address_str: str) -> bool:
         if address_str.startswith("gmail://"):
             # gmail://me = container, gmail://me/INBOX = leaf
             return address_str.count("/") == 2
+
+        if address_str.startswith("duckdb://"):
+            # duckdb://file.duckdb = container
+            # duckdb://file.duckdb/table = leaf
+            # duckdb://file.duckdb?query=... = leaf
+            base = address_str.split("?")[0]  # Remove query params
+            # Check if there's anything after .duckdb or .ddb
+            for ext in (".duckdb", ".ddb"):
+                if ext in base:
+                    suffix = base.split(ext, 1)[1].strip("/")
+                    return not suffix  # Container if no suffix
+            return False
+
         # Other protocols default to leaf
         return False
 
@@ -120,6 +134,44 @@ def _format_container_text(result: dict) -> str:
                 lines.append(f"    URI: {resource['uri']}")
                 if resource.get("mimeType"):
                     lines.append(f"    Type: {resource['mimeType']}")
+                lines.append("")
+        else:
+            lines.append("  (none)")
+
+    # DuckDB format
+    elif transport == "duckdb":
+        lines.append(f"Database: {result.get('database', 'unknown')}")
+        lines.append(f"Transport: {transport}")
+        lines.append("")
+
+        tables = result.get("tables", [])
+        lines.append(f"Tables ({len(tables)}):")
+        if tables:
+            for table in tables:
+                lines.append(f"  • {table['name']}")
+                lines.append(f"    Type: {table.get('type', 'table')}")
+                lines.append(f"    Columns: {table.get('columns', 0)}")
+                lines.append("")
+        else:
+            lines.append("  (none)")
+
+    # DuckDB profile format
+    elif transport == "duckdb-profile":
+        lines.append(f"Profile: {result.get('namespace', 'unknown')}")
+        lines.append(f"Transport: {transport}")
+        lines.append("")
+
+        queries = result.get("queries", [])
+        lines.append(f"Queries ({len(queries)}):")
+        if queries:
+            for query in queries:
+                lines.append(f"  • {query['name']}")
+                if query.get("description"):
+                    lines.append(f"    {query['description']}")
+                lines.append(f"    Reference: {query['reference']}")
+                params = query.get("params", [])
+                if params:
+                    lines.append(f"    Parameters: {', '.join(params)}")
                 lines.append("")
         else:
             lines.append("  (none)")
@@ -354,6 +406,26 @@ def _inspect_container(address_str: str) -> dict:
             ),
             "threadsTotal": 0,  # Would need to aggregate properly
             "labels": [
+                {k: v for k, v in rec.items() if not k.startswith("_")}
+                for rec in listings
+            ],
+        }
+    elif listing_type == "table":
+        # DuckDB tables
+        return {
+            "database": container,
+            "transport": "duckdb",
+            "tables": [
+                {k: v for k, v in rec.items() if not k.startswith("_")}
+                for rec in listings
+            ],
+        }
+    elif listing_type == "query":
+        # DuckDB profile queries
+        return {
+            "namespace": container,
+            "transport": "duckdb-profile",
+            "queries": [
                 {k: v for k, v in rec.items() if not k.startswith("_")}
                 for rec in listings
             ],

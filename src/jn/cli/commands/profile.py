@@ -6,6 +6,7 @@ import sys
 import click
 
 from ...context import pass_context
+from ...plugins.discovery import get_cached_plugins_with_fallback
 from ...profiles.service import get_profile_info, search_profiles
 
 
@@ -33,7 +34,7 @@ def profile(ctx):
 @click.option(
     "--type",
     "type_filter",
-    type=click.Choice(["jq", "gmail", "http", "mcp"]),
+    type=click.Choice(["jq", "gmail", "http", "mcp", "duckdb"]),
     help="Filter by profile type",
 )
 @pass_context
@@ -46,7 +47,14 @@ def list_cmd(ctx, query, output_format, type_filter):
         jn profile list --type jq        # Only JQ profiles
         jn profile list gmail --format json
     """
-    profiles = search_profiles(query=query, type_filter=type_filter)
+    # Get discovered plugins for inspect-profiles mode
+    plugins = get_cached_plugins_with_fallback(
+        ctx.plugin_dir, ctx.cache_path, fallback_to_builtin=True
+    )
+
+    profiles = search_profiles(
+        query=query, type_filter=type_filter, discovered_plugins=plugins
+    )
 
     if not profiles:
         if query:
@@ -84,6 +92,7 @@ def list_cmd(ctx, query, output_format, type_filter):
                 "gmail": "Gmail Profiles",
                 "http": "HTTP API Profiles",
                 "mcp": "MCP Tool Profiles",
+                "duckdb": "DuckDB Query Profiles",
             }.get(profile_type, f"{profile_type.upper()} Profiles")
 
             click.echo(f"\n{type_label}:")
@@ -127,12 +136,17 @@ def info(ctx, reference, output_format):
         jn profile info @builtin/pivot
         jn profile info @gmail/inbox --format json
     """
-    profile = get_profile_info(reference)
+    # Get discovered plugins for inspect-profiles mode
+    plugins = get_cached_plugins_with_fallback(
+        ctx.plugin_dir, ctx.cache_path, fallback_to_builtin=True
+    )
+
+    profile = get_profile_info(reference, discovered_plugins=plugins)
 
     if profile is None:
         click.echo(f"Error: Profile '{reference}' not found", err=True)
         click.echo("\nAvailable profiles:", err=True)
-        all_profiles = search_profiles()
+        all_profiles = search_profiles(discovered_plugins=plugins)
         for p in sorted(all_profiles, key=lambda x: x.reference)[:10]:
             click.echo(f"  {p.reference}", err=True)
         if len(all_profiles) > 10:
@@ -206,7 +220,7 @@ def info(ctx, reference, output_format):
 @click.option(
     "--type",
     "type_filter",
-    type=click.Choice(["jq", "gmail", "http", "mcp"]),
+    type=click.Choice(["jq", "gmail", "http", "mcp", "duckdb"]),
     help="Filter by profile type",
 )
 @pass_context
@@ -217,7 +231,14 @@ def tree(ctx, type_filter):
         jn profile tree
         jn profile tree --type jq
     """
-    profiles = search_profiles(type_filter=type_filter)
+    # Get discovered plugins for inspect-profiles mode
+    plugins = get_cached_plugins_with_fallback(
+        ctx.plugin_dir, ctx.cache_path, fallback_to_builtin=True
+    )
+
+    profiles = search_profiles(
+        type_filter=type_filter, discovered_plugins=plugins
+    )
 
     if not profiles:
         click.echo("No profiles found")

@@ -1,4 +1,10 @@
-# Profile CLI Design
+# Profile CLI
+
+**Status:** ✅ Implemented (Phase 1 & 2)
+**Commands:** `jn profile list`, `jn profile info`, `jn profile tree`
+**Date:** 2025-11-22
+
+---
 
 ## Problem
 
@@ -385,41 +391,38 @@ Test with:
 
 ---
 
-## Implementation Plan
+## Implementation Status
 
-### Phase 1: Core Discovery (Minimal Viable CLI)
+### ✅ Phase 1: Core Discovery (DONE)
 
-**Goal:** Enable discovery and inspection
+**Implemented commands:**
+- ✅ `jn profile list` - Text and JSON output with filtering
+- ✅ `jn profile info <reference>` - Detailed profile inspection
+- ✅ `jn profile search <query>` - Search profiles by name/description
 
-**Tasks:**
-- [ ] Create `src/jn/cli/commands/profile.py`
-- [ ] Implement `jn profile list` (text + JSON output)
-- [ ] Implement `jn profile info <reference>` (HTTP and JQ)
-- [ ] Add to `src/jn/cli/main.py`
+**Features:**
+- Text output with organized sections by type
+- JSON output for agent consumption
+- Type filtering (`--type duckdb`, `--type http`, etc.)
+- Format selection (`--format json`, `--format text`)
 
-**Effort:** 2-3 days
+**Location:** `src/jn/cli/commands/profile.py`
 
-### Phase 2: Advanced Features
+### ✅ Phase 2: Advanced Features (DONE)
 
-**Goal:** Tree view and validation
+**Implemented:**
+- ✅ `jn profile tree` - Hierarchical tree view of profiles
+- ✅ Filtering by type and namespace
+- ✅ Profile metadata extraction from plugins
 
-**Tasks:**
-- [ ] Implement `jn profile tree`
-- [ ] Implement `jn profile test <reference>`
-- [ ] Add filtering options (--type, --namespace)
+**Not implemented:**
+- ⏭️ `jn profile test <reference>` - Validation (future enhancement)
 
-**Effort:** 1-2 days
+### ⏭️ Phase 3: Creation (NOT NEEDED)
 
-### Phase 3: Creation (Optional)
+**Rationale:** Agents and users can create profiles by writing JSON/SQL files directly. Templates add complexity without significant value.
 
-**Goal:** Scaffolding for new profiles
-
-**Tasks:**
-- [ ] Implement `jn profile new http <name>`
-- [ ] Implement `jn profile new jq <name>`
-- [ ] Add templates
-
-**Effort:** 1-2 days
+**Current approach:** Documentation and examples show how to create profiles manually.
 
 ---
 

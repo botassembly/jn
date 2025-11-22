@@ -82,10 +82,11 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S603","S607","E501","F401"]
+"tests/**" = ["S603","S607","S608","E501","F401"]
 "src/jn/util.py" = ["S602","S603","S607","S110","SIM105"]
 "src/jn/service.py" = ["S603"]
 "src/jn/service/pipeline.py" = ["S603"]
+"src/jn/profiles/service.py" = ["S603","S607"]
 "src/jn/drivers/curl.py" = ["S603"]
 "src/jn/drivers/exec.py" = ["S603"]
 "src/jn/drivers/shell.py" = ["S602"]

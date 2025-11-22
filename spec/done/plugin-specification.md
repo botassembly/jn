@@ -99,6 +99,299 @@ JN plugins are categorized by **capability** (which functions they expose), not 
 
 ---
 
+## Self-Contained Protocol Plugins
+
+**Status:** ✅ Implemented pattern for DuckDB, recommended for all protocol plugins
+**Date:** 2025-11-22
+
+### Architecture Pattern
+
+Protocol plugins that manage profiles (DuckDB, PostgreSQL, MySQL, etc.) should be **self-contained**: they vendor all profile-related logic and expose it via `--mode` flags.
+
+### Problem: Framework Coupling
+
+**Before (coupled):**
+```
+Framework (profiles/service.py)
+├── _parse_duckdb_profile()    # DuckDB-specific logic (~200 lines)
+├── _parse_postgres_profile()  # PostgreSQL-specific logic
+└── list_all_profiles()        # Framework scans filesystem
+
+Plugin (duckdb_.py)
+└── reads()                    # Just executes queries
+```
+
+**Issues:**
+- Framework contains plugin-specific code
+- Can't add new database plugins without modifying framework
+- Plugin not independently testable
+- Violates separation of concerns
+
+### Solution: Self-Contained Plugins
+
+**After (self-contained):**
+```
+Framework (profiles/service.py)
+└── list_all_profiles()        # Calls plugins, aggregates results
+
+Plugin (duckdb_.py)
+├── inspect_profiles()         # Scans filesystem for profiles
+├── _load_profile()            # Parses profile metadata
+├── _get_profile_paths()       # Resolves profile directories
+└── reads()                    # Executes queries
+```
+
+**Benefits:**
+✅ Framework is generic (no plugin-specific code)
+✅ Plugin is standalone (testable via `--mode` flags)
+✅ Easy to add new database plugins (copy pattern)
+✅ Plugin owns its own profile discovery logic
+
+### Implementation Pattern
+
+#### Plugin Implements `inspect_profiles()`
+
+```python
+def inspect_profiles() -> Iterator[dict]:
+    """List all available profiles for this plugin.
+
+    Called by framework with --mode inspect-profiles.
+    Returns ProfileInfo-compatible NDJSON records.
+    """
+    for profile_root in _get_profile_paths():
+        for namespace_dir in sorted(profile_root.iterdir()):
+            # Plugin-specific logic to discover profiles
+            for profile_file in namespace_dir.glob("*.sql"):
+                # Parse metadata from file
+                yield {
+                    "reference": f"@{namespace}/{name}",
+                    "type": "duckdb",
+                    "namespace": namespace,
+                    "name": name,
+                    "path": str(profile_file),
+                    "description": description,
+                    "params": params,
+                    "examples": []
+                }
+```
+
+#### Plugin CLI Supports `--mode inspect-profiles`
+
+```python
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--mode", choices=["read", "write", "inspect-profiles", "inspect-container"])
+    parser.add_argument("address", nargs="?")
+
+    args = parser.parse_args()
+
+    if args.mode == "inspect-profiles":
+        # Discovery mode
+        for profile in inspect_profiles():
+            print(json.dumps(profile))
+    elif args.mode == "read":
+        # Execution mode
+        for record in reads(config_from_address(args.address)):
+            print(json.dumps(record))
+```
+
+#### Framework Calls Plugin Subprocess
+
+```python
+# Framework code: profiles/service.py
+def list_all_profiles(discovered_plugins: Optional[Dict] = None) -> List[ProfileInfo]:
+    """Scan filesystem and call plugins to discover profiles."""
+    profiles = []
+
+    # ... scan filesystem for HTTP, JQ, MCP profiles ...
+
+    # Call plugins with --mode inspect-profiles
+    if discovered_plugins:
+        for plugin in discovered_plugins.values():
+            try:
+                # Use uv run --script to ensure PEP 723 dependencies available
+                process = subprocess.Popen(
+                    ["uv", "run", "--script", str(plugin.path), "--mode", "inspect-profiles"],
+                    stdout=subprocess.PIPE,
+                    text=True
+                )
+                stdout, _ = process.communicate(timeout=5)
+
+                if process.returncode == 0 and stdout.strip():
+                    for line in stdout.strip().split("\n"):
+                        data = json.loads(line)
+                        profiles.append(ProfileInfo(**data))
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                pass
+
+    return profiles
+```
+
+### Why Use `uv run --script`?
+
+**Critical:** Framework must call plugin via `uv run --script`, not `sys.executable`.
+
+**Reason:** PEP 723 dependencies need to be installed.
+
+```python
+# ❌ WRONG - Bypasses PEP 723 dependency installation
+subprocess.Popen([sys.executable, str(plugin.path), "--mode", "inspect-profiles"])
+# Plugin fails with: ImportError: No module named 'duckdb'
+
+# ✅ CORRECT - Installs PEP 723 dependencies first
+subprocess.Popen(["uv", "run", "--script", str(plugin.path), "--mode", "inspect-profiles"])
+# UV reads # dependencies = ["duckdb>=0.9.0"] and installs before running
+```
+
+### Communication Protocol
+
+**Framework → Plugin:**
+```bash
+uv run --script duckdb_.py --mode inspect-profiles
+```
+
+**Plugin → Framework (NDJSON):**
+```json
+{"reference": "@analytics/sales", "type": "duckdb", "namespace": "analytics", "name": "sales", "path": "/path/to/sales.sql", "description": "Sales summary", "params": [], "examples": []}
+{"reference": "@analytics/revenue", "type": "duckdb", "namespace": "analytics", "name": "revenue", "path": "/path/to/revenue.sql", "description": "Revenue report", "params": ["year"], "examples": []}
+```
+
+### Vendor Profile Logic
+
+Self-contained plugins **vendor** profile resolution logic from framework:
+
+**Pattern:**
+```python
+def _get_profile_paths() -> list[Path]:
+    """Get profile search paths in priority order.
+
+    Vendored from framework to make plugin self-contained.
+    """
+    paths = []
+
+    # 1. Project profiles (highest priority)
+    project_dir = Path.cwd() / ".jn" / "profiles" / "duckdb"
+    if project_dir.exists():
+        paths.append(project_dir)
+
+    # 2. User profiles
+    jn_home = os.getenv("JN_HOME")
+    if jn_home:
+        user_dir = Path(jn_home) / "profiles" / "duckdb"
+    else:
+        user_dir = Path.home() / ".jn" / "profiles" / "duckdb"
+
+    if user_dir.exists():
+        paths.append(user_dir)
+
+    return paths
+```
+
+**Why vendor?** Plugin must work standalone without importing framework code.
+
+### Profile Metadata in PEP 723
+
+Self-contained plugins declare `role = "protocol"` in PEP 723:
+
+```python
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["duckdb>=0.9.0"]
+# [tool.jn]
+# matches = ["^@.*", "^duckdb://.*"]
+# role = "protocol"
+# ///
+```
+
+**Fields:**
+- `matches` - Address patterns this plugin handles
+- `role = "protocol"` - Identifies as protocol plugin (not format/filter)
+
+### Testing Self-Contained Plugins
+
+**Test discovery independently:**
+```bash
+# Call plugin directly
+uv run --script jn_home/plugins/databases/duckdb_.py --mode inspect-profiles
+
+# Should output NDJSON
+{"reference": "@test/query1", ...}
+{"reference": "@test/query2", ...}
+```
+
+**Test execution independently:**
+```bash
+# Call plugin with profile reference
+echo '{}' | uv run --script jn_home/plugins/databases/duckdb_.py --mode read "@test/query1"
+
+# Should output query results as NDJSON
+{"id": 1, "name": "Alice"}
+{"id": 2, "name": "Bob"}
+```
+
+**No framework required!** Plugin works standalone.
+
+### When to Use This Pattern
+
+**✅ Use self-contained pattern for:**
+- Database plugins (DuckDB, PostgreSQL, MySQL, SQLite)
+- Any plugin with complex profile discovery logic
+- Plugins where profile structure varies by use case
+- Plugins that need to parse custom file formats (`.sql`, `.graphql`, etc.)
+
+**❌ Don't need self-contained pattern for:**
+- HTTP plugin (framework scans JSON files efficiently)
+- MCP plugin (framework scans JSON files efficiently)
+- JQ plugin (framework scans `.jq` files efficiently)
+- Format plugins (no profiles)
+
+**Rule of thumb:** If profile discovery requires plugin-specific parsing logic, make it self-contained.
+
+### Migration from Coupled to Self-Contained
+
+**Steps:**
+
+1. **Move parsing logic to plugin**
+   - Copy `_parse_X_profile()` from framework to plugin
+   - Rename to `_load_profile()` in plugin
+
+2. **Add `inspect_profiles()` function**
+   - Implement profile scanning
+   - Return ProfileInfo-compatible dicts
+
+3. **Add `--mode inspect-profiles` to CLI**
+   - Handle in `if __name__ == "__main__"`
+   - Print NDJSON to stdout
+
+4. **Remove framework code**
+   - Delete `_parse_X_profile()` from `profiles/service.py`
+   - Remove plugin-specific scanning logic
+
+5. **Update framework to call plugin**
+   - Add plugin subprocess call in `list_all_profiles()`
+   - Parse NDJSON output
+
+6. **Test independently**
+   - `uv run --script plugin.py --mode inspect-profiles`
+   - Verify output format matches ProfileInfo
+
+**Example:** See `spec/done/duckdb-plugin.md` for complete migration.
+
+### Summary
+
+Self-contained protocol plugins:
+
+✅ **Vendor all logic** - Profile discovery, parsing, validation
+✅ **Framework-independent** - Testable via `--mode` flags
+✅ **Discoverable** - Implement `--mode inspect-profiles`
+✅ **PEP 723 dependencies** - Use `uv run --script` for deps
+✅ **NDJSON communication** - Stream ProfileInfo records
+✅ **Standalone execution** - No framework imports required
+
+**Result:** Clean separation. Framework routes, plugin executes and discovers.
+
+---
+
 ## Plugin Components
 
 ### Required Components (All Plugins)

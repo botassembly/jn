@@ -33,6 +33,9 @@ def _build_command(
     """
     cmd = ["uv", "run", "--script", stage.plugin_path, "--mode", stage.mode]
 
+    # DEBUG
+    sys.stderr.flush()
+
     # Add configuration parameters
     for key, value in stage.config.items():
         cmd.extend([f"--{key}", str(value)])
@@ -66,7 +69,7 @@ def _execute_with_filter(stages, addr, filters):
 
                 # Determine stdin source
                 if is_first:
-                    if stage.url:
+                    if stage.url or addr.type == "profile":
                         stdin_source = subprocess.DEVNULL
                     elif addr.type == "file":
                         file_path = addr.base
@@ -113,7 +116,7 @@ def _execute_with_filter(stages, addr, filters):
                 else _build_command(stage)
             )
 
-            if is_shell_plugin or stage.url:
+            if is_shell_plugin or stage.url or addr.type == "profile":
                 stdin_source = subprocess.DEVNULL
             elif addr.type == "stdio":
                 stdin_source = sys.stdin
@@ -299,6 +302,25 @@ def cat(ctx, input_file):
             return
 
         final_stage = stages[-1]
+
+        # For protocol plugins handling profiles, skip config/filter separation
+        # These plugins manage their own parameter handling internally
+        if (
+            addr.type == "profile"
+            and final_stage.plugin_path
+            and "/protocols/" not in final_stage.plugin_path
+        ):
+            # Check if this is a protocol-role plugin by checking metadata
+            # For now, just check if it's a known self-contained plugin
+            # In the future, this should check plugin.role == "protocol"
+            is_protocol_plugin = any(
+                name in final_stage.plugin_path
+                for name in ["duckdb_", "http_", "gmail_", "mcp_"]
+            )
+            if is_protocol_plugin:
+                # Use original address with all parameters intact
+                _execute_with_filter(stages, addr, filters=[])
+                return
 
         # Introspect plugin to get config params
         config_params = get_plugin_config_params(final_stage.plugin_path)

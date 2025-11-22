@@ -105,6 +105,7 @@ class AddressResolver:
 
         # Build configuration from parameters
         # For protocol plugins, parameters stay in URL (not extracted to config)
+        # This allows self-contained plugins to handle their own parameter parsing
         if is_protocol_plugin:
             config = {}
         else:
@@ -339,11 +340,32 @@ class AddressResolver:
             # HTTP API profiles (@genomoncology/..., etc.) → http plugin
             # Future: MCP profiles (@mcp/...) → mcp plugin
 
-            # Try to find plugin by namespace first
+            # Try to find plugin by namespace
             try:
                 return self._find_plugin_by_name(namespace)
             except AddressResolutionError:
-                # Namespace doesn't match a plugin name
+                # Check if any protocol plugin has profiles for this namespace
+                # This allows protocol plugins like duckdb to manage profile namespaces
+                import os
+                from pathlib import Path
+
+                jn_home = Path(os.getenv("JN_HOME", Path.home() / ".jn"))
+                project_profiles = Path.cwd() / ".jn" / "profiles"
+
+                # Check each protocol plugin's profile directory
+                for plugin_name, plugin_meta in self._plugins.items():
+                    if plugin_meta.role == "protocol":
+                        # Derive profile type from plugin name (e.g., duckdb_ -> duckdb)
+                        profile_type = plugin_name.rstrip("_")
+
+                        # Check if this plugin has a profile namespace directory
+                        for base_dir in [
+                            project_profiles,
+                            jn_home / "profiles",
+                        ]:
+                            ns_dir = base_dir / profile_type / namespace
+                            if ns_dir.exists():
+                                return plugin_name, plugin_meta.path
                 # Default to HTTP plugin for API profiles
                 return self._find_plugin_by_name("http")
 
@@ -718,6 +740,17 @@ class AddressResolver:
                         if api_dir.exists():
                             # Hand raw '@name' to the HTTP plugin
                             return raw_ref, None
+
+            # Check if this profile is managed by a protocol plugin (like duckdb)
+            # Protocol plugins handle profile resolution internally
+            plugin = self._plugins.get(plugin_name)
+            if (
+                plugin
+                and plugin.role == "protocol"
+                and plugin_name not in ["http_", "gmail_"]
+            ):
+                # Pass the full address (including parameters) to the plugin for internal resolution
+                return str(address), None
 
             # Gmail profiles
             if namespace == "gmail":
