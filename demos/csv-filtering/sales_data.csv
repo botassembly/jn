@@ -1,0 +1,16 @@
+date,product,category,revenue,units,region
+2024-01-15,Laptop Pro,Electronics,1299.99,5,North
+2024-01-16,Office Chair,Furniture,249.99,12,South
+2024-01-17,Wireless Mouse,Electronics,29.99,45,East
+2024-01-18,Standing Desk,Furniture,599.99,3,West
+2024-01-19,Mechanical Keyboard,Electronics,149.99,18,North
+2024-01-20,Monitor 27",Electronics,399.99,8,South
+2024-01-21,Desk Lamp,Furniture,79.99,25,East
+2024-01-22,USB Hub,Electronics,34.99,30,West
+2024-01-23,Ergonomic Chair,Furniture,449.99,6,North
+2024-01-24,Webcam HD,Electronics,89.99,15,South
+2024-01-25,Cable Organizer,Accessories,19.99,50,East
+2024-01-26,Phone Stand,Accessories,24.99,35,West
+2024-01-27,Laptop Bag,Accessories,59.99,22,North
+2024-01-28,Headphones,Electronics,179.99,20,South
+2024-01-29,Desk Mat,Accessories,39.99,40,East

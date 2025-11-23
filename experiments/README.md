@@ -4,8 +4,9 @@ This directory contains experimental profiles and plugins for JN that are not ye
 
 ## What's in Here
 
-**HTTP Profiles:**
-- `jn_home/profiles/http/genomoncology/` - GenomOncology API profile with sources for clinical trials, genetic alterations, diseases, genes, therapies, and annotations
+This directory is currently empty but serves as a template for future experimental work.
+
+**Note:** The GenomOncology profile has been moved to `demos/genomoncology/` as a working example.
 
 ## How to Use Experiments
 
@@ -58,43 +59,16 @@ Profiles in this directory are experimental because they:
 - **Under active development**: API structure or profile design may change
 - **Not production-ready**: Haven't been tested thoroughly with real-world usage patterns
 
-## GenomOncology Profile Example
+## HTTP Profile Example
 
-The GenomOncology profile demonstrates HTTP API profile structure:
+For a complete example of an HTTP API profile, see `demos/genomoncology/` which demonstrates:
 
-**Meta file** (`_meta.json`):
-```json
-{
-  "base_url": "https://${GENOMONCOLOGY_URL}/api",
-  "headers": {
-    "Authorization": "Token ${GENOMONCOLOGY_API_KEY}",
-    "Accept": "application/json"
-  },
-  "timeout": 60
-}
-```
+- Meta file configuration (`_meta.json`)
+- Source endpoint definitions (`alterations.json`, `clinical_trials.json`, etc.)
+- Environment variable usage for credentials
+- Complete working examples
 
-**Source file** (e.g., `alterations.json`):
-```json
-{
-  "path": "/alterations",
-  "method": "GET",
-  "type": "source",
-  "params": ["gene", "mutation_type", "biomarker", "page", "limit"],
-  "description": "Genetic alterations database"
-}
-```
-
-**Usage:**
-```bash
-# Set required environment variables
-export GENOMONCOLOGY_URL="your-org.genomoncology.com"
-export GENOMONCOLOGY_API_KEY="your-api-key"
-
-# Use the profile
-jn cat @genomoncology/alterations?gene=BRAF&limit=10
-jn cat @genomoncology/clinical_trials?gene=EGFR
-```
+The GenomOncology demo shows the full HTTP profile structure that experimental profiles should follow.
 
 ## Contributing Experimental Profiles
 
