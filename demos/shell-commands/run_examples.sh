@@ -17,15 +17,15 @@ fi
 rm -f file_list.json top_processes.json disk_usage.json env_vars.json
 
 echo "1. List files in current directory..."
-jn sh "ls -la" | jn head -n 10 | jn put file_list.json
+jn sh ls -la | jn head -n 10 | jn put file_list.json
 echo "   ✓ Created file_list.json (first 10 files)"
 echo ""
 
 echo "2. Find top processes by CPU..."
-if jn sh "ps aux" > /dev/null 2>&1; then
-    jn sh "ps aux" | \
-      jq -s 'sort_by(.pcpu | tonumber) | reverse | .[:10] | .[]' | \
-      jn filter '{user: .user, pid: .pid, cpu: .pcpu, mem: .pmem, command: (.command[:50])}' | \
+if jn sh ps aux > /dev/null 2>&1; then
+    jn sh ps aux | \
+      jq -sc 'sort_by(.cpu_percent // 0) | reverse | .[:10] | .[]' | \
+      jn filter '{user: .user, pid: .pid, cpu: .cpu_percent, mem: .mem_percent, command: (.command[:50])}' | \
       jn put top_processes.json
     echo "   ✓ Created top_processes.json (top 10)"
 else
@@ -34,8 +34,8 @@ fi
 echo ""
 
 echo "3. Check disk usage..."
-if jn sh "df" > /dev/null 2>&1; then
-    jn sh "df" | \
+if jn sh df > /dev/null 2>&1; then
+    jn sh df | \
       jn filter 'select(.filesystem | startswith("/dev/")) | {
         filesystem: .filesystem,
         use_percent: .use_percent,
@@ -49,8 +49,8 @@ fi
 echo ""
 
 echo "4. Extract key environment variables..."
-if jn sh "env" > /dev/null 2>&1; then
-    jn sh "env" | \
+if jn sh env > /dev/null 2>&1; then
+    jn sh env | \
       jn filter 'select(.name | test("^(HOME|USER|SHELL|PATH|PWD)$")) | {
         variable: .name,
         value: .value
@@ -84,8 +84,8 @@ fi
 
 if [ -f env_vars.json ]; then
     echo ""
-    echo "Current user:"
-    jq -r '.[] | select(.variable == "USER") | .value' env_vars.json 2>/dev/null || echo "N/A"
+    echo "Home directory:"
+    jq -r '.[] | select(.variable == "HOME") | .value' env_vars.json 2>/dev/null || echo "N/A"
 fi
 
 echo ""

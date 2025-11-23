@@ -43,16 +43,14 @@ jn cat sales_data.csv | \
       count: length,
       revenue: map(.revenue | tonumber) | add
     }))
-  }' | \
-  jq '.' | \
-  jn put summary.json
+  }' > summary.json
 echo "   ✓ Created summary.json"
 echo ""
 
 echo "5. Top 5 products by total sales..."
 jn cat sales_data.csv | \
   jn filter '. + {total: ((.revenue | tonumber) * (.units | tonumber))}' | \
-  jq -s 'sort_by(.total) | reverse | .[:5] | .[]' | \
+  jq -sc 'sort_by(.total) | reverse | .[:5] | .[]' | \
   jn put top_products.csv
 echo "   ✓ Created top_products.csv"
 echo ""

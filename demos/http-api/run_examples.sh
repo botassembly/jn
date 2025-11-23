@@ -48,19 +48,19 @@ echo ""
 echo "=== Results ==="
 echo ""
 echo "GitHub user:"
-jq -r '"\(.login) (\(.name)) - \(.repos) public repos"' user.json
+jq -r '.[0] | "\(.login) (\(.name)) - \(.repos) public repos"' user.json
 echo ""
 
 echo "Top repository by stars:"
-jq -s 'sort_by(.stars) | reverse | .[0] | "\(.name): \(.stars) stars (\(.language))"' repos.json
+jq 'sort_by(.stars) | reverse | .[0] | "\(.name): \(.stars) stars (\(.language // "N/A"))"' repos.json
 echo ""
 
 echo "Largest European country (by area):"
-jq -s 'sort_by(.area) | reverse | .[0] | "\(.name): \(.area) km²"' countries.json
+jq 'sort_by(.area) | reverse | .[0] | "\(.name): \(.area) km²"' countries.json
 echo ""
 
 echo "Random cat fact:"
-jn cat cat_facts.json | jn head -n 1 | jq -r '.fact'
+jq -r '.[0].fact' cat_facts.json
 echo ""
 
 echo "All examples completed! Check the output files."

@@ -30,30 +30,28 @@ echo ""
 
 echo "4. Filter Engineering expenses..."
 jn cat budget.xlsx | \
-  jn filter '.category == "Engineering"' | \
+  jn filter 'select(.Category == "Engineering")' | \
   jn put engineering.csv
 echo "   ✓ Created engineering.csv"
 echo ""
 
 echo "5. Calculate totals by category..."
 jn cat budget.xlsx | \
-  jq -s 'group_by(.category) | map({
-    category: .[0].category,
-    total: map(.amount | tonumber) | add,
+  jq -s 'group_by(.Category) | map({
+    category: .[0].Category,
+    total: map(.Amount | tonumber) | add,
     count: length
-  }) | .[]' | \
-  jn put category_totals.json
+  })' > category_totals.json
 echo "   ✓ Created category_totals.json"
 echo ""
 
 echo "6. Calculate monthly totals..."
 jn cat budget.xlsx | \
-  jq -s 'group_by(.month) | map({
-    month: .[0].month,
-    total: map(.amount | tonumber) | add,
+  jq -s 'group_by(.Month) | map({
+    month: .[0].Month,
+    total: map(.Amount | tonumber) | add,
     items: length
-  }) | .[]' | \
-  jn put monthly_totals.json
+  })' > monthly_totals.json
 echo "   ✓ Created monthly_totals.json"
 echo ""
 
@@ -63,16 +61,16 @@ echo ""
 echo "Total records: $(jn cat budget.xlsx | jq -s 'length')"
 echo ""
 
-echo "Total budget: \$$(jn cat budget.xlsx | jq -s 'map(.amount | tonumber) | add')"
+echo "Total budget: \$$(jn cat budget.xlsx | jq -s 'map(.Amount | tonumber) | add')"
 echo ""
 
 echo "Top category by spending:"
-jq -s 'sort_by(.total) | reverse | .[0] | "\(.category): $\(.total)"' category_totals.json
+jq 'sort_by(.total) | reverse | .[0] | "\(.category): $\(.total)"' category_totals.json
 echo ""
 
 echo "Engineering expenses:"
 jn cat engineering.csv | jq -s 'length' | xargs echo "  Count:"
-jn cat engineering.csv | jq -s 'map(.amount | tonumber) | add' | xargs echo "  Total: $"
+jn cat engineering.csv | jq -s 'map(.Amount | tonumber) | add' | xargs echo "  Total: $"
 echo ""
 
 echo "All examples completed! Check the output files."
