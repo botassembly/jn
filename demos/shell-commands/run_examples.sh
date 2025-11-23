@@ -1,5 +1,11 @@
 #!/bin/bash
-# Shell Commands Demo - Run Examples
+# Shell Commands Demo - Converting Shell Output to NDJSON
+#
+# Demonstrates:
+# - Using jn sh to convert shell commands to NDJSON
+# - Processing system info (ls, ps, df, env)
+# - Filtering shell command output
+# - Requires jc (JSON Convert) installed: pip install jc
 
 set -e
 
@@ -16,11 +22,19 @@ fi
 # Clean up previous output
 rm -f file_list.json top_processes.json disk_usage.json env_vars.json
 
+# Example 1: Convert ls output to NDJSON
+# jn sh COMMAND (no quotes!) - passes command to shell
+# jc parses ls output to NDJSON format
+# jn head limits output, jn put saves to file
 echo "1. List files in current directory..."
 jn sh ls -la | jn head -n 10 | jn put file_list.json
 echo "   ✓ Created file_list.json (first 10 files)"
 echo ""
 
+# Example 2: Process list with filtering
+# ps aux output → NDJSON with fields like cpu_percent, mem_percent
+# jq -sc: slurp + compact (sort entire list, output as NDJSON)
+# // 0 handles null CPU values
 echo "2. Find top processes by CPU..."
 if jn sh ps aux > /dev/null 2>&1; then
     jn sh ps aux | \
@@ -33,6 +47,9 @@ else
 fi
 echo ""
 
+# Example 3: Disk usage filtering
+# df output → NDJSON, select only /dev/* filesystems
+# select() is jq's filter function (like grep)
 echo "3. Check disk usage..."
 if jn sh df > /dev/null 2>&1; then
     jn sh df | \
@@ -48,6 +65,9 @@ else
 fi
 echo ""
 
+# Example 4: Extract specific environment variables
+# env command → NDJSON with {name, value} objects
+# test() is jq regex match function
 echo "4. Extract key environment variables..."
 if jn sh env > /dev/null 2>&1; then
     jn sh env | \
@@ -62,6 +82,7 @@ else
 fi
 echo ""
 
+# Show results
 echo "=== Results ==="
 echo ""
 

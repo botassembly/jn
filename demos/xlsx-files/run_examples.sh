@@ -1,12 +1,19 @@
 #!/bin/bash
-# XLSX Demo - Run Examples
+# XLSX Demo - Working with Excel Files
+#
+# Demonstrates:
+# - Reading Excel (.xlsx) files into NDJSON
+# - Converting Excel to CSV/JSON formats
+# - Filtering Excel data
+# - Aggregating spreadsheet data
+# - Requires openpyxl: pip install openpyxl
 
 set -e
 
 echo "=== JN XLSX Demo ==="
 echo ""
 
-# Create sample Excel file
+# Create sample Excel file using Python script
 echo "Creating sample budget.xlsx file..."
 python3 create_sample.py
 echo ""
@@ -14,20 +21,30 @@ echo ""
 # Clean up previous output
 rm -f budget.csv budget.json engineering.csv category_totals.json monthly_totals.json
 
+# Example 1: View Excel data as NDJSON stream
+# jn cat reads .xlsx files via openpyxl plugin
+# First row becomes keys, subsequent rows become values
 echo "1. View Excel data (first 5 rows)..."
 jn cat budget.xlsx | jn head -n 5
 echo ""
 
+# Example 2: Excel → CSV conversion
+# NDJSON stream → CSV with header row
 echo "2. Convert Excel to CSV..."
 jn cat budget.xlsx | jn put budget.csv
 echo "   ✓ Created budget.csv"
 echo ""
 
+# Example 3: Excel → JSON array
+# jn put collects NDJSON stream into JSON array
 echo "3. Convert Excel to JSON..."
 jn cat budget.xlsx | jn put budget.json
 echo "   ✓ Created budget.json"
 echo ""
 
+# Example 4: Filter Excel rows
+# select() passes only matching records through
+# Note: Field names match Excel column headers (case-sensitive!)
 echo "4. Filter Engineering expenses..."
 jn cat budget.xlsx | \
   jn filter 'select(.Category == "Engineering")' | \
@@ -35,6 +52,9 @@ jn cat budget.xlsx | \
 echo "   ✓ Created engineering.csv"
 echo ""
 
+# Example 5: Group and aggregate
+# jq -s slurps stream for group_by operation
+# Direct output (>) since result is already JSON
 echo "5. Calculate totals by category..."
 jn cat budget.xlsx | \
   jq -s 'group_by(.Category) | map({
@@ -45,6 +65,8 @@ jn cat budget.xlsx | \
 echo "   ✓ Created category_totals.json"
 echo ""
 
+# Example 6: Different grouping dimension
+# Same pattern but group by Month instead of Category
 echo "6. Calculate monthly totals..."
 jn cat budget.xlsx | \
   jq -s 'group_by(.Month) | map({
@@ -55,6 +77,7 @@ jn cat budget.xlsx | \
 echo "   ✓ Created monthly_totals.json"
 echo ""
 
+# Show results
 echo "=== Results ==="
 echo ""
 
