@@ -339,12 +339,18 @@ class JSONViewerApp(App):
         Binding("r", "refresh", "Refresh", show=False),
     ]
 
-    def __init__(self, config: Optional[dict] = None):
+    def __init__(self, config: Optional[dict] = None, records: Optional[list] = None):
         super().__init__()
         self.config = config or {}
         self.navigator = RecordNavigator()
         self.initial_depth = self.config.get("depth", 2)
         self.start_at = self.config.get("start_at", 0)
+
+        # Pre-load records if provided
+        if records:
+            for record in records:
+                self.navigator.add_record(record)
+            self.navigator.total_known = True
 
     def compose(self) -> ComposeResult:
         """Build UI layout."""
@@ -353,51 +359,19 @@ class JSONViewerApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
-        """Load records from stdin when app starts."""
+        """Initialize viewer when app starts."""
         self.title = "JSON Viewer"
-        self.sub_title = "Loading..."
-        self.load_records()
 
-    def load_records(self) -> None:
-        """Load records from stdin synchronously."""
-        self.navigator.loading = True
-
-        for line in sys.stdin:
-            line = line.strip()
-            if line:
-                try:
-                    record = json.loads(line)
-                    self.navigator.add_record(record)
-
-                    # If this is the first record, display it immediately
-                    if len(self.navigator.records) == 1:
-                        self.navigator.current_index = min(
-                            self.start_at, len(self.navigator.records) - 1
-                        )
-                        self.display_current_record()
-
-                except json.JSONDecodeError as e:
-                    # Store error as a record
-                    self.navigator.add_record(
-                        {
-                            "_error": True,
-                            "type": "json_decode_error",
-                            "message": str(e),
-                            "line": line[:100],
-                        }
-                    )
-
-        self.navigator.loading = False
-        self.navigator.total_known = True
-
-        # If we have a start_at config, jump to that record
+        # Jump to start_at record if configured
         if self.start_at > 0 and self.navigator.records:
             self.navigator.jump_to(self.start_at)
+        elif self.navigator.records:
+            self.navigator.current_index = 0
 
-        self.update_subtitle()
-
-        # If no records were loaded, show message
-        if not self.navigator.records:
+        # Display the current record or show "No records" message
+        if self.navigator.records:
+            self.display_current_record()
+        else:
             self.sub_title = "No records to display"
 
     def display_current_record(self) -> None:
@@ -483,9 +457,67 @@ class JSONViewerApp(App):
 
 def writes(config: Optional[dict] = None) -> None:
     """Read NDJSON from stdin, display in single-record viewer."""
+    import signal
+    import time
+
     config = config or {}
 
-    app = JSONViewerApp(config=config)
+    # Load records from stdin BEFORE starting Textual app
+    # This prevents conflict between Textual's stdin handling and our data reading
+    records = []
+    timeout = 5.0  # 5 second timeout for stdin
+    start_time = time.time()
+
+    def timeout_handler(signum, frame):
+        raise TimeoutError("Stdin read timeout")
+
+    # Set up timeout using alarm signal (Unix only)
+    signal.signal(signal.SIGALRM, timeout_handler)
+    signal.alarm(int(timeout))
+
+    try:
+        for line in sys.stdin:
+            # Reset alarm on each successful read
+            signal.alarm(int(timeout))
+
+            line = line.strip()
+            if line:
+                try:
+                    record = json.loads(line)
+                    records.append(record)
+                except json.JSONDecodeError as e:
+                    # Store error as a record
+                    records.append(
+                        {
+                            "_error": True,
+                            "type": "json_decode_error",
+                            "message": str(e),
+                            "line": line[:100],
+                        }
+                    )
+
+            # Check if we've exceeded total timeout for first record
+            if not records and time.time() - start_time > timeout:
+                break
+
+    except TimeoutError:
+        # Timeout reached, proceed with what we have
+        pass
+    except Exception as e:
+        # Handle other errors
+        records.append(
+            {
+                "_error": True,
+                "type": "load_error",
+                "message": str(e),
+            }
+        )
+    finally:
+        # Cancel the alarm
+        signal.alarm(0)
+
+    # Now start Textual app with pre-loaded records
+    app = JSONViewerApp(config=config, records=records)
     app.run()
 
 
