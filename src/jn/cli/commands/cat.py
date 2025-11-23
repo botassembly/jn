@@ -332,7 +332,9 @@ def cat(ctx, input_file):
 
             if plugin_meta and plugin_meta.manages_parameters:
                 # Plugin handles own parameter parsing - skip config/filter separation
-                _execute_with_filter(stages, addr, filters=[], home_dir=ctx.home)
+                _execute_with_filter(
+                    stages, addr, filters=[], home_dir=ctx.home
+                )
                 return
 
         # Introspect plugin to get config params
