@@ -19,19 +19,21 @@ rm -f electronics.json high_revenue.json summary.json top_products.csv
 # Example 1: Simple filtering
 # jn cat reads CSV → NDJSON stream
 # jn filter applies jq expression to each record
+# select() passes through only matching records (not true/false!)
 # jn put writes NDJSON → JSON array
 echo "1. Filter Electronics products..."
 jn cat sales_data.csv | \
-  jn filter '.category == "Electronics"' | \
+  jn filter 'select(.category == "Electronics")' | \
   jn put electronics.json
 echo "   ✓ Created electronics.json"
 echo ""
 
 # Example 2: Numeric filtering
 # Convert string to number with |tonumber before comparison
+# select() ensures we pass through records, not booleans
 echo "2. Filter high-revenue products (>$100)..."
 jn cat sales_data.csv | \
-  jn filter '(.revenue | tonumber) > 100' | \
+  jn filter 'select((.revenue | tonumber) > 100)' | \
   jn put high_revenue.json
 echo "   ✓ Created high_revenue.json"
 echo ""
@@ -79,8 +81,8 @@ echo ""
 # Show results
 echo "=== Results ==="
 echo ""
-echo "Electronics count: $(jq -s 'length' electronics.json)"
-echo "High revenue count: $(jq -s 'length' high_revenue.json)"
+echo "Electronics count: $(jq 'length' electronics.json)"
+echo "High revenue count: $(jq 'length' high_revenue.json)"
 echo "Total revenue: \$$(jq -r '.total_revenue' summary.json)"
 echo "Total units: $(jq -r '.total_units' summary.json)"
 echo ""
