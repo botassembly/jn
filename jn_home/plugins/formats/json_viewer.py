@@ -294,6 +294,110 @@ class SearchDialog(ModalScreen[Optional[str]]):
         self.dismiss(None)
 
 
+class FindByFieldDialog(ModalScreen[Optional[str]]):
+    """Modal dialog for finding records by simple field comparison."""
+
+    CSS = """
+    FindByFieldDialog {
+        align: center middle;
+    }
+
+    #find-container {
+        width: 70;
+        height: 11;
+        border: thick $background 80%;
+        background: $surface;
+    }
+
+    #find-title {
+        dock: top;
+        width: 100%;
+        content-align: center middle;
+        text-style: bold;
+    }
+
+    #find-input {
+        margin: 1 2;
+    }
+
+    #find-help {
+        margin: 0 2;
+        color: $text-muted;
+    }
+
+    #find-examples {
+        margin: 0 2;
+        color: $text-muted;
+    }
+    """
+
+    def compose(self) -> ComposeResult:
+        with Container(id="find-container"):
+            yield Static("Find by Field", id="find-title")
+            yield Input(
+                placeholder="field = value  (e.g., age > 30, name = Alice, active)",
+                id="find-input",
+            )
+            yield Static(
+                "Operators: = (equals), != (not equals), > < >= <= (comparison)",
+                id="find-help",
+            )
+            yield Static(
+                "Examples: city = NYC, age > 30, active (for true), name != Bob",
+                id="find-examples",
+            )
+
+    def on_mount(self) -> None:
+        """Focus input when dialog opens."""
+        self.query_one(Input).focus()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Handle Enter key in input."""
+        query = event.value.strip()
+        if query:
+            # Convert simple syntax to jq expression
+            jq_expr = self._convert_to_jq(query)
+            self.dismiss(jq_expr)
+        else:
+            self.dismiss(None)
+
+    def _convert_to_jq(self, query: str) -> str:
+        """Convert simple field comparison to jq expression."""
+        # Handle boolean fields (just field name)
+        if " " not in query and "=" not in query and ">" not in query and "<" not in query:
+            # Just a field name - check if truthy
+            return f".{query}"
+
+        # Parse field operator value
+        for op in ["!=", ">=", "<=", "==", "=", ">", "<"]:
+            if op in query:
+                parts = query.split(op, 1)
+                if len(parts) == 2:
+                    field = parts[0].strip()
+                    value = parts[1].strip()
+
+                    # Add leading dot if not present
+                    if not field.startswith("."):
+                        field = f".{field}"
+
+                    # Convert = to ==
+                    if op == "=":
+                        op = "=="
+
+                    # Quote strings if not numeric or boolean
+                    if value.lower() not in ("true", "false", "null") and not value.replace(".", "").replace("-", "").isdigit():
+                        value = f'"{value}"'
+
+                    return f"{field} {op} {value}"
+
+        # Fallback: return as-is (might be invalid)
+        return query
+
+    def key_escape(self) -> None:
+        """Handle Escape key."""
+        self.dismiss(None)
+
+
 class HelpScreen(ModalScreen):
     """Modal screen showing keyboard shortcuts."""
 
@@ -335,9 +439,19 @@ class HelpScreen(ModalScreen):
 
 [bold cyan]Search[/]
   /              Search with jq expression
+  F              Find by field (simple syntax)
   n              Next match (when searching)
   N              Previous match (when searching)
   Esc            Clear search
+
+[bold cyan]Bookmarks[/]
+  m              Mark current record
+  '              Jump to marks list
+  u              Remove mark from current
+
+[bold cyan]Actions[/]
+  y              Copy current record to clipboard
+  w              Write current record to file
 
 [bold cyan]Tree Navigation[/]
   ↑ / k          Move cursor up
@@ -398,8 +512,16 @@ class JSONViewerApp(App):
         Binding("colon", "goto_record", "Go to", show=True),
         # Search
         Binding("slash", "search", "Search", show=True),
+        Binding("f", "find_by_field", "Find", show=True),
         Binding("N", "prev_match", "Prev Match", show=False),
         Binding("escape", "clear_search", "Clear Search", show=False),
+        # Bookmarks
+        Binding("m", "mark_record", "Mark", show=False),
+        Binding("apostrophe", "jump_to_mark", "Marks", show=False),
+        Binding("u", "unmark_record", "Unmark", show=False),
+        # Actions
+        Binding("y", "yank_record", "Copy", show=False),
+        Binding("w", "write_record", "Write", show=False),
         # Tree navigation
         Binding("space", "toggle_node", "Toggle", show=True),
         Binding("e", "expand_all", "Expand All", show=False),
@@ -423,6 +545,9 @@ class JSONViewerApp(App):
         self.search_expr = None  # Current jq search expression
         self.search_matches = []  # List of matching record indices
         self.search_match_index = 0  # Current position in matches
+
+        # Bookmarks state
+        self.bookmarks = set()  # Set of bookmarked record indices
 
         # Pre-load records if provided
         if records:
@@ -515,9 +640,14 @@ class JSONViewerApp(App):
 
     def on_loading_complete(self) -> None:
         """Called when streaming load completes."""
+        # Mark that we know the total count now
+        self.navigator.total_known = True
+        self.loading_complete = True
+
         if not self.navigator.records:
             self.sub_title = "No records to display"
         else:
+            # Update subtitle to show final count (removes "streaming..." message)
             self.update_subtitle()
             if not self.query_one("#tree-view", Tree).root.children:
                 # If tree is empty, display first record
@@ -532,17 +662,25 @@ class JSONViewerApp(App):
             self.update_subtitle()
 
     def update_subtitle(self) -> None:
-        """Update subtitle with current position and search status."""
+        """Update subtitle with current position, search status, and bookmarks."""
         base_info = self.navigator.position_info()
+
+        # Add bookmark indicator if current record is marked
+        if self.navigator.current_index in self.bookmarks:
+            base_info += " [marked]"
+
+        # Add bookmark count if any exist
+        if self.bookmarks:
+            base_info += f" | {len(self.bookmarks)} bookmark(s)"
 
         # Add search status if active
         if self.search_expr:
             if self.search_matches:
                 match_num = self.search_match_index + 1
                 total_matches = len(self.search_matches)
-                search_info = f" | Search: {match_num}/{total_matches} matches for '{self.search_expr}'"
+                search_info = f" | Search: {match_num}/{total_matches} matches"
             else:
-                search_info = f" | Search: No matches for '{self.search_expr}'"
+                search_info = f" | Search: No matches"
             self.sub_title = base_info + search_info
         else:
             self.sub_title = base_info
@@ -672,6 +810,106 @@ class JSONViewerApp(App):
         self.search_matches = []
         self.search_match_index = 0
         self.update_subtitle()
+
+    def action_find_by_field(self) -> None:
+        """Handle 'F' key - find by field with simple syntax."""
+
+        def handle_find(expr: Optional[str]) -> None:
+            if expr:
+                self.perform_search(expr)
+
+        self.push_screen(FindByFieldDialog(), handle_find)
+
+    # Bookmarks Actions
+    def action_mark_record(self) -> None:
+        """Handle 'm' key - mark/bookmark current record."""
+        current = self.navigator.current_index
+        if current >= 0:
+            self.bookmarks.add(current)
+            self.update_subtitle()
+
+    def action_unmark_record(self) -> None:
+        """Handle 'u' key - remove mark from current record."""
+        current = self.navigator.current_index
+        if current in self.bookmarks:
+            self.bookmarks.remove(current)
+            self.update_subtitle()
+
+    def action_jump_to_mark(self) -> None:
+        """Handle apostrophe key - show marks and jump to one."""
+        if not self.bookmarks:
+            # No bookmarks - show message in subtitle
+            old_subtitle = self.sub_title
+            self.sub_title = "No bookmarks set. Press 'm' to mark current record."
+            # Restore after 2 seconds
+            self.set_timer(2.0, lambda: setattr(self, "sub_title", old_subtitle))
+            return
+
+        # If only one bookmark, jump to it
+        if len(self.bookmarks) == 1:
+            target = list(self.bookmarks)[0]
+            if self.navigator.jump_to(target):
+                self.display_current_record()
+            return
+
+        # Multiple bookmarks - show list (for now just jump to next)
+        # Find next bookmark after current position
+        sorted_marks = sorted(self.bookmarks)
+        current = self.navigator.current_index
+        next_mark = None
+
+        for mark in sorted_marks:
+            if mark > current:
+                next_mark = mark
+                break
+
+        # Wrap around if no mark after current
+        if next_mark is None and sorted_marks:
+            next_mark = sorted_marks[0]
+
+        if next_mark is not None and self.navigator.jump_to(next_mark):
+            self.display_current_record()
+
+    # Actions
+    def action_yank_record(self) -> None:
+        """Handle 'y' key - copy current record to clipboard."""
+        record = self.navigator.current_record()
+        if record:
+            try:
+                import pyperclip
+                json_str = json.dumps(record, indent=2)
+                pyperclip.copy(json_str)
+                # Show confirmation in subtitle
+                old_subtitle = self.sub_title
+                self.sub_title = "Record copied to clipboard!"
+                self.set_timer(2.0, lambda: setattr(self, "sub_title", old_subtitle))
+            except ImportError:
+                # pyperclip not available - show message
+                old_subtitle = self.sub_title
+                self.sub_title = "Error: pyperclip not installed. Install with: pip install pyperclip"
+                self.set_timer(3.0, lambda: setattr(self, "sub_title", old_subtitle))
+            except Exception as e:
+                old_subtitle = self.sub_title
+                self.sub_title = f"Error copying: {e}"
+                self.set_timer(2.0, lambda: setattr(self, "sub_title", old_subtitle))
+
+    def action_write_record(self) -> None:
+        """Handle 'w' key - write current record to file."""
+        record = self.navigator.current_record()
+        if record:
+            try:
+                # Generate filename based on record index
+                filename = f"record_{self.navigator.current_index + 1}.json"
+                with open(filename, "w") as f:
+                    json.dump(record, f, indent=2)
+                # Show confirmation in subtitle
+                old_subtitle = self.sub_title
+                self.sub_title = f"Record saved to {filename}"
+                self.set_timer(2.0, lambda: setattr(self, "sub_title", old_subtitle))
+            except Exception as e:
+                old_subtitle = self.sub_title
+                self.sub_title = f"Error writing: {e}"
+                self.set_timer(2.0, lambda: setattr(self, "sub_title", old_subtitle))
 
     # Tree Navigation Actions
     def action_toggle_node(self) -> None:
