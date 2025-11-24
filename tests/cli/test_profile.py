@@ -98,3 +98,53 @@ def test_profile_tree_type_filter(invoke):
     assert res.exit_code == 0
     assert "http/" in res.output
     assert "testapi/" in res.output
+
+
+def test_profile_list_respects_home_flag_with_old_plugins(jn_home, invoke):
+    """Profile listing should fall back to bundled inspector when custom plugin lacks support."""
+    plugin_dir = jn_home / "plugins" / "databases"
+    plugin_dir.mkdir(parents=True, exist_ok=True)
+
+    old_duckdb = plugin_dir / "duckdb_.py"
+    old_duckdb.write_text(
+        """#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = []
+# [tool.jn]
+# matches = ["^duckdb://.*", ".*\\\\.duckdb$", "^@.*/.*"]
+# role = "protocol"
+# ///
+import argparse
+import sys
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--mode", required=True, choices=["read", "write"])
+    parser.add_argument("address", nargs="?")
+    args = parser.parse_args()
+
+    # No inspect-profiles support (simulates older plugin)
+    if args.mode == "write":
+        sys.stdin.read()
+
+
+if __name__ == "__main__":
+    main()
+"""
+    )
+
+    profile_dir = jn_home / "profiles" / "duckdb" / "genie"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+
+    (profile_dir / "_meta.json").write_text(
+        json.dumps({"path": "folfox.duckdb"}, indent=2)
+    )
+    (profile_dir / "folfox-cohort.sql").write_text(
+        "-- Folfox cohort\nSELECT 1;"
+    )
+
+    res = invoke(["--home", str(jn_home), "profile", "list"])
+    assert res.exit_code == 0
+    assert "@genie/folfox-cohort" in res.output

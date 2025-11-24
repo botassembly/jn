@@ -44,7 +44,10 @@ jn cat "data.csv?delimiter=;&header=false"
 # 4. Profile Reference (Curated API endpoint)
 jn cat "@genomoncology/alterations?gene=BRAF&limit=10"
 
-# 5. Protocol URL (Direct access)
+# 5. DuckDB Profile (Named SQL query)
+jn cat "@genie/folfox-cohort"
+
+# 6. Protocol URL (Direct access)
 jn cat "s3://my-bucket/logs.json.gz"
 ````
 
@@ -99,7 +102,7 @@ Plugins are standalone Python scripts. They declare their own dependencies in co
 # requires-python = ">=3.11"
 # dependencies = []
 # [tool.jn]
-# matches = [".*\\.csv$", ".*\\.tsv$"]
+# matches = [".*\\.csv$", ".*\\.tsv$", ".*\\.txt$"]
 # ///
 
 import sys, csv, json
@@ -150,13 +153,22 @@ jn_home/profiles/
 │       ├── _meta.json          # Connection details (Base URL, Auth)
 │       ├── alterations.json    # Endpoint definition
 │       └── annotations.json
+├── duckdb/
+│   └── genie/
+│       ├── _meta.json          # Database path and config
+│       ├── folfox-cohort.sql   # Named SQL query
+│       └── gene-mutant.sql     # Parameterized query
+├── gmail/
+│   └── work/
+│       ├── _meta.json          # Gmail auth config
+│       └── inbox.json          # Email query profile
 └── mcp/
     └── biomcp/
         ├── _meta.json          # How to launch the MCP server
         └── search.json         # Tool definition
 ````
 
-**Example `_meta.json` (Templated Config):**
+**Example `_meta.json` (HTTP Profile):**
 ````json
 {
   "base_url": "https://${GENOMONCOLOGY_URL}/api",
@@ -179,8 +191,33 @@ jn_home/profiles/
 }
 ````
 
+**Example `_meta.json` (DuckDB Profile):**
+````json
+{
+  "driver": "duckdb",
+  "path": "datasets/genie-crc/genie_crc.duckdb",
+  "options": {"read_only": true},
+  "description": "AACR Project GENIE CRC v2.0"
+}
+````
+
+**Example SQL File (`folfox-cohort.sql`):**
+````sql
+-- FOLFOX-treated patients with survival outcomes
+SELECT
+  patient_id,
+  regimen,
+  os_months,
+  os_status
+FROM treatments
+WHERE regimen = 'Fluorouracil, Leucovorin Calcium, Oxaliplatin';
+````
+
 This allows a user to simply run:
-`jn cat @genomoncology/alterations?gene=BRAF`
+```bash
+jn cat "@genomoncology/alterations?gene=BRAF"
+jn cat "@genie/folfox-cohort"
+```
 
 ### Profile Types
 
@@ -191,11 +228,32 @@ JN supports multiple profile types for different use cases:
 jn cat "@genomoncology/alterations?gene=BRAF"
 ```
 
-**DuckDB Query Profiles** - Named SQL queries against analytical databases
+**DuckDB Query Profiles** - Named SQL queries against analytical databases ✅ **Production-ready**
 ```bash
-jn cat "@analytics/sales-summary"
-jn cat "@analytics/by-region?region=West"
+# Clean syntax (validated by g2 team in real production use)
+jn cat "@genie/folfox-cohort"
+jn cat "@genie/gene-mutant?gene=KRAS"
+
+# vs the old janky way (URL-encoded SQL):
+# jn cat "duckdb://db?query=SELECT%20patient_id..."  ❌ NO LONGER NEEDED
 ```
+
+**Structure:**
+```
+.jn/profiles/duckdb/genie/
+├── _meta.json              # Database path and config
+├── folfox-cohort.sql       # Named query (readable SQL in files)
+└── gene-mutant.sql         # Parameterized query
+```
+
+**Why profiles win:**
+- No more URL-encoding (SQL stays readable in `.sql` files)
+- Discoverable (`jn profile list --type duckdb`)
+- Reusable (define once, use everywhere)
+- Version-controlled (SQL files in git)
+- Parameterized (pass values via query string)
+
+**Real-world validation:** The g2 genomics team validated this architecture with GENIE CRC cohort analysis (1,486 patients, 5+ tables). Profiles eliminated all URL-encoding jank and made queries maintainable.
 
 **MCP Server Profiles** - Model Context Protocol tools with consistent parameters
 ```bash
@@ -220,6 +278,46 @@ JN uses a **self-contained architecture** for protocol plugins (databases, APIs 
 
 **Example:** The DuckDB plugin scans for `.sql` files, parses SQL metadata, and returns profile info to the framework—all without the framework knowing anything about SQL or DuckDB specifics.
 
+### Profile Discovery with --home Flag
+
+JN supports project-specific profiles via the `--home` flag:
+
+```bash
+# Use project-specific profiles
+uv run jn --home /Users/ian/g2/.jn cat "@genie/folfox-cohort"
+
+# Framework automatically discovers profiles in:
+# 1. /Users/ian/g2/.jn/profiles/  (project-specific, highest priority)
+# 2. ~/.local/jn/profiles/        (user-level)
+# 3. jn_home/profiles/            (bundled, lowest priority)
+```
+
+**Why this matters:**
+- Different projects can have different profiles
+- Profiles stay with the project (in git)
+- No global configuration pollution
+- Easy to share profiles with team
+
+### Production-Ready Database Profiles
+
+**Status:** DuckDB profiles are production-ready and validated in real-world clinical genomics workloads.
+
+**Validation:** The g2 team used DuckDB profiles to analyze AACR GENIE CRC cohort data:
+- 1,486 colorectal cancer patients
+- 5+ tables (patients, samples, treatments, mutations, CNAs)
+- Complex SQL queries with joins and aggregations
+- Parameterized queries for cohort definitions
+- Full survival analysis pipeline
+
+**Result:** Profiles work perfectly. Clean syntax, no URL-encoding jank, SQL files are readable and maintainable.
+
+**Pipeline example:**
+```bash
+# Clean, readable, maintainable
+uv run jn --home /Users/ian/g2/.jn cat "@genie/folfox-cohort" | \
+  uv run --script survival.py
+```
+
 ---
 
 ## 6. MCP (Model Context Protocol) Integration
@@ -242,13 +340,42 @@ jn inspect "mcp+uvx://biomcp-python/biomcp"
 | Feature | Description |
 | :--- | :--- |
 | **Streaming** | Constant memory usage via Unix pipes. |
-| **Format Support** | CSV, JSON, NDJSON, YAML, TOML, Markdown, Excel (XLSX). |
-| **Protocols** | HTTP/HTTPS, Gmail (OAuth2), MCP, DuckDB, Local Files. |
+| **Format Support** | CSV (with `.txt`), JSON, NDJSON, YAML, TOML, Markdown, Excel (XLSX). |
+| **Protocols** | HTTP/HTTPS, Gmail (OAuth2), MCP, DuckDB ✅, Local Files. |
 | **Shell Integration** | Fallback to `jc` to parse output of `ls`, `ps`, `dig`, etc. into JSON. |
 | **Filtering** | Built-in `jq` wrapper via `jn filter`. |
-| **Profile System** | HTTP APIs, DuckDB queries, MCP tools, Gmail—all addressable as `@namespace/name`. |
+| **Profile System** | HTTP APIs, DuckDB queries ✅, MCP tools, Gmail—all addressable as `@namespace/name`. |
 | **Profile Discovery** | `jn profile list`, `jn profile info`, `jn profile tree` for exploration. |
 | **Isolation** | Every plugin runs in its own environment via `uv`. |
 | **Self-Contained Plugins** | Protocol plugins vendor their own logic, independently testable. |
+| **Project Profiles** | `--home` flag for project-specific profiles (stay with git repo). |
 
 JN bridges the gap between the structured world of APIs/Databases and the unstructured world of CLI tools/Files, making them all speak a common language (NDJSON) that AI agents can easily read, write, and understand.
+
+---
+
+## 8. Recent Improvements
+
+**CSV Plugin Enhancement:**
+- Now matches `.txt` files (common for TSV data in bioinformatics)
+- Auto-detects delimiters (comma, tab, semicolon, pipe)
+
+**DuckDB Profile System:**
+- SQL-based profiles eliminate URL-encoding
+- Production-validated with real genomics workloads
+- Self-contained plugin architecture (no framework knowledge of SQL)
+
+**Profile Discovery:**
+- `--home` flag for project-specific profiles
+- Profiles automatically discovered in project/.jn/profiles/
+- Three-tier priority: project > user > bundled
+
+**Better Error Messages:**
+- Context-aware suggestions based on file extension
+- Example usage for unknown protocols
+- Clear guidance when plugins not found
+
+**Documentation:**
+- Golden path warnings in CLAUDE.md
+- Comprehensive DuckDB profile specs
+- Implementation guides for developers
