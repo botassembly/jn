@@ -938,9 +938,18 @@ def writes(config: Optional[dict] = None) -> None:
                 pass
 
             # Step 3: Load records from temp file (streaming read, constant memory)
+            # Apply limit to prevent memory issues with large datasets
+            limit = config.get("limit", 10000)
             records = []
+            truncated = False
+
             with open(temp_path, 'r') as f:
                 for line in f:
+                    # Check limit (0 = unlimited)
+                    if limit > 0 and len(records) >= limit:
+                        truncated = True
+                        break
+
                     line = line.strip()
                     if line:
                         try:
@@ -953,6 +962,16 @@ def writes(config: Optional[dict] = None) -> None:
                                 "message": str(e),
                                 "line": line[:100],
                             })
+
+            # Show warning if data was truncated
+            if truncated:
+                # Add info record at the beginning
+                records.insert(0, {
+                    "_warning": True,
+                    "type": "data_truncated",
+                    "message": f"Dataset truncated to {limit:,} records (use --limit to increase)",
+                    "tip": f"To view all records, use: jn view <source> --limit 0 (0 = unlimited)",
+                })
 
             # Step 4: Start Textual with pre-loaded records
             app = JSONViewerApp(config=config, records=records, streaming=False)
@@ -1036,12 +1055,19 @@ if __name__ == "__main__":
         default=0,
         help="Start at record N (0-based index)",
     )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=10000,
+        help="Maximum records to load (default: 10000, prevents memory issues with large datasets)",
+    )
 
     args = parser.parse_args()
 
     config = {
         "depth": args.depth,
         "start_at": args.start_at,
+        "limit": args.limit,
     }
 
     writes(config)

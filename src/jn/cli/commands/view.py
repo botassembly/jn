@@ -28,9 +28,15 @@ from ...process_utils import popen_with_validation
 @click.option(
     "--start-at", type=int, default=0, help="Start at record N (0-based)"
 )
+@click.option(
+    "--limit",
+    type=int,
+    default=10000,
+    help="Maximum records to load (default: 10000, use 0 for unlimited)",
+)
 @click.pass_obj
 def view(
-    ctx: JNContext, source: str, filter_expr: str, depth: int, start_at: int
+    ctx: JNContext, source: str, filter_expr: str, depth: int, start_at: int, limit: int
 ) -> None:
     """View NDJSON data interactively.
 
@@ -147,6 +153,8 @@ def view(
             str(depth),
             "--start-at",
             str(start_at),
+            "--limit",
+            str(limit),
         ]
 
         # Execute pipeline
@@ -244,6 +252,8 @@ def view(
             str(depth),
             "--start-at",
             str(start_at),
+            "--limit",
+            str(limit),
         ]
 
         try:
