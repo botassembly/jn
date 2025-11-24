@@ -460,7 +460,8 @@ def writes(config: Optional[dict] = None) -> None:
 
     Uses pre-loading approach for maximum compatibility across platforms:
     - Reads all records from stdin first
-    - Then starts TUI (stdin is closed, terminal available for keyboard)
+    - Reopens stdin from /dev/tty for keyboard input
+    - Then starts TUI with proper terminal access
     - Works reliably on macOS, Linux, in tmux, Ghostty, etc.
     """
     config = config or {}
@@ -468,6 +469,9 @@ def writes(config: Optional[dict] = None) -> None:
     # Pre-load all records from stdin before starting TUI
     # This ensures stdin is fully consumed and Textual can access terminal
     records = []
+
+    # Check if stdin is piped (has data)
+    stdin_was_piped = not sys.stdin.isatty()
 
     try:
         for line in sys.stdin:
@@ -490,8 +494,20 @@ def writes(config: Optional[dict] = None) -> None:
             "message": str(e),
         })
 
+    # If stdin was piped, reopen it from /dev/tty for keyboard input
+    # This is essential for TUI apps that need to read data from stdin
+    # but also need keyboard input from the terminal
+    if stdin_was_piped:
+        try:
+            sys.stdin.close()
+            sys.stdin = open('/dev/tty', 'r')
+        except Exception as e:
+            # If we can't open /dev/tty, try to continue anyway
+            # (might work on some systems)
+            pass
+
     # Start TUI with all records pre-loaded
-    # Stdin is now closed, so Textual can use the terminal for keyboard input
+    # Stdin is now connected to terminal for keyboard input
     app = JSONViewerApp(config=config, records=records)
     app.run()
 
