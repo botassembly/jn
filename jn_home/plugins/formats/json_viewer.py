@@ -339,22 +339,18 @@ class JSONViewerApp(App):
         Binding("r", "refresh", "Refresh", show=False),
     ]
 
-    def __init__(self, config: Optional[dict] = None, records: Optional[list] = None, streaming: bool = False):
+    def __init__(self, config: Optional[dict] = None, records: Optional[list] = None):
         super().__init__()
         self.config = config or {}
         self.navigator = RecordNavigator()
         self.initial_depth = self.config.get("depth", 2)
         self.start_at = self.config.get("start_at", 0)
-        self.streaming = streaming
-        self.loading_complete = False
 
         # Pre-load records if provided
         if records:
             for record in records:
                 self.navigator.add_record(record)
-            if not streaming:
-                self.navigator.total_known = True
-                self.loading_complete = True
+            self.navigator.total_known = True
 
     def compose(self) -> ComposeResult:
         """Build UI layout."""
@@ -366,86 +362,17 @@ class JSONViewerApp(App):
         """Initialize viewer when app starts."""
         self.title = "JSON Viewer"
 
-        # If streaming mode, start background worker to load records
-        if self.streaming:
-            self.sub_title = "Loading..."
-            self.load_worker = self.run_worker(self.load_records_streaming, thread=True, exclusive=True)
+        # Jump to start_at record if configured
+        if self.start_at > 0 and self.navigator.records:
+            self.navigator.jump_to(self.start_at)
+        elif self.navigator.records:
+            self.navigator.current_index = 0
+
+        # Display the current record or show "No records" message
+        if self.navigator.records:
+            self.display_current_record()
         else:
-            # Jump to start_at record if configured
-            if self.start_at > 0 and self.navigator.records:
-                self.navigator.jump_to(self.start_at)
-            elif self.navigator.records:
-                self.navigator.current_index = 0
-
-            # Display the current record or show "No records" message
-            if self.navigator.records:
-                self.display_current_record()
-            else:
-                self.sub_title = "No records to display"
-
-    def load_records_streaming(self) -> None:
-        """Load records from stdin in background thread (streaming mode)."""
-        import time
-
-        self.navigator.loading = True
-        timeout = 5.0
-        start_time = time.time()
-
-        try:
-            for line in sys.stdin:
-                line = line.strip()
-                if line:
-                    try:
-                        record = json.loads(line)
-                        self.navigator.add_record(record)
-
-                        # Display first record immediately
-                        if len(self.navigator.records) == 1:
-                            self.navigator.current_index = min(
-                                self.start_at, len(self.navigator.records) - 1
-                            )
-                            self.call_from_thread(self.display_current_record)
-                        else:
-                            # Update subtitle to show record count
-                            self.call_from_thread(self.update_subtitle)
-
-                    except json.JSONDecodeError as e:
-                        self.navigator.add_record(
-                            {
-                                "_error": True,
-                                "type": "json_decode_error",
-                                "message": str(e),
-                                "line": line[:100],
-                            }
-                        )
-
-                # Timeout check for first record
-                if not self.navigator.records and time.time() - start_time > timeout:
-                    break
-
-        except Exception as e:
-            self.navigator.add_record(
-                {
-                    "_error": True,
-                    "type": "load_error",
-                    "message": str(e),
-                }
-            )
-        finally:
-            self.navigator.loading = False
-            self.navigator.total_known = True
-            self.loading_complete = True
-            self.call_from_thread(self.on_loading_complete)
-
-    def on_loading_complete(self) -> None:
-        """Called when streaming load completes."""
-        if not self.navigator.records:
             self.sub_title = "No records to display"
-        else:
-            self.update_subtitle()
-            if not self.query_one("#tree-view", Tree).root.children:
-                # If tree is empty, display first record
-                self.display_current_record()
 
     def display_current_record(self) -> None:
         """Display the current record in the tree."""
@@ -531,73 +458,44 @@ class JSONViewerApp(App):
 def writes(config: Optional[dict] = None) -> None:
     """Read NDJSON from stdin, display in single-record viewer.
 
-    Supports two modes:
-    1. Streaming mode (stdin is piped): Loads records in background, UI appears immediately
-    2. Pre-load mode (stdin is TTY): Waits for data or times out
-
-    The streaming mode allows viewing large datasets without loading everything into memory first.
+    Always pre-loads all records from stdin before starting the TUI.
+    This ensures Textual can access the terminal for keyboard input.
     """
     config = config or {}
 
-    # Detect if stdin is piped (has data) vs TTY (interactive)
-    # If piped: use streaming mode (load in background while UI runs)
-    # If TTY: use pre-load mode (wait briefly for data, then start)
-    if not sys.stdin.isatty():
-        # Stdin is piped - use streaming mode
-        # UI starts immediately, records load in background
-        app = JSONViewerApp(config=config, records=[], streaming=True)
-        app.run()
-    else:
-        # Stdin is TTY (interactive) - pre-load with timeout
-        import signal
-        import time
+    # Always pre-load records from stdin before starting the TUI
+    # This prevents conflict between stdin data and keyboard input
+    records = []
 
-        records = []
-        timeout = 5.0
-        start_time = time.time()
+    try:
+        for line in sys.stdin:
+            line = line.strip()
+            if line:
+                try:
+                    record = json.loads(line)
+                    records.append(record)
+                except json.JSONDecodeError as e:
+                    records.append(
+                        {
+                            "_error": True,
+                            "type": "json_decode_error",
+                            "message": str(e),
+                            "line": line[:100],
+                        }
+                    )
+    except Exception as e:
+        records.append(
+            {
+                "_error": True,
+                "type": "load_error",
+                "message": str(e),
+            }
+        )
 
-        def timeout_handler(signum, frame):
-            raise TimeoutError("Stdin read timeout")
-
-        signal.signal(signal.SIGALRM, timeout_handler)
-        signal.alarm(int(timeout))
-
-        try:
-            for line in sys.stdin:
-                signal.alarm(int(timeout))
-                line = line.strip()
-                if line:
-                    try:
-                        record = json.loads(line)
-                        records.append(record)
-                    except json.JSONDecodeError as e:
-                        records.append(
-                            {
-                                "_error": True,
-                                "type": "json_decode_error",
-                                "message": str(e),
-                                "line": line[:100],
-                            }
-                        )
-
-                if not records and time.time() - start_time > timeout:
-                    break
-
-        except TimeoutError:
-            pass
-        except Exception as e:
-            records.append(
-                {
-                    "_error": True,
-                    "type": "load_error",
-                    "message": str(e),
-                }
-            )
-        finally:
-            signal.alarm(0)
-
-        app = JSONViewerApp(config=config, records=records, streaming=False)
-        app.run()
+    # Start the TUI with pre-loaded records
+    # Textual can now access /dev/tty for keyboard input
+    app = JSONViewerApp(config=config, records=records)
+    app.run()
 
 
 if __name__ == "__main__":
