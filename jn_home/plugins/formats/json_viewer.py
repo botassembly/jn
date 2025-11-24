@@ -903,12 +903,16 @@ class JSONViewerApp(App):
 
             # Write all records with index markers
             # We need to track which records match
-            for idx, record in enumerate(self.navigator.records):
-                # Add index to record temporarily
-                record_with_idx = {"__jn_idx__": idx, **record}
-                proc.stdin.write(json.dumps(record_with_idx) + "\n")
-
-            proc.stdin.close()
+            try:
+                for idx, record in enumerate(self.navigator.records):
+                    # Add index to record temporarily
+                    record_with_idx = {"__jn_idx__": idx, **record}
+                    proc.stdin.write(json.dumps(record_with_idx) + "\n")
+                proc.stdin.close()
+            except BrokenPipeError:
+                # jq exited early (invalid expression) - no matches
+                proc.wait()
+                return
 
             # Read matching records
             for line in proc.stdout:
@@ -923,7 +927,7 @@ class JSONViewerApp(App):
 
             proc.wait()
 
-        except (FileNotFoundError, subprocess.SubprocessError):
+        except (FileNotFoundError, subprocess.SubprocessError, OSError):
             # jq not available or error - no matches
             pass
 
