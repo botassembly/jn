@@ -152,11 +152,13 @@ def view(
         # Execute pipeline
         with ExitStack() as stack:
             try:
-                # Start cat process
+                # Start cat process (keep as binary pipes - each script handles encoding)
                 if resolved.url:
                     # For protocols, no stdin needed (URL is argument)
                     cat_proc = popen_with_validation(
-                        cat_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                        cat_cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
                     )
                 else:
                     # For files, open and pass as stdin
@@ -191,11 +193,8 @@ def view(
                     viewer_cmd, stdin=viewer_stdin, stderr=sys.stderr
                 )
 
-                # Close stdin so viewer gets EOF
-                if viewer_stdin:
-                    viewer_stdin.close()
-
                 # Wait for viewer to complete
+                # Note: viewer_stdin will be closed automatically when viewer exits
                 viewer_proc.wait()
 
                 # Check for errors

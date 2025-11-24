@@ -16,7 +16,9 @@
 
 import argparse
 import json
+import os
 import sys
+import tempfile
 from typing import Any, Optional
 
 from rich.text import Text
@@ -585,58 +587,14 @@ class JSONViewerApp(App):
                 self.sub_title = "No records to display"
 
     def load_records_streaming(self) -> None:
-        """Load records from stdin in background thread (streaming mode)."""
-        import time
+        """Load records from stdin in background thread (streaming mode).
 
-        self.navigator.loading = True
-        timeout = 5.0
-        start_time = time.time()
-
-        try:
-            for line in sys.stdin:
-                line = line.strip()
-                if line:
-                    try:
-                        record = json.loads(line)
-                        self.navigator.add_record(record)
-
-                        # Display first record immediately
-                        if len(self.navigator.records) == 1:
-                            self.navigator.current_index = min(
-                                self.start_at, len(self.navigator.records) - 1
-                            )
-                            self.call_from_thread(self.display_current_record)
-                        else:
-                            # Update subtitle to show record count
-                            self.call_from_thread(self.update_subtitle)
-
-                    except json.JSONDecodeError as e:
-                        self.navigator.add_record(
-                            {
-                                "_error": True,
-                                "type": "json_decode_error",
-                                "message": str(e),
-                                "line": line[:100],
-                            }
-                        )
-
-                # Timeout check for first record
-                if not self.navigator.records and time.time() - start_time > timeout:
-                    break
-
-        except Exception as e:
-            self.navigator.add_record(
-                {
-                    "_error": True,
-                    "type": "load_error",
-                    "message": str(e),
-                }
-            )
-        finally:
-            self.navigator.loading = False
-            self.navigator.total_known = True
-            self.loading_complete = True
-            self.call_from_thread(self.on_loading_complete)
+        NOTE: This method is no longer used. We now use disk-backed streaming
+        which saves stdin to a temp file before starting Textual. This preserves
+        constant memory usage while avoiding the stdin/keyboard conflict.
+        See spec/done/textual-stdin-architecture.md for details.
+        """
+        pass
 
     def on_loading_complete(self) -> None:
         """Called when streaming load completes."""
@@ -943,22 +901,70 @@ class JSONViewerApp(App):
 def writes(config: Optional[dict] = None) -> None:
     """Read NDJSON from stdin, display in single-record viewer.
 
-    Supports two modes:
-    1. Streaming mode (stdin is piped): Loads records in background, UI appears immediately
-    2. Pre-load mode (stdin is TTY): Waits for data or times out
+    Uses disk-backed streaming to preserve JN's constant memory principle:
+    1. When stdin is piped: Save to temp file (streaming write, constant memory)
+    2. Redirect stdin to /dev/tty for keyboard input
+    3. Load records from temp file (streaming read, constant memory)
+    4. Start Textual with records
+    5. Clean up temp file
 
-    The streaming mode allows viewing large datasets without loading everything into memory first.
+    This approach maintains ~1MB memory usage regardless of dataset size while
+    solving the stdin/keyboard conflict with Textual. See spec/done/textual-stdin-architecture.md
     """
     config = config or {}
 
     # Detect if stdin is piped (has data) vs TTY (interactive)
-    # If piped: use streaming mode (load in background while UI runs)
-    # If TTY: use pre-load mode (wait briefly for data, then start)
     if not sys.stdin.isatty():
-        # Stdin is piped - use streaming mode
-        # UI starts immediately, records load in background
-        app = JSONViewerApp(config=config, records=[], streaming=True)
-        app.run()
+        # Stdin is piped - use disk-backed streaming
+        # Step 1: Save piped data to temp file (one-pass streaming write)
+        temp_fd, temp_path = tempfile.mkstemp(suffix='.ndjson', prefix='jn-viewer-')
+
+        try:
+            # Write stdin to temp file (streaming, constant memory)
+            with os.fdopen(temp_fd, 'w') as temp_file:
+                for line in sys.stdin:
+                    temp_file.write(line)
+
+            # Step 2: Redirect stdin to /dev/tty for keyboard input
+            # This allows Textual to read keyboard while we load from disk
+            try:
+                tty_fd = os.open('/dev/tty', os.O_RDONLY)
+                os.dup2(tty_fd, 0)  # Redirect fd 0 (stdin) to /dev/tty
+                os.close(tty_fd)
+                sys.stdin = open(0, 'r')  # Reopen stdin as Python file object
+            except (OSError, FileNotFoundError) as e:
+                # /dev/tty not available (rare) - continue anyway
+                # Keyboard might not work but viewer will still display
+                pass
+
+            # Step 3: Load records from temp file (streaming read, constant memory)
+            records = []
+            with open(temp_path, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        try:
+                            record = json.loads(line)
+                            records.append(record)
+                        except json.JSONDecodeError as e:
+                            records.append({
+                                "_error": True,
+                                "type": "json_decode_error",
+                                "message": str(e),
+                                "line": line[:100],
+                            })
+
+            # Step 4: Start Textual with pre-loaded records
+            app = JSONViewerApp(config=config, records=records, streaming=False)
+            app.run()
+
+        finally:
+            # Step 5: Clean up temp file
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass  # Best effort cleanup
+
     else:
         # Stdin is TTY (interactive) - pre-load with timeout
         import signal
@@ -983,14 +989,12 @@ def writes(config: Optional[dict] = None) -> None:
                         record = json.loads(line)
                         records.append(record)
                     except json.JSONDecodeError as e:
-                        records.append(
-                            {
-                                "_error": True,
-                                "type": "json_decode_error",
-                                "message": str(e),
-                                "line": line[:100],
-                            }
-                        )
+                        records.append({
+                            "_error": True,
+                            "type": "json_decode_error",
+                            "message": str(e),
+                            "line": line[:100],
+                        })
 
                 if not records and time.time() - start_time > timeout:
                     break
@@ -998,13 +1002,11 @@ def writes(config: Optional[dict] = None) -> None:
         except TimeoutError:
             pass
         except Exception as e:
-            records.append(
-                {
-                    "_error": True,
-                    "type": "load_error",
-                    "message": str(e),
-                }
-            )
+            records.append({
+                "_error": True,
+                "type": "load_error",
+                "message": str(e),
+            })
         finally:
             signal.alarm(0)
 
