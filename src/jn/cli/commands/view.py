@@ -2,6 +2,7 @@
 
 import subprocess
 import sys
+from contextlib import ExitStack
 from pathlib import Path
 
 import click
@@ -10,6 +11,7 @@ from ...addressing.parser import parse_address
 from ...addressing.resolver import AddressResolver
 from ...context import JNContext
 from ...plugins.discovery import get_cached_plugins_with_fallback
+from ...process_utils import popen_with_validation
 
 
 @click.command()
@@ -20,8 +22,12 @@ from ...plugins.discovery import get_cached_plugins_with_fallback
     "filter_expr",
     help="Pre-filter with jq expression before viewing",
 )
-@click.option("--depth", type=int, default=2, help="Initial tree expansion depth")
-@click.option("--start-at", type=int, default=0, help="Start at record N (0-based)")
+@click.option(
+    "--depth", type=int, default=2, help="Initial tree expansion depth"
+)
+@click.option(
+    "--start-at", type=int, default=0, help="Start at record N (0-based)"
+)
 @click.pass_obj
 def view(
     ctx: JNContext, source: str, filter_expr: str, depth: int, start_at: int
@@ -52,7 +58,9 @@ def view(
     viewer_plugin = None
     for plugin in plugins.values():
         # Check if this is the json_viewer plugin
-        plugin_path = Path(plugin.path) if isinstance(plugin.path, str) else plugin.path
+        plugin_path = (
+            Path(plugin.path) if isinstance(plugin.path, str) else plugin.path
+        )
         if "viewer" in plugin_path.name.lower():
             viewer_plugin = plugin
             break
@@ -72,7 +80,9 @@ def view(
 
         # Resolve source using AddressResolver
         try:
-            resolver = AddressResolver(ctx.plugin_dir, ctx.cache_path, ctx.home)
+            resolver = AddressResolver(
+                ctx.plugin_dir, ctx.cache_path, ctx.home
+            )
             resolved = resolver.resolve(addr, mode="read")
         except Exception as e:
             click.echo(f"Error resolving source address: {e}", err=True)
@@ -80,7 +90,14 @@ def view(
 
         # Build command pipeline
         # Phase 1: cat source
-        cat_cmd = ["uv", "run", "--script", str(resolved.plugin_path), "--mode", "read"]
+        cat_cmd = [
+            "uv",
+            "run",
+            "--script",
+            str(resolved.plugin_path),
+            "--mode",
+            "read",
+        ]
 
         # Add URL argument if this is a protocol plugin
         if resolved.url:
@@ -97,7 +114,8 @@ def view(
 
             if not filter_plugin:
                 click.echo(
-                    "Warning: jq filter plugin not found, skipping filter", err=True
+                    "Warning: jq filter plugin not found, skipping filter",
+                    err=True,
                 )
                 filter_cmd = None
             else:
@@ -129,77 +147,87 @@ def view(
         ]
 
         # Execute pipeline
-        try:
-            # Start cat process
-            if resolved.url:
-                # For protocols, no stdin needed (URL is argument)
-                cat_proc = subprocess.Popen(
-                    cat_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        with ExitStack() as stack:
+            try:
+                # Start cat process
+                if resolved.url:
+                    # For protocols, no stdin needed (URL is argument)
+                    cat_proc = popen_with_validation(
+                        cat_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                    )
+                else:
+                    # For files, open and pass as stdin
+                    if addr.base != "-":
+                        infile = stack.enter_context(open(addr.base, "rb"))
+                    else:
+                        infile = sys.stdin.buffer
+                    cat_proc = popen_with_validation(
+                        cat_cmd,
+                        stdin=infile,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                    )
+
+                # Start filter process if needed
+                if filter_cmd:
+                    filter_proc = popen_with_validation(
+                        filter_cmd,
+                        stdin=cat_proc.stdout,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                    )
+                    cat_proc.stdout.close()  # Allow cat to receive SIGPIPE
+                    viewer_stdin = filter_proc.stdout
+                    filter_proc.stdout = None  # Will be closed by viewer
+                else:
+                    viewer_stdin = cat_proc.stdout
+                    cat_proc.stdout = None  # Will be closed by viewer
+
+                # Start viewer process
+                viewer_proc = popen_with_validation(
+                    viewer_cmd, stdin=viewer_stdin, stderr=sys.stderr
                 )
-            else:
-                # For files, open and pass as stdin
-                infile = open(addr.base, "rb") if addr.base != "-" else sys.stdin.buffer
-                cat_proc = subprocess.Popen(
-                    cat_cmd,
-                    stdin=infile,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                )
 
-            # Start filter process if needed
-            if filter_cmd:
-                filter_proc = subprocess.Popen(
-                    filter_cmd,
-                    stdin=cat_proc.stdout,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                )
-                cat_proc.stdout.close()  # Allow cat to receive SIGPIPE
-                viewer_stdin = filter_proc.stdout
-                filter_proc.stdout = None  # Will be closed by viewer
-            else:
-                viewer_stdin = cat_proc.stdout
-                cat_proc.stdout = None  # Will be closed by viewer
+                # Close stdin so viewer gets EOF
+                if viewer_stdin:
+                    viewer_stdin.close()
 
-            # Start viewer process
-            viewer_proc = subprocess.Popen(
-                viewer_cmd, stdin=viewer_stdin, stderr=sys.stderr
-            )
+                # Wait for viewer to complete
+                viewer_proc.wait()
 
-            # Close stdin so viewer gets EOF
-            if viewer_stdin:
-                viewer_stdin.close()
+                # Check for errors
+                if filter_cmd:
+                    filter_proc.wait()
+                    if filter_proc.returncode != 0:
+                        stderr = (
+                            filter_proc.stderr.read()
+                            if filter_proc.stderr
+                            else b""
+                        )
+                        click.echo(
+                            f"Filter error: {stderr.decode()}", err=True
+                        )
 
-            # Wait for viewer to complete
-            viewer_proc.wait()
+                cat_proc.wait()
+                if cat_proc.returncode != 0:
+                    stderr = cat_proc.stderr.read() if cat_proc.stderr else b""
+                    click.echo(f"Source error: {stderr.decode()}", err=True)
 
-            # Check for errors
-            if filter_cmd:
-                filter_proc.wait()
-                if filter_proc.returncode != 0:
-                    stderr = filter_proc.stderr.read() if filter_proc.stderr else b""
-                    click.echo(f"Filter error: {stderr.decode()}", err=True)
+                # Exit with viewer's return code
+                sys.exit(viewer_proc.returncode)
 
-            cat_proc.wait()
-            if cat_proc.returncode != 0:
-                stderr = cat_proc.stderr.read() if cat_proc.stderr else b""
-                click.echo(f"Source error: {stderr.decode()}", err=True)
-
-            # Exit with viewer's return code
-            sys.exit(viewer_proc.returncode)
-
-        except KeyboardInterrupt:
-            # Clean shutdown on Ctrl+C
-            if "cat_proc" in locals():
-                cat_proc.terminate()
-            if "filter_proc" in locals():
-                filter_proc.terminate()
-            if "viewer_proc" in locals():
-                viewer_proc.terminate()
-            sys.exit(130)  # Standard Unix Ctrl+C exit code
-        except Exception as e:
-            click.echo(f"Error running viewer pipeline: {e}", err=True)
-            sys.exit(1)
+            except KeyboardInterrupt:
+                # Clean shutdown on Ctrl+C
+                if "cat_proc" in locals():
+                    cat_proc.terminate()
+                if "filter_proc" in locals():
+                    filter_proc.terminate()
+                if "viewer_proc" in locals():
+                    viewer_proc.terminate()
+                sys.exit(130)  # Standard Unix Ctrl+C exit code
+            except Exception as e:
+                click.echo(f"Error running viewer pipeline: {e}", err=True)
+                sys.exit(1)
 
     else:
         # Read from stdin (existing behavior)
@@ -217,7 +245,7 @@ def view(
         ]
 
         try:
-            viewer_proc = subprocess.Popen(viewer_cmd, stdin=sys.stdin)
+            viewer_proc = popen_with_validation(viewer_cmd, stdin=sys.stdin)
             viewer_proc.wait()
             sys.exit(viewer_proc.returncode)
         except KeyboardInterrupt:
