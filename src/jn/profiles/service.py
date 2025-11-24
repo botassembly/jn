@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from ..plugins.discovery import _builtin_plugins_dir, discover_plugins
+
 
 @dataclass
 class ProfileInfo:
@@ -198,21 +200,45 @@ def list_all_profiles(
     """
     import subprocess
 
-    profiles = []
+    profiles_by_ref: Dict[str, ProfileInfo] = {}
+
+    def _add_profile(profile: Optional[ProfileInfo]) -> None:
+        if profile and profile.reference not in profiles_by_ref:
+            profiles_by_ref[profile.reference] = profile
 
     # JQ profiles still use filesystem scanning (no plugin to call)
     for profile_root in _get_profile_paths(home_dir):
         jq_dir = profile_root / "jq"
         if jq_dir.exists():
             for jq_file in jq_dir.rglob("*.jq"):
-                profiles.append(_parse_jq_profile(jq_file, profile_root))
+                _add_profile(_parse_jq_profile(jq_file, profile_root))
 
     # Call plugins with --mode inspect-profiles to discover plugin-managed profiles
     # This replaces hardcoded directory scanning for http, gmail, mcp, duckdb, etc.
     if discovered_plugins:
+        # Prefer custom plugin implementations but fall back to the bundled version
+        # if the custom plugin doesn't support inspect-profiles.
+        plugin_candidates = list(discovered_plugins.values())
+
+        builtin_dir = _builtin_plugins_dir()
+        if builtin_dir and builtin_dir.exists():
+            builtin_plugins = discover_plugins(builtin_dir)
+            for meta in builtin_plugins.values():
+                meta.path = str(builtin_dir / meta.path)
+
+            for name, meta in builtin_plugins.items():
+                if name not in discovered_plugins:
+                    continue
+
+                current_path = Path(discovered_plugins[name].path).resolve()
+                builtin_path = Path(meta.path).resolve()
+
+                if current_path != builtin_path:
+                    plugin_candidates.append(meta)
+
         from ..process_utils import build_subprocess_env_for_coverage
 
-        for plugin in discovered_plugins.values():
+        for plugin in plugin_candidates:
             try:
                 # Use uv run --script to ensure PEP 723 dependencies are available
                 process = subprocess.Popen(
@@ -244,7 +270,7 @@ def list_all_profiles(
                         try:
                             data = json.loads(line)
                             # Convert to ProfileInfo
-                            profiles.append(
+                            _add_profile(
                                 ProfileInfo(
                                     reference=data["reference"],
                                     type=data["type"],
@@ -263,7 +289,7 @@ def list_all_profiles(
                 # Plugin doesn't exist or isn't executable
                 pass
 
-    return profiles
+    return list(profiles_by_ref.values())
 
 
 def search_profiles(
