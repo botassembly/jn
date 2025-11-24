@@ -534,7 +534,7 @@ class JSONViewerApp(App):
         Binding("r", "refresh", "Refresh", show=False),
     ]
 
-    def __init__(self, config: Optional[dict] = None, records: Optional[list] = None, streaming: bool = False):
+    def __init__(self, config: Optional[dict] = None, records: Optional[list] = None, streaming: bool = False, temp_file_path: Optional[str] = None):
         super().__init__()
         self.config = config or {}
         self.navigator = RecordNavigator()
@@ -542,6 +542,7 @@ class JSONViewerApp(App):
         self.start_at = self.config.get("start_at", 0)
         self.streaming = streaming
         self.loading_complete = False
+        self.temp_file_path = temp_file_path  # Path to temp file for streaming
 
         # Search state
         self.search_expr = None  # Current jq search expression
@@ -587,14 +588,60 @@ class JSONViewerApp(App):
                 self.sub_title = "No records to display"
 
     def load_records_streaming(self) -> None:
-        """Load records from stdin in background thread (streaming mode).
+        """Load records from temp file in background thread (streaming mode).
 
-        NOTE: This method is no longer used. We now use disk-backed streaming
-        which saves stdin to a temp file before starting Textual. This preserves
-        constant memory usage while avoiding the stdin/keyboard conflict.
-        See spec/done/textual-stdin-architecture.md for details.
+        Reads from temp file line-by-line, loading records as the user navigates.
+        This provides true streaming behavior - first record appears immediately,
+        rest load in background. No artificial limits, constant memory per record.
         """
-        pass
+        if not self.temp_file_path:
+            return
+
+        self.navigator.loading = True
+
+        try:
+            with open(self.temp_file_path, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        try:
+                            record = json.loads(line)
+                            self.navigator.add_record(record)
+
+                            # Display first record immediately
+                            if len(self.navigator.records) == 1:
+                                self.navigator.current_index = min(
+                                    self.start_at, len(self.navigator.records) - 1
+                                )
+                                self.call_from_thread(self.display_current_record)
+                            else:
+                                # Update subtitle to show record count
+                                self.call_from_thread(self.update_subtitle)
+
+                        except json.JSONDecodeError as e:
+                            self.navigator.add_record({
+                                "_error": True,
+                                "type": "json_decode_error",
+                                "message": str(e),
+                                "line": line[:100],
+                            })
+
+        except Exception as e:
+            self.navigator.add_record({
+                "_error": True,
+                "type": "load_error",
+                "message": str(e),
+            })
+        finally:
+            self.navigator.loading = False
+            self.navigator.total_known = True
+            self.loading_complete = True
+            self.call_from_thread(self.on_loading_complete)
+            # Clean up temp file
+            try:
+                os.unlink(self.temp_file_path)
+            except OSError:
+                pass
 
     def on_loading_complete(self) -> None:
         """Called when streaming load completes."""
@@ -904,12 +951,13 @@ def writes(config: Optional[dict] = None) -> None:
     Uses disk-backed streaming to preserve JN's constant memory principle:
     1. When stdin is piped: Save to temp file (streaming write, constant memory)
     2. Redirect stdin to /dev/tty for keyboard input
-    3. Load records from temp file (streaming read, constant memory)
-    4. Start Textual with records
-    5. Clean up temp file
+    3. Start Textual immediately with streaming mode
+    4. Load records from temp file in background (no limits!)
+    5. Temp file cleaned up automatically when loading completes
 
-    This approach maintains ~1MB memory usage regardless of dataset size while
-    solving the stdin/keyboard conflict with Textual. See spec/done/textual-stdin-architecture.md
+    This provides true streaming - first record appears immediately, rest load
+    in background as user navigates. Works with filtered datasets (1 record) or
+    full datasets (70k+ records) equally well. See spec/done/textual-stdin-architecture.md
     """
     config = config or {}
 
@@ -919,70 +967,27 @@ def writes(config: Optional[dict] = None) -> None:
         # Step 1: Save piped data to temp file (one-pass streaming write)
         temp_fd, temp_path = tempfile.mkstemp(suffix='.ndjson', prefix='jn-viewer-')
 
+        # Write stdin to temp file (streaming, constant memory)
+        with os.fdopen(temp_fd, 'w') as temp_file:
+            for line in sys.stdin:
+                temp_file.write(line)
+
+        # Step 2: Redirect stdin to /dev/tty for keyboard input
+        # This allows Textual to read keyboard while we load from disk
         try:
-            # Write stdin to temp file (streaming, constant memory)
-            with os.fdopen(temp_fd, 'w') as temp_file:
-                for line in sys.stdin:
-                    temp_file.write(line)
+            tty_fd = os.open('/dev/tty', os.O_RDONLY)
+            os.dup2(tty_fd, 0)  # Redirect fd 0 (stdin) to /dev/tty
+            os.close(tty_fd)
+            sys.stdin = open(0, 'r')  # Reopen stdin as Python file object
+        except (OSError, FileNotFoundError):
+            # /dev/tty not available (rare) - continue anyway
+            # Keyboard might not work but viewer will still display
+            pass
 
-            # Step 2: Redirect stdin to /dev/tty for keyboard input
-            # This allows Textual to read keyboard while we load from disk
-            try:
-                tty_fd = os.open('/dev/tty', os.O_RDONLY)
-                os.dup2(tty_fd, 0)  # Redirect fd 0 (stdin) to /dev/tty
-                os.close(tty_fd)
-                sys.stdin = open(0, 'r')  # Reopen stdin as Python file object
-            except (OSError, FileNotFoundError) as e:
-                # /dev/tty not available (rare) - continue anyway
-                # Keyboard might not work but viewer will still display
-                pass
-
-            # Step 3: Load records from temp file (streaming read, constant memory)
-            # Apply limit to prevent memory issues with large datasets
-            limit = config.get("limit", 10000)
-            records = []
-            truncated = False
-
-            with open(temp_path, 'r') as f:
-                for line in f:
-                    # Check limit (0 = unlimited)
-                    if limit > 0 and len(records) >= limit:
-                        truncated = True
-                        break
-
-                    line = line.strip()
-                    if line:
-                        try:
-                            record = json.loads(line)
-                            records.append(record)
-                        except json.JSONDecodeError as e:
-                            records.append({
-                                "_error": True,
-                                "type": "json_decode_error",
-                                "message": str(e),
-                                "line": line[:100],
-                            })
-
-            # Show warning if data was truncated
-            if truncated:
-                # Add info record at the beginning
-                records.insert(0, {
-                    "_warning": True,
-                    "type": "data_truncated",
-                    "message": f"Dataset truncated to {limit:,} records (use --limit to increase)",
-                    "tip": f"To view all records, use: jn view <source> --limit 0 (0 = unlimited)",
-                })
-
-            # Step 4: Start Textual with pre-loaded records
-            app = JSONViewerApp(config=config, records=records, streaming=False)
-            app.run()
-
-        finally:
-            # Step 5: Clean up temp file
-            try:
-                os.unlink(temp_path)
-            except OSError:
-                pass  # Best effort cleanup
+        # Step 3: Start Textual with streaming mode
+        # Records load in background from temp file, no limits
+        app = JSONViewerApp(config=config, records=[], streaming=True, temp_file_path=temp_path)
+        app.run()
 
     else:
         # Stdin is TTY (interactive) - pre-load with timeout
@@ -1055,19 +1060,12 @@ if __name__ == "__main__":
         default=0,
         help="Start at record N (0-based index)",
     )
-    parser.add_argument(
-        "--limit",
-        type=int,
-        default=10000,
-        help="Maximum records to load (default: 10000, prevents memory issues with large datasets)",
-    )
 
     args = parser.parse_args()
 
     config = {
         "depth": args.depth,
         "start_at": args.start_at,
-        "limit": args.limit,
     }
 
     writes(config)
