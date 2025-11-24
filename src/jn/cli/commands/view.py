@@ -108,7 +108,10 @@ def view(
             # Find jq filter plugin
             filter_plugin = None
             for plugin in plugins.values():
-                if "jq" in plugin.path.name.lower():
+                plugin_path = (
+                    Path(plugin.path) if isinstance(plugin.path, str) else plugin.path
+                )
+                if "jq" in plugin_path.name.lower():
                     filter_plugin = plugin
                     break
 
