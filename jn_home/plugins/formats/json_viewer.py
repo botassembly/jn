@@ -339,18 +339,30 @@ class JSONViewerApp(App):
         Binding("r", "refresh", "Refresh", show=False),
     ]
 
-    def __init__(self, config: Optional[dict] = None, records: Optional[list] = None):
+    def __init__(
+        self,
+        config: Optional[dict] = None,
+        records: Optional[list] = None,
+        record_queue=None,
+        loading_complete=None
+    ):
         super().__init__()
         self.config = config or {}
         self.navigator = RecordNavigator()
         self.initial_depth = self.config.get("depth", 2)
         self.start_at = self.config.get("start_at", 0)
+        self.record_queue = record_queue
+        self.loading_complete = loading_complete
 
-        # Pre-load records if provided
+        # Pre-load records if provided (non-streaming mode)
         if records:
             for record in records:
                 self.navigator.add_record(record)
             self.navigator.total_known = True
+        elif record_queue:
+            # Streaming mode - records will arrive via queue
+            self.navigator.loading = True
+            self.navigator.total_known = False
 
     def compose(self) -> ComposeResult:
         """Build UI layout."""
@@ -362,17 +374,58 @@ class JSONViewerApp(App):
         """Initialize viewer when app starts."""
         self.title = "JSON Viewer"
 
-        # Jump to start_at record if configured
-        if self.start_at > 0 and self.navigator.records:
-            self.navigator.jump_to(self.start_at)
-        elif self.navigator.records:
-            self.navigator.current_index = 0
-
-        # Display the current record or show "No records" message
-        if self.navigator.records:
-            self.display_current_record()
+        # If in streaming mode, start polling for records
+        if self.record_queue:
+            self.sub_title = "Loading records..."
+            self.set_interval(0.1, self.poll_record_queue)
         else:
-            self.sub_title = "No records to display"
+            # Non-streaming mode - all records pre-loaded
+            # Jump to start_at record if configured
+            if self.start_at > 0 and self.navigator.records:
+                self.navigator.jump_to(self.start_at)
+            elif self.navigator.records:
+                self.navigator.current_index = 0
+
+            # Display the current record or show "No records" message
+            if self.navigator.records:
+                self.display_current_record()
+            else:
+                self.sub_title = "No records to display"
+
+    def poll_record_queue(self) -> None:
+        """Poll queue for new records (streaming mode)."""
+        import queue
+
+        if not self.record_queue:
+            return
+
+        # Process all available records in queue (non-blocking)
+        records_added = False
+        while True:
+            try:
+                msg_type, data = self.record_queue.get_nowait()
+                self.navigator.add_record(data)
+                records_added = True
+            except queue.Empty:
+                break
+
+        # Check if loading is complete
+        if self.loading_complete and self.loading_complete.is_set():
+            self.navigator.loading = False
+            self.navigator.total_known = True
+
+        # If this is the first record, display it
+        if records_added:
+            if len(self.navigator.records) == 1:
+                # First record arrived - jump to start_at or 0
+                if self.start_at > 0:
+                    self.navigator.jump_to(self.start_at)
+                else:
+                    self.navigator.current_index = 0
+                self.display_current_record()
+            else:
+                # More records arrived - update subtitle
+                self.update_subtitle()
 
     def display_current_record(self) -> None:
         """Display the current record in the tree."""
@@ -458,43 +511,53 @@ class JSONViewerApp(App):
 def writes(config: Optional[dict] = None) -> None:
     """Read NDJSON from stdin, display in single-record viewer.
 
-    Always pre-loads all records from stdin before starting the TUI.
-    This ensures Textual can access the terminal for keyboard input.
+    Supports true streaming: loads records incrementally in background while
+    TUI runs. Textual reads keyboard from /dev/tty, stdin reads data stream.
     """
     config = config or {}
+    import threading
+    import queue
 
-    # Always pre-load records from stdin before starting the TUI
-    # This prevents conflict between stdin data and keyboard input
-    records = []
+    # Queue for passing records from reader thread to TUI
+    record_queue = queue.Queue()
+    loading_complete = threading.Event()
 
-    try:
-        for line in sys.stdin:
-            line = line.strip()
-            if line:
-                try:
-                    record = json.loads(line)
-                    records.append(record)
-                except json.JSONDecodeError as e:
-                    records.append(
-                        {
+    def read_records():
+        """Read records from stdin in background thread."""
+        try:
+            for line in sys.stdin:
+                line = line.strip()
+                if line:
+                    try:
+                        record = json.loads(line)
+                        record_queue.put(("record", record))
+                    except json.JSONDecodeError as e:
+                        record_queue.put(("error", {
                             "_error": True,
                             "type": "json_decode_error",
                             "message": str(e),
                             "line": line[:100],
-                        }
-                    )
-    except Exception as e:
-        records.append(
-            {
+                        }))
+        except Exception as e:
+            record_queue.put(("error", {
                 "_error": True,
                 "type": "load_error",
                 "message": str(e),
-            }
-        )
+            }))
+        finally:
+            loading_complete.set()
 
-    # Start the TUI with pre-loaded records
-    # Textual can now access /dev/tty for keyboard input
-    app = JSONViewerApp(config=config, records=records)
+    # Start background thread to read records
+    reader_thread = threading.Thread(target=read_records, daemon=True)
+    reader_thread.start()
+
+    # Start the TUI with streaming support
+    # Textual will read keyboard from /dev/tty, stdin is free for data
+    app = JSONViewerApp(
+        config=config,
+        record_queue=record_queue,
+        loading_complete=loading_complete
+    )
     app.run()
 
 
