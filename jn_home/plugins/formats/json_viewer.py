@@ -233,6 +233,67 @@ class GotoDialog(ModalScreen[Optional[int]]):
         self.dismiss(None)
 
 
+class SearchDialog(ModalScreen[Optional[str]]):
+    """Modal dialog for searching records with jq expression."""
+
+    CSS = """
+    SearchDialog {
+        align: center middle;
+    }
+
+    #search-container {
+        width: 70;
+        height: 9;
+        border: thick $background 80%;
+        background: $surface;
+    }
+
+    #search-title {
+        dock: top;
+        width: 100%;
+        content-align: center middle;
+        text-style: bold;
+    }
+
+    #search-input {
+        margin: 1 2;
+    }
+
+    #search-help {
+        margin: 0 2;
+        color: $text-muted;
+    }
+    """
+
+    def compose(self) -> ComposeResult:
+        with Container(id="search-container"):
+            yield Static("Search Records", id="search-title")
+            yield Input(
+                placeholder="Enter jq expression (e.g., .age > 30, .name == \"Alice\")",
+                id="search-input",
+            )
+            yield Static(
+                "Tip: Use . prefix for fields. Press Enter to search, Esc to cancel.",
+                id="search-help",
+            )
+
+    def on_mount(self) -> None:
+        """Focus input when dialog opens."""
+        self.query_one(Input).focus()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Handle Enter key in input."""
+        query = event.value.strip()
+        if query:
+            self.dismiss(query)
+        else:
+            self.dismiss(None)
+
+    def key_escape(self) -> None:
+        """Handle Escape key."""
+        self.dismiss(None)
+
+
 class HelpScreen(ModalScreen):
     """Modal screen showing keyboard shortcuts."""
 
@@ -271,6 +332,12 @@ class HelpScreen(ModalScreen):
   Ctrl+D         Jump forward 10 records
   Ctrl+U         Jump back 10 records
   :              Go to specific record
+
+[bold cyan]Search[/]
+  /              Search with jq expression
+  n              Next match (when searching)
+  N              Previous match (when searching)
+  Esc            Clear search
 
 [bold cyan]Tree Navigation[/]
   ↑ / k          Move cursor up
@@ -329,6 +396,10 @@ class JSONViewerApp(App):
         Binding("ctrl+d", "jump_forward", "+10", show=True),
         Binding("ctrl+u", "jump_back", "-10", show=True),
         Binding("colon", "goto_record", "Go to", show=True),
+        # Search
+        Binding("slash", "search", "Search", show=True),
+        Binding("N", "prev_match", "Prev Match", show=False),
+        Binding("escape", "clear_search", "Clear Search", show=False),
         # Tree navigation
         Binding("space", "toggle_node", "Toggle", show=True),
         Binding("e", "expand_all", "Expand All", show=False),
@@ -347,6 +418,11 @@ class JSONViewerApp(App):
         self.start_at = self.config.get("start_at", 0)
         self.streaming = streaming
         self.loading_complete = False
+
+        # Search state
+        self.search_expr = None  # Current jq search expression
+        self.search_matches = []  # List of matching record indices
+        self.search_match_index = 0  # Current position in matches
 
         # Pre-load records if provided
         if records:
@@ -456,13 +532,34 @@ class JSONViewerApp(App):
             self.update_subtitle()
 
     def update_subtitle(self) -> None:
-        """Update subtitle with current position."""
-        self.sub_title = self.navigator.position_info()
+        """Update subtitle with current position and search status."""
+        base_info = self.navigator.position_info()
+
+        # Add search status if active
+        if self.search_expr:
+            if self.search_matches:
+                match_num = self.search_match_index + 1
+                total_matches = len(self.search_matches)
+                search_info = f" | Search: {match_num}/{total_matches} matches for '{self.search_expr}'"
+            else:
+                search_info = f" | Search: No matches for '{self.search_expr}'"
+            self.sub_title = base_info + search_info
+        else:
+            self.sub_title = base_info
 
     # Record Navigation Actions
     def action_next_record(self) -> None:
-        """Handle 'n' key - next record."""
-        if self.navigator.next():
+        """Handle 'n' key - next record or next search match."""
+        # If searching, go to next match
+        if self.search_matches:
+            # Move to next match (wrap around)
+            self.search_match_index = (self.search_match_index + 1) % len(self.search_matches)
+            target_index = self.search_matches[self.search_match_index]
+
+            if self.navigator.jump_to(target_index):
+                self.display_current_record()
+        # Otherwise, normal next record
+        elif self.navigator.next():
             self.display_current_record()
 
     def action_prev_record(self) -> None:
@@ -498,6 +595,83 @@ class JSONViewerApp(App):
                 self.display_current_record()
 
         self.push_screen(GotoDialog(), handle_goto)
+
+    # Search Actions
+    def action_search(self) -> None:
+        """Handle '/' key - open search dialog."""
+
+        def handle_search(expr: Optional[str]) -> None:
+            if expr:
+                self.perform_search(expr)
+
+        self.push_screen(SearchDialog(), handle_search)
+
+    def perform_search(self, expr: str) -> None:
+        """Perform search with jq expression."""
+        import subprocess
+        import tempfile
+
+        # Store search expression
+        self.search_expr = expr
+        self.search_matches = []
+        self.search_match_index = 0
+
+        # Search through all records using jq
+        for idx, record in enumerate(self.navigator.records):
+            try:
+                # Write record to temp file
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+                    json.dump(record, f)
+                    temp_path = f.name
+
+                # Test if record matches using jq
+                # If expression evaluates to true/truthy, it's a match
+                result = subprocess.run(
+                    ['jq', '-e', expr, temp_path],
+                    capture_output=True,
+                    text=True,
+                    timeout=1
+                )
+
+                # jq -e exits 0 if expression is truthy, 1 if false/null, 2+ on error
+                if result.returncode == 0:
+                    self.search_matches.append(idx)
+
+                # Clean up temp file
+                import os
+                os.unlink(temp_path)
+
+            except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+                # Skip records that cause errors
+                continue
+
+        # Update subtitle and jump to first match
+        if self.search_matches:
+            self.navigator.jump_to(self.search_matches[0])
+            self.search_match_index = 0
+            self.display_current_record()
+        else:
+            # No matches found
+            self.update_subtitle()
+
+    def action_prev_match(self) -> None:
+        """Handle 'N' key - previous search match."""
+        if not self.search_matches:
+            return
+
+        # Move to previous match (wrap around)
+        self.search_match_index = (self.search_match_index - 1) % len(self.search_matches)
+        target_index = self.search_matches[self.search_match_index]
+
+        if self.navigator.jump_to(target_index):
+            self.display_current_record()
+
+    def action_clear_search(self) -> None:
+        """Handle Esc key - clear search."""
+        self.search_expr = None
+        self.search_matches = []
+        self.search_match_index = 0
+        self.update_subtitle()
 
     # Tree Navigation Actions
     def action_toggle_node(self) -> None:
