@@ -693,21 +693,30 @@ class JSONViewerApp(App):
     # Record Navigation Actions
     def action_next_record(self) -> None:
         """Handle 'n' key - next record or next search match."""
-        # If searching, go to next match
-        if self.search_matches:
+        # If searching with multiple matches, go to next match
+        if len(self.search_matches) > 1:
             # Move to next match (wrap around)
             self.search_match_index = (self.search_match_index + 1) % len(self.search_matches)
             target_index = self.search_matches[self.search_match_index]
 
             if self.navigator.jump_to(target_index):
                 self.display_current_record()
-        # Otherwise, normal next record
+        # Otherwise (no search, or only 1 match), normal next record
         elif self.navigator.next():
             self.display_current_record()
 
     def action_prev_record(self) -> None:
-        """Handle 'p' key - previous record."""
-        if self.navigator.previous():
+        """Handle 'p' key - previous record or previous search match."""
+        # If searching with multiple matches, go to previous match
+        if len(self.search_matches) > 1:
+            # Move to previous match (wrap around)
+            self.search_match_index = (self.search_match_index - 1) % len(self.search_matches)
+            target_index = self.search_matches[self.search_match_index]
+
+            if self.navigator.jump_to(target_index):
+                self.display_current_record()
+        # Otherwise (no search, or only 1 match), normal previous record
+        elif self.navigator.previous():
             self.display_current_record()
 
     def action_first_record(self) -> None:
