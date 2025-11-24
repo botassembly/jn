@@ -509,7 +509,7 @@ class JSONViewerApp(App):
         Binding("end", "last_record", "Last", show=False),
         Binding("ctrl+d", "jump_forward", "+10", show=True),
         Binding("ctrl+u", "jump_back", "-10", show=True),
-        Binding("colon", "goto_record", "Go to", show=True),
+        Binding("number_sign", "goto_record", "Go to", show=True, key_display="#"),
         # Search
         Binding("slash", "search", "Search", show=True),
         Binding("f", "find_by_field", "Find", show=True),
@@ -726,7 +726,7 @@ class JSONViewerApp(App):
             self.display_current_record()
 
     def action_goto_record(self) -> None:
-        """Handle ':' key - prompt for record number."""
+        """Handle '#' key - prompt for record number."""
 
         def handle_goto(record_index: Optional[int]) -> None:
             if record_index is not None and self.navigator.jump_to(record_index):
