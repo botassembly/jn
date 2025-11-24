@@ -497,10 +497,20 @@ def writes(config: Optional[dict] = None) -> None:
     # If stdin was piped, reopen it from /dev/tty for keyboard input
     # This is essential for TUI apps that need to read data from stdin
     # but also need keyboard input from the terminal
+    #
+    # IMPORTANT: Don't close stdin! Textual's LinuxDriver accesses sys.__stdin__.fileno()
+    # which would fail if we close it. Instead, reopen file descriptor 0 to /dev/tty.
     if stdin_was_piped:
         try:
-            sys.stdin.close()
-            sys.stdin = open('/dev/tty', 'r')
+            import os
+            # Open /dev/tty
+            tty_fd = os.open('/dev/tty', os.O_RDONLY)
+            # Duplicate it onto stdin's file descriptor (0)
+            os.dup2(tty_fd, 0)
+            # Close the duplicate (we don't need it anymore)
+            os.close(tty_fd)
+            # Reopen sys.stdin with the new fd 0
+            sys.stdin = open(0, 'r')
         except Exception as e:
             # If we can't open /dev/tty, try to continue anyway
             # (might work on some systems)
