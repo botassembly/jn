@@ -19,7 +19,7 @@ import json
 import os
 import sys
 import tempfile
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from rich.text import Text
 from textual.app import App, ComposeResult
@@ -750,43 +750,33 @@ class JSONViewerApp(App):
         self.push_screen(SearchDialog(), handle_search)
 
     def perform_search(self, expr: str) -> None:
-        """Perform search with jq expression."""
-        import subprocess
-        import tempfile
+        """Perform search with jq expression.
 
+        Uses Python-based filtering for performance. Falls back to streaming
+        all records through a single jq process for complex expressions.
+        This avoids spawning a subprocess per record (which would cause hangs
+        with large datasets).
+        """
         # Store search expression
         self.search_expr = expr
         self.search_matches = []
         self.search_match_index = 0
 
-        # Search through all records using jq
-        for idx, record in enumerate(self.navigator.records):
-            try:
-                # Write record to temp file
-                with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-                    json.dump(record, f)
-                    temp_path = f.name
+        # Try Python-based filtering first (much faster)
+        python_filter = self._compile_python_filter(expr)
 
-                # Test if record matches using jq
-                # If expression evaluates to true/truthy, it's a match
-                result = subprocess.run(
-                    ['jq', '-e', expr, temp_path],
-                    capture_output=True,
-                    text=True,
-                    timeout=1
-                )
-
-                # jq -e exits 0 if expression is truthy, 1 if false/null, 2+ on error
-                if result.returncode == 0:
-                    self.search_matches.append(idx)
-
-                # Clean up temp file
-                import os
-                os.unlink(temp_path)
-
-            except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
-                # Skip records that cause errors
-                continue
+        if python_filter:
+            # Fast path: Python-based filtering
+            for idx, record in enumerate(self.navigator.records):
+                try:
+                    if python_filter(record):
+                        self.search_matches.append(idx)
+                except Exception:
+                    # Skip records that cause errors
+                    continue
+        else:
+            # Fallback: Stream all records through a single jq process
+            self._search_with_jq_stream(expr)
 
         # Update subtitle and jump to first match
         if self.search_matches:
@@ -796,6 +786,137 @@ class JSONViewerApp(App):
         else:
             # No matches found
             self.update_subtitle()
+
+    def _compile_python_filter(self, expr: str) -> Optional[Callable[[dict], bool]]:
+        """Try to compile a jq expression to a Python filter function.
+
+        Supports common patterns:
+        - .field == "value" or .field == value
+        - .field != "value"
+        - .field > value, .field < value, .field >= value, .field <= value
+        - .field (truthy check)
+        - select(.field == "value") - strips select() wrapper
+
+        Returns None if expression is too complex for Python.
+        """
+        import re
+
+        # Strip select() wrapper if present
+        expr = expr.strip()
+        select_match = re.match(r'^select\s*\(\s*(.*)\s*\)\s*$', expr)
+        if select_match:
+            expr = select_match.group(1)
+
+        # Pattern: .field == "value" or .field == value
+        match = re.match(r'^\.(\w+)\s*==\s*"([^"]*)"$', expr)
+        if match:
+            field, value = match.groups()
+            return lambda r, f=field, v=value: r.get(f) == v
+
+        # Pattern: .field == number
+        match = re.match(r'^\.(\w+)\s*==\s*(-?\d+(?:\.\d+)?)$', expr)
+        if match:
+            field, value = match.groups()
+            num_value = float(value) if '.' in value else int(value)
+            return lambda r, f=field, v=num_value: r.get(f) == v
+
+        # Pattern: .field != "value"
+        match = re.match(r'^\.(\w+)\s*!=\s*"([^"]*)"$', expr)
+        if match:
+            field, value = match.groups()
+            return lambda r, f=field, v=value: r.get(f) != v
+
+        # Pattern: .field != number
+        match = re.match(r'^\.(\w+)\s*!=\s*(-?\d+(?:\.\d+)?)$', expr)
+        if match:
+            field, value = match.groups()
+            num_value = float(value) if '.' in value else int(value)
+            return lambda r, f=field, v=num_value: r.get(f) != v
+
+        # Pattern: .field > number
+        match = re.match(r'^\.(\w+)\s*>\s*(-?\d+(?:\.\d+)?)$', expr)
+        if match:
+            field, value = match.groups()
+            num_value = float(value) if '.' in value else int(value)
+            return lambda r, f=field, v=num_value: (r.get(f) is not None and r.get(f) > v)
+
+        # Pattern: .field < number
+        match = re.match(r'^\.(\w+)\s*<\s*(-?\d+(?:\.\d+)?)$', expr)
+        if match:
+            field, value = match.groups()
+            num_value = float(value) if '.' in value else int(value)
+            return lambda r, f=field, v=num_value: (r.get(f) is not None and r.get(f) < v)
+
+        # Pattern: .field >= number
+        match = re.match(r'^\.(\w+)\s*>=\s*(-?\d+(?:\.\d+)?)$', expr)
+        if match:
+            field, value = match.groups()
+            num_value = float(value) if '.' in value else int(value)
+            return lambda r, f=field, v=num_value: (r.get(f) is not None and r.get(f) >= v)
+
+        # Pattern: .field <= number
+        match = re.match(r'^\.(\w+)\s*<=\s*(-?\d+(?:\.\d+)?)$', expr)
+        if match:
+            field, value = match.groups()
+            num_value = float(value) if '.' in value else int(value)
+            return lambda r, f=field, v=num_value: (r.get(f) is not None and r.get(f) <= v)
+
+        # Pattern: .field (truthy check)
+        match = re.match(r'^\.(\w+)$', expr)
+        if match:
+            field = match.group(1)
+            return lambda r, f=field: bool(r.get(f))
+
+        # Expression too complex for Python - return None to use jq
+        return None
+
+    def _search_with_jq_stream(self, expr: str) -> None:
+        """Search using a single jq process for all records (streaming).
+
+        Instead of spawning one jq process per record, we stream all records
+        through a single jq process. This is O(1) in subprocess overhead.
+        """
+        import subprocess
+
+        try:
+            # Build jq expression that outputs index:match pairs
+            # Use select() to filter, then output record indices
+            jq_expr = f'select({expr})'
+
+            # Start a single jq process
+            proc = subprocess.Popen(
+                ['jq', '-c', jq_expr],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+            # Write all records with index markers
+            # We need to track which records match
+            for idx, record in enumerate(self.navigator.records):
+                # Add index to record temporarily
+                record_with_idx = {"__jn_idx__": idx, **record}
+                proc.stdin.write(json.dumps(record_with_idx) + "\n")
+
+            proc.stdin.close()
+
+            # Read matching records
+            for line in proc.stdout:
+                line = line.strip()
+                if line:
+                    try:
+                        match = json.loads(line)
+                        if "__jn_idx__" in match:
+                            self.search_matches.append(match["__jn_idx__"])
+                    except json.JSONDecodeError:
+                        continue
+
+            proc.wait()
+
+        except (FileNotFoundError, subprocess.SubprocessError):
+            # jq not available or error - no matches
+            pass
 
     def action_prev_match(self) -> None:
         """Handle 'N' key - previous search match."""
