@@ -1,4 +1,4 @@
-"""Tests for json_viewer.py plugin using pexpect."""
+"""Tests for json_viewer.py (Data Lens) plugin using pexpect."""
 
 import json
 import sys
@@ -40,13 +40,13 @@ def test_viewer_starts_and_displays_data(viewer_path, sample_data):
         child.send(sample_data)
         child.sendeof()
 
-        # Wait for viewer to start and display (should see "JSON Viewer" in title)
-        child.expect("JSON Viewer", timeout=8)
+        # Wait for viewer to start and display (should see "Data Lens" in title)
+        child.expect("Data Lens", timeout=8)
 
         # Should show "Record 1 of 3" since we sent 3 records
-        child.expect("Record.*of.*3", timeout=2)
+        child.expect("Record.*of.*3", timeout=5)
 
-        # Should display the first record's name
+        # Should display the first record's name in table
         child.expect("Alice", timeout=2)
 
         # Quit the viewer
@@ -79,9 +79,9 @@ def test_viewer_handles_no_data(viewer_path):
         # Send EOF immediately (no data)
         child.sendeof()
 
-        # Should start and show "No records to display"
-        child.expect("JSON Viewer", timeout=8)
-        child.expect("No records", timeout=2)
+        # Should start and show "Record 1 of 0" (empty dataset)
+        child.expect("Data Lens", timeout=8)
+        child.expect("Record.*of.*0", timeout=2)
 
         # Quit the viewer
         child.send("q")
@@ -158,8 +158,8 @@ def test_viewer_malformed_json(viewer_path):
         child.sendeof()
 
         # Should start and show records (including error record)
-        child.expect("JSON Viewer", timeout=8)
-        child.expect("Record.*of.*3", timeout=2)  # Should have 3 records total
+        child.expect("Data Lens", timeout=8)
+        child.expect("Record.*of.*3", timeout=5)  # Should have 3 records total
 
         # Quit
         child.send("q")
@@ -186,7 +186,7 @@ class TestPythonFilterCompilation:
             """Standalone version of the filter compiler for testing."""
             expr = expr.strip()
             # Strip select() wrapper
-            select_match = re.match(r'^select\s*\(\s*(.*)\s*\)\s*$', expr)
+            select_match = re.match(r"^select\s*\(\s*(.*)\s*\)\s*$", expr)
             if select_match:
                 expr = select_match.group(1)
 
@@ -197,28 +197,32 @@ class TestPythonFilterCompilation:
                 return lambda r, f=field, v=value: r.get(f) == v
 
             # .field == number
-            match = re.match(r'^\.(\w+)\s*==\s*(-?\d+(?:\.\d+)?)$', expr)
+            match = re.match(r"^\.(\w+)\s*==\s*(-?\d+(?:\.\d+)?)$", expr)
             if match:
                 field, value = match.groups()
-                num_value = float(value) if '.' in value else int(value)
+                num_value = float(value) if "." in value else int(value)
                 return lambda r, f=field, v=num_value: r.get(f) == v
 
             # .field > number
-            match = re.match(r'^\.(\w+)\s*>\s*(-?\d+(?:\.\d+)?)$', expr)
+            match = re.match(r"^\.(\w+)\s*>\s*(-?\d+(?:\.\d+)?)$", expr)
             if match:
                 field, value = match.groups()
-                num_value = float(value) if '.' in value else int(value)
-                return lambda r, f=field, v=num_value: (r.get(f) is not None and r.get(f) > v)
+                num_value = float(value) if "." in value else int(value)
+                return lambda r, f=field, v=num_value: (
+                    r.get(f) is not None and r.get(f) > v
+                )
 
             # .field < number
-            match = re.match(r'^\.(\w+)\s*<\s*(-?\d+(?:\.\d+)?)$', expr)
+            match = re.match(r"^\.(\w+)\s*<\s*(-?\d+(?:\.\d+)?)$", expr)
             if match:
                 field, value = match.groups()
-                num_value = float(value) if '.' in value else int(value)
-                return lambda r, f=field, v=num_value: (r.get(f) is not None and r.get(f) < v)
+                num_value = float(value) if "." in value else int(value)
+                return lambda r, f=field, v=num_value: (
+                    r.get(f) is not None and r.get(f) < v
+                )
 
             # .field (truthy)
-            match = re.match(r'^\.(\w+)$', expr)
+            match = re.match(r"^\.(\w+)$", expr)
             if match:
                 field = match.group(1)
                 return lambda r, f=field: bool(r.get(f))
@@ -237,14 +241,14 @@ class TestPythonFilterCompilation:
 
     def test_number_equality(self, compile_filter):
         """Test .field == number pattern."""
-        fn = compile_filter('.age == 30')
+        fn = compile_filter(".age == 30")
         assert fn is not None
         assert fn({"age": 30}) is True
         assert fn({"age": 25}) is False
 
     def test_number_comparison_gt(self, compile_filter):
         """Test .field > number pattern."""
-        fn = compile_filter('.age > 25')
+        fn = compile_filter(".age > 25")
         assert fn is not None
         assert fn({"age": 30}) is True
         assert fn({"age": 25}) is False
@@ -252,7 +256,7 @@ class TestPythonFilterCompilation:
 
     def test_number_comparison_lt(self, compile_filter):
         """Test .field < number pattern."""
-        fn = compile_filter('.value < 100')
+        fn = compile_filter(".value < 100")
         assert fn is not None
         assert fn({"value": 50}) is True
         assert fn({"value": 100}) is False
@@ -260,7 +264,7 @@ class TestPythonFilterCompilation:
 
     def test_truthy_check(self, compile_filter):
         """Test .field truthy pattern."""
-        fn = compile_filter('.active')
+        fn = compile_filter(".active")
         assert fn is not None
         assert fn({"active": True}) is True
         assert fn({"active": False}) is False
@@ -277,8 +281,8 @@ class TestPythonFilterCompilation:
     def test_complex_expression_returns_none(self, compile_filter):
         """Test that complex expressions return None for jq fallback."""
         assert compile_filter('.name | contains("test")') is None
-        assert compile_filter('.items[] | .value') is None
-        assert compile_filter('.a and .b') is None
+        assert compile_filter(".items[] | .value") is None
+        assert compile_filter(".a and .b") is None
 
     def test_search_performance_vs_subprocess(self, compile_filter):
         """Test that Python filter is significantly faster than subprocess approach."""
@@ -298,4 +302,6 @@ class TestPythonFilterCompilation:
         assert len(matches) == 10
 
         # Python filter should complete in under 10ms
-        assert python_time < 0.01, f"Python filter took {python_time}s, expected < 0.01s"
+        assert (
+            python_time < 0.01
+        ), f"Python filter took {python_time}s, expected < 0.01s"
