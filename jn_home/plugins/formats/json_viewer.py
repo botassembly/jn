@@ -428,20 +428,28 @@ class DataLensApp(App):
             table.add_column(col, key=col)
 
         indices = self.matches if self.filter_expr else range(len(self.records))
+        self._table_row_count = 0
+        self._total_available = len(self.matches) if self.filter_expr else len(self.records)
         for i, idx in enumerate(indices):
-            if i >= 10000:  # Limit rows
+            if i >= 10000:  # Limit rows for performance
                 break
             if idx < len(self.records):
                 r = self.records[idx]
                 prefix = "* " if idx in self.bookmarks else ""
                 row = [f"{prefix}{idx + 1}"] + [format_value(r.get(c) if isinstance(r, dict) else None) for c in self.columns]
                 table.add_row(*row, key=str(idx))
+                self._table_row_count += 1
 
     def _update_subtitle(self) -> None:
-        table = self.query_one("#table", DataTable)
         idx = self._current_index()
         total = len(self.records)
         parts = [f"Record {idx + 1 if idx is not None else 0} of {total}"]
+
+        # Show if table is capped
+        if hasattr(self, '_table_row_count') and hasattr(self, '_total_available'):
+            if self._table_row_count < self._total_available:
+                parts.append(f"showing {self._table_row_count:,}")
+
         if self.filter_expr:
             parts.append(f"{len(self.matches)} matches")
         if self.bookmarks:
@@ -586,11 +594,17 @@ class DataLensApp(App):
         def on_result(idx: Optional[int]) -> None:
             if idx is not None and 0 <= idx < len(self.records):
                 table = self.query_one("#table", DataTable)
-                # Find row
+                # Try to find row in table
+                found = False
                 for i, key in enumerate(table.rows.keys()):
                     if int(key.value) == idx:
                         table.move_cursor(row=i)
+                        found = True
                         break
+                # If not in table (beyond 10K cap), open detail directly
+                if not found:
+                    record = self.records[idx]
+                    self.push_screen(DetailScreen(record, idx, len(self.records)))
         self.push_screen(GotoDialog(), on_result)
 
     def action_mark(self) -> None:
