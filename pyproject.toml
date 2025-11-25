@@ -111,3 +111,24 @@ plugins = ["pydantic.mypy"]
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+parallel = true
+source = ["src/jn"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "^if __name__ == .__main__.:$"
+]
+
+[tool.coverage.html]
+directory = "coverage-html"
+
+[tool.coverage.xml]
+output = "coverage.xml"
+
+[tool.coverage.json]
+output = "coverage.json"
