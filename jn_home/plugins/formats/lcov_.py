@@ -289,6 +289,14 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
+    # LCOV write mode is not implemented (and not useful - LCOV is an input format)
+    if args.mode == 'write':
+        print("ERROR: LCOV write mode not implemented", file=sys.stderr)
+        print("LCOV is a coverage input format (from coverage.py/gcov/etc.)", file=sys.stderr)
+        print("To save filtered coverage data, use JSON format instead:", file=sys.stderr)
+        print("  jn cat coverage.lcov | jn filter '...' | jn put output.json", file=sys.stderr)
+        sys.exit(1)
+
     # If mode is 'read', use output_mode for the actual format
     # Otherwise, for backward compatibility, use mode
     if args.mode == 'read':

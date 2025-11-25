@@ -26,7 +26,7 @@ echo "All profiles work on ANY coverage.lcov file (no hardcoded paths)."
 echo ""
 
 # Clean up previous output
-rm -f uncovered.json low_coverage.lcov poor_branches.json gaps.json hotspots.json summary.json coverage_ranges.json
+rm -f uncovered.json low_coverage.json poor_branches.json gaps.json hotspots.json summary.json coverage_ranges.json
 
 # Example 1: Find all uncovered functions (0% coverage)
 echo "1. Find functions with 0% coverage..."
@@ -43,11 +43,11 @@ echo ""
 echo "2. Find functions below 60% coverage..."
 $JN cat coverage.lcov | \
   $JN filter '@lcov/functions-below-threshold?threshold=60' | \
-  $JN put low_coverage.lcov
-COUNT=$(jq '. | length' low_coverage.lcov)
-echo "   ✓ Found $COUNT functions below 60% → low_coverage.lcov"
+  $JN put low_coverage.json
+COUNT=$(jq '. | length' low_coverage.json)
+echo "   ✓ Found $COUNT functions below 60% → low_coverage.json"
 echo "   Sample (worst offenders):"
-$JN cat low_coverage.lcov | $JN filter 'select(.coverage < 20)' | $JN head -n 3
+$JN cat low_coverage.json | $JN filter 'select(.coverage < 20)' | $JN head -n 3
 echo ""
 
 # Example 3: Files grouped by coverage ranges
@@ -116,7 +116,7 @@ echo "8. Generate comprehensive coverage report..."
   echo "## Summary Statistics"
   echo ""
   echo "- **Uncovered functions**: $COUNT uncovered"
-  TOTAL_LOW=$(jq '. | length' low_coverage.lcov)
+  TOTAL_LOW=$(jq '. | length' low_coverage.json)
   echo "- **Functions below 60%**: $TOTAL_LOW functions"
   TOTAL_HOTSPOTS=$(jq '. | length' hotspots.json)
   echo "- **Coverage hotspots**: $TOTAL_HOTSPOTS large under-tested functions"
@@ -168,7 +168,7 @@ echo "=== Demo Complete ==="
 echo ""
 echo "Generated files:"
 echo "  - uncovered.json           : Functions with 0% coverage"
-echo "  - low_coverage.lcov        : Functions below 60% threshold"
+echo "  - low_coverage.json        : Functions below 60% threshold"
 echo "  - coverage_ranges.json     : Files grouped by coverage ranges"
 echo "  - poor_branches.json       : Functions with poor branch coverage"
 echo "  - gaps.json                : Functions with most missing lines"
