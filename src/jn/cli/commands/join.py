@@ -158,7 +158,9 @@ def _stream_and_enrich(
     help="Fields to include from right records (can repeat).",
 )
 @pass_context
-def join(ctx, right_source, left_key, right_key, target, inner_join, pick_fields):
+def join(
+    ctx, right_source, left_key, right_key, target, inner_join, pick_fields
+):
     """Enrich NDJSON stream with data from a secondary source.
 
     Reads stdin as the primary (left) stream and enriches each record

@@ -36,10 +36,10 @@ def test_join_basic_left_join(invoke, tmp_path):
 
     assert result.exit_code == 0, f"Join failed: {result.output}"
 
-    lines = [l for l in result.output.strip().split("\n") if l]
+    lines = [line for line in result.output.strip().split("\n") if line]
     assert len(lines) == 3
 
-    records = [json.loads(l) for l in lines]
+    records = [json.loads(line) for line in lines]
 
     # Alice has 2 orders
     alice = next(r for r in records if r["name"] == "Alice")
@@ -84,8 +84,8 @@ def test_join_inner_join(invoke, tmp_path):
 
     assert result.exit_code == 0, f"Join failed: {result.output}"
 
-    lines = [l for l in result.output.strip().split("\n") if l]
-    records = [json.loads(l) for l in lines]
+    lines = [line for line in result.output.strip().split("\n") if line]
+    records = [json.loads(line) for line in lines]
 
     # Only 2 records (Charlie filtered out)
     assert len(records) == 2
@@ -126,7 +126,7 @@ def test_join_pick_fields(invoke, tmp_path):
 
     assert result.exit_code == 0, f"Join failed: {result.output}"
 
-    lines = [l for l in result.output.strip().split("\n") if l]
+    lines = [line for line in result.output.strip().split("\n") if line]
     record = json.loads(lines[0])
 
     assert "data" in record
@@ -169,7 +169,7 @@ def test_join_one_to_many(invoke, tmp_path):
 
     assert result.exit_code == 0, f"Join failed: {result.output}"
 
-    lines = [l for l in result.output.strip().split("\n") if l]
+    lines = [line for line in result.output.strip().split("\n") if line]
     assert len(lines) == 1  # Still one record
 
     record = json.loads(lines[0])
@@ -208,7 +208,7 @@ def test_join_preserves_left_fields(invoke, tmp_path):
 
     assert result.exit_code == 0, f"Join failed: {result.output}"
 
-    lines = [l for l in result.output.strip().split("\n") if l]
+    lines = [line for line in result.output.strip().split("\n") if line]
     record = json.loads(lines[0])
 
     # All original fields preserved
@@ -224,7 +224,9 @@ def test_join_preserves_left_fields(invoke, tmp_path):
 def test_join_with_json_files(invoke, tmp_path):
     """Test join with JSON files."""
     left_json = tmp_path / "left.json"
-    left_json.write_text('[{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}]')
+    left_json.write_text(
+        '[{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}]'
+    )
 
     right_json = tmp_path / "right.json"
     right_json.write_text('[{"id": 1, "score": 95}, {"id": 1, "score": 87}]')
@@ -248,8 +250,8 @@ def test_join_with_json_files(invoke, tmp_path):
 
     assert result.exit_code == 0, f"Join failed: {result.output}"
 
-    lines = [l for l in result.output.strip().split("\n") if l]
-    records = [json.loads(l) for l in lines]
+    lines = [line for line in result.output.strip().split("\n") if line]
+    records = [json.loads(line) for line in lines]
 
     alice = next(r for r in records if r["name"] == "Alice")
     assert len(alice["scores"]) == 2
@@ -282,7 +284,10 @@ def test_join_missing_required_options(invoke, tmp_path):
         input_data=left_result.output,
     )
     assert result.exit_code != 0
-    assert "left-key" in result.output.lower() or "required" in result.output.lower()
+    assert (
+        "left-key" in result.output.lower()
+        or "required" in result.output.lower()
+    )
 
     # Missing --right-key
     result = invoke(
@@ -365,8 +370,8 @@ def test_join_empty_right_source(invoke, tmp_path):
 
     assert result.exit_code == 0, f"Join failed: {result.output}"
 
-    lines = [l for l in result.output.strip().split("\n") if l]
-    records = [json.loads(l) for l in lines]
+    lines = [line for line in result.output.strip().split("\n") if line]
+    records = [json.loads(line) for line in lines]
 
     # All records have empty arrays
     assert len(records) == 2
@@ -402,7 +407,7 @@ def test_join_numeric_key_matching(invoke, tmp_path):
 
     assert result.exit_code == 0, f"Join failed: {result.output}"
 
-    lines = [l for l in result.output.strip().split("\n") if l]
+    lines = [line for line in result.output.strip().split("\n") if line]
     record = json.loads(lines[0])
 
     # Should match despite int vs string
@@ -440,7 +445,7 @@ def test_join_pick_nonexistent_field(invoke, tmp_path):
 
     assert result.exit_code == 0, f"Join failed: {result.output}"
 
-    lines = [l for l in result.output.strip().split("\n") if l]
+    lines = [line for line in result.output.strip().split("\n") if line]
     record = json.loads(lines[0])
 
     # Only existing picked field should be present
@@ -487,8 +492,8 @@ def test_join_dead_code_hunter_scenario(invoke, tmp_path):
 
     assert result.exit_code == 0, f"Join failed: {result.output}"
 
-    lines = [l for l in result.output.strip().split("\n") if l]
-    records = [json.loads(l) for l in lines]
+    lines = [line for line in result.output.strip().split("\n") if line]
+    records = [json.loads(line) for line in lines]
 
     # do_magic: 2 callers
     do_magic = next(r for r in records if r["function"] == "do_magic")
@@ -505,7 +510,8 @@ def test_join_dead_code_hunter_scenario(invoke, tmp_path):
     # Now we could filter for dead code:
     # select(.coverage_pct < 10 and (.callers | length) == 0)
     dead_code = [
-        r for r in records
+        r
+        for r in records
         if int(r["coverage_pct"]) < 10 and len(r["callers"]) == 0
     ]
     assert len(dead_code) == 1
