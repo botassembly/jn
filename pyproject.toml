@@ -132,3 +132,6 @@ output = "coverage.xml"
 
 [tool.coverage.json]
 output = "coverage.json"
+
+[tool.coverage.lcov]
+output = "coverage.lcov"

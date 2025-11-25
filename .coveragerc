@@ -18,3 +18,6 @@ output = coverage.xml
 
 [json]
 output = coverage.json
+
+[lcov]
+output = coverage.lcov

@@ -28,6 +28,7 @@ coverage:
 	uv run coverage html -q
 	uv run coverage xml -q
 	uv run coverage json -q
+	uv run coverage lcov -q
 	# Single, authoritative coverage report (core only per .coveragerc)
 	uv run coverage report --fail-under=70
 
