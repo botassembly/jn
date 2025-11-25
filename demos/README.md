@@ -9,7 +9,8 @@ cd csv-filtering && ./run_examples.sh     # Core ETL operations
 cd http-api && ./run_examples.sh          # Fetch from REST APIs
 cd shell-commands && ./run_examples.sh    # Convert shell output to NDJSON
 cd xlsx-files && ./run_examples.sh        # Work with Excel files
-cd coverage-analysis && ./run_examples.sh # Analyze pytest coverage reports
+cd table-rendering && ./run_examples.sh   # Pretty-print data as ASCII tables
+cd lcov-analysis && ./run_examples.sh     # Analyze pytest coverage reports
 ```
 
 ## Available Demos
@@ -18,9 +19,10 @@ cd coverage-analysis && ./run_examples.sh # Analyze pytest coverage reports
 2. **http-api/** - Fetch from GitHub/REST APIs, transform responses, save locally
 3. **shell-commands/** - Convert ls/ps/df/env output to NDJSON (requires `jc`)
 4. **xlsx-files/** - Read/write Excel files, filter spreadsheets (requires `openpyxl`)
-5. **coverage-analysis/** - Analyze pytest coverage with reusable JQ profiles
-6. **mcp/** - Model Context Protocol integration (documentation)
-7. **genomoncology/** - Real-world HTTP profile example (requires credentials)
+5. **table-rendering/** - Pretty-print NDJSON as ASCII tables, markdown, HTML
+6. **lcov-analysis/** - Analyze pytest coverage with reusable JQ profiles
+7. **mcp/** - Model Context Protocol integration (documentation)
+8. **genomoncology/** - Real-world HTTP profile example (requires credentials)
 
 ## Key Patterns
 
@@ -43,6 +45,12 @@ jn sh ps aux | jn filter '.cpu_percent > 10' | jn put high_cpu.json
 ```bash
 jn cat data.xlsx | jn put data.csv   # Excel → CSV
 jn cat data.csv | jn put data.json   # CSV → JSON
+```
+
+**Pretty tables:**
+```bash
+jn cat data.csv | jn put -- "-~table.grid"    # ASCII grid table
+jn cat data.csv | jn put -- "-~table.github"  # GitHub markdown
 ```
 
 For detailed examples, see the scripts in each demo directory. All scripts include comprehensive comments explaining each step.
