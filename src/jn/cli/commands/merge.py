@@ -30,7 +30,7 @@ def _parse_source_spec(spec: str) -> Tuple[str, str]:
         # Find the last occurrence of :label= to handle URLs with colons
         idx = spec.rfind(":label=")
         source = spec[:idx]
-        label = spec[idx + 7:]  # len(":label=") == 7
+        label = spec[idx + 7 :]  # len(":label=") == 7
         return source, label
     return spec, spec  # Use source as default label
 
@@ -68,7 +68,9 @@ def _stream_source(source: str, label: str) -> Iterator[dict]:
                 yield record
             except json.JSONDecodeError:
                 # Skip invalid JSON lines
-                click.echo(f"Warning: Skipping invalid JSON: {line[:50]}...", err=True)
+                click.echo(
+                    f"Warning: Skipping invalid JSON: {line[:50]}...", err=True
+                )
                 continue
 
         proc.wait()
@@ -130,10 +132,15 @@ def merge(ctx, sources, fail_fast):
                     print(json.dumps(record), flush=True)
             except Exception as e:
                 if fail_fast:
-                    click.echo(f"Error: Failed to process source '{source}': {e}", err=True)
+                    click.echo(
+                        f"Error: Failed to process source '{source}': {e}",
+                        err=True,
+                    )
                     sys.exit(1)
                 else:
-                    click.echo(f"Warning: Skipping source '{source}': {e}", err=True)
+                    click.echo(
+                        f"Warning: Skipping source '{source}': {e}", err=True
+                    )
                     continue
 
     except KeyboardInterrupt:

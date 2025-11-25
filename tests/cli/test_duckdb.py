@@ -174,7 +174,9 @@ conn.close()
     return db_path
 
 
-def test_duckdb_optional_param_no_value(invoke, tmp_path, test_db_with_status, monkeypatch):
+def test_duckdb_optional_param_no_value(
+    invoke, tmp_path, test_db_with_status, monkeypatch
+):
     """Test optional parameter pattern - no param provided returns all rows."""
     # Create profile with optional parameter pattern
     profile_dir = tmp_path / "profiles" / "duckdb" / "testdb"
@@ -187,10 +189,12 @@ def test_duckdb_optional_param_no_value(invoke, tmp_path, test_db_with_status, m
     (profile_dir / "_meta.json").write_text(json.dumps(meta))
 
     # Use optional parameter pattern: ($param IS NULL OR column = $param)
-    (profile_dir / "by-status.sql").write_text("""-- Users with optional status filter
+    (profile_dir / "by-status.sql").write_text(
+        """-- Users with optional status filter
 -- Parameters: status
 SELECT * FROM users WHERE ($status IS NULL OR status = $status);
-""")
+"""
+    )
 
     monkeypatch.setenv("JN_HOME", str(tmp_path))
 
@@ -206,7 +210,9 @@ SELECT * FROM users WHERE ($status IS NULL OR status = $status);
     assert len(lines) == 3, f"Expected 3 rows, got {len(lines)}: {lines}"
 
 
-def test_duckdb_optional_param_with_value(invoke, tmp_path, test_db_with_status, monkeypatch):
+def test_duckdb_optional_param_with_value(
+    invoke, tmp_path, test_db_with_status, monkeypatch
+):
     """Test optional parameter pattern - param provided filters rows."""
     # Create profile with optional parameter pattern
     profile_dir = tmp_path / "profiles" / "duckdb" / "testdb"
@@ -218,10 +224,12 @@ def test_duckdb_optional_param_with_value(invoke, tmp_path, test_db_with_status,
     }
     (profile_dir / "_meta.json").write_text(json.dumps(meta))
 
-    (profile_dir / "by-status.sql").write_text("""-- Users with optional status filter
+    (profile_dir / "by-status.sql").write_text(
+        """-- Users with optional status filter
 -- Parameters: status
 SELECT * FROM users WHERE ($status IS NULL OR status = $status);
-""")
+"""
+    )
 
     monkeypatch.setenv("JN_HOME", str(tmp_path))
 
@@ -276,31 +284,45 @@ conn.close()
     meta = {"driver": "duckdb", "path": str(db_path)}
     (profile_dir / "_meta.json").write_text(json.dumps(meta))
 
-    (profile_dir / "treatment.sql").write_text("""-- Treatment query with optional filters
+    (profile_dir / "treatment.sql").write_text(
+        """-- Treatment query with optional filters
 -- Parameters: regimen, min_survival
 SELECT * FROM treatments
 WHERE ($regimen IS NULL OR regimen = $regimen)
   AND ($min_survival IS NULL OR os_months >= $min_survival);
-""")
+"""
+    )
 
     monkeypatch.setenv("JN_HOME", str(tmp_path))
 
     # Test 1: No params - all 4 rows
     res = invoke(["cat", "@genie/treatment"])
     assert res.exit_code == 0
-    lines = [l for l in res.output.strip().split("\n") if l and not l.startswith("Installed")]
+    lines = [
+        line
+        for line in res.output.strip().split("\n")
+        if line and not line.startswith("Installed")
+    ]
     assert len(lines) == 4
 
     # Test 2: Only regimen - filter by regimen
     res = invoke(["cat", "@genie/treatment?regimen=FOLFOX"])
     assert res.exit_code == 0
-    lines = [l for l in res.output.strip().split("\n") if l and not l.startswith("Installed")]
+    lines = [
+        line
+        for line in res.output.strip().split("\n")
+        if line and not line.startswith("Installed")
+    ]
     assert len(lines) == 2
 
     # Test 3: Both params - filter by both
     res = invoke(["cat", "@genie/treatment?regimen=FOLFIRI&min_survival=20"])
     assert res.exit_code == 0
-    lines = [l for l in res.output.strip().split("\n") if l and not l.startswith("Installed")]
+    lines = [
+        line
+        for line in res.output.strip().split("\n")
+        if line and not line.startswith("Installed")
+    ]
     assert len(lines) == 1
     row = json.loads(lines[0])
     assert row["regimen"] == "FOLFIRI"

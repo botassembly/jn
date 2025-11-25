@@ -9,7 +9,11 @@ import click
 from ...addressing import parse_address
 from ...context import pass_context
 from ...process_utils import popen_with_validation
-from ...profiles.resolver import ProfileError, find_profile_path, resolve_profile
+from ...profiles.resolver import (
+    ProfileError,
+    find_profile_path,
+    resolve_profile,
+)
 from ..helpers import check_jq_available, check_uv_available
 
 
@@ -70,10 +74,19 @@ def filter(ctx, query, native_args):
                 # Native argument mode: pass file path and --jq-arg flags
                 profile_path = find_profile_path(addr.base, plugin_name="jq_")
                 if profile_path is None:
-                    click.echo(f"Error: Profile not found: {addr.base}", err=True)
+                    click.echo(
+                        f"Error: Profile not found: {addr.base}", err=True
+                    )
                     sys.exit(1)
 
-                cmd = ["uv", "run", "--quiet", "--script", plugin.path, str(profile_path)]
+                cmd = [
+                    "uv",
+                    "run",
+                    "--quiet",
+                    "--script",
+                    plugin.path,
+                    str(profile_path),
+                ]
 
                 # Add --jq-arg flags for each parameter
                 for key, value in addr.parameters.items():
@@ -88,7 +101,14 @@ def filter(ctx, query, native_args):
                     click.echo(f"Error: {e}", err=True)
                     sys.exit(1)
 
-                cmd = ["uv", "run", "--quiet", "--script", plugin.path, resolved_query]
+                cmd = [
+                    "uv",
+                    "run",
+                    "--quiet",
+                    "--script",
+                    plugin.path,
+                    resolved_query,
+                ]
         else:
             # Direct jq expression
             cmd = ["uv", "run", "--quiet", "--script", plugin.path, query]

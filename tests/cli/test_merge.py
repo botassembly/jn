@@ -15,11 +15,13 @@ def test_merge_two_csv_files(invoke, tmp_path):
     west_csv = tmp_path / "west.csv"
     west_csv.write_text("id,value\n3,300\n4,400\n")
 
-    res = invoke([
-        "merge",
-        f"{east_csv}:label=East",
-        f"{west_csv}:label=West",
-    ])
+    res = invoke(
+        [
+            "merge",
+            f"{east_csv}:label=East",
+            f"{west_csv}:label=West",
+        ]
+    )
 
     assert res.exit_code == 0, f"Failed: {res.output}"
 
@@ -61,13 +63,17 @@ def test_merge_with_parameters(invoke, tmp_path, monkeypatch):
     """Test merge with parameterized sources."""
     # Create a CSV with status column
     data_csv = tmp_path / "users.csv"
-    data_csv.write_text("name,status\nAlice,active\nBob,inactive\nCharlie,active\n")
+    data_csv.write_text(
+        "name,status\nAlice,active\nBob,inactive\nCharlie,active\n"
+    )
 
-    res = invoke([
-        "merge",
-        f"{data_csv}?status=active:label=Active",
-        f"{data_csv}?status=inactive:label=Inactive",
-    ])
+    res = invoke(
+        [
+            "merge",
+            f"{data_csv}?status=active:label=Active",
+            f"{data_csv}?status=inactive:label=Inactive",
+        ]
+    )
 
     assert res.exit_code == 0, f"Failed: {res.output}"
 
@@ -94,12 +100,14 @@ def test_merge_three_sources(invoke, tmp_path):
     c_csv = tmp_path / "c.csv"
     c_csv.write_text("id\n3\n")
 
-    res = invoke([
-        "merge",
-        f"{a_csv}:label=A",
-        f"{b_csv}:label=B",
-        f"{c_csv}:label=C",
-    ])
+    res = invoke(
+        [
+            "merge",
+            f"{a_csv}:label=A",
+            f"{b_csv}:label=B",
+            f"{c_csv}:label=C",
+        ]
+    )
 
     assert res.exit_code == 0, f"Failed: {res.output}"
 
@@ -140,10 +148,12 @@ def test_merge_label_with_colon_in_source(invoke, tmp_path):
     data_csv = tmp_path / "data.csv"
     data_csv.write_text("x\n1\n")
 
-    res = invoke([
-        "merge",
-        f"{data_csv}:label=MyLabel",
-    ])
+    res = invoke(
+        [
+            "merge",
+            f"{data_csv}:label=MyLabel",
+        ]
+    )
 
     assert res.exit_code == 0, f"Failed: {res.output}"
 
@@ -166,15 +176,29 @@ def test_merge_fail_fast(invoke, tmp_path):
     good_csv = tmp_path / "good.csv"
     good_csv.write_text("x\n1\n")
 
-    res = invoke([
-        "merge",
-        f"{good_csv}:label=Good",
-        "nonexistent.csv:label=Bad",
-        "--fail-fast",
-    ])
+    # First source succeeds, second fails with --fail-fast
+    res = invoke(
+        [
+            "merge",
+            f"{good_csv}:label=Good",
+            "nonexistent.csv:label=Bad",
+            "--fail-fast",
+        ]
+    )
 
-    # Should output the good file's data before failing
-    # The exact behavior depends on error handling
+    # Should have output from good file before error
+    # Check that good data was output
+    lines = [
+        line
+        for line in res.output.strip().split("\n")
+        if line
+        and not line.startswith("Error")
+        and not line.startswith("Warning")
+    ]
+    assert len(lines) >= 1
+    if lines:
+        record = json.loads(lines[0])
+        assert record["_label"] == "Good"
 
 
 def test_merge_continue_on_error(invoke, tmp_path):
@@ -182,14 +206,20 @@ def test_merge_continue_on_error(invoke, tmp_path):
     good_csv = tmp_path / "good.csv"
     good_csv.write_text("x\n1\n")
 
-    res = invoke([
-        "merge",
-        "nonexistent.csv:label=Bad",
-        f"{good_csv}:label=Good",
-    ])
+    res = invoke(
+        [
+            "merge",
+            "nonexistent.csv:label=Bad",
+            f"{good_csv}:label=Good",
+        ]
+    )
 
     # Should continue and output the good file's data
-    lines = [line for line in res.output.strip().split("\n") if line and not line.startswith("Warning")]
+    lines = [
+        line
+        for line in res.output.strip().split("\n")
+        if line and not line.startswith("Warning")
+    ]
     if lines:
         record = json.loads(lines[-1])
         assert record["_label"] == "Good"
@@ -203,11 +233,13 @@ def test_merge_with_json_files(invoke, tmp_path):
     b_json = tmp_path / "b.json"
     b_json.write_text('[{"name": "Charlie"}]')
 
-    res = invoke([
-        "merge",
-        f"{a_json}:label=GroupA",
-        f"{b_json}:label=GroupB",
-    ])
+    res = invoke(
+        [
+            "merge",
+            f"{a_json}:label=GroupA",
+            f"{b_json}:label=GroupB",
+        ]
+    )
 
     assert res.exit_code == 0, f"Failed: {res.output}"
 

@@ -200,7 +200,11 @@ select(.[$field] > ($threshold | tonumber))
 """
 
     res = invoke(
-        ["filter", "@test/above_threshold?field=revenue&threshold=200", "--native-args"],
+        [
+            "filter",
+            "@test/above_threshold?field=revenue&threshold=200",
+            "--native-args",
+        ],
         input_data=ndjson,
     )
 
