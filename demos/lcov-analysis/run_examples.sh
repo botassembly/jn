@@ -33,7 +33,7 @@ echo "1. Find functions with 0% coverage..."
 $JN cat coverage.lcov | \
   $JN filter '@lcov/uncovered-functions' | \
   $JN put uncovered.json
-COUNT=$(jq -s '. | length' uncovered.json)
+COUNT=$(jq 'length' uncovered.json)
 echo "   Found $COUNT uncovered functions -> uncovered.json"
 echo "   Sample:"
 $JN cat uncovered.json | $JN head -n 3
@@ -44,7 +44,7 @@ echo "2. Find functions below 60% coverage..."
 $JN cat coverage.lcov | \
   $JN filter '@lcov/functions-below-threshold?threshold=60' | \
   $JN put low_coverage.json
-COUNT=$(jq -s '. | length' low_coverage.json)
+COUNT=$(jq 'length' low_coverage.json)
 echo "   Found $COUNT functions below 60% -> low_coverage.json"
 echo "   Sample (worst offenders):"
 $JN cat low_coverage.json | $JN filter 'select(.coverage < 20)' | $JN head -n 3
@@ -64,7 +64,7 @@ echo "4. Find functions with poor branch coverage (<70%)..."
 $JN cat coverage.lcov | \
   $JN filter '@lcov/poor-branch-coverage?threshold=70' | \
   $JN put poor_branches.json
-COUNT=$(jq -s '. | length' poor_branches.json)
+COUNT=$(jq 'length' poor_branches.json)
 echo "   Found $COUNT functions with poor branch coverage -> poor_branches.json"
 echo "   Sample:"
 $JN cat poor_branches.json | $JN head -n 3
@@ -75,7 +75,7 @@ echo "5. Find functions with most missing lines (3+ uncovered lines)..."
 $JN cat coverage.lcov | \
   $JN filter '@lcov/largest-gaps?min_missing=3' | \
   $JN put gaps.json
-COUNT=$(jq -s '. | length' gaps.json)
+COUNT=$(jq 'length' gaps.json)
 echo "   Found $COUNT functions with significant gaps -> gaps.json"
 echo "   Sample:"
 $JN cat gaps.json | $JN head -n 3
@@ -95,7 +95,7 @@ echo "7. Identify coverage hotspots (10+ lines, <70% coverage)..."
 $JN cat coverage.lcov | \
   $JN filter '@lcov/hotspots?min_lines=10&max_coverage=70' | \
   $JN put hotspots.json
-COUNT=$(jq -s '. | length' hotspots.json)
+COUNT=$(jq 'length' hotspots.json)
 echo "   Found $COUNT hotspot functions -> hotspots.json"
 echo "   Sample:"
 $JN cat hotspots.json | $JN head -n 3
