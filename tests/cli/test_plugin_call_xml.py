@@ -10,7 +10,9 @@ def test_xml_read_flatten_mode(invoke, test_data):
     with open(xml_file) as f:
         xml_content = f.read()
 
-    res = invoke(["plugin", "call", "xml_", "--mode", "read"], input_data=xml_content)
+    res = invoke(
+        ["plugin", "call", "xml_", "--mode", "read"], input_data=xml_content
+    )
     assert res.exit_code == 0
 
     lines = [line for line in res.output.strip().split("\n") if line]
@@ -29,7 +31,15 @@ def test_xml_read_books_structure(invoke, test_data):
         xml_content = f.read()
 
     res = invoke(
-        ["plugin", "call", "xml_", "--mode", "read", "--parse-mode", "flatten"],
+        [
+            "plugin",
+            "call",
+            "xml_",
+            "--mode",
+            "read",
+            "--parse-mode",
+            "flatten",
+        ],
         input_data=xml_content,
     )
     assert res.exit_code == 0
@@ -76,7 +86,15 @@ def test_xml_read_users_with_attributes(invoke, test_data):
         xml_content = f.read()
 
     res = invoke(
-        ["plugin", "call", "xml_", "--mode", "read", "--parse-mode", "flatten"],
+        [
+            "plugin",
+            "call",
+            "xml_",
+            "--mode",
+            "read",
+            "--parse-mode",
+            "flatten",
+        ],
         input_data=xml_content,
     )
     assert res.exit_code == 0

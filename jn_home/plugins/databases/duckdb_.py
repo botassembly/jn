@@ -47,6 +47,26 @@ def _get_profile_paths() -> list[Path]:
     return paths
 
 
+def _extract_declared_params(sql_content: str) -> list[str]:
+    """Extract declared parameters from SQL content.
+
+    Looks for "-- Parameters: param1, param2" comment pattern.
+    If not found, returns empty list (no auto-NULL injection).
+
+    Args:
+        sql_content: SQL query content
+
+    Returns:
+        List of declared parameter names
+    """
+    for line in sql_content.split("\n")[:20]:
+        line = line.strip()
+        if "-- Parameters:" in line:
+            params_text = line.split("Parameters:", 1)[1].strip()
+            return [p.split("(")[0].strip() for p in params_text.split(",") if p.strip()]
+    return []
+
+
 def _load_profile(reference: str) -> Tuple[str, str, dict]:
     """Load DuckDB profile from filesystem.
 
@@ -321,6 +341,13 @@ def reads(config: Optional[dict] = None) -> Iterator[dict]:
         # Get params from config and merge with URL params
         config_params = cfg.get("params") or {}
         params = {**url_params, **config_params}  # config params override URL params
+
+        # Optional parameter pattern: Inject NULL for declared but missing parameters
+        # This enables SQL patterns like: ($param IS NULL OR column = $param)
+        declared_params = _extract_declared_params(query)
+        for param in declared_params:
+            if param not in params:
+                params[param] = None
     # Direct mode: Parse duckdb:// address or file path
     else:
         db_path, query, params, table = _parse_address(str(raw_path))
