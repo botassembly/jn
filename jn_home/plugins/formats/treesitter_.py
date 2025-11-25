@@ -246,7 +246,8 @@ def extract_symbols(tree, source_bytes: bytes, lang: str, filename: str) -> Iter
                 'file': filename,
                 'filename': Path(filename).name,
                 'type': 'class',
-                'name': class_name,
+                'name': class_name,       # Keep 'name' for classes
+                'class': class_name,      # Also add 'class' for consistency
                 'node_type': node_type,
                 'start_line': node.start_point[0] + 1,
                 'end_line': node.end_point[0] + 1,
@@ -269,7 +270,8 @@ def extract_symbols(tree, source_bytes: bytes, lang: str, filename: str) -> Iter
                 'file': filename,
                 'filename': Path(filename).name,
                 'type': symbol_type,
-                'name': func_name,
+                'function': func_name,    # Use 'function' to match LCOV output
+                'name': func_name,        # Keep 'name' for backward compat
                 'node_type': node_type,
                 'start_line': node.start_point[0] + 1,
                 'end_line': node.end_point[0] + 1,
@@ -524,11 +526,132 @@ def extract_comments(tree, source_bytes: bytes, lang: str, filename: str) -> Ite
     yield from walk(tree.root_node)
 
 
+def extract_decorators(tree, source_bytes: bytes, lang: str, filename: str) -> Iterator[dict]:
+    """Extract decorators/attributes from functions and classes.
+
+    Useful for finding API routes, test functions, cached methods, etc.
+    """
+    # Decorator node types by language
+    decorator_types = {
+        'python': ['decorator'],
+        'javascript': ['decorator'],
+        'typescript': ['decorator'],
+        'tsx': ['decorator'],
+        'java': ['annotation', 'marker_annotation'],
+        'rust': ['attribute_item'],
+    }
+
+    func_types = {
+        'python': ['function_definition'],
+        'javascript': ['function_declaration', 'method_definition'],
+        'typescript': ['function_declaration', 'method_definition'],
+        'tsx': ['function_declaration', 'method_definition'],
+        'java': ['method_declaration'],
+        'rust': ['function_item'],
+    }
+
+    class_types = {
+        'python': ['class_definition'],
+        'javascript': ['class_declaration'],
+        'typescript': ['class_declaration'],
+        'tsx': ['class_declaration'],
+        'java': ['class_declaration'],
+        'rust': ['struct_item', 'impl_item'],
+    }
+
+    def extract_decorator_info(dec_node) -> dict:
+        """Extract decorator name and arguments."""
+        dec_text = _get_node_text(dec_node, source_bytes)
+
+        # Parse decorator: @name or @name(...) or @module.name(...)
+        name = dec_text
+        args = []
+
+        # For Python: decorator contains the @ and the expression
+        if lang == 'python':
+            # Find the actual decorator expression (skip @)
+            for child in dec_node.children:
+                if child.type == 'identifier':
+                    name = _get_node_text(child, source_bytes)
+                elif child.type == 'call':
+                    # It's @decorator(args)
+                    for call_child in child.children:
+                        if call_child.type in ['identifier', 'attribute']:
+                            name = _get_node_text(call_child, source_bytes)
+                        elif call_child.type == 'argument_list':
+                            args_text = _get_node_text(call_child, source_bytes)
+                            args = [args_text]  # Keep as raw for now
+                elif child.type == 'attribute':
+                    name = _get_node_text(child, source_bytes)
+
+        return {'decorator': name, 'args': args, 'raw': dec_text.strip()}
+
+    def find_decorated(node, collected_decorators=None):
+        """Find decorated functions/classes."""
+        if collected_decorators is None:
+            collected_decorators = []
+
+        # Collect decorators
+        if node.type in decorator_types.get(lang, []):
+            collected_decorators.append(extract_decorator_info(node))
+
+        # Check for decorated definition (Python uses decorated_definition wrapper)
+        if node.type == 'decorated_definition':
+            # Collect all decorators, then find the function/class
+            decorators = []
+            target = None
+            for child in node.children:
+                if child.type in decorator_types.get(lang, []):
+                    decorators.append(extract_decorator_info(child))
+                elif child.type in func_types.get(lang, []) + class_types.get(lang, []):
+                    target = child
+
+            if target and decorators:
+                target_name = _extract_function_name(target, source_bytes, lang) if target.type in func_types.get(lang, []) else _extract_class_name(target, source_bytes, lang)
+                target_type = 'function' if target.type in func_types.get(lang, []) else 'class'
+
+                for dec in decorators:
+                    yield {
+                        'file': filename,
+                        'filename': Path(filename).name,
+                        'type': 'decorator',
+                        'decorator': dec['decorator'],
+                        'args': dec['args'],
+                        'raw': dec['raw'],
+                        'target': target_name,
+                        'target_type': target_type,
+                        'line': node.start_point[0] + 1,
+                    }
+
+        # If we hit a function/class directly with collected decorators
+        elif node.type in func_types.get(lang, []) and collected_decorators:
+            func_name = _extract_function_name(node, source_bytes, lang)
+            for dec in collected_decorators:
+                yield {
+                    'file': filename,
+                    'filename': Path(filename).name,
+                    'type': 'decorator',
+                    'decorator': dec['decorator'],
+                    'args': dec['args'],
+                    'raw': dec['raw'],
+                    'target': func_name,
+                    'target_type': 'function',
+                    'line': node.start_point[0] + 1,
+                }
+            collected_decorators.clear()
+
+        # Recurse
+        for child in node.children:
+            yield from find_decorated(child, collected_decorators if node.type not in ['decorated_definition'] else None)
+
+    yield from find_decorated(tree.root_node)
+
+
 def reads(config: Optional[dict] = None) -> Iterator[dict]:
     """Parse source code and extract structural information.
 
     Config:
-        mode: Output mode - 'symbols' (default), 'calls', 'imports', 'skeleton', 'strings', 'comments'
+        mode: Output mode - 'symbols' (default), 'calls', 'imports', 'skeleton', 'strings', 'comments', 'decorators'
         lang: Language override (default: auto-detect from filename)
         filename: Source filename for language detection and output
     """
@@ -560,6 +683,7 @@ def reads(config: Optional[dict] = None) -> Iterator[dict]:
         'skeleton': extract_skeleton,
         'strings': extract_strings,
         'comments': extract_comments,
+        'decorators': extract_decorators,
     }
 
     extractor = extractors.get(mode, extract_symbols)
@@ -573,7 +697,7 @@ if __name__ == '__main__':
     parser.add_argument('--mode', choices=['read', 'write'],
                        default='read', help='Plugin mode (only read supported)')
     parser.add_argument('--output-mode',
-                       choices=['symbols', 'calls', 'imports', 'skeleton', 'strings', 'comments'],
+                       choices=['symbols', 'calls', 'imports', 'skeleton', 'strings', 'comments', 'decorators'],
                        default='symbols', help='What to extract')
     parser.add_argument('--lang',
                        choices=['python', 'javascript', 'typescript', 'tsx', 'rust', 'go', 'java', 'c', 'cpp', 'ruby'],

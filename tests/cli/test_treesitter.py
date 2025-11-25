@@ -53,15 +53,20 @@ def test_treesitter_symbols_mode(invoke):
     method_names = {m["name"] for m in methods}
     assert method_names == {"add", "multiply"}
 
-    # Check methods have parent_class
+    # Check methods have parent_class and 'function' field for LCOV compatibility
     for method in methods:
         assert method["parent_class"] == "Calculator"
+        assert method["function"] == method["name"]  # Both fields present
 
     # Check function
     functions = [r for r in records if r["type"] == "function"]
     assert len(functions) == 1
     assert functions[0]["name"] == "main"
+    assert functions[0]["function"] == "main"  # 'function' field for LCOV join
     assert functions[0]["parent_class"] is None
+
+    # Check class has both 'name' and 'class' fields
+    assert classes[0]["class"] == "Calculator"
 
 
 def test_treesitter_calls_mode(invoke):
@@ -273,3 +278,90 @@ def test_treesitter_write_mode_error(invoke):
 
     assert res.exit_code == 1
     assert "write mode not implemented" in res.output.lower()
+
+
+def test_treesitter_decorators_mode(invoke):
+    """Test extracting decorators from Python code."""
+    code = '''
+from flask import Flask
+app = Flask(__name__)
+
+@app.route("/users", methods=["GET"])
+def get_users():
+    return []
+
+@app.route("/users/<id>")
+def get_user(id):
+    return {}
+
+@pytest.fixture
+def client():
+    return app.test_client()
+
+@dataclass
+class User:
+    name: str
+'''
+    res = invoke(
+        ["plugin", "call", "treesitter_", "--mode", "read", "--output-mode", "decorators", "--filename", "test.py"],
+        input_data=code,
+    )
+
+    assert res.exit_code == 0
+
+    lines = [line for line in res.output.strip().split("\n") if line]
+    records = [json.loads(line) for line in lines]
+
+    # Should find 4 decorators
+    assert len(records) == 4
+
+    # Check decorator types
+    for r in records:
+        assert r["type"] == "decorator"
+        assert "decorator" in r
+        assert "target" in r
+        assert "target_type" in r
+
+    # Check specific decorators
+    decorators = {r["decorator"]: r for r in records}
+
+    # Flask routes
+    assert "app.route" in decorators
+    route_decorators = [r for r in records if r["decorator"] == "app.route"]
+    assert len(route_decorators) == 2
+
+    # pytest.fixture
+    assert "pytest.fixture" in decorators
+    assert decorators["pytest.fixture"]["target"] == "client"
+    assert decorators["pytest.fixture"]["target_type"] == "function"
+
+    # dataclass on class
+    assert "dataclass" in decorators
+    assert decorators["dataclass"]["target"] == "User"
+    assert decorators["dataclass"]["target_type"] == "class"
+
+
+def test_treesitter_decorators_with_args(invoke):
+    """Test extracting decorators with arguments."""
+    code = '''
+@app.route("/api/v1/users", methods=["GET", "POST"])
+def users_endpoint():
+    pass
+'''
+    res = invoke(
+        ["plugin", "call", "treesitter_", "--mode", "read", "--output-mode", "decorators", "--filename", "test.py"],
+        input_data=code,
+    )
+
+    assert res.exit_code == 0
+
+    lines = [line for line in res.output.strip().split("\n") if line]
+    records = [json.loads(line) for line in lines]
+
+    assert len(records) == 1
+    dec = records[0]
+
+    assert dec["decorator"] == "app.route"
+    assert dec["target"] == "users_endpoint"
+    assert len(dec["args"]) > 0  # Has arguments
+    assert "/api/v1/users" in dec["raw"]
