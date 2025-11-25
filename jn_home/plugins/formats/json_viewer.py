@@ -1,5 +1,9 @@
 #!/usr/bin/env -S uv run --script
-"""Single-record JSON viewer with tree navigation."""
+"""Data Lens - Table-first data exploration tool.
+
+A professional data exploration TUI that displays data in table mode by default,
+with tree view available for drilling down into individual records.
+"""
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
@@ -19,57 +23,159 @@ import json
 import os
 import sys
 import tempfile
-from typing import Any, Callable, Optional
+from collections import Counter
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any, Callable, List, Optional, Set
 
 from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, VerticalScroll
+from textual.containers import Container, Horizontal, VerticalScroll
+from textual.coordinate import Coordinate
+from textual.reactive import reactive
 from textual.screen import ModalScreen
-from textual.widgets import Footer, Header, Input, Static, Tree
+from textual.widgets import DataTable, Footer, Header, Input, Static, Tree
 from textual.widgets.tree import TreeNode
 
 
-class RecordNavigator:
-    """Manages record list and current position."""
+# =============================================================================
+# Models
+# =============================================================================
 
-    def __init__(self):
-        self.records: list[dict] = []
-        self.current_index: int = 0
-        self.total_known: bool = False
-        self.loading: bool = False
+@dataclass
+class RecordStore:
+    """Manages record list with disk-backed streaming support."""
+
+    records: List[dict] = field(default_factory=list)
+    loading: bool = False
+    total_known: bool = False
+    temp_file_path: Optional[str] = None
+    _columns: Optional[List[str]] = None
+
+    def __len__(self) -> int:
+        return len(self.records)
+
+    def __getitem__(self, index: int) -> dict:
+        if 0 <= index < len(self.records):
+            return self.records[index]
+        raise IndexError(f"Record index {index} out of range")
+
+    @property
+    def columns(self) -> List[str]:
+        """Get column names from first records."""
+        if self._columns is None:
+            if self.records:
+                all_keys: Set[str] = set()
+                for record in self.records[:100]:
+                    if isinstance(record, dict):
+                        all_keys.update(record.keys())
+                self._columns = sorted(all_keys)
+            else:
+                self._columns = []
+        return self._columns
+
+    def invalidate_columns(self) -> None:
+        self._columns = None
+
+    def add_record(self, record: dict) -> int:
+        self.records.append(record)
+        return len(self.records) - 1
+
+    def get_record(self, index: int) -> Optional[dict]:
+        if 0 <= index < len(self.records):
+            return self.records[index]
+        return None
+
+    def load_from_temp_file(self):
+        """Generator that loads records from temp file."""
+        if not self.temp_file_path:
+            return
+
+        self.loading = True
+        self.total_known = False
+
+        try:
+            with open(self.temp_file_path, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        try:
+                            record = json.loads(line)
+                            idx = self.add_record(record)
+                            if idx < 100:
+                                self.invalidate_columns()
+                            yield record
+                        except json.JSONDecodeError as e:
+                            error_record = {
+                                "_error": True,
+                                "type": "json_decode_error",
+                                "message": str(e),
+                            }
+                            self.add_record(error_record)
+                            yield error_record
+        finally:
+            self.loading = False
+            self.total_known = True
+            self.invalidate_columns()
+            if self.temp_file_path:
+                try:
+                    os.unlink(self.temp_file_path)
+                except OSError:
+                    pass
+                self.temp_file_path = None
+
+    @classmethod
+    def from_records(cls, records: List[dict]) -> "RecordStore":
+        store = cls(records=list(records))
+        store.total_known = True
+        store.loading = False
+        return store
+
+    @classmethod
+    def from_temp_file(cls, temp_file_path: str) -> "RecordStore":
+        return cls(temp_file_path=temp_file_path)
+
+
+@dataclass
+class RecordNavigator:
+    """Manages current position and bookmarks."""
+
+    current_index: int = 0
+    record_count: int = 0
+    bookmarks: Set[int] = field(default_factory=set)
+
+    def update_count(self, count: int) -> None:
+        self.record_count = count
+        if self.current_index >= count and count > 0:
+            self.current_index = count - 1
 
     def next(self) -> bool:
-        """Move to next record. Returns True if moved."""
-        if self.current_index < len(self.records) - 1:
+        if self.current_index < self.record_count - 1:
             self.current_index += 1
             return True
         return False
 
     def previous(self) -> bool:
-        """Move to previous record. Returns True if moved."""
         if self.current_index > 0:
             self.current_index -= 1
             return True
         return False
 
     def jump_to(self, index: int) -> bool:
-        """Jump to specific record by index. Returns True if valid."""
-        if 0 <= index < len(self.records):
+        if 0 <= index < self.record_count and index != self.current_index:
             self.current_index = index
             return True
         return False
 
     def jump_forward(self, count: int = 10) -> bool:
-        """Jump forward by count records."""
-        new_index = min(self.current_index + count, len(self.records) - 1)
-        if new_index != self.current_index:
+        new_index = min(self.current_index + count, self.record_count - 1)
+        if new_index != self.current_index and new_index >= 0:
             self.current_index = new_index
             return True
         return False
 
     def jump_back(self, count: int = 10) -> bool:
-        """Jump back by count records."""
         new_index = max(self.current_index - count, 0)
         if new_index != self.current_index:
             self.current_index = new_index
@@ -77,41 +183,185 @@ class RecordNavigator:
         return False
 
     def first(self) -> bool:
-        """Jump to first record. Returns True if moved."""
-        if self.current_index != 0 and self.records:
+        if self.current_index != 0 and self.record_count > 0:
             self.current_index = 0
             return True
         return False
 
     def last(self) -> bool:
-        """Jump to last record. Returns True if moved."""
-        if self.records and self.current_index != len(self.records) - 1:
-            self.current_index = len(self.records) - 1
+        if self.record_count > 0 and self.current_index != self.record_count - 1:
+            self.current_index = self.record_count - 1
             return True
         return False
 
-    def current_record(self) -> Optional[dict]:
-        """Get currently displayed record."""
-        if self.records and 0 <= self.current_index < len(self.records):
-            return self.records[self.current_index]
+    def mark(self) -> None:
+        if 0 <= self.current_index < self.record_count:
+            self.bookmarks.add(self.current_index)
+
+    def unmark(self) -> None:
+        self.bookmarks.discard(self.current_index)
+
+    def is_marked(self) -> bool:
+        return self.current_index in self.bookmarks
+
+    def next_bookmark(self) -> Optional[int]:
+        if not self.bookmarks:
+            return None
+        sorted_marks = sorted(self.bookmarks)
+        for mark in sorted_marks:
+            if mark > self.current_index:
+                return mark
+        return sorted_marks[0]
+
+
+# =============================================================================
+# Search Controller
+# =============================================================================
+
+class SearchController:
+    """Handles search and filtering operations in-memory."""
+
+    def __init__(self):
+        self.current_expr: Optional[str] = None
+        self.matches: List[int] = []
+        self.match_index: int = 0
+
+    def search(self, records: List[dict], expr: str) -> List[int]:
+        self.current_expr = expr
+        self.matches = []
+        self.match_index = 0
+
+        python_filter = self._compile_python_filter(expr)
+        if python_filter:
+            for idx, record in enumerate(records):
+                try:
+                    if python_filter(record):
+                        self.matches.append(idx)
+                except Exception:
+                    continue
+        else:
+            self.matches = self._search_with_jq(records, expr)
+
+        return self.matches
+
+    def clear(self) -> None:
+        self.current_expr = None
+        self.matches = []
+        self.match_index = 0
+
+    def next_match(self) -> Optional[int]:
+        if not self.matches:
+            return None
+        self.match_index = (self.match_index + 1) % len(self.matches)
+        return self.matches[self.match_index]
+
+    def prev_match(self) -> Optional[int]:
+        if not self.matches:
+            return None
+        self.match_index = (self.match_index - 1) % len(self.matches)
+        return self.matches[self.match_index]
+
+    def current_match(self) -> Optional[int]:
+        if not self.matches:
+            return None
+        return self.matches[self.match_index]
+
+    @property
+    def match_count(self) -> int:
+        return len(self.matches)
+
+    @property
+    def is_active(self) -> bool:
+        return self.current_expr is not None
+
+    def _compile_python_filter(self, expr: str) -> Optional[Callable[[dict], bool]]:
+        import re
+
+        expr = expr.strip()
+        select_match = re.match(r'^select\s*\(\s*(.*)\s*\)\s*$', expr)
+        if select_match:
+            expr = select_match.group(1)
+
+        # .field == "value"
+        match = re.match(r'^\.(\w+)\s*==\s*"([^"]*)"$', expr)
+        if match:
+            field, value = match.groups()
+            return lambda r, f=field, v=value: r.get(f) == v
+
+        # .field == number
+        match = re.match(r'^\.(\w+)\s*==\s*(-?\d+(?:\.\d+)?)$', expr)
+        if match:
+            field, value = match.groups()
+            num_value = float(value) if '.' in value else int(value)
+            return lambda r, f=field, v=num_value: r.get(f) == v
+
+        # .field != "value"
+        match = re.match(r'^\.(\w+)\s*!=\s*"([^"]*)"$', expr)
+        if match:
+            field, value = match.groups()
+            return lambda r, f=field, v=value: r.get(f) != v
+
+        # .field > number
+        match = re.match(r'^\.(\w+)\s*>\s*(-?\d+(?:\.\d+)?)$', expr)
+        if match:
+            field, value = match.groups()
+            num_value = float(value) if '.' in value else int(value)
+            return lambda r, f=field, v=num_value: (r.get(f) is not None and r.get(f) > v)
+
+        # .field < number
+        match = re.match(r'^\.(\w+)\s*<\s*(-?\d+(?:\.\d+)?)$', expr)
+        if match:
+            field, value = match.groups()
+            num_value = float(value) if '.' in value else int(value)
+            return lambda r, f=field, v=num_value: (r.get(f) is not None and r.get(f) < v)
+
+        # .field (truthy)
+        match = re.match(r'^\.(\w+)$', expr)
+        if match:
+            field = match.group(1)
+            return lambda r, f=field: bool(r.get(f))
+
         return None
 
-    def add_record(self, record: dict) -> None:
-        """Add a record to the list."""
-        self.records.append(record)
+    def _search_with_jq(self, records: List[dict], expr: str) -> List[int]:
+        import subprocess
+        matches = []
+        try:
+            jq_expr = f'select({expr})'
+            proc = subprocess.Popen(
+                ['jq', '-c', jq_expr],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            try:
+                for idx, record in enumerate(records):
+                    record_with_idx = {"__jn_idx__": idx, **record}
+                    proc.stdin.write(json.dumps(record_with_idx) + "\n")
+                proc.stdin.close()
+            except BrokenPipeError:
+                proc.wait()
+                return matches
 
-    def position_info(self) -> str:
-        """Get position info string for display."""
-        if not self.records:
-            return "No records"
+            for line in proc.stdout:
+                line = line.strip()
+                if line:
+                    try:
+                        match = json.loads(line)
+                        if "__jn_idx__" in match:
+                            matches.append(match["__jn_idx__"])
+                    except json.JSONDecodeError:
+                        continue
+            proc.wait()
+        except (FileNotFoundError, subprocess.SubprocessError, OSError):
+            pass
+        return matches
 
-        pos = self.current_index + 1  # 1-based for display
-        if self.total_known:
-            total = len(self.records)
-            return f"Record {pos} of {total}"
-        else:
-            return f"Record {pos} (streaming...)"
 
+# =============================================================================
+# Formatters
+# =============================================================================
 
 def style_value(value: Any) -> Text:
     """Apply syntax highlighting to primitive values."""
@@ -124,7 +374,6 @@ def style_value(value: Any) -> Text:
     elif isinstance(value, float):
         return Text(f"{value}", style="cyan")
     elif isinstance(value, str):
-        # Truncate long strings
         if len(value) > 100:
             display_value = value[:97] + "..."
         else:
@@ -134,79 +383,205 @@ def style_value(value: Any) -> Text:
         return Text(str(value), style="white")
 
 
-def add_json_node(
-    parent: TreeNode, label: str, data: Any, current_depth: int, max_depth: int
-) -> None:
-    """Recursively add JSON data to tree."""
-    if isinstance(data, dict):
-        # Object node
-        if data:
-            node_label = f"{label} (object, {len(data)} keys)" if label != "Record" else label
-            node = parent.add(node_label, expand=current_depth < max_depth)
-
-            for key, value in data.items():
-                add_json_node(node, str(key), value, current_depth + 1, max_depth)
-        else:
-            parent.add_leaf(f"{label}: {{}}")
-
-    elif isinstance(data, list):
-        # Array node
-        if data:
-            node_label = f"{label} (array, {len(data)} items)"
-            node = parent.add(node_label, expand=current_depth < max_depth)
-
-            for i, item in enumerate(data):
-                add_json_node(node, f"[{i}]", item, current_depth + 1, max_depth)
-        else:
-            parent.add_leaf(f"{label}: []")
-
+def format_cell_value(value: Any, max_width: int = 50) -> str:
+    """Format a value for table cell display."""
+    if value is None:
+        return ""
+    elif isinstance(value, bool):
+        return str(value).lower()
+    elif isinstance(value, (int, float)):
+        return str(value)
+    elif isinstance(value, str):
+        clean = value.replace("\n", " ").replace("\r", "")
+        if len(clean) > max_width:
+            return clean[:max_width - 3] + "..."
+        return clean
+    elif isinstance(value, dict):
+        return f"{{...}} ({len(value)} keys)"
+    elif isinstance(value, list):
+        return f"[...] ({len(value)} items)"
     else:
-        # Leaf node (primitive)
-        styled_value = style_value(data)
-        parent.add_leaf(f"{label}: {styled_value}")
+        result = str(value)
+        if len(result) > max_width:
+            return result[:max_width - 3] + "..."
+        return result
 
 
-def build_tree_for_record(tree: Tree, record: dict, depth: int = 2) -> None:
-    """Build a tree widget for a single record.
+# =============================================================================
+# Views
+# =============================================================================
 
-    Args:
-        tree: Textual Tree widget
-        record: The JSON record to display
-        depth: Initial expansion depth (default: 2)
+class TableView(DataTable):
+    """Table view for displaying multiple records at once."""
+
+    DEFAULT_CSS = """
+    TableView {
+        height: 100%;
+    }
     """
-    tree.clear()
-    root = tree.root
-    root.expand()
 
-    # Build tree from record
-    add_json_node(root, "Record", record, current_depth=0, max_depth=depth)
+    def __init__(self, *, id: Optional[str] = None, classes: Optional[str] = None):
+        super().__init__(id=id, classes=classes, cursor_type="row", zebra_stripes=True)
+        self._records: List[dict] = []
+        self._columns: List[str] = []
+        self._visible_indices: List[int] = []
+        self._bookmarks: Set[int] = set()
+        self._search_matches: Set[int] = set()
 
+    def set_data(
+        self,
+        records: List[dict],
+        columns: Optional[List[str]] = None,
+        visible_indices: Optional[List[int]] = None,
+    ) -> None:
+        self._records = records
+        self._visible_indices = visible_indices if visible_indices is not None else list(range(len(records)))
+
+        if columns is None:
+            all_keys: Set[str] = set()
+            for record in records[:100]:
+                if isinstance(record, dict):
+                    all_keys.update(record.keys())
+            self._columns = sorted(all_keys)
+        else:
+            self._columns = list(columns)
+
+        self._rebuild_table()
+
+    def _rebuild_table(self) -> None:
+        self.clear(columns=True)
+        self.add_column("#", key="__row_num__")
+        for col in self._columns:
+            self.add_column(col, key=col)
+
+        # Limit to first 10000 visible rows for performance
+        MAX_VISIBLE_ROWS = 10000
+        for display_idx, record_idx in enumerate(self._visible_indices[:MAX_VISIBLE_ROWS]):
+            if 0 <= record_idx < len(self._records):
+                record = self._records[record_idx]
+                row = self._format_row(record, record_idx)
+                self.add_row(*row, key=str(record_idx))
+
+    def _format_row(self, record: dict, record_idx: int) -> List[str]:
+        row = []
+        prefix = ""
+        if record_idx in self._bookmarks:
+            prefix = "* "
+        elif record_idx in self._search_matches:
+            prefix = "> "
+        row.append(f"{prefix}{record_idx + 1}")
+
+        for col in self._columns:
+            value = record.get(col) if isinstance(record, dict) else None
+            row.append(format_cell_value(value))
+        return row
+
+    def set_bookmarks(self, bookmarks: Set[int]) -> None:
+        self._bookmarks = bookmarks
+
+    def set_search_matches(self, matches: Set[int]) -> None:
+        self._search_matches = matches
+
+    def filter_to_indices(self, indices: List[int]) -> None:
+        self._visible_indices = indices
+        self._rebuild_table()
+
+    def get_selected_record_index(self) -> Optional[int]:
+        if self.cursor_row is not None and 0 <= self.cursor_row < len(self._visible_indices):
+            return self._visible_indices[self.cursor_row]
+        return None
+
+    def select_record_index(self, record_idx: int) -> bool:
+        try:
+            display_idx = self._visible_indices.index(record_idx)
+            self.move_cursor(row=display_idx)
+            return True
+        except ValueError:
+            return False
+
+    @property
+    def column_names(self) -> List[str]:
+        return self._columns
+
+    @property
+    def visible_count(self) -> int:
+        return len(self._visible_indices)
+
+
+class TreeView(Tree):
+    """Tree view for displaying a single record's structure."""
+
+    DEFAULT_CSS = """
+    TreeView {
+        height: 100%;
+        scrollbar-gutter: stable;
+    }
+    """
+
+    def __init__(self, label: str = "Root", *, id: Optional[str] = None, classes: Optional[str] = None):
+        super().__init__(label, id=id, classes=classes)
+        self._current_record: Optional[dict] = None
+        self._initial_depth: int = 2
+
+    def set_record(self, record: dict, depth: int = 2) -> None:
+        self._current_record = record
+        self._initial_depth = depth
+        self._build_tree(record, depth)
+
+    def _build_tree(self, record: dict, depth: int) -> None:
+        self.clear()
+        self.root.expand()
+        self._add_json_node(self.root, "Record", record, 0, depth)
+
+    def _add_json_node(self, parent: TreeNode, label: str, data: Any, current_depth: int, max_depth: int) -> None:
+        if isinstance(data, dict):
+            if data:
+                node_label = f"{label} (object, {len(data)} keys)" if label != "Record" else label
+                node = parent.add(node_label, expand=current_depth < max_depth)
+                for key, value in data.items():
+                    self._add_json_node(node, str(key), value, current_depth + 1, max_depth)
+            else:
+                parent.add_leaf(f"{label}: {{}}")
+        elif isinstance(data, list):
+            if data:
+                node_label = f"{label} (array, {len(data)} items)"
+                node = parent.add(node_label, expand=current_depth < max_depth)
+                for i, item in enumerate(data):
+                    self._add_json_node(node, f"[{i}]", item, current_depth + 1, max_depth)
+            else:
+                parent.add_leaf(f"{label}: []")
+        else:
+            styled_value = style_value(data)
+            parent.add_leaf(f"{label}: {styled_value}")
+
+    def toggle_current_node(self) -> None:
+        if self.cursor_node:
+            self.cursor_node.toggle()
+
+    def expand_all_nodes(self) -> None:
+        self.root.expand_all()
+
+    def collapse_all_nodes(self) -> None:
+        for child in self.root.children:
+            child.collapse_all()
+
+    @property
+    def current_record(self) -> Optional[dict]:
+        return self._current_record
+
+
+# =============================================================================
+# Screens/Dialogs
+# =============================================================================
 
 class GotoDialog(ModalScreen[Optional[int]]):
     """Modal dialog for jumping to a specific record."""
 
     CSS = """
-    GotoDialog {
-        align: center middle;
-    }
-
-    #goto-container {
-        width: 50;
-        height: 7;
-        border: thick $background 80%;
-        background: $surface;
-    }
-
-    #goto-title {
-        dock: top;
-        width: 100%;
-        content-align: center middle;
-        text-style: bold;
-    }
-
-    #goto-input {
-        margin: 1 2;
-    }
+    GotoDialog { align: center middle; }
+    #goto-container { width: 50; height: 7; border: thick $background 80%; background: $surface; }
+    #goto-title { dock: top; width: 100%; content-align: center middle; text-style: bold; }
+    #goto-input { margin: 1 2; }
     """
 
     def compose(self) -> ComposeResult:
@@ -215,13 +590,10 @@ class GotoDialog(ModalScreen[Optional[int]]):
             yield Input(placeholder="Enter record number (1-based)", id="goto-input")
 
     def on_mount(self) -> None:
-        """Focus input when dialog opens."""
         self.query_one(Input).focus()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        """Handle Enter key in input."""
         try:
-            # User enters 1-based, convert to 0-based
             record_num = int(event.value)
             if record_num > 0:
                 self.dismiss(record_num - 1)
@@ -231,245 +603,198 @@ class GotoDialog(ModalScreen[Optional[int]]):
             self.dismiss(None)
 
     def key_escape(self) -> None:
-        """Handle Escape key."""
         self.dismiss(None)
 
 
 class SearchDialog(ModalScreen[Optional[str]]):
-    """Modal dialog for searching records with jq expression."""
+    """Modal dialog for searching records."""
 
     CSS = """
-    SearchDialog {
-        align: center middle;
-    }
-
-    #search-container {
-        width: 70;
-        height: 9;
-        border: thick $background 80%;
-        background: $surface;
-    }
-
-    #search-title {
-        dock: top;
-        width: 100%;
-        content-align: center middle;
-        text-style: bold;
-    }
-
-    #search-input {
-        margin: 1 2;
-    }
-
-    #search-help {
-        margin: 0 2;
-        color: $text-muted;
-    }
+    SearchDialog { align: center middle; }
+    #search-container { width: 70; height: 9; border: thick $background 80%; background: $surface; }
+    #search-title { dock: top; width: 100%; content-align: center middle; text-style: bold; }
+    #search-input { margin: 1 2; }
+    #search-help { margin: 0 2; color: $text-muted; }
     """
 
     def compose(self) -> ComposeResult:
         with Container(id="search-container"):
             yield Static("Search Records", id="search-title")
-            yield Input(
-                placeholder="Enter jq expression (e.g., .age > 30, .name == \"Alice\")",
-                id="search-input",
-            )
-            yield Static(
-                "Tip: Use . prefix for fields. Press Enter to search, Esc to cancel.",
-                id="search-help",
-            )
+            yield Input(placeholder='Enter jq expression (e.g., .age > 30, .name == "Alice")', id="search-input")
+            yield Static("Tip: Use . prefix for fields. Press Enter to search, Esc to cancel.", id="search-help")
 
     def on_mount(self) -> None:
-        """Focus input when dialog opens."""
         self.query_one(Input).focus()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        """Handle Enter key in input."""
         query = event.value.strip()
-        if query:
-            self.dismiss(query)
-        else:
-            self.dismiss(None)
+        self.dismiss(query if query else None)
 
     def key_escape(self) -> None:
-        """Handle Escape key."""
         self.dismiss(None)
 
 
 class FindByFieldDialog(ModalScreen[Optional[str]]):
-    """Modal dialog for finding records by simple field comparison."""
+    """Modal dialog for finding by field."""
 
     CSS = """
-    FindByFieldDialog {
-        align: center middle;
-    }
-
-    #find-container {
-        width: 70;
-        height: 11;
-        border: thick $background 80%;
-        background: $surface;
-    }
-
-    #find-title {
-        dock: top;
-        width: 100%;
-        content-align: center middle;
-        text-style: bold;
-    }
-
-    #find-input {
-        margin: 1 2;
-    }
-
-    #find-help {
-        margin: 0 2;
-        color: $text-muted;
-    }
-
-    #find-examples {
-        margin: 0 2;
-        color: $text-muted;
-    }
+    FindByFieldDialog { align: center middle; }
+    #find-container { width: 70; height: 11; border: thick $background 80%; background: $surface; }
+    #find-title { dock: top; width: 100%; content-align: center middle; text-style: bold; }
+    #find-input { margin: 1 2; }
+    #find-help { margin: 0 2; color: $text-muted; }
+    #find-examples { margin: 0 2; color: $text-muted; }
     """
 
     def compose(self) -> ComposeResult:
         with Container(id="find-container"):
             yield Static("Find by Field", id="find-title")
-            yield Input(
-                placeholder="field = value  (e.g., age > 30, name = Alice, active)",
-                id="find-input",
-            )
-            yield Static(
-                "Operators: = (equals), != (not equals), > < >= <= (comparison)",
-                id="find-help",
-            )
-            yield Static(
-                "Examples: city = NYC, age > 30, active (for true), name != Bob",
-                id="find-examples",
-            )
+            yield Input(placeholder='field = value  (e.g., age > 30, name = "Alice")', id="find-input")
+            yield Static("Operators: = (equals), != (not equals), > < >= <= (comparison)", id="find-help")
+            yield Static('Examples: city = "NYC", age > 30, Symbol = "BRAF"', id="find-examples")
 
     def on_mount(self) -> None:
-        """Focus input when dialog opens."""
         self.query_one(Input).focus()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        """Handle Enter key in input."""
         query = event.value.strip()
         if query:
-            # Convert simple syntax to jq expression
-            jq_expr = self._convert_to_jq(query)
-            self.dismiss(jq_expr)
+            self.dismiss(self._convert_to_jq(query))
         else:
             self.dismiss(None)
 
     def _convert_to_jq(self, query: str) -> str:
-        """Convert simple field comparison to jq expression."""
-        # Handle boolean fields (just field name)
         if " " not in query and "=" not in query and ">" not in query and "<" not in query:
-            # Just a field name - check if truthy
             return f".{query}"
 
-        # Parse field operator value
         for op in ["!=", ">=", "<=", "==", "=", ">", "<"]:
             if op in query:
                 parts = query.split(op, 1)
                 if len(parts) == 2:
                     field = parts[0].strip()
                     value = parts[1].strip()
-
-                    # Add leading dot if not present
                     if not field.startswith("."):
                         field = f".{field}"
-
-                    # Convert = to ==
                     if op == "=":
                         op = "=="
-
-                    # Quote strings if not numeric or boolean
-                    if value.lower() not in ("true", "false", "null") and not value.replace(".", "").replace("-", "").isdigit():
+                    if value.startswith('"') and value.endswith('"'):
+                        pass
+                    elif value.lower() not in ("true", "false", "null") and not value.replace(".", "").replace("-", "").isdigit():
                         value = f'"{value}"'
-
                     return f"{field} {op} {value}"
-
-        # Fallback: return as-is (might be invalid)
         return query
 
     def key_escape(self) -> None:
-        """Handle Escape key."""
         self.dismiss(None)
 
 
-class HelpScreen(ModalScreen):
-    """Modal screen showing keyboard shortcuts."""
+class DetailScreen(ModalScreen[None]):
+    """Modal screen showing a single record in detail."""
 
     CSS = """
-    HelpScreen {
-        align: center middle;
-    }
+    DetailScreen { align: center middle; }
+    #detail-container { width: 90%; height: 90%; border: thick $background 80%; background: $surface; }
+    #detail-header { dock: top; width: 100%; height: 3; content-align: center middle; text-style: bold; background: $primary-background; padding: 1; }
+    #detail-tree { height: 100%; }
+    #detail-footer { dock: bottom; width: 100%; height: 1; background: $primary-background; }
+    """
 
-    #help-container {
-        width: 80;
-        height: 30;
-        border: thick $background 80%;
-        background: $surface;
-    }
+    BINDINGS = [
+        Binding("escape", "close", "Close"),
+        Binding("q", "close", "Close"),
+        Binding("y", "copy_record", "Copy"),
+        Binding("space", "toggle_node", "Toggle"),
+        Binding("e", "expand_all", "Expand"),
+        Binding("c", "collapse_all", "Collapse"),
+    ]
 
-    #help-title {
-        dock: top;
-        width: 100%;
-        content-align: center middle;
-        text-style: bold;
-        background: $primary;
-    }
+    def __init__(self, record: dict, record_index: int, total_records: int, *, id: Optional[str] = None):
+        super().__init__(id=id)
+        self._record = record
+        self._record_index = record_index
+        self._total_records = total_records
 
-    #help-content {
-        padding: 1 2;
-        height: 100%;
-    }
+    def compose(self) -> ComposeResult:
+        with Container(id="detail-container"):
+            yield Static(f"Record {self._record_index + 1} of {self._total_records}", id="detail-header")
+            yield TreeView("Root", id="detail-tree")
+            yield Static("Esc:Close  y:Copy  Space:Toggle  e:Expand  c:Collapse", id="detail-footer")
+
+    def on_mount(self) -> None:
+        tree = self.query_one("#detail-tree", TreeView)
+        tree.set_record(self._record, depth=3)
+        tree.focus()
+
+    def action_close(self) -> None:
+        self.dismiss(None)
+
+    def action_copy_record(self) -> None:
+        try:
+            import pyperclip
+            pyperclip.copy(json.dumps(self._record, indent=2))
+            self.notify("Record copied!")
+        except ImportError:
+            self.notify("pyperclip not installed", severity="error")
+        except Exception as e:
+            self.notify(f"Error: {e}", severity="error")
+
+    def action_toggle_node(self) -> None:
+        self.query_one("#detail-tree", TreeView).toggle_current_node()
+
+    def action_expand_all(self) -> None:
+        self.query_one("#detail-tree", TreeView).expand_all_nodes()
+
+    def action_collapse_all(self) -> None:
+        self.query_one("#detail-tree", TreeView).collapse_all_nodes()
+
+
+class HelpScreen(ModalScreen):
+    """Help screen showing keyboard shortcuts."""
+
+    CSS = """
+    HelpScreen { align: center middle; }
+    #help-container { width: 80; height: 35; border: thick $background 80%; background: $surface; }
+    #help-title { dock: top; width: 100%; content-align: center middle; text-style: bold; background: $primary; padding: 1; }
+    #help-content { padding: 1 2; height: 100%; }
     """
 
     HELP_TEXT = """
-[bold cyan]Record Navigation[/]
-  n              Next record
-  p              Previous record
-  g / Home       First record
-  G / End        Last record
-  Ctrl+D         Jump forward 10 records
-  Ctrl+U         Jump back 10 records
-  :              Go to specific record
+[bold cyan]View Modes[/]
+  t              Toggle Table/Tree view
+  Enter          Drill down (from Table)
+  Esc            Close modal / Clear search
+
+[bold cyan]Navigation (Table)[/]
+  j/k or ↓/↑     Move down/up
+  g / G          First / Last record
+  Ctrl+D/U       Page down / Page up
+  #              Go to record number
+
+[bold cyan]Navigation (Tree)[/]
+  n / p          Next / Previous record
+  Space          Toggle expand/collapse
+  e / c          Expand / Collapse all
 
 [bold cyan]Search[/]
-  /              Search with jq expression
-  F              Find by field (simple syntax)
-  n              Next match (when searching)
-  N              Previous match (when searching)
-  Esc            Clear search
+  /              Search (jq expression)
+  f              Find by field
+  x              Clear search
 
 [bold cyan]Bookmarks[/]
   m              Mark current record
-  '              Jump to marks list
-  u              Remove mark from current
+  u              Unmark current record
+  '              Jump to next bookmark
 
 [bold cyan]Actions[/]
-  y              Copy current record to clipboard
-  w              Write current record to file
-
-[bold cyan]Tree Navigation[/]
-  ↑ / k          Move cursor up
-  ↓ / j          Move cursor down
-  Space          Toggle expand/collapse
-  → / l          Expand node
-  ← / h          Collapse node
-  e              Expand all nodes
-  c              Collapse all nodes
+  y              Copy record as JSON
+  w              Write record to file
+  s              Toggle stats panel
 
 [bold cyan]Other[/]
-  q              Quit viewer
-  ?              Show this help
-  r              Refresh display
+  q              Quit
+  ?              This help
 
-[dim]Press Escape or ? to close this help[/]
+[dim]Press Escape or ? to close[/]
 """
 
     def compose(self) -> ComposeResult:
@@ -479,652 +804,408 @@ class HelpScreen(ModalScreen):
                 yield Static(self.HELP_TEXT)
 
     def key_escape(self) -> None:
-        """Handle Escape key."""
         self.app.pop_screen()
 
     def key_question_mark(self) -> None:
-        """Handle ? key."""
         self.app.pop_screen()
 
 
-class JSONViewerApp(App):
-    """Single-record JSON viewer application."""
+# =============================================================================
+# Main Application
+# =============================================================================
+
+class ViewMode(Enum):
+    TABLE = "table"
+    TREE = "tree"
+
+
+class DataLensApp(App):
+    """Data Lens - Table-first data exploration tool."""
 
     CSS = """
-    Screen {
-        background: $surface;
-    }
-
-    Tree {
-        height: 100%;
-        scrollbar-gutter: stable;
-    }
+    Screen { background: $surface; }
+    #main-container { height: 100%; }
+    #view-container { height: 100%; }
+    #table-view { height: 100%; }
+    #tree-view { height: 100%; }
+    .hidden { display: none; }
     """
 
     BINDINGS = [
-        # Record navigation
-        Binding("n", "next_record", "Next", show=True),
-        Binding("p", "prev_record", "Prev", show=True),
+        Binding("t", "toggle_view_mode", "Toggle View", show=True),
+        Binding("enter", "drill_down", "Drill Down", show=False),
+        Binding("j", "cursor_down", "Down", show=False),
+        Binding("k", "cursor_up", "Up", show=False),
         Binding("g", "first_record", "First", show=False),
         Binding("home", "first_record", "First", show=False),
         Binding("G", "last_record", "Last", show=False),
         Binding("end", "last_record", "Last", show=False),
-        Binding("ctrl+d", "jump_forward", "+10", show=True),
-        Binding("ctrl+u", "jump_back", "-10", show=True),
+        Binding("ctrl+d", "page_down", "+10", show=True),
+        Binding("ctrl+u", "page_up", "-10", show=True),
         Binding("number_sign", "goto_record", "Go to", show=True, key_display="#"),
-        # Search
+        Binding("n", "next_record", "Next", show=True),
+        Binding("p", "prev_record", "Prev", show=True),
+        Binding("space", "toggle_node", "Toggle", show=False),
+        Binding("e", "expand_all", "Expand", show=False),
+        Binding("c", "collapse_all", "Collapse", show=False),
         Binding("slash", "search", "Search", show=True),
         Binding("f", "find_by_field", "Find", show=True),
         Binding("N", "prev_match", "Prev Match", show=False),
-        Binding("escape", "clear_search", "Clear Search", show=False),
-        # Bookmarks
+        Binding("x", "clear_search", "Clear", show=False),
+        Binding("escape", "escape_action", "Escape", show=False),
         Binding("m", "mark_record", "Mark", show=False),
-        Binding("apostrophe", "jump_to_mark", "Marks", show=False),
         Binding("u", "unmark_record", "Unmark", show=False),
-        # Actions
-        Binding("y", "yank_record", "Copy", show=False),
+        Binding("apostrophe", "jump_to_mark", "Marks", show=False),
+        Binding("y", "copy_record", "Copy", show=False),
         Binding("w", "write_record", "Write", show=False),
-        # Tree navigation
-        Binding("space", "toggle_node", "Toggle", show=True),
-        Binding("e", "expand_all", "Expand All", show=False),
-        Binding("c", "collapse_all", "Collapse All", show=False),
-        # Other
         Binding("q", "quit", "Quit", show=True),
         Binding("question_mark", "help", "Help", show=True),
         Binding("r", "refresh", "Refresh", show=False),
     ]
 
-    def __init__(self, config: Optional[dict] = None, records: Optional[list] = None, streaming: bool = False, temp_file_path: Optional[str] = None):
+    view_mode: reactive[ViewMode] = reactive(ViewMode.TABLE)
+
+    def __init__(self, store: Optional[RecordStore] = None, config: Optional[dict] = None):
         super().__init__()
-        self.config = config or {}
+        # Use explicit None check - RecordStore with empty records is falsy due to __len__
+        self.store = store if store is not None else RecordStore()
+        self.config = config if config is not None else {}
         self.navigator = RecordNavigator()
-        self.initial_depth = self.config.get("depth", 2)
-        self.start_at = self.config.get("start_at", 0)
-        self.streaming = streaming
-        self.loading_complete = False
-        self.temp_file_path = temp_file_path  # Path to temp file for streaming
-
-        # Search state
-        self.search_expr = None  # Current jq search expression
-        self.search_matches = []  # List of matching record indices
-        self.search_match_index = 0  # Current position in matches
-
-        # Bookmarks state
-        self.bookmarks = set()  # Set of bookmarked record indices
-
-        # Pre-load records if provided
-        if records:
-            for record in records:
-                self.navigator.add_record(record)
-            if not streaming:
-                self.navigator.total_known = True
-                self.loading_complete = True
+        self.search = SearchController()
+        self._loading_complete = False
+        self._initial_depth = self.config.get("depth", 2)
 
     def compose(self) -> ComposeResult:
-        """Build UI layout."""
         yield Header()
-        yield Tree("Root", id="tree-view")
+        with Horizontal(id="main-container"):
+            with Container(id="view-container"):
+                yield TableView(id="table-view")
+                yield TreeView("Root", id="tree-view", classes="hidden")
         yield Footer()
 
     def on_mount(self) -> None:
-        """Initialize viewer when app starts."""
-        self.title = "JSON Viewer"
-
-        # If streaming mode, start background worker to load records
-        if self.streaming:
+        self.title = "Data Lens"
+        if self.store.temp_file_path:
             self.sub_title = "Loading..."
-            self.load_worker = self.run_worker(self.load_records_streaming, thread=True, exclusive=True)
+            self.run_worker(self._load_records_streaming, thread=True, exclusive=True)
         else:
-            # Jump to start_at record if configured
-            if self.start_at > 0 and self.navigator.records:
-                self.navigator.jump_to(self.start_at)
-            elif self.navigator.records:
-                self.navigator.current_index = 0
+            self._loading_complete = True
+            self.navigator.update_count(len(self.store))
+            self._refresh_view()
 
-            # Display the current record or show "No records" message
-            if self.navigator.records:
-                self.display_current_record()
-            else:
-                self.sub_title = "No records to display"
+    def _load_records_streaming(self) -> None:
+        first_displayed = False
+        for record in self.store.load_from_temp_file():
+            self.navigator.update_count(len(self.store))
+            if not first_displayed and len(self.store) > 0:
+                first_displayed = True
+                self.call_from_thread(self._refresh_view)
+            elif len(self.store) % 1000 == 0:
+                self.call_from_thread(self._update_subtitle)
 
-    def load_records_streaming(self) -> None:
-        """Load records from temp file in background thread (streaming mode).
+        self._loading_complete = True
+        self.call_from_thread(self._on_loading_complete)
 
-        Reads from temp file line-by-line, loading records as the user navigates.
-        This provides true streaming behavior - first record appears immediately,
-        rest load in background. No artificial limits, constant memory per record.
-        """
-        if not self.temp_file_path:
-            return
+    def _on_loading_complete(self) -> None:
+        self.navigator.update_count(len(self.store))
+        self._refresh_view()
 
-        self.navigator.loading = True
-
-        try:
-            with open(self.temp_file_path, 'r') as f:
-                for line in f:
-                    line = line.strip()
-                    if line:
-                        try:
-                            record = json.loads(line)
-                            self.navigator.add_record(record)
-
-                            # Display first record immediately
-                            if len(self.navigator.records) == 1:
-                                self.navigator.current_index = min(
-                                    self.start_at, len(self.navigator.records) - 1
-                                )
-                                self.call_from_thread(self.display_current_record)
-                            else:
-                                # Update subtitle to show record count
-                                self.call_from_thread(self.update_subtitle)
-
-                        except json.JSONDecodeError as e:
-                            self.navigator.add_record({
-                                "_error": True,
-                                "type": "json_decode_error",
-                                "message": str(e),
-                                "line": line[:100],
-                            })
-
-        except Exception as e:
-            self.navigator.add_record({
-                "_error": True,
-                "type": "load_error",
-                "message": str(e),
-            })
-        finally:
-            self.navigator.loading = False
-            self.navigator.total_known = True
-            self.loading_complete = True
-            self.call_from_thread(self.on_loading_complete)
-            # Clean up temp file
-            try:
-                os.unlink(self.temp_file_path)
-            except OSError:
-                pass
-
-    def on_loading_complete(self) -> None:
-        """Called when streaming load completes."""
-        # Mark that we know the total count now
-        self.navigator.total_known = True
-        self.loading_complete = True
-
-        if not self.navigator.records:
-            self.sub_title = "No records to display"
+    def _refresh_view(self) -> None:
+        self._update_subtitle()
+        if self.view_mode == ViewMode.TABLE:
+            self._refresh_table()
         else:
-            # Update subtitle to show final count (removes "streaming..." message)
-            self.update_subtitle()
-            if not self.query_one("#tree-view", Tree).root.children:
-                # If tree is empty, display first record
-                self.display_current_record()
+            self._refresh_tree()
 
-    def display_current_record(self) -> None:
-        """Display the current record in the tree."""
-        record = self.navigator.current_record()
+    def _refresh_table(self) -> None:
+        table = self.query_one("#table-view", TableView)
+        if self.search.is_active:
+            table.set_data(self.store.records, columns=self.store.columns, visible_indices=self.search.matches)
+        else:
+            table.set_data(self.store.records, columns=self.store.columns)
+        table.set_bookmarks(self.navigator.bookmarks)
+        table.set_search_matches(set(self.search.matches))
+        if self.navigator.record_count > 0:
+            table.select_record_index(self.navigator.current_index)
+
+    def _refresh_tree(self) -> None:
+        tree = self.query_one("#tree-view", TreeView)
+        record = self.store.get_record(self.navigator.current_index)
         if record:
-            tree = self.query_one("#tree-view", Tree)
-            build_tree_for_record(tree, record, depth=self.initial_depth)
-            self.update_subtitle()
+            tree.set_record(record, depth=self._initial_depth)
 
-    def update_subtitle(self) -> None:
-        """Update subtitle with current position, search status, and bookmarks."""
-        base_info = self.navigator.position_info()
-
-        # Add bookmark indicator if current record is marked
-        if self.navigator.current_index in self.bookmarks:
-            base_info += " [marked]"
-
-        # Add bookmark count if any exist
-        if self.bookmarks:
-            base_info += f" | {len(self.bookmarks)} bookmark(s)"
-
-        # Add search status if active
-        if self.search_expr:
-            if self.search_matches:
-                match_num = self.search_match_index + 1
-                total_matches = len(self.search_matches)
-                search_info = f" | Search: {match_num}/{total_matches} matches"
-            else:
-                search_info = f" | Search: No matches"
-            self.sub_title = base_info + search_info
+    def _update_subtitle(self) -> None:
+        parts = []
+        if self._loading_complete:
+            pos = self.navigator.current_index + 1
+            total = self.navigator.record_count
+            parts.append(f"Record {pos} of {total}")
         else:
-            self.sub_title = base_info
+            parts.append(f"Loading... ({len(self.store):,} records)")
 
-    # Record Navigation Actions
+        if self.view_mode == ViewMode.TABLE and self.search.is_active:
+            parts.append(f"Showing {self.search.match_count} matches")
+
+        if self.navigator.is_marked():
+            parts.append("[marked]")
+
+        if self.search.is_active:
+            if self.search.match_count > 0:
+                parts.append(f"Match {self.search.match_index + 1}/{self.search.match_count}")
+            else:
+                parts.append("No matches")
+
+        if self.navigator.bookmarks:
+            parts.append(f"{len(self.navigator.bookmarks)} bookmark(s)")
+
+        self.sub_title = " | ".join(parts)
+
+    def watch_view_mode(self, mode: ViewMode) -> None:
+        table = self.query_one("#table-view", TableView)
+        tree = self.query_one("#tree-view", TreeView)
+        if mode == ViewMode.TABLE:
+            table.remove_class("hidden")
+            tree.add_class("hidden")
+            table.focus()
+            self._refresh_table()
+        else:
+            table.add_class("hidden")
+            tree.remove_class("hidden")
+            tree.focus()
+            self._refresh_tree()
+        self._update_subtitle()
+
+    def action_toggle_view_mode(self) -> None:
+        if self.view_mode == ViewMode.TABLE:
+            table = self.query_one("#table-view", TableView)
+            idx = table.get_selected_record_index()
+            if idx is not None:
+                self.navigator.current_index = idx
+            self.view_mode = ViewMode.TREE
+        else:
+            self.view_mode = ViewMode.TABLE
+
+    def action_drill_down(self) -> None:
+        if self.view_mode != ViewMode.TABLE:
+            return
+        table = self.query_one("#table-view", TableView)
+        idx = table.get_selected_record_index()
+        if idx is not None:
+            record = self.store.get_record(idx)
+            if record:
+                self.push_screen(DetailScreen(record, idx, self.navigator.record_count))
+
+    def action_cursor_down(self) -> None:
+        if self.view_mode == ViewMode.TABLE:
+            table = self.query_one("#table-view", TableView)
+            table.action_cursor_down()
+            idx = table.get_selected_record_index()
+            if idx is not None:
+                self.navigator.current_index = idx
+                self._update_subtitle()
+
+    def action_cursor_up(self) -> None:
+        if self.view_mode == ViewMode.TABLE:
+            table = self.query_one("#table-view", TableView)
+            table.action_cursor_up()
+            idx = table.get_selected_record_index()
+            if idx is not None:
+                self.navigator.current_index = idx
+                self._update_subtitle()
+
     def action_next_record(self) -> None:
-        """Handle 'n' key - next record or next search match."""
-        # If searching with multiple matches, go to next match
-        if len(self.search_matches) > 1:
-            # Move to next match (wrap around)
-            self.search_match_index = (self.search_match_index + 1) % len(self.search_matches)
-            target_index = self.search_matches[self.search_match_index]
-
-            if self.navigator.jump_to(target_index):
-                self.display_current_record()
-        # Otherwise (no search, or only 1 match), normal next record
-        elif self.navigator.next():
-            self.display_current_record()
+        if self.search.is_active and self.search.match_count > 1:
+            idx = self.search.next_match()
+            if idx is not None:
+                self.navigator.jump_to(idx)
+        else:
+            self.navigator.next()
+        self._refresh_view()
 
     def action_prev_record(self) -> None:
-        """Handle 'p' key - previous record or previous search match."""
-        # If searching with multiple matches, go to previous match
-        if len(self.search_matches) > 1:
-            # Move to previous match (wrap around)
-            self.search_match_index = (self.search_match_index - 1) % len(self.search_matches)
-            target_index = self.search_matches[self.search_match_index]
-
-            if self.navigator.jump_to(target_index):
-                self.display_current_record()
-        # Otherwise (no search, or only 1 match), normal previous record
-        elif self.navigator.previous():
-            self.display_current_record()
+        if self.search.is_active and self.search.match_count > 1:
+            idx = self.search.prev_match()
+            if idx is not None:
+                self.navigator.jump_to(idx)
+        else:
+            self.navigator.previous()
+        self._refresh_view()
 
     def action_first_record(self) -> None:
-        """Handle 'g' key - first record."""
-        if self.navigator.first():
-            self.display_current_record()
+        self.navigator.first()
+        self._refresh_view()
 
     def action_last_record(self) -> None:
-        """Handle 'G' key - last record."""
-        if self.navigator.last():
-            self.display_current_record()
+        self.navigator.last()
+        self._refresh_view()
 
-    def action_jump_forward(self) -> None:
-        """Handle Ctrl+D - jump forward 10."""
-        if self.navigator.jump_forward(10):
-            self.display_current_record()
+    def action_page_down(self) -> None:
+        if self.view_mode == ViewMode.TABLE:
+            table = self.query_one("#table-view", TableView)
+            table.action_page_down()
+            idx = table.get_selected_record_index()
+            if idx is not None:
+                self.navigator.current_index = idx
+                self._update_subtitle()
+        else:
+            self.navigator.jump_forward(10)
+            self._refresh_view()
 
-    def action_jump_back(self) -> None:
-        """Handle Ctrl+U - jump back 10."""
-        if self.navigator.jump_back(10):
-            self.display_current_record()
+    def action_page_up(self) -> None:
+        if self.view_mode == ViewMode.TABLE:
+            table = self.query_one("#table-view", TableView)
+            table.action_page_up()
+            idx = table.get_selected_record_index()
+            if idx is not None:
+                self.navigator.current_index = idx
+                self._update_subtitle()
+        else:
+            self.navigator.jump_back(10)
+            self._refresh_view()
 
     def action_goto_record(self) -> None:
-        """Handle '#' key - prompt for record number."""
-
         def handle_goto(record_index: Optional[int]) -> None:
             if record_index is not None and self.navigator.jump_to(record_index):
-                self.display_current_record()
-
+                self._refresh_view()
         self.push_screen(GotoDialog(), handle_goto)
 
-    # Search Actions
-    def action_search(self) -> None:
-        """Handle '/' key - open search dialog."""
+    def action_toggle_node(self) -> None:
+        if self.view_mode == ViewMode.TREE:
+            self.query_one("#tree-view", TreeView).toggle_current_node()
 
+    def action_expand_all(self) -> None:
+        if self.view_mode == ViewMode.TREE:
+            self.query_one("#tree-view", TreeView).expand_all_nodes()
+
+    def action_collapse_all(self) -> None:
+        if self.view_mode == ViewMode.TREE:
+            self.query_one("#tree-view", TreeView).collapse_all_nodes()
+
+    def action_search(self) -> None:
         def handle_search(expr: Optional[str]) -> None:
             if expr:
-                self.perform_search(expr)
-
+                self.search.search(self.store.records, expr)
+                if self.search.match_count > 0:
+                    idx = self.search.current_match()
+                    if idx is not None:
+                        self.navigator.jump_to(idx)
+                self._refresh_view()
         self.push_screen(SearchDialog(), handle_search)
 
-    def perform_search(self, expr: str) -> None:
-        """Perform search with jq expression.
-
-        Uses Python-based filtering for performance. Falls back to streaming
-        all records through a single jq process for complex expressions.
-        This avoids spawning a subprocess per record (which would cause hangs
-        with large datasets).
-        """
-        # Store search expression
-        self.search_expr = expr
-        self.search_matches = []
-        self.search_match_index = 0
-
-        # Try Python-based filtering first (much faster)
-        python_filter = self._compile_python_filter(expr)
-
-        if python_filter:
-            # Fast path: Python-based filtering
-            for idx, record in enumerate(self.navigator.records):
-                try:
-                    if python_filter(record):
-                        self.search_matches.append(idx)
-                except Exception:
-                    # Skip records that cause errors
-                    continue
-        else:
-            # Fallback: Stream all records through a single jq process
-            self._search_with_jq_stream(expr)
-
-        # Update subtitle and jump to first match
-        if self.search_matches:
-            self.navigator.jump_to(self.search_matches[0])
-            self.search_match_index = 0
-            self.display_current_record()
-        else:
-            # No matches found
-            self.update_subtitle()
-
-    def _compile_python_filter(self, expr: str) -> Optional[Callable[[dict], bool]]:
-        """Try to compile a jq expression to a Python filter function.
-
-        Supports common patterns:
-        - .field == "value" or .field == value
-        - .field != "value"
-        - .field > value, .field < value, .field >= value, .field <= value
-        - .field (truthy check)
-        - select(.field == "value") - strips select() wrapper
-
-        Returns None if expression is too complex for Python.
-        """
-        import re
-
-        # Strip select() wrapper if present
-        expr = expr.strip()
-        select_match = re.match(r'^select\s*\(\s*(.*)\s*\)\s*$', expr)
-        if select_match:
-            expr = select_match.group(1)
-
-        # Pattern: .field == "value" or .field == value
-        match = re.match(r'^\.(\w+)\s*==\s*"([^"]*)"$', expr)
-        if match:
-            field, value = match.groups()
-            return lambda r, f=field, v=value: r.get(f) == v
-
-        # Pattern: .field == number
-        match = re.match(r'^\.(\w+)\s*==\s*(-?\d+(?:\.\d+)?)$', expr)
-        if match:
-            field, value = match.groups()
-            num_value = float(value) if '.' in value else int(value)
-            return lambda r, f=field, v=num_value: r.get(f) == v
-
-        # Pattern: .field != "value"
-        match = re.match(r'^\.(\w+)\s*!=\s*"([^"]*)"$', expr)
-        if match:
-            field, value = match.groups()
-            return lambda r, f=field, v=value: r.get(f) != v
-
-        # Pattern: .field != number
-        match = re.match(r'^\.(\w+)\s*!=\s*(-?\d+(?:\.\d+)?)$', expr)
-        if match:
-            field, value = match.groups()
-            num_value = float(value) if '.' in value else int(value)
-            return lambda r, f=field, v=num_value: r.get(f) != v
-
-        # Pattern: .field > number
-        match = re.match(r'^\.(\w+)\s*>\s*(-?\d+(?:\.\d+)?)$', expr)
-        if match:
-            field, value = match.groups()
-            num_value = float(value) if '.' in value else int(value)
-            return lambda r, f=field, v=num_value: (r.get(f) is not None and r.get(f) > v)
-
-        # Pattern: .field < number
-        match = re.match(r'^\.(\w+)\s*<\s*(-?\d+(?:\.\d+)?)$', expr)
-        if match:
-            field, value = match.groups()
-            num_value = float(value) if '.' in value else int(value)
-            return lambda r, f=field, v=num_value: (r.get(f) is not None and r.get(f) < v)
-
-        # Pattern: .field >= number
-        match = re.match(r'^\.(\w+)\s*>=\s*(-?\d+(?:\.\d+)?)$', expr)
-        if match:
-            field, value = match.groups()
-            num_value = float(value) if '.' in value else int(value)
-            return lambda r, f=field, v=num_value: (r.get(f) is not None and r.get(f) >= v)
-
-        # Pattern: .field <= number
-        match = re.match(r'^\.(\w+)\s*<=\s*(-?\d+(?:\.\d+)?)$', expr)
-        if match:
-            field, value = match.groups()
-            num_value = float(value) if '.' in value else int(value)
-            return lambda r, f=field, v=num_value: (r.get(f) is not None and r.get(f) <= v)
-
-        # Pattern: .field (truthy check)
-        match = re.match(r'^\.(\w+)$', expr)
-        if match:
-            field = match.group(1)
-            return lambda r, f=field: bool(r.get(f))
-
-        # Expression too complex for Python - return None to use jq
-        return None
-
-    def _search_with_jq_stream(self, expr: str) -> None:
-        """Search using a single jq process for all records (streaming).
-
-        Instead of spawning one jq process per record, we stream all records
-        through a single jq process. This is O(1) in subprocess overhead.
-        """
-        import subprocess
-
-        try:
-            # Build jq expression that outputs index:match pairs
-            # Use select() to filter, then output record indices
-            jq_expr = f'select({expr})'
-
-            # Start a single jq process
-            proc = subprocess.Popen(
-                ['jq', '-c', jq_expr],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
-
-            # Write all records with index markers
-            # We need to track which records match
-            try:
-                for idx, record in enumerate(self.navigator.records):
-                    # Add index to record temporarily
-                    record_with_idx = {"__jn_idx__": idx, **record}
-                    proc.stdin.write(json.dumps(record_with_idx) + "\n")
-                proc.stdin.close()
-            except BrokenPipeError:
-                # jq exited early (invalid expression) - no matches
-                proc.wait()
-                return
-
-            # Read matching records
-            for line in proc.stdout:
-                line = line.strip()
-                if line:
-                    try:
-                        match = json.loads(line)
-                        if "__jn_idx__" in match:
-                            self.search_matches.append(match["__jn_idx__"])
-                    except json.JSONDecodeError:
-                        continue
-
-            proc.wait()
-
-        except (FileNotFoundError, subprocess.SubprocessError, OSError):
-            # jq not available or error - no matches
-            pass
-
-    def action_prev_match(self) -> None:
-        """Handle 'N' key - previous search match."""
-        if not self.search_matches:
-            return
-
-        # Move to previous match (wrap around)
-        self.search_match_index = (self.search_match_index - 1) % len(self.search_matches)
-        target_index = self.search_matches[self.search_match_index]
-
-        if self.navigator.jump_to(target_index):
-            self.display_current_record()
-
-    def action_clear_search(self) -> None:
-        """Handle Esc key - clear search."""
-        self.search_expr = None
-        self.search_matches = []
-        self.search_match_index = 0
-        self.update_subtitle()
-
     def action_find_by_field(self) -> None:
-        """Handle 'F' key - find by field with simple syntax."""
-
         def handle_find(expr: Optional[str]) -> None:
             if expr:
-                self.perform_search(expr)
-
+                self.search.search(self.store.records, expr)
+                if self.search.match_count > 0:
+                    idx = self.search.current_match()
+                    if idx is not None:
+                        self.navigator.jump_to(idx)
+                self._refresh_view()
         self.push_screen(FindByFieldDialog(), handle_find)
 
-    # Bookmarks Actions
+    def action_prev_match(self) -> None:
+        if self.search.is_active:
+            idx = self.search.prev_match()
+            if idx is not None:
+                self.navigator.jump_to(idx)
+                self._refresh_view()
+
+    def action_clear_search(self) -> None:
+        self.search.clear()
+        self._refresh_view()
+
+    def action_escape_action(self) -> None:
+        if self.search.is_active:
+            self.search.clear()
+            self._refresh_view()
+
     def action_mark_record(self) -> None:
-        """Handle 'm' key - mark/bookmark current record."""
-        current = self.navigator.current_index
-        if current >= 0:
-            self.bookmarks.add(current)
-            self.update_subtitle()
+        self.navigator.mark()
+        self._update_subtitle()
+        if self.view_mode == ViewMode.TABLE:
+            self.query_one("#table-view", TableView).set_bookmarks(self.navigator.bookmarks)
+            self._refresh_table()
 
     def action_unmark_record(self) -> None:
-        """Handle 'u' key - remove mark from current record."""
-        current = self.navigator.current_index
-        if current in self.bookmarks:
-            self.bookmarks.remove(current)
-            self.update_subtitle()
+        self.navigator.unmark()
+        self._update_subtitle()
+        if self.view_mode == ViewMode.TABLE:
+            self.query_one("#table-view", TableView).set_bookmarks(self.navigator.bookmarks)
+            self._refresh_table()
 
     def action_jump_to_mark(self) -> None:
-        """Handle apostrophe key - show marks and jump to one."""
-        if not self.bookmarks:
-            # No bookmarks - show message in subtitle
-            old_subtitle = self.sub_title
-            self.sub_title = "No bookmarks set. Press 'm' to mark current record."
-            # Restore after 2 seconds
-            self.set_timer(2.0, lambda: setattr(self, "sub_title", old_subtitle))
-            return
+        next_mark = self.navigator.next_bookmark()
+        if next_mark is not None:
+            self.navigator.jump_to(next_mark)
+            self._refresh_view()
+        elif not self.navigator.bookmarks:
+            self.notify("No bookmarks. Press 'm' to mark.")
 
-        # If only one bookmark, jump to it
-        if len(self.bookmarks) == 1:
-            target = list(self.bookmarks)[0]
-            if self.navigator.jump_to(target):
-                self.display_current_record()
-            return
-
-        # Multiple bookmarks - show list (for now just jump to next)
-        # Find next bookmark after current position
-        sorted_marks = sorted(self.bookmarks)
-        current = self.navigator.current_index
-        next_mark = None
-
-        for mark in sorted_marks:
-            if mark > current:
-                next_mark = mark
-                break
-
-        # Wrap around if no mark after current
-        if next_mark is None and sorted_marks:
-            next_mark = sorted_marks[0]
-
-        if next_mark is not None and self.navigator.jump_to(next_mark):
-            self.display_current_record()
-
-    # Actions
-    def action_yank_record(self) -> None:
-        """Handle 'y' key - copy current record to clipboard."""
-        record = self.navigator.current_record()
+    def action_copy_record(self) -> None:
+        record = self.store.get_record(self.navigator.current_index)
         if record:
             try:
                 import pyperclip
-                json_str = json.dumps(record, indent=2)
-                pyperclip.copy(json_str)
-                # Show confirmation in subtitle
-                old_subtitle = self.sub_title
-                self.sub_title = "Record copied to clipboard!"
-                self.set_timer(2.0, lambda: setattr(self, "sub_title", old_subtitle))
+                pyperclip.copy(json.dumps(record, indent=2))
+                self.notify("Record copied!")
             except ImportError:
-                # pyperclip not available - show message
-                old_subtitle = self.sub_title
-                self.sub_title = "Error: pyperclip not installed. Install with: pip install pyperclip"
-                self.set_timer(3.0, lambda: setattr(self, "sub_title", old_subtitle))
+                self.notify("pyperclip not installed", severity="error")
             except Exception as e:
-                old_subtitle = self.sub_title
-                self.sub_title = f"Error copying: {e}"
-                self.set_timer(2.0, lambda: setattr(self, "sub_title", old_subtitle))
+                self.notify(f"Error: {e}", severity="error")
 
     def action_write_record(self) -> None:
-        """Handle 'w' key - write current record to file."""
-        record = self.navigator.current_record()
+        record = self.store.get_record(self.navigator.current_index)
         if record:
             try:
-                # Generate filename based on record index
                 filename = f"record_{self.navigator.current_index + 1}.json"
                 with open(filename, "w") as f:
                     json.dump(record, f, indent=2)
-                # Show confirmation in subtitle
-                old_subtitle = self.sub_title
-                self.sub_title = f"Record saved to {filename}"
-                self.set_timer(2.0, lambda: setattr(self, "sub_title", old_subtitle))
+                self.notify(f"Saved to {filename}")
             except Exception as e:
-                old_subtitle = self.sub_title
-                self.sub_title = f"Error writing: {e}"
-                self.set_timer(2.0, lambda: setattr(self, "sub_title", old_subtitle))
+                self.notify(f"Error: {e}", severity="error")
 
-    # Tree Navigation Actions
-    def action_toggle_node(self) -> None:
-        """Handle Space - toggle current node."""
-        tree = self.query_one("#tree-view", Tree)
-        if tree.cursor_node:
-            tree.cursor_node.toggle()
-
-    def action_expand_all(self) -> None:
-        """Handle 'e' - expand all nodes."""
-        tree = self.query_one("#tree-view", Tree)
-        tree.root.expand_all()
-
-    def action_collapse_all(self) -> None:
-        """Handle 'c' - collapse all nodes."""
-        tree = self.query_one("#tree-view", Tree)
-        # Collapse all children but keep root expanded
-        for child in tree.root.children:
-            child.collapse_all()
-
-    # Other Actions
     def action_help(self) -> None:
-        """Handle '?' - show help screen."""
         self.push_screen(HelpScreen())
 
     def action_refresh(self) -> None:
-        """Handle 'r' - refresh display."""
-        self.display_current_record()
+        self._refresh_view()
 
+    def on_data_table_row_selected(self, event) -> None:
+        table = self.query_one("#table-view", TableView)
+        idx = table.get_selected_record_index()
+        if idx is not None:
+            self.navigator.current_index = idx
+            self._update_subtitle()
+
+
+# =============================================================================
+# Entry Point
+# =============================================================================
 
 def writes(config: Optional[dict] = None) -> None:
-    """Read NDJSON from stdin, display in single-record viewer.
-
-    Uses disk-backed streaming to preserve JN's constant memory principle:
-    1. When stdin is piped: Save to temp file (streaming write, constant memory)
-    2. Redirect stdin to /dev/tty for keyboard input
-    3. Start Textual immediately with streaming mode
-    4. Load records from temp file in background (no limits!)
-    5. Temp file cleaned up automatically when loading completes
-
-    This provides true streaming - first record appears immediately, rest load
-    in background as user navigates. Works with filtered datasets (1 record) or
-    full datasets (70k+ records) equally well. See spec/done/textual-stdin-architecture.md
-    """
+    """Read NDJSON from stdin, display in Data Lens viewer."""
     config = config or {}
 
-    # Detect if stdin is piped (has data) vs TTY (interactive)
-    if not sys.stdin.isatty():
-        # Stdin is piped - use disk-backed streaming
-        # Step 1: Save piped data to temp file (one-pass streaming write)
-        temp_fd, temp_path = tempfile.mkstemp(suffix='.ndjson', prefix='jn-viewer-')
+    stdin_is_tty = sys.stdin.isatty()
 
-        # Write stdin to temp file (streaming, constant memory)
+    if not stdin_is_tty:
+        temp_fd, temp_path = tempfile.mkstemp(suffix='.ndjson', prefix='jn-viewer-')
         with os.fdopen(temp_fd, 'w') as temp_file:
             for line in sys.stdin:
                 temp_file.write(line)
 
-        # Step 2: Redirect stdin to /dev/tty for keyboard input
-        # This allows Textual to read keyboard while we load from disk
         try:
             tty_fd = os.open('/dev/tty', os.O_RDONLY)
-            os.dup2(tty_fd, 0)  # Redirect fd 0 (stdin) to /dev/tty
+            os.dup2(tty_fd, 0)
             os.close(tty_fd)
-            sys.stdin = open(0, 'r')  # Reopen stdin as Python file object
+            sys.stdin = open(0, 'r')
         except (OSError, FileNotFoundError):
-            # /dev/tty not available (rare) - continue anyway
-            # Keyboard might not work but viewer will still display
             pass
 
-        # Step 3: Start Textual with streaming mode
-        # Records load in background from temp file, no limits
-        app = JSONViewerApp(config=config, records=[], streaming=True, temp_file_path=temp_path)
+        store = RecordStore.from_temp_file(temp_path)
+        app = DataLensApp(store=store, config=config)
         app.run()
-
     else:
-        # Stdin is TTY (interactive) - pre-load with timeout
         import signal
         import time
 
@@ -1133,7 +1214,7 @@ def writes(config: Optional[dict] = None) -> None:
         start_time = time.time()
 
         def timeout_handler(signum, frame):
-            raise TimeoutError("Stdin read timeout")
+            raise TimeoutError()
 
         signal.signal(signal.SIGALRM, timeout_handler)
         signal.alarm(int(timeout))
@@ -1144,62 +1225,26 @@ def writes(config: Optional[dict] = None) -> None:
                 line = line.strip()
                 if line:
                     try:
-                        record = json.loads(line)
-                        records.append(record)
-                    except json.JSONDecodeError as e:
-                        records.append({
-                            "_error": True,
-                            "type": "json_decode_error",
-                            "message": str(e),
-                            "line": line[:100],
-                        })
-
+                        records.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        pass
                 if not records and time.time() - start_time > timeout:
                     break
-
         except TimeoutError:
             pass
-        except Exception as e:
-            records.append({
-                "_error": True,
-                "type": "load_error",
-                "message": str(e),
-            })
         finally:
             signal.alarm(0)
 
-        app = JSONViewerApp(config=config, records=records, streaming=False)
+        store = RecordStore.from_records(records)
+        app = DataLensApp(store=store, config=config)
         app.run()
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Single-record JSON viewer with tree navigation"
-    )
-    parser.add_argument(
-        "--mode",
-        default="write",
-        choices=["write"],
-        help="Plugin mode (write only for display plugins)",
-    )
-    parser.add_argument(
-        "--depth",
-        type=int,
-        default=2,
-        help="Initial tree expansion depth (default: 2)",
-    )
-    parser.add_argument(
-        "--start-at",
-        type=int,
-        default=0,
-        help="Start at record N (0-based index)",
-    )
-
+    parser = argparse.ArgumentParser(description="Data Lens - Table-first data exploration tool")
+    parser.add_argument("--mode", default="write", choices=["write"])
+    parser.add_argument("--depth", type=int, default=2)
+    parser.add_argument("--start-at", type=int, default=0)
     args = parser.parse_args()
-
-    config = {
-        "depth": args.depth,
-        "start_at": args.start_at,
-    }
-
+    config = {"depth": args.depth, "start_at": args.start_at}
     writes(config)
