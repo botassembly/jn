@@ -70,7 +70,12 @@ def put(ctx, output_file):
 
         # Add configuration parameters
         for key, value in resolved.config.items():
-            cmd.extend([f"--{key}", str(value)])
+            if isinstance(value, bool):
+                # Boolean flags: add only if True (for action="store_true")
+                if value:
+                    cmd.append(f"--{key}")
+            else:
+                cmd.extend([f"--{key}", str(value)])
 
         # Prepare stdin for subprocess
         try:

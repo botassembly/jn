@@ -49,8 +49,9 @@ jn cat data.csv | jn put data.json   # CSV → JSON
 
 **Pretty tables:**
 ```bash
-jn cat data.csv | jn put -- "-~table.grid"    # ASCII grid table
-jn cat data.csv | jn put -- "-~table.github"  # GitHub markdown
+jn cat data.csv | jn table               # ASCII grid table (default)
+jn cat data.csv | jn table -f github     # GitHub markdown
+jn cat data.csv | jn table -f fancy_grid # Unicode box drawing
 ```
 
 For detailed examples, see the scripts in each demo directory. All scripts include comprehensive comments explaining each step.
