@@ -36,6 +36,7 @@ from .commands.profile import profile
 from .commands.put import put
 from .commands.run import run
 from .commands.sh import sh
+from .commands.table import table
 from .commands.tail import tail
 from .commands.view import view
 from .plugins import plugin
@@ -48,6 +49,7 @@ cli.add_command(filter)
 cli.add_command(head)
 cli.add_command(join)
 cli.add_command(merge)
+cli.add_command(table)
 cli.add_command(tail)
 cli.add_command(sh)
 cli.add_command(inspect)

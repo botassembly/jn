@@ -46,7 +46,15 @@ def _build_command(
 
     # Add configuration parameters
     for key, value in stage.config.items():
-        cmd.extend([f"--{key}", str(value)])
+        if isinstance(value, bool):
+            if value:
+                # True: pass --flag (works for action="store_true")
+                cmd.append(f"--{key}")
+            else:
+                # False: pass --flag false (for regular bool params like --header)
+                cmd.extend([f"--{key}", "false"])
+        else:
+            cmd.extend([f"--{key}", str(value)])
 
     # Add URL or command string if present
     if command_str:
