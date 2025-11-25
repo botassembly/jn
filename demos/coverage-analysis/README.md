@@ -9,21 +9,21 @@ cd demos/coverage-analysis
 ./run_examples.sh
 ```
 
-This demo uses the 7 coverage analysis profiles to extract insights from `coverage.json`:
+This demo uses the 7 coverage analysis profiles to extract insights from `coverage.lcov`:
 
-1. **`@coverage/uncovered-functions`** - Functions with 0% coverage
-2. **`@coverage/functions-below-threshold`** - Functions below a coverage threshold
-3. **`@coverage/files-by-coverage`** - Files grouped by coverage ranges
-4. **`@coverage/poor-branch-coverage`** - Functions with poor branch coverage
-5. **`@coverage/largest-gaps`** - Functions with most missing lines
-6. **`@coverage/summary-by-module`** - Module-level coverage aggregation
-7. **`@coverage/hotspots`** - Large under-tested functions (priority scoring)
+1. **`@lcov/uncovered-functions`** - Functions with 0% coverage
+2. **`@lcov/functions-below-threshold`** - Functions below a coverage threshold
+3. **`@lcov/files-by-coverage`** - Files grouped by coverage ranges
+4. **`@lcov/poor-branch-coverage`** - Functions with poor branch coverage
+5. **`@lcov/largest-gaps`** - Functions with most missing lines
+6. **`@lcov/summary-by-module`** - Module-level coverage aggregation
+7. **`@lcov/hotspots`** - Large under-tested functions (priority scoring)
 
 ## Manual Examples
 
 ### Find Uncovered Functions
 ```bash
-jn cat coverage.json | jn filter '@coverage/uncovered-functions'
+jn cat coverage.lcov | jn filter '@lcov/uncovered-functions'
 ```
 
 Output:
@@ -35,7 +35,7 @@ Output:
 
 ### Functions Below Threshold (Parameterized)
 ```bash
-jn cat coverage.json | jn filter '@coverage/functions-below-threshold?threshold=60'
+jn cat coverage.lcov | jn filter '@lcov/functions-below-threshold?threshold=60'
 ```
 
 Output:
@@ -46,7 +46,7 @@ Output:
 
 ### Module-Level Summary
 ```bash
-jn cat coverage.json | jn filter '@coverage/summary-by-module'
+jn cat coverage.lcov | jn filter '@lcov/summary-by-module'
 ```
 
 Output:
@@ -59,7 +59,7 @@ Output:
 
 ### Coverage Hotspots
 ```bash
-jn cat coverage.json | jn filter '@coverage/hotspots?min_statements=10&max_coverage=70'
+jn cat coverage.lcov | jn filter '@lcov/hotspots?min_statements=10&max_coverage=70'
 ```
 
 Output:
@@ -73,33 +73,33 @@ Output:
 ### Workflow 1: Identify Testing Priorities
 ```bash
 # Get high-level module overview
-jn cat coverage.json | jn filter '@coverage/summary-by-module'
+jn cat coverage.lcov | jn filter '@lcov/summary-by-module'
 
 # Find worst-covered modules
-jn cat coverage.json | jn filter '@coverage/functions-below-threshold?threshold=50'
+jn cat coverage.lcov | jn filter '@lcov/functions-below-threshold?threshold=50'
 
 # Find specific hotspots to fix
-jn cat coverage.json | jn filter '@coverage/hotspots'
+jn cat coverage.lcov | jn filter '@lcov/hotspots'
 ```
 
 ### Workflow 2: Track Coverage Improvements
 ```bash
 # Before improvements
-jn cat coverage.json | jn filter '@coverage/uncovered-functions' | wc -l
+jn cat coverage.lcov | jn filter '@lcov/uncovered-functions' | wc -l
 # Output: 17 functions with 0% coverage
 
 # After writing tests
-jn cat coverage.json | jn filter '@coverage/uncovered-functions' | wc -l
+jn cat coverage.lcov | jn filter '@lcov/uncovered-functions' | wc -l
 # Output: 10 functions with 0% coverage (7 functions fixed!)
 ```
 
 ### Workflow 3: Branch Coverage Audit
 ```bash
 # Find all functions with incomplete branch coverage
-jn cat coverage.json | jn filter '@coverage/poor-branch-coverage?threshold=100'
+jn cat coverage.lcov | jn filter '@lcov/poor-branch-coverage?threshold=100'
 
 # Export to CSV for spreadsheet analysis
-jn cat coverage.json | jn filter '@coverage/poor-branch-coverage' | jn put branch-coverage.csv
+jn cat coverage.lcov | jn filter '@lcov/poor-branch-coverage' | jn put branch-coverage.csv
 ```
 
 ### Workflow 4: Generate Coverage Report
@@ -124,38 +124,38 @@ Profiles support parameterization via query string syntax:
 
 ## Portability
 
-**Key Feature**: These profiles work on ANY `coverage.json` file from ANY codebase.
+**Key Feature**: These profiles work on ANY `coverage.lcov` file from ANY codebase.
 
 ```bash
 # Your project
-jn cat ./coverage.json | jn filter '@coverage/summary-by-module'
+jn cat ./coverage.lcov | jn filter '@lcov/summary-by-module'
 
 # Different project
-jn cat /path/to/other/project/coverage.json | jn filter '@coverage/summary-by-module'
+jn cat /path/to/other/project/coverage.lcov | jn filter '@lcov/summary-by-module'
 
 # Remote coverage file
-jn cat https://example.com/coverage.json | jn filter '@coverage/uncovered-functions'
+jn cat https://example.com/coverage.lcov | jn filter '@lcov/uncovered-functions'
 ```
 
-No hardcoded paths - profiles adapt to any coverage.json structure.
+No hardcoded paths - profiles adapt to any coverage.lcov structure.
 
-## Generating coverage.json
+## Generating coverage.lcov
 
-To generate `coverage.json` for your own project:
+To generate `coverage.lcov` for your own project:
 
 ```bash
 # Install pytest-cov
 pip install pytest-cov
 
 # Configure in pyproject.toml or .coveragerc
-# [tool.coverage.json]
-# output = "coverage.json"
+# [tool.coverage.lcov]
+# output = "coverage.lcov"
 
 # Run tests with coverage
 pytest --cov=src --cov-report=json
 
 # Analyze with JN
-jn cat coverage.json | jn filter '@coverage/summary-by-module'
+jn cat coverage.lcov | jn filter '@lcov/summary-by-module'
 ```
 
 ## Output Files
@@ -163,7 +163,7 @@ jn cat coverage.json | jn filter '@coverage/summary-by-module'
 The demo script generates these files:
 
 - `uncovered.json` - Functions with 0% coverage
-- `low_coverage.json` - Functions below 60% threshold
+- `low_coverage.lcov` - Functions below 60% threshold
 - `coverage_ranges.json` - Files grouped by coverage ranges
 - `poor_branches.json` - Functions with poor branch coverage
 - `gaps.json` - Functions with most missing lines
