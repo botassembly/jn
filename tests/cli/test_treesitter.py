@@ -771,3 +771,340 @@ def test_treesitter_write_insert_requires_position(invoke, tmp_path):
     result = json.loads(res.output.strip())
     assert result["success"] is False
     assert "after" in result["error"].lower() or "before" in result["error"].lower()
+
+
+# ============================================================================
+# Phase 4: Advanced Targets Tests
+# ============================================================================
+
+def test_treesitter_write_line_range_target(invoke, tmp_path):
+    """Test targeting a function by line range."""
+    test_file = tmp_path / "test.py"
+    test_file.write_text('''def first():
+    return 1
+
+def second():
+    return 2
+
+def third():
+    return 3
+''')
+
+    # Target lines 4-5 which contain def second(): return 2
+    res = invoke(
+        ["plugin", "call", "treesitter_", "--mode", "write", "--file", str(test_file)],
+        input_data='{"target": "lines:4-5", "replace": "body", "code": "return 22"}',
+    )
+
+    assert res.exit_code == 0
+    result = json.loads(res.output.strip())
+    assert result["success"] is True
+
+    # second() should be modified
+    modified = result["modified"]
+    assert "return 1" in modified   # first unchanged
+    assert "return 22" in modified  # second modified
+    assert "return 3" in modified   # third unchanged
+
+
+def test_treesitter_write_decorator_target(invoke, tmp_path):
+    """Test targeting a function by its decorator."""
+    test_file = tmp_path / "test.py"
+    test_file.write_text('''def regular_func():
+    return 1
+
+@deprecated
+def old_func():
+    return 2
+
+@cached
+def expensive_func():
+    return 3
+''')
+
+    # Target function decorated with @deprecated
+    res = invoke(
+        ["plugin", "call", "treesitter_", "--mode", "write", "--file", str(test_file)],
+        input_data='{"target": "decorator:deprecated", "replace": "body", "code": "raise NotImplementedError()"}',
+    )
+
+    assert res.exit_code == 0
+    result = json.loads(res.output.strip())
+    assert result["success"] is True
+
+    # old_func should be modified
+    modified = result["modified"]
+    assert "return 1" in modified   # regular_func unchanged
+    assert "NotImplementedError" in modified  # old_func modified
+    assert "return 3" in modified   # expensive_func unchanged
+
+
+def test_treesitter_write_wildcard_function(invoke, tmp_path):
+    """Test wildcard pattern matching for function names."""
+    test_file = tmp_path / "test.py"
+    test_file.write_text('''def test_addition():
+    assert 1 + 1 == 2
+
+def test_subtraction():
+    assert 2 - 1 == 1
+
+def helper():
+    return 42
+''')
+
+    # Target first test_* function
+    res = invoke(
+        ["plugin", "call", "treesitter_", "--mode", "write", "--file", str(test_file)],
+        input_data='{"target": "function:test_*", "replace": "body", "code": "pass  # TODO"}',
+    )
+
+    assert res.exit_code == 0
+    result = json.loads(res.output.strip())
+    assert result["success"] is True
+
+    # First matching test function should be modified
+    modified = result["modified"]
+    assert "pass  # TODO" in modified
+
+
+def test_treesitter_write_wildcard_method(invoke, tmp_path):
+    """Test wildcard pattern matching for method names in a class."""
+    test_file = tmp_path / "test.py"
+    test_file.write_text('''class Calculator:
+    def add(self, a, b):
+        return a + b
+
+    def subtract(self, a, b):
+        return a - b
+
+    def helper(self):
+        pass
+''')
+
+    # Target Calculator.* (first method in Calculator)
+    res = invoke(
+        ["plugin", "call", "treesitter_", "--mode", "write", "--file", str(test_file)],
+        input_data='{"target": "method:Calculator.*", "replace": "body", "code": "return 0"}',
+    )
+
+    assert res.exit_code == 0
+    result = json.loads(res.output.strip())
+    assert result["success"] is True
+    assert "return 0" in result["modified"]
+
+
+def test_treesitter_write_line_range_invalid(invoke, tmp_path):
+    """Test invalid line range format returns error."""
+    test_file = tmp_path / "test.py"
+    test_file.write_text("def foo(): pass\n")
+
+    # Missing end line
+    res = invoke(
+        ["plugin", "call", "treesitter_", "--mode", "write", "--file", str(test_file)],
+        input_data='{"target": "lines:5", "replace": "body", "code": "pass"}',
+    )
+
+    assert res.exit_code == 0
+    result = json.loads(res.output.strip())
+    assert result["success"] is False
+    assert "line range" in result["error"].lower() or "start-end" in result["error"].lower()
+
+
+def test_treesitter_write_decorator_target_not_found(invoke, tmp_path):
+    """Test decorator target not found returns error."""
+    test_file = tmp_path / "test.py"
+    test_file.write_text('''def regular_func():
+    return 1
+''')
+
+    res = invoke(
+        ["plugin", "call", "treesitter_", "--mode", "write", "--file", str(test_file)],
+        input_data='{"target": "decorator:nonexistent", "replace": "body", "code": "pass"}',
+    )
+
+    assert res.exit_code == 0
+    result = json.loads(res.output.strip())
+    assert result["success"] is False
+    assert "not found" in result["error"].lower()
+
+
+def test_treesitter_write_delete_by_decorator(invoke, tmp_path):
+    """Test deleting a function by its decorator."""
+    test_file = tmp_path / "test.py"
+    test_file.write_text('''def keep():
+    return 1
+
+@deprecated
+def remove_me():
+    return 2
+
+def also_keep():
+    return 3
+''')
+
+    res = invoke(
+        ["plugin", "call", "treesitter_", "--mode", "write", "--file", str(test_file)],
+        input_data='{"operation": "delete", "target": "decorator:deprecated"}',
+    )
+
+    assert res.exit_code == 0
+    result = json.loads(res.output.strip())
+    assert result["success"] is True
+
+    modified = result["modified"]
+    assert "def keep" in modified
+    assert "def remove_me" not in modified
+    assert "def also_keep" in modified
+
+
+# ============================================================================
+# Phase 5: Write-Back Support Tests
+# ============================================================================
+
+def test_treesitter_write_flag_writes_file(invoke, tmp_path):
+    """Test --write flag actually writes to file."""
+    test_file = tmp_path / "test.py"
+    test_file.write_text('''def foo():
+    return 1
+''')
+    original_content = test_file.read_text()
+
+    res = invoke(
+        ["plugin", "call", "treesitter_", "--mode", "write", "--file", str(test_file),
+         "--write", "--no-backup", "--no-git-safe"],
+        input_data='{"target": "function:foo", "replace": "body", "code": "return 42"}',
+    )
+
+    assert res.exit_code == 0
+    result = json.loads(res.output.strip())
+    assert result["success"] is True
+    assert "file" in result  # Returns file path when written
+    assert "modified" not in result  # No modified field when writing
+
+    # Verify file was actually modified
+    new_content = test_file.read_text()
+    assert new_content != original_content
+    assert "return 42" in new_content
+
+
+def test_treesitter_write_creates_backup(invoke, tmp_path):
+    """Test --write with --backup creates a backup file."""
+    test_file = tmp_path / "test.py"
+    test_file.write_text('''def foo():
+    return 1
+''')
+
+    res = invoke(
+        ["plugin", "call", "treesitter_", "--mode", "write", "--file", str(test_file),
+         "--write", "--backup", "--no-git-safe"],
+        input_data='{"target": "function:foo", "replace": "body", "code": "return 42"}',
+    )
+
+    assert res.exit_code == 0
+    result = json.loads(res.output.strip())
+    assert result["success"] is True
+    assert "backup" in result
+
+    # Verify backup file exists and contains original content
+    from pathlib import Path
+    backup_path = Path(result["backup"])
+    assert backup_path.exists()
+    backup_content = backup_path.read_text()
+    assert "return 1" in backup_content  # Original content
+
+    # Clean up backup
+    backup_path.unlink()
+
+
+def test_treesitter_write_no_backup(invoke, tmp_path):
+    """Test --no-backup skips backup creation."""
+    test_file = tmp_path / "test.py"
+    test_file.write_text('''def foo():
+    return 1
+''')
+
+    res = invoke(
+        ["plugin", "call", "treesitter_", "--mode", "write", "--file", str(test_file),
+         "--write", "--no-backup", "--no-git-safe"],
+        input_data='{"target": "function:foo", "replace": "body", "code": "return 42"}',
+    )
+
+    assert res.exit_code == 0
+    result = json.loads(res.output.strip())
+    assert result["success"] is True
+    assert "backup" not in result  # No backup created
+
+    # Verify no backup files were created
+    from pathlib import Path
+    backup_files = list(tmp_path.glob("*.bak"))
+    assert len(backup_files) == 0
+
+
+def test_treesitter_dry_run_default(invoke, tmp_path):
+    """Test default behavior is dry-run (no file modification)."""
+    test_file = tmp_path / "test.py"
+    test_file.write_text('''def foo():
+    return 1
+''')
+    original_content = test_file.read_text()
+
+    # No --write flag
+    res = invoke(
+        ["plugin", "call", "treesitter_", "--mode", "write", "--file", str(test_file)],
+        input_data='{"target": "function:foo", "replace": "body", "code": "return 42"}',
+    )
+
+    assert res.exit_code == 0
+    result = json.loads(res.output.strip())
+    assert result["success"] is True
+    assert "modified" in result  # Returns modified code
+    assert "file" not in result  # No file path (not written)
+
+    # Verify file was NOT modified
+    new_content = test_file.read_text()
+    assert new_content == original_content
+
+
+def test_treesitter_write_batch_with_backup(invoke, tmp_path):
+    """Test batch mode with --write creates single backup."""
+    test_file = tmp_path / "test.py"
+    test_file.write_text('''def foo():
+    return 1
+
+def bar():
+    return 2
+''')
+
+    batch_input = json.dumps({
+        "edits": [
+            {"target": "function:foo", "replace": "body", "code": "return 10"},
+            {"target": "function:bar", "replace": "body", "code": "return 20"},
+        ]
+    })
+
+    res = invoke(
+        ["plugin", "call", "treesitter_", "--mode", "write", "--file", str(test_file),
+         "--write", "--backup", "--no-git-safe"],
+        input_data=batch_input,
+    )
+
+    assert res.exit_code == 0
+    result = json.loads(res.output.strip())
+    assert result["success"] is True
+    assert result["edits_applied"] == 2
+    assert "backup" in result
+
+    # Verify only one backup created
+    from pathlib import Path
+    backup_path = Path(result["backup"])
+    assert backup_path.exists()
+    backup_files = list(tmp_path.glob("*.bak"))
+    assert len(backup_files) == 1
+
+    # Verify file was modified
+    new_content = test_file.read_text()
+    assert "return 10" in new_content
+    assert "return 20" in new_content
+
+    # Clean up
+    backup_path.unlink()

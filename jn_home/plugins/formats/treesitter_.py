@@ -700,9 +700,15 @@ def _find_target_node(tree, source_bytes: bytes, target: str, lang: str):
         function:name       - Find function by name
         method:class.name   - Find method by class and name
         class:name          - Find class by name
+        lines:start-end     - Find node spanning line range
+        decorator:name      - Find decorated function by decorator name
+        function:*pattern*  - Wildcard pattern matching (fnmatch)
+        method:Class.*      - All methods in a class
 
     Returns tuple of (node, node_type) or (None, None) if not found.
     """
+    import fnmatch
+
     func_types = {
         'python': ['function_definition'],
         'javascript': ['function_declaration', 'function_expression', 'arrow_function', 'method_definition'],
@@ -729,16 +735,110 @@ def _find_target_node(tree, source_bytes: bytes, target: str, lang: str):
         'ruby': ['class', 'module'],
     }
 
+    decorator_types = {
+        'python': ['decorator'],
+        'javascript': ['decorator'],
+        'typescript': ['decorator'],
+        'tsx': ['decorator'],
+        'java': ['annotation', 'marker_annotation'],
+    }
+
     # Parse target specification
     if ':' not in target:
-        raise ValueError(f"Invalid target format: {target}. Expected 'function:name', 'method:class.name', or 'class:name'")
+        raise ValueError(f"Invalid target format: {target}. Expected 'function:name', 'method:class.name', 'class:name', 'lines:start-end', or 'decorator:name'")
 
     target_type, target_name = target.split(':', 1)
+
+    # Handle line range targeting: lines:10-20
+    if target_type == 'lines':
+        if '-' not in target_name:
+            raise ValueError(f"Invalid line range: {target_name}. Expected 'lines:start-end'")
+        try:
+            start_line, end_line = map(int, target_name.split('-'))
+        except ValueError:
+            raise ValueError(f"Invalid line numbers in: {target_name}")
+
+        def find_spanning_node(node):
+            """Find the smallest node that spans the given line range."""
+            node_start = node.start_point[0] + 1  # 1-indexed
+            node_end = node.end_point[0] + 1
+
+            # Check if this node spans our target range
+            if node_start <= start_line and node_end >= end_line:
+                # Check if any child is a better (smaller) match
+                for child in node.children:
+                    result = find_spanning_node(child)
+                    if result[0]:  # Check if node was found (not None)
+                        return result
+                # This node is the smallest spanning node
+                # Only return if it's a meaningful node (function, class, etc.)
+                if node.type in func_types.get(lang, []):
+                    return node, 'function'
+                if node.type in class_types.get(lang, []):
+                    return node, 'class'
+            return None, None
+
+        return find_spanning_node(tree.root_node)
+
+    # Handle decorator targeting: decorator:route
+    if target_type == 'decorator':
+        def find_decorated(node, pending_decorators=None):
+            """Find function decorated with specified decorator."""
+            if pending_decorators is None:
+                pending_decorators = []
+
+            # Collect decorators
+            if node.type in decorator_types.get(lang, []):
+                dec_text = _get_node_text(node, source_bytes)
+                pending_decorators.append(dec_text)
+
+            # Check if this is a decorated function
+            if node.type in func_types.get(lang, []):
+                for dec in pending_decorators:
+                    # Match decorator name (handle @name, @name(...), @module.name)
+                    if target_name in dec or fnmatch.fnmatch(dec, f'*{target_name}*'):
+                        return node, 'function'
+                pending_decorators.clear()
+
+            # For decorated_definition in Python, pass decorators to children
+            if node.type == 'decorated_definition':
+                for child in node.children:
+                    result = find_decorated(child, pending_decorators)
+                    if result[0]:
+                        return result
+                return None, None
+
+            # Recurse into children
+            for child in node.children:
+                result = find_decorated(child, [] if node.type not in ['decorated_definition'] else pending_decorators)
+                if result[0]:
+                    return result
+
+            return None, None
+
+        return find_decorated(tree.root_node)
+
+    # Check for wildcard pattern
+    has_wildcard = '*' in target_name or '?' in target_name
 
     # For method targets, parse class.method
     target_class = None
     if target_type == 'method' and '.' in target_name:
         target_class, target_name = target_name.rsplit('.', 1)
+
+    def matches_name(actual_name, pattern):
+        """Check if actual_name matches pattern (supports wildcards)."""
+        if has_wildcard:
+            return fnmatch.fnmatch(actual_name, pattern)
+        return actual_name == pattern
+
+    def matches_class(actual_class, pattern):
+        """Check if class matches (supports wildcards)."""
+        if pattern is None:
+            return True
+        if '*' in pattern or '?' in pattern:
+            return fnmatch.fnmatch(actual_class or '', pattern)
+        return actual_class == pattern
 
     def search(node, current_class=None):
         """Recursively search for target node."""
@@ -748,7 +848,7 @@ def _find_target_node(tree, source_bytes: bytes, target: str, lang: str):
         if node_type in class_types.get(lang, []):
             class_name = _extract_class_name(node, source_bytes, lang)
 
-            if target_type == 'class' and class_name == target_name:
+            if target_type == 'class' and matches_name(class_name, target_name):
                 return node, 'class'
 
             # Recurse into class with class context
@@ -762,11 +862,11 @@ def _find_target_node(tree, source_bytes: bytes, target: str, lang: str):
         if node_type in func_types.get(lang, []):
             func_name = _extract_function_name(node, source_bytes, lang)
 
-            if target_type == 'function' and func_name == target_name and current_class is None:
+            if target_type == 'function' and matches_name(func_name, target_name) and current_class is None:
                 return node, 'function'
 
-            if target_type == 'method' and func_name == target_name:
-                if target_class is None or current_class == target_class:
+            if target_type == 'method' and matches_name(func_name, target_name):
+                if matches_class(current_class, target_class):
                     return node, 'method'
 
         # Recurse into children
@@ -899,6 +999,63 @@ def _compute_edit_range(node, source: str, lang: str, replace_mode: str) -> tupl
         raise ValueError(f'Invalid replace mode: {replace_mode}')
 
 
+def _check_git_status(file_path: str) -> Optional[str]:
+    """Check if file has uncommitted changes in git.
+
+    Returns error message if file is dirty, None if clean or not in git.
+    """
+    import subprocess
+    from pathlib import Path
+
+    file_abs = Path(file_path).resolve()
+
+    # Check if file is in a git repo
+    try:
+        result = subprocess.run(
+            ['git', 'rev-parse', '--git-dir'],
+            cwd=file_abs.parent,
+            capture_output=True,
+            text=True
+        )
+        if result.returncode != 0:
+            return None  # Not in a git repo, allow modification
+    except FileNotFoundError:
+        return None  # git not installed
+
+    # Check if file has uncommitted changes
+    result = subprocess.run(
+        ['git', 'status', '--porcelain', str(file_abs)],
+        cwd=file_abs.parent,
+        capture_output=True,
+        text=True
+    )
+
+    if result.stdout.strip():
+        return f'File has uncommitted changes. Commit or stash changes first, or use --no-git-safe to bypass.'
+
+    return None
+
+
+def _create_backup(file_path: str) -> Optional[str]:
+    """Create a backup of the file before modification.
+
+    Returns the backup path on success, or None if backup failed.
+    """
+    from pathlib import Path
+    import shutil
+    from datetime import datetime
+
+    file_path = Path(file_path)
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    backup_path = file_path.with_suffix(f'.{timestamp}.bak')
+
+    try:
+        shutil.copy2(file_path, backup_path)
+        return str(backup_path)
+    except (IOError, OSError):
+        return None
+
+
 def writes(config: Optional[dict] = None) -> None:
     """Perform surgical code modifications.
 
@@ -907,6 +1064,9 @@ def writes(config: Optional[dict] = None) -> None:
     Config:
         file: Path to source file (required)
         lang: Language override (default: auto-detect)
+        write: If True, actually write to file (default: dry run only)
+        backup: If True, create backup before writing (default: True when write=True)
+        git_safe: If True, refuse to modify files with uncommitted changes (default: True)
 
     Input JSON formats:
 
@@ -915,7 +1075,7 @@ def writes(config: Optional[dict] = None) -> None:
             "target": "function:name" | "method:class.name" | "class:name",
             "replace": "body" | "full",
             "code": "new code here",
-            "dry_run": true/false (default: true)
+            "dry_run": true/false (default: true, overridden by --write flag)
         }
 
     Insert operation:
@@ -950,6 +1110,8 @@ def writes(config: Optional[dict] = None) -> None:
             "operation": "replace" | "insert" | "delete",
             "edits_applied": N (for batch),
             "modified": "full modified source" (if dry_run),
+            "backup": "path/to/backup.py" (if backup created),
+            "file": "path/to/file.py" (if written),
             "error": "error message" (if failed)
         }
     """
@@ -958,6 +1120,9 @@ def writes(config: Optional[dict] = None) -> None:
     config = config or {}
     file_path = config.get('file')
     lang = config.get('lang')
+    force_write = config.get('write', False)  # CLI --write flag overrides dry_run
+    create_backup = config.get('backup', True)  # Default: create backups
+    git_safe = config.get('git_safe', True)  # Default: check git status
 
     if not file_path:
         yield {
@@ -965,6 +1130,16 @@ def writes(config: Optional[dict] = None) -> None:
             'error': 'No file specified. Use --file option.'
         }
         return
+
+    # Check git status if git_safe is enabled and we're doing actual writes
+    if force_write and git_safe:
+        git_error = _check_git_status(file_path)
+        if git_error:
+            yield {
+                'success': False,
+                'error': git_error
+            }
+            return
 
     # Read source file
     try:
@@ -982,6 +1157,9 @@ def writes(config: Optional[dict] = None) -> None:
     # Auto-detect language
     if not lang:
         lang = _detect_language(file_path)
+
+    # Track if we've created a backup (only do once per session)
+    backup_created = None
 
     # Parse with tree-sitter
     language = _get_language(lang)
@@ -1146,7 +1324,8 @@ def writes(config: Optional[dict] = None) -> None:
         # Check for batch mode (edits array)
         if 'edits' in edit:
             edits_list = edit.get('edits', [])
-            dry_run = edit.get('dry_run', True)
+            # force_write from CLI overrides dry_run in JSON
+            dry_run = not force_write and edit.get('dry_run', True)
 
             if not edits_list:
                 yield {
@@ -1213,15 +1392,24 @@ def writes(config: Optional[dict] = None) -> None:
                 }
             else:
                 try:
+                    # Create backup before first write (if enabled)
+                    if create_backup and backup_created is None:
+                        backup_created = _create_backup(file_path)
+
                     with open(file_path, 'w', encoding='utf-8') as f:
                         f.write(modified)
-                    yield {
+
+                    result_obj = {
                         'success': True,
                         'target': 'batch',
                         'edits_applied': len(edit_results),
                         'targets': [e['target'] for e in edit_results],
                         'file': file_path
                     }
+                    if backup_created:
+                        result_obj['backup'] = backup_created
+                    yield result_obj
+
                     # Update state for subsequent edits
                     source = modified
                     source_bytes = modified_bytes
@@ -1235,7 +1423,8 @@ def writes(config: Optional[dict] = None) -> None:
             continue
 
         # Single edit mode - use the helper function
-        dry_run = edit.get('dry_run', True)
+        # force_write from CLI overrides dry_run in JSON
+        dry_run = not force_write and edit.get('dry_run', True)
 
         # Process the edit
         result = process_single_edit(edit, source, tree, source_bytes)
@@ -1281,15 +1470,24 @@ def writes(config: Optional[dict] = None) -> None:
         else:
             # Write to file
             try:
+                # Create backup before first write (if enabled)
+                if create_backup and backup_created is None:
+                    backup_created = _create_backup(file_path)
+
                 with open(file_path, 'w', encoding='utf-8') as f:
                     f.write(modified)
-                yield {
+
+                result_obj = {
                     'success': True,
                     'target': result['target'],
                     'operation': result.get('operation', 'replace'),
                     'replace': result.get('replace_mode'),
                     'file': file_path
                 }
+                if backup_created:
+                    result_obj['backup'] = backup_created
+                yield result_obj
+
                 # Re-parse for subsequent edits
                 source = modified
                 source_bytes = modified_bytes
@@ -1319,12 +1517,27 @@ if __name__ == '__main__':
     parser.add_argument('--file',
                        help='Source file to modify (write mode)')
 
+    # Write mode options (Phase 5)
+    parser.add_argument('--write', action='store_true',
+                       help='Actually write changes to file (default: dry run)')
+    parser.add_argument('--backup', dest='backup', action='store_true', default=True,
+                       help='Create backup before writing (default: True)')
+    parser.add_argument('--no-backup', dest='backup', action='store_false',
+                       help='Skip backup creation')
+    parser.add_argument('--git-safe', dest='git_safe', action='store_true', default=True,
+                       help='Refuse to modify files with uncommitted changes (default: True)')
+    parser.add_argument('--no-git-safe', dest='git_safe', action='store_false',
+                       help='Allow modifying files with uncommitted changes')
+
     args = parser.parse_args()
 
     if args.mode == 'write':
         config = {
             'file': args.file,
             'lang': args.lang,
+            'write': args.write,
+            'backup': args.backup,
+            'git_safe': args.git_safe,
         }
         for record in writes(config):
             print(json.dumps(record))

@@ -194,19 +194,43 @@ Output (dry-run by default):
   {"operation": "delete", "target": "function:deprecated"}
   ```
 
-#### Phase 4: Advanced Targets 📋 PLANNED
+#### Phase 4: Advanced Targets ✅ DONE
 
-- Line range targeting: `lines:10-20`
-- Node type targeting: `decorator:route`
-- Pattern matching: `method:*.test_*`
-- Import manipulation: `import:os`
+- Line range targeting: `lines:10-20` - Find smallest spanning function/class
+- Decorator targeting: `decorator:route` - Find function by decorator name
+- Pattern matching with wildcards: `function:test_*`, `method:Class.*`
+- Uses fnmatch for shell-style wildcard patterns
 
-#### Phase 5: Write-Back Support 📋 PLANNED
+Input formats:
+```json
+{"target": "lines:10-20", "replace": "body", "code": "..."}
+{"target": "decorator:deprecated", "replace": "body", "code": "..."}
+{"target": "function:test_*", "replace": "body", "code": "..."}
+{"operation": "delete", "target": "decorator:obsolete"}
+```
 
-- Actual file modification (with `--write` flag)
-- Backup creation before modification
-- Pre/post validation hooks
-- Git-aware mode (refuse if uncommitted changes)
+#### Phase 5: Write-Back Support ✅ DONE
+
+- `--write` flag to actually modify files (default: dry-run)
+- `--backup` / `--no-backup` for automatic backup creation (default: backup enabled)
+- `--git-safe` / `--no-git-safe` to check for uncommitted changes (default: git-safe enabled)
+- Backup files use timestamp format: `filename.YYYYMMDD_HHMMSS.bak`
+- Single backup per session even with multiple edits
+
+CLI options:
+```bash
+# Dry run (default) - returns modified code without writing
+jn plugin call treesitter_ --mode write --file mycode.py
+
+# Actually write to file with backup
+jn plugin call treesitter_ --mode write --file mycode.py --write
+
+# Write without backup
+jn plugin call treesitter_ --mode write --file mycode.py --write --no-backup
+
+# Write even if file has uncommitted changes
+jn plugin call treesitter_ --mode write --file mycode.py --write --no-git-safe
+```
 
 ## LCOV Join Integration
 
