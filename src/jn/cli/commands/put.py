@@ -71,9 +71,12 @@ def put(ctx, output_file):
         # Add configuration parameters
         for key, value in resolved.config.items():
             if isinstance(value, bool):
-                # Boolean flags: add only if True (for action="store_true")
                 if value:
+                    # True: pass --flag (works for action="store_true")
                     cmd.append(f"--{key}")
+                else:
+                    # False: pass --flag false (for regular bool params like --header)
+                    cmd.extend([f"--{key}", "false"])
             else:
                 cmd.extend([f"--{key}", str(value)])
 
