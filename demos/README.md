@@ -9,6 +9,7 @@ cd csv-filtering && ./run_examples.sh     # Core ETL operations
 cd http-api && ./run_examples.sh          # Fetch from REST APIs
 cd shell-commands && ./run_examples.sh    # Convert shell output to NDJSON
 cd xlsx-files && ./run_examples.sh        # Work with Excel files
+cd coverage-analysis && ./run_examples.sh # Analyze pytest coverage reports
 ```
 
 ## Available Demos
@@ -17,8 +18,9 @@ cd xlsx-files && ./run_examples.sh        # Work with Excel files
 2. **http-api/** - Fetch from GitHub/REST APIs, transform responses, save locally
 3. **shell-commands/** - Convert ls/ps/df/env output to NDJSON (requires `jc`)
 4. **xlsx-files/** - Read/write Excel files, filter spreadsheets (requires `openpyxl`)
-5. **mcp/** - Model Context Protocol integration (documentation)
-6. **genomoncology/** - Real-world HTTP profile example (requires credentials)
+5. **coverage-analysis/** - Analyze pytest coverage with reusable JQ profiles
+6. **mcp/** - Model Context Protocol integration (documentation)
+7. **genomoncology/** - Real-world HTTP profile example (requires credentials)
 
 ## Key Patterns
 
