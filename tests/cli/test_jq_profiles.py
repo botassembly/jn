@@ -137,3 +137,103 @@ def test_jq_direct_query(invoke):
     assert any(r["name"] == "Alice" for r in records)
     assert any(r["name"] == "Charlie" for r in records)
     assert not any(r["name"] == "Bob" for r in records)
+
+
+def test_jq_native_args_simple(invoke, tmp_path, monkeypatch):
+    """Test JQ profile with native --arg binding."""
+    # Create a JQ profile that uses $variables
+    profile_dir = tmp_path / "profiles" / "jq" / "test"
+    profile_dir.mkdir(parents=True)
+
+    # Create filter that uses $field variable
+    (profile_dir / "filter_by.jq").write_text(
+        """# Filter by field value
+# Parameters: field, value
+select(.[$field] == $value)
+"""
+    )
+
+    monkeypatch.setenv("JN_HOME", str(tmp_path))
+
+    ndjson = """{"name":"Alice","city":"NYC"}
+{"name":"Bob","city":"LA"}
+{"name":"Charlie","city":"NYC"}
+"""
+
+    # Use --native-args to use jq's native --arg binding
+    res = invoke(
+        ["filter", "@test/filter_by?field=city&value=NYC", "--native-args"],
+        input_data=ndjson,
+    )
+
+    assert res.exit_code == 0, f"Command failed: {res.output}"
+
+    lines = [line for line in res.output.strip().split("\n") if line]
+    records = [json.loads(line) for line in lines]
+
+    # Should have Alice and Charlie (city=NYC)
+    assert len(records) == 2
+    names = [r["name"] for r in records]
+    assert "Alice" in names
+    assert "Charlie" in names
+    assert "Bob" not in names
+
+
+def test_jq_native_args_numeric_comparison(invoke, tmp_path, monkeypatch):
+    """Test JQ profile with native args for numeric comparison."""
+    profile_dir = tmp_path / "profiles" / "jq" / "test"
+    profile_dir.mkdir(parents=True)
+
+    # Create filter that uses tonumber for comparison
+    (profile_dir / "above_threshold.jq").write_text(
+        """# Filter items above threshold
+# Parameters: field, threshold
+select(.[$field] > ($threshold | tonumber))
+"""
+    )
+
+    monkeypatch.setenv("JN_HOME", str(tmp_path))
+
+    ndjson = """{"item":"A","revenue":100}
+{"item":"B","revenue":500}
+{"item":"C","revenue":250}
+"""
+
+    res = invoke(
+        ["filter", "@test/above_threshold?field=revenue&threshold=200", "--native-args"],
+        input_data=ndjson,
+    )
+
+    assert res.exit_code == 0, f"Command failed: {res.output}"
+
+    lines = [line for line in res.output.strip().split("\n") if line]
+    records = [json.loads(line) for line in lines]
+
+    # Should have B and C (revenue > 200)
+    assert len(records) == 2
+    items = [r["item"] for r in records]
+    assert "B" in items
+    assert "C" in items
+    assert "A" not in items
+
+
+def test_jq_string_substitution_backward_compat(invoke):
+    """Test that string substitution mode still works (backward compatibility)."""
+    # This tests the default mode (no --native-args)
+    ndjson = """{"status":"active"}
+{"status":"inactive"}
+{"status":"active"}
+"""
+    # Use builtin profile which uses string substitution
+    res = invoke(
+        ["filter", "@builtin/group_count?by=status"],
+        input_data=ndjson,
+    )
+
+    assert res.exit_code == 0, f"Command failed: {res.output}"
+
+    lines = [line for line in res.output.strip().split("\n") if line]
+    records = [json.loads(line) for line in lines]
+
+    # Should group by status
+    assert len(records) == 2

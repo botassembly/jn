@@ -9,14 +9,19 @@ import click
 from ...addressing import parse_address
 from ...context import pass_context
 from ...process_utils import popen_with_validation
-from ...profiles.resolver import ProfileError, resolve_profile
+from ...profiles.resolver import ProfileError, find_profile_path, resolve_profile
 from ..helpers import check_jq_available, check_uv_available
 
 
 @click.command()
 @click.argument("query")
+@click.option(
+    "--native-args/--no-native-args",
+    default=False,
+    help="Use jq native --arg binding instead of string substitution.",
+)
 @pass_context
-def filter(ctx, query):
+def filter(ctx, query, native_args):
     """Filter NDJSON using jq expression or profile.
 
     QUERY can be either:
@@ -25,30 +30,23 @@ def filter(ctx, query):
 
     Supports addressability syntax for profiles: @profile/component[?parameters]
 
+    Two parameter modes for profiles:
+    - Default: String substitution ($param -> "value")
+    - --native-args: Uses jq's native --arg binding (type-safe)
+
     Examples:
         # Direct jq expression
         jn cat data.csv | jn filter '.age > 25'
 
-        # Profile with query string parameters
+        # Profile with string substitution (default)
         jn cat data.csv | jn filter '@analytics/pivot?row=product&col=month'
+
+        # Profile with native jq arguments
+        jn cat data.csv | jn filter '@sales/by_region?region=East' --native-args
     """
     try:
         check_jq_available()
         check_uv_available()
-
-        # If query starts with @, it's a profile or plugin reference
-        if query.startswith("@"):
-            # Parse as address to extract parameters
-            addr = parse_address(query)
-
-            # Resolve profile to get actual jq query
-            try:
-                query = resolve_profile(
-                    addr.base, plugin_name="jq_", params=addr.parameters
-                )
-            except ProfileError as e:
-                click.echo(f"Error: {e}", err=True)
-                sys.exit(1)
 
         # Find jq plugin
         from ...plugins.discovery import get_cached_plugins_with_fallback
@@ -63,6 +61,38 @@ def filter(ctx, query):
 
         plugin = plugins["jq_"]
 
+        # Build command based on mode
+        if query.startswith("@"):
+            # Parse as address to extract parameters
+            addr = parse_address(query)
+
+            if native_args and addr.parameters:
+                # Native argument mode: pass file path and --jq-arg flags
+                profile_path = find_profile_path(addr.base, plugin_name="jq_")
+                if profile_path is None:
+                    click.echo(f"Error: Profile not found: {addr.base}", err=True)
+                    sys.exit(1)
+
+                cmd = ["uv", "run", "--quiet", "--script", plugin.path, str(profile_path)]
+
+                # Add --jq-arg flags for each parameter
+                for key, value in addr.parameters.items():
+                    cmd.extend(["--jq-arg", key, str(value)])
+            else:
+                # String substitution mode (default, backward compatible)
+                try:
+                    resolved_query = resolve_profile(
+                        addr.base, plugin_name="jq_", params=addr.parameters
+                    )
+                except ProfileError as e:
+                    click.echo(f"Error: {e}", err=True)
+                    sys.exit(1)
+
+                cmd = ["uv", "run", "--quiet", "--script", plugin.path, resolved_query]
+        else:
+            # Direct jq expression
+            cmd = ["uv", "run", "--quiet", "--script", plugin.path, query]
+
         # Prepare stdin for subprocess
         try:
             sys.stdin.fileno()
@@ -75,9 +105,9 @@ def filter(ctx, query):
             stdin_source = subprocess.PIPE
             text_mode = isinstance(input_data, str)
 
-        # Execute filter - pass query as argument
+        # Execute filter
         proc = popen_with_validation(
-            ["uv", "run", "--quiet", "--script", plugin.path, query],
+            cmd,
             stdin=stdin_source,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

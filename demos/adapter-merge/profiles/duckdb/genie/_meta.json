@@ -1,0 +1,5 @@
+{
+  "driver": "duckdb",
+  "path": "/home/user/jn/demos/adapter-merge/genie.duckdb",
+  "description": "GENIE clinical data demo"
+}
