@@ -860,6 +860,45 @@ def _reindent(code: str, target_indent: str) -> str:
     return '\n'.join(result)
 
 
+def _compute_edit_range(node, source: str, lang: str, replace_mode: str) -> tuple:
+    """Compute the byte range and target indent for an edit.
+
+    Returns (start_byte, end_byte, target_indent) or raises ValueError.
+    """
+    if replace_mode == 'body':
+        body_node = _get_body_node(node, lang)
+        if not body_node:
+            raise ValueError(f'Could not find body node')
+
+        replace_start = body_node.start_byte
+        replace_end = body_node.end_byte
+
+        # The body node doesn't include leading whitespace.
+        # Find the newline before the body to get the actual indentation.
+        newline_pos = source.rfind('\n', 0, replace_start)
+        if newline_pos >= 0:
+            target_indent = source[newline_pos + 1:replace_start]
+            actual_start = newline_pos + 1
+        else:
+            target_indent = ''
+            actual_start = replace_start
+
+        return actual_start, replace_end, target_indent
+
+    elif replace_mode == 'full':
+        replace_start = node.start_byte
+        replace_end = node.end_byte
+
+        # For full replacement, preserve the indentation of the original
+        indent_char, indent_width = _detect_indent(source, replace_start)
+        target_indent = indent_char * indent_width
+
+        return replace_start, replace_end, target_indent
+
+    else:
+        raise ValueError(f'Invalid replace mode: {replace_mode}')
+
+
 def writes(config: Optional[dict] = None) -> None:
     """Perform surgical code modifications.
 
@@ -869,7 +908,9 @@ def writes(config: Optional[dict] = None) -> None:
         file: Path to source file (required)
         lang: Language override (default: auto-detect)
 
-    Input JSON format (one per line):
+    Input JSON formats:
+
+    Single edit (one per line):
         {
             "target": "function:name" | "method:class.name" | "class:name",
             "replace": "body" | "full",
@@ -877,10 +918,20 @@ def writes(config: Optional[dict] = None) -> None:
             "dry_run": true/false (default: true)
         }
 
+    Multi-edit (batch mode):
+        {
+            "edits": [
+                {"target": "function:foo", "replace": "body", "code": "..."},
+                {"target": "function:bar", "replace": "body", "code": "..."}
+            ],
+            "dry_run": true/false (default: true)
+        }
+
     Output JSON:
         {
             "success": true/false,
-            "target": "...",
+            "target": "..." or "batch",
+            "edits_applied": N (for batch),
             "modified": "full modified source" (if dry_run),
             "error": "error message" (if failed)
         }
@@ -920,6 +971,59 @@ def writes(config: Optional[dict] = None) -> None:
     parser = Parser(language)
     tree = parser.parse(source_bytes)
 
+    # Helper to process a single edit and compute its replacement info
+    def process_single_edit(edit_spec, current_source, current_tree, current_bytes):
+        """Process a single edit specification.
+
+        Returns dict with 'start', 'end', 'replacement', 'target' on success,
+        or dict with 'error', 'target' on failure.
+        """
+        target = edit_spec.get('target')
+        replace_mode = edit_spec.get('replace', 'body')
+        new_code = edit_spec.get('code', '')
+
+        if not target:
+            return {'error': 'No target specified', 'target': None}
+
+        # Find target node
+        try:
+            node, node_type = _find_target_node(current_tree, current_bytes, target, lang)
+        except ValueError as e:
+            return {'error': str(e), 'target': target}
+
+        if not node:
+            return {'error': f'Target not found: {target}', 'target': target}
+
+        # Check for class body replacement
+        if replace_mode == 'body' and node_type == 'class':
+            return {'error': 'Cannot replace body of class (use replace=full)', 'target': target}
+
+        # Compute edit range
+        try:
+            start, end, target_indent = _compute_edit_range(node, current_source, lang, replace_mode)
+        except ValueError as e:
+            return {'error': str(e), 'target': target}
+
+        # Re-indent the new code
+        reindented_code = _reindent(new_code.strip(), target_indent)
+
+        return {
+            'start': start,
+            'end': end,
+            'replacement': reindented_code,
+            'target': target,
+            'replace_mode': replace_mode
+        }
+
+    # Helper to check for syntax errors
+    def has_errors(node):
+        if node.type == 'ERROR':
+            return True
+        for child in node.children:
+            if has_errors(child):
+                return True
+        return False
+
     # Process each edit from stdin
     for line in sys.stdin:
         line = line.strip()
@@ -935,6 +1039,98 @@ def writes(config: Optional[dict] = None) -> None:
             }
             continue
 
+        # Check for batch mode (edits array)
+        if 'edits' in edit:
+            edits_list = edit.get('edits', [])
+            dry_run = edit.get('dry_run', True)
+
+            if not edits_list:
+                yield {
+                    'success': False,
+                    'error': 'Empty edits array'
+                }
+                continue
+
+            # Process all edits to compute their ranges
+            edit_results = []
+            errors = []
+
+            for edit_spec in edits_list:
+                result = process_single_edit(edit_spec, source, tree, source_bytes)
+                if 'error' in result:
+                    errors.append(result)
+                else:
+                    edit_results.append(result)
+
+            if errors:
+                yield {
+                    'success': False,
+                    'target': 'batch',
+                    'error': f'{len(errors)} edit(s) failed',
+                    'errors': errors
+                }
+                continue
+
+            # Sort edits by start position in REVERSE order
+            # This ensures earlier edits don't shift positions of later ones
+            edit_results.sort(key=lambda x: x['start'], reverse=True)
+
+            # Apply all edits
+            modified = source
+            for edit_result in edit_results:
+                modified = (
+                    modified[:edit_result['start']] +
+                    edit_result['replacement'] +
+                    modified[edit_result['end']:]
+                )
+
+            # Validate final result
+            modified_bytes = modified.encode('utf-8')
+            modified_tree = parser.parse(modified_bytes)
+
+            if has_errors(modified_tree.root_node):
+                yield {
+                    'success': False,
+                    'target': 'batch',
+                    'error': 'Modified code has syntax errors',
+                    'edits_applied': len(edit_results),
+                    'modified': modified if dry_run else None
+                }
+                continue
+
+            # Output batch result
+            if dry_run:
+                yield {
+                    'success': True,
+                    'target': 'batch',
+                    'edits_applied': len(edit_results),
+                    'targets': [e['target'] for e in edit_results],
+                    'modified': modified
+                }
+            else:
+                try:
+                    with open(file_path, 'w', encoding='utf-8') as f:
+                        f.write(modified)
+                    yield {
+                        'success': True,
+                        'target': 'batch',
+                        'edits_applied': len(edit_results),
+                        'targets': [e['target'] for e in edit_results],
+                        'file': file_path
+                    }
+                    # Update state for subsequent edits
+                    source = modified
+                    source_bytes = modified_bytes
+                    tree = modified_tree
+                except IOError as e:
+                    yield {
+                        'success': False,
+                        'target': 'batch',
+                        'error': f'Failed to write file: {e}'
+                    }
+            continue
+
+        # Single edit mode (original behavior)
         target = edit.get('target')
         replace_mode = edit.get('replace', 'body')
         new_code = edit.get('code', '')
@@ -1028,15 +1224,6 @@ def writes(config: Optional[dict] = None) -> None:
         # Validate the modified code parses correctly
         modified_bytes = modified.encode('utf-8')
         modified_tree = parser.parse(modified_bytes)
-
-        # Check for parse errors (ERROR nodes)
-        def has_errors(node):
-            if node.type == 'ERROR':
-                return True
-            for child in node.children:
-                if has_errors(child):
-                    return True
-            return False
 
         if has_errors(modified_tree.root_node):
             yield {

@@ -476,3 +476,132 @@ def test_treesitter_write_multiline_body(invoke, tmp_path):
     assert result["success"] is True
     assert "if x < 0:" in result["modified"]
     assert "return result" in result["modified"]
+
+
+def test_treesitter_write_multi_edit_batch(invoke, tmp_path):
+    """Test batch multi-edit mode replacing multiple functions at once."""
+    test_file = tmp_path / "test.py"
+    test_file.write_text('''def foo():
+    return 1
+
+def bar():
+    return 2
+
+def baz():
+    return 3
+''')
+
+    # Multi-edit: replace foo and baz, leave bar unchanged
+    batch_input = json.dumps({
+        "edits": [
+            {"target": "function:foo", "replace": "body", "code": "return 10"},
+            {"target": "function:baz", "replace": "body", "code": "return 30"},
+        ]
+    })
+
+    res = invoke(
+        ["plugin", "call", "treesitter_", "--mode", "write", "--file", str(test_file)],
+        input_data=batch_input,
+    )
+
+    assert res.exit_code == 0
+    result = json.loads(res.output.strip())
+    assert result["success"] is True
+    assert result["target"] == "batch"
+    assert result["edits_applied"] == 2
+    assert "function:foo" in result["targets"]
+    assert "function:baz" in result["targets"]
+
+    # Check modified code
+    modified = result["modified"]
+    assert "return 10" in modified  # foo was changed
+    assert "return 2" in modified   # bar unchanged
+    assert "return 30" in modified  # baz was changed
+
+
+def test_treesitter_write_multi_edit_error_handling(invoke, tmp_path):
+    """Test batch mode fails atomically if any edit fails."""
+    test_file = tmp_path / "test.py"
+    test_file.write_text('''def foo():
+    return 1
+
+def bar():
+    return 2
+''')
+
+    # One valid edit, one invalid (nonexistent function)
+    batch_input = json.dumps({
+        "edits": [
+            {"target": "function:foo", "replace": "body", "code": "return 10"},
+            {"target": "function:nonexistent", "replace": "body", "code": "return 99"},
+        ]
+    })
+
+    res = invoke(
+        ["plugin", "call", "treesitter_", "--mode", "write", "--file", str(test_file)],
+        input_data=batch_input,
+    )
+
+    assert res.exit_code == 0
+    result = json.loads(res.output.strip())
+    assert result["success"] is False
+    assert "failed" in result["error"].lower()
+    assert "errors" in result  # Should have errors array
+
+
+def test_treesitter_write_multi_edit_reverse_order(invoke, tmp_path):
+    """Test that multi-edit applies in reverse order to preserve positions."""
+    test_file = tmp_path / "test.py"
+    # Create file with functions at specific positions
+    test_file.write_text('''def first():
+    pass
+
+def second():
+    pass
+
+def third():
+    pass
+''')
+
+    # Edit all three functions - should work regardless of order in input
+    batch_input = json.dumps({
+        "edits": [
+            {"target": "function:first", "replace": "body", "code": "return 'first_modified'"},
+            {"target": "function:second", "replace": "body", "code": "return 'second_modified'"},
+            {"target": "function:third", "replace": "body", "code": "return 'third_modified'"},
+        ]
+    })
+
+    res = invoke(
+        ["plugin", "call", "treesitter_", "--mode", "write", "--file", str(test_file)],
+        input_data=batch_input,
+    )
+
+    assert res.exit_code == 0
+    result = json.loads(res.output.strip())
+    assert result["success"] is True
+    assert result["edits_applied"] == 3
+
+    # All three should be modified correctly
+    modified = result["modified"]
+    assert "first_modified" in modified
+    assert "second_modified" in modified
+    assert "third_modified" in modified
+
+
+def test_treesitter_write_multi_edit_empty(invoke, tmp_path):
+    """Test that empty edits array returns error."""
+    test_file = tmp_path / "test.py"
+    test_file.write_text("def foo(): pass\n")
+
+    batch_input = json.dumps({"edits": []})
+
+    res = invoke(
+        ["plugin", "call", "treesitter_", "--mode", "write", "--file", str(test_file)],
+        input_data=batch_input,
+    )
+
+    assert res.exit_code == 0
+    result = json.loads(res.output.strip())
+    assert result["success"] is False
+    assert "empty" in result["error"].lower()
