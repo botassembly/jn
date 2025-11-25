@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<company name="TechCorp">
+    <departments>
+        <department id="eng">
+            <name>Engineering</name>
+            <employees>
+                <employee id="101">
+                    <name>Alice Johnson</name>
+                    <role>Senior Engineer</role>
+                    <salary>120000</salary>
+                </employee>
+                <employee id="102">
+                    <name>Bob Smith</name>
+                    <role>Engineer</role>
+                    <salary>95000</salary>
+                </employee>
+            </employees>
+        </department>
+        <department id="sales">
+            <name>Sales</name>
+            <employees>
+                <employee id="201">
+                    <name>Carol White</name>
+                    <role>Sales Manager</role>
+                    <salary>85000</salary>
+                </employee>
+            </employees>
+        </department>
+    </departments>
+</company>

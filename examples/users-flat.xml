@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<users>
+    <user id="1" email="alice@example.com" active="true">
+        <username>alice</username>
+        <age>30</age>
+    </user>
+    <user id="2" email="bob@example.com" active="true">
+        <username>bob</username>
+        <age>25</age>
+    </user>
+    <user id="3" email="carol@example.com" active="false">
+        <username>carol</username>
+        <age>35</age>
+    </user>
+</users>

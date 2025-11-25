@@ -165,10 +165,90 @@ def reads(config: Optional[dict] = None) -> Iterator[dict]:
         yield from flatten_elements(root)
 
 
+def dict_to_element(data: dict, parent: Optional[ET.Element] = None) -> ET.Element:
+    """Convert a dictionary (from tree mode) back to an XML element."""
+    tag = data.get("_tag", "item")
+    elem = ET.Element(tag) if parent is None else ET.SubElement(parent, tag)
+
+    # Add attributes
+    if "_attributes" in data:
+        for key, value in data["_attributes"].items():
+            elem.set(key, str(value))
+
+    # Add text content
+    if "_text" in data:
+        elem.text = data["_text"]
+
+    # Add children
+    if "_children" in data:
+        for child_tag, child_data in data["_children"].items():
+            if isinstance(child_data, list):
+                # Multiple children with same tag
+                for child_item in child_data:
+                    dict_to_element(child_item, elem)
+            elif isinstance(child_data, dict):
+                # Single child
+                dict_to_element(child_data, elem)
+
+    # Handle tail text (rare)
+    if "_tail" in data:
+        elem.tail = data["_tail"]
+
+    return elem
+
+
+def record_to_element(record: dict, root_tag: str = "item") -> ET.Element:
+    """Convert a simple record (key-value pairs) to an XML element."""
+    # Determine the tag name
+    tag = record.get("_tag") or record.get("tag") or root_tag
+    elem = ET.Element(tag)
+
+    # Separate attributes from child elements
+    attributes = record.get("_attributes", {})
+    children = {}
+    text_content = None
+
+    for key, value in record.items():
+        if key in ("_tag", "tag", "_attributes", "_children", "_children_count"):
+            continue
+        elif key == "text" or key == "_text":
+            text_content = value
+        elif key in attributes:
+            # Already an attribute
+            continue
+        else:
+            # Make it a child element
+            children[key] = value
+
+    # Add attributes
+    for attr_key, attr_value in attributes.items():
+        elem.set(attr_key, str(attr_value))
+
+    # Add text content
+    if text_content:
+        elem.text = str(text_content)
+    elif not children:
+        # If no children and no text, check if all non-special keys should be children
+        for key, value in record.items():
+            if not key.startswith("_") and key not in ("tag",):
+                child = ET.SubElement(elem, key)
+                child.text = str(value)
+    else:
+        # Add children
+        for child_key, child_value in children.items():
+            child = ET.SubElement(elem, child_key)
+            child.text = str(child_value)
+
+    return elem
+
+
 def writes(config: Optional[dict] = None) -> None:
     """Read NDJSON from stdin, write XML to stdout."""
     config = config or {}
-    indent = config.get("indent", True)
+    mode = config.get("mode", "records")  # records, tree, or raw
+    root_tag = config.get("root_tag", "root")
+    item_tag = config.get("item_tag", "item")
+    indent_output = config.get("indent", True)
 
     # Collect all records
     records = []
@@ -179,29 +259,47 @@ def writes(config: Optional[dict] = None) -> None:
 
     if not records:
         print("<?xml version=\"1.0\" encoding=\"UTF-8\"?>", flush=True)
-        print("<root/>", flush=True)
+        print(f"<{root_tag}/>", flush=True)
         return
 
-    # Simple XML generation (can be enhanced)
-    print("<?xml version=\"1.0\" encoding=\"UTF-8\"?>", flush=True)
-    print("<root>", flush=True)
-
-    for record in records:
-        tag = record.get("tag", "item")
-        attrs = record.get("_attributes", {})
-        text = record.get("text", "")
-
-        # Build attributes string
-        attrs_str = " ".join(f'{k}="{v}"' for k, v in attrs.items())
-        if attrs_str:
-            attrs_str = " " + attrs_str
-
-        if text:
-            print(f"  <{tag}{attrs_str}>{text}</{tag}>", flush=True)
+    if mode == "tree":
+        # Single record represents entire tree structure
+        if len(records) == 1:
+            root = dict_to_element(records[0])
         else:
-            print(f"  <{tag}{attrs_str}/>", flush=True)
+            # Multiple records: wrap in root
+            root = ET.Element(root_tag)
+            for record in records:
+                dict_to_element(record, root)
+    elif mode == "raw":
+        # Records already have XML structure info
+        root = ET.Element(root_tag)
+        for record in records:
+            if "_tag" in record or "tag" in record:
+                elem = record_to_element(record, item_tag)
+                root.append(elem)
+            else:
+                # Simple record: convert to child elements
+                item = ET.SubElement(root, item_tag)
+                for key, value in record.items():
+                    if not key.startswith("_"):
+                        child = ET.SubElement(item, key)
+                        child.text = str(value)
+    else:
+        # records mode (default): each record becomes an element
+        root = ET.Element(root_tag)
+        for record in records:
+            elem = record_to_element(record, item_tag)
+            root.append(elem)
 
-    print("</root>", flush=True)
+    # Pretty print
+    if indent_output:
+        ET.indent(root, space="  ")
+
+    # Output with XML declaration
+    print("<?xml version=\"1.0\" encoding=\"UTF-8\"?>", flush=True)
+    xml_string = ET.tostring(root, encoding="unicode")
+    print(xml_string, flush=True)
 
 
 if __name__ == "__main__":
@@ -215,9 +313,17 @@ if __name__ == "__main__":
         "--parse-mode",
         choices=["flatten", "tree", "xmltodict", "coverage"],
         default="flatten",
-        help="XML parsing mode"
+        help="XML parsing mode (for read mode)"
     )
-    parser.add_argument("--indent", action="store_true", default=True)
+    parser.add_argument(
+        "--write-mode",
+        choices=["records", "tree", "raw"],
+        default="records",
+        help="XML write mode: records (each NDJSON->element), tree (preserve structure), raw (with tag info)"
+    )
+    parser.add_argument("--root-tag", default="root", help="Root element tag name")
+    parser.add_argument("--item-tag", default="item", help="Item element tag name")
+    parser.add_argument("--indent", action="store_true", default=True, help="Pretty print XML")
 
     args = parser.parse_args()
 
@@ -230,5 +336,8 @@ if __name__ == "__main__":
         for record in reads(config):
             print(json.dumps(record), flush=True)
     else:
+        config["mode"] = args.write_mode
+        config["root_tag"] = args.root_tag
+        config["item_tag"] = args.item_tag
         config["indent"] = args.indent
         writes(config)
