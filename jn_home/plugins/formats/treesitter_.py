@@ -910,7 +910,7 @@ def writes(config: Optional[dict] = None) -> None:
 
     Input JSON formats:
 
-    Single edit (one per line):
+    Single replacement (one per line):
         {
             "target": "function:name" | "method:class.name" | "class:name",
             "replace": "body" | "full",
@@ -918,11 +918,27 @@ def writes(config: Optional[dict] = None) -> None:
             "dry_run": true/false (default: true)
         }
 
+    Insert operation:
+        {
+            "operation": "insert",
+            "after": "function:name",  (or "before": "function:name")
+            "code": "def new_func(): pass",
+            "dry_run": true/false
+        }
+
+    Delete operation:
+        {
+            "operation": "delete",
+            "target": "function:name",
+            "dry_run": true/false
+        }
+
     Multi-edit (batch mode):
         {
             "edits": [
                 {"target": "function:foo", "replace": "body", "code": "..."},
-                {"target": "function:bar", "replace": "body", "code": "..."}
+                {"operation": "delete", "target": "function:bar"},
+                {"operation": "insert", "after": "function:foo", "code": "..."}
             ],
             "dry_run": true/false (default: true)
         }
@@ -931,6 +947,7 @@ def writes(config: Optional[dict] = None) -> None:
         {
             "success": true/false,
             "target": "..." or "batch",
+            "operation": "replace" | "insert" | "delete",
             "edits_applied": N (for batch),
             "modified": "full modified source" (if dry_run),
             "error": "error message" (if failed)
@@ -975,12 +992,98 @@ def writes(config: Optional[dict] = None) -> None:
     def process_single_edit(edit_spec, current_source, current_tree, current_bytes):
         """Process a single edit specification.
 
-        Returns dict with 'start', 'end', 'replacement', 'target' on success,
+        Returns dict with 'start', 'end', 'replacement', 'target', 'operation' on success,
         or dict with 'error', 'target' on failure.
+
+        Supports operations: replace (default), insert, delete
         """
+        operation = edit_spec.get('operation', 'replace')
+        new_code = edit_spec.get('code', '')
+
+        # Handle DELETE operation
+        if operation == 'delete':
+            target = edit_spec.get('target')
+            if not target:
+                return {'error': 'No target specified for delete', 'target': None}
+
+            try:
+                node, node_type = _find_target_node(current_tree, current_bytes, target, lang)
+            except ValueError as e:
+                return {'error': str(e), 'target': target}
+
+            if not node:
+                return {'error': f'Target not found: {target}', 'target': target}
+
+            # Delete the entire node, including any preceding newlines/whitespace
+            start = node.start_byte
+            end = node.end_byte
+
+            # Try to include the newline after the node for cleaner deletion
+            if end < len(current_source) and current_source[end] == '\n':
+                end += 1
+
+            return {
+                'start': start,
+                'end': end,
+                'replacement': '',  # Empty replacement = deletion
+                'target': target,
+                'operation': 'delete'
+            }
+
+        # Handle INSERT operation
+        if operation == 'insert':
+            after_target = edit_spec.get('after')
+            before_target = edit_spec.get('before')
+
+            if not after_target and not before_target:
+                return {'error': 'Insert requires "after" or "before" target', 'target': None}
+
+            if after_target and before_target:
+                return {'error': 'Specify either "after" or "before", not both', 'target': None}
+
+            target = after_target or before_target
+            is_after = after_target is not None
+
+            try:
+                node, node_type = _find_target_node(current_tree, current_bytes, target, lang)
+            except ValueError as e:
+                return {'error': str(e), 'target': target}
+
+            if not node:
+                return {'error': f'Target not found: {target}', 'target': target}
+
+            # Determine insertion point and indentation
+            if is_after:
+                # Insert after the target node
+                insert_pos = node.end_byte
+                # Find the indentation of the target node
+                indent_char, indent_width = _detect_indent(current_source, node.start_byte)
+                target_indent = indent_char * indent_width
+                # Add newlines before and after for proper spacing
+                prefix = '\n\n'
+                suffix = ''
+            else:
+                # Insert before the target node
+                insert_pos = node.start_byte
+                indent_char, indent_width = _detect_indent(current_source, node.start_byte)
+                target_indent = indent_char * indent_width
+                prefix = ''
+                suffix = '\n\n'
+
+            reindented_code = _reindent(new_code.strip(), target_indent)
+
+            return {
+                'start': insert_pos,
+                'end': insert_pos,  # No deletion for insert
+                'replacement': prefix + reindented_code + suffix,
+                'target': target,
+                'operation': 'insert',
+                'position': 'after' if is_after else 'before'
+            }
+
+        # Handle REPLACE operation (default)
         target = edit_spec.get('target')
         replace_mode = edit_spec.get('replace', 'body')
-        new_code = edit_spec.get('code', '')
 
         if not target:
             return {'error': 'No target specified', 'target': None}
@@ -1012,6 +1115,7 @@ def writes(config: Optional[dict] = None) -> None:
             'end': end,
             'replacement': reindented_code,
             'target': target,
+            'operation': 'replace',
             'replace_mode': replace_mode
         }
 
@@ -1130,96 +1234,26 @@ def writes(config: Optional[dict] = None) -> None:
                     }
             continue
 
-        # Single edit mode (original behavior)
-        target = edit.get('target')
-        replace_mode = edit.get('replace', 'body')
-        new_code = edit.get('code', '')
+        # Single edit mode - use the helper function
         dry_run = edit.get('dry_run', True)
 
-        if not target:
+        # Process the edit
+        result = process_single_edit(edit, source, tree, source_bytes)
+
+        if 'error' in result:
             yield {
                 'success': False,
-                'error': 'No target specified'
+                'target': result.get('target'),
+                'error': result['error']
             }
             continue
 
-        # Find target node
-        try:
-            node, node_type = _find_target_node(tree, source_bytes, target, lang)
-        except ValueError as e:
-            yield {
-                'success': False,
-                'target': target,
-                'error': str(e)
-            }
-            continue
-
-        if not node:
-            yield {
-                'success': False,
-                'target': target,
-                'error': f'Target not found: {target}'
-            }
-            continue
-
-        # Determine what to replace
-        if replace_mode == 'body':
-            if node_type == 'class':
-                yield {
-                    'success': False,
-                    'target': target,
-                    'error': 'Cannot replace body of class (use replace=full)'
-                }
-                continue
-
-            body_node = _get_body_node(node, lang)
-            if not body_node:
-                yield {
-                    'success': False,
-                    'target': target,
-                    'error': f'Could not find body in {target}'
-                }
-                continue
-
-            replace_start = body_node.start_byte
-            replace_end = body_node.end_byte
-
-            # The body node doesn't include leading whitespace.
-            # Find the newline before the body to get the actual indentation.
-            newline_pos = source.rfind('\n', 0, replace_start)
-            if newline_pos >= 0:
-                # Everything between newline+1 and body start is the indent
-                target_indent = source[newline_pos + 1:replace_start]
-                # Start replacing from after the newline (include the indent in replacement)
-                actual_replace_start = newline_pos + 1
-            else:
-                # No newline found, body is at start of file
-                target_indent = ''
-                actual_replace_start = replace_start
-
-            reindented_code = _reindent(new_code.strip(), target_indent)
-
-            # Build the new source (replace from after the newline to include indent)
-            modified = source[:actual_replace_start] + reindented_code + source[replace_end:]
-
-        elif replace_mode == 'full':
-            replace_start = node.start_byte
-            replace_end = node.end_byte
-
-            # For full replacement, preserve the indentation of the original
-            indent_char, indent_width = _detect_indent(source, replace_start)
-            target_indent = indent_char * indent_width
-
-            reindented_code = _reindent(new_code.strip(), target_indent)
-            modified = source[:replace_start] + reindented_code + source[replace_end:]
-
-        else:
-            yield {
-                'success': False,
-                'target': target,
-                'error': f'Invalid replace mode: {replace_mode}. Use "body" or "full".'
-            }
-            continue
+        # Apply the edit
+        modified = (
+            source[:result['start']] +
+            result['replacement'] +
+            source[result['end']:]
+        )
 
         # Validate the modified code parses correctly
         modified_bytes = modified.encode('utf-8')
@@ -1228,7 +1262,8 @@ def writes(config: Optional[dict] = None) -> None:
         if has_errors(modified_tree.root_node):
             yield {
                 'success': False,
-                'target': target,
+                'target': result['target'],
+                'operation': result.get('operation', 'replace'),
                 'error': 'Modified code has syntax errors',
                 'modified': modified if dry_run else None
             }
@@ -1238,8 +1273,9 @@ def writes(config: Optional[dict] = None) -> None:
         if dry_run:
             yield {
                 'success': True,
-                'target': target,
-                'replace': replace_mode,
+                'target': result['target'],
+                'operation': result.get('operation', 'replace'),
+                'replace': result.get('replace_mode'),
                 'modified': modified
             }
         else:
@@ -1249,8 +1285,9 @@ def writes(config: Optional[dict] = None) -> None:
                     f.write(modified)
                 yield {
                     'success': True,
-                    'target': target,
-                    'replace': replace_mode,
+                    'target': result['target'],
+                    'operation': result.get('operation', 'replace'),
+                    'replace': result.get('replace_mode'),
                     'file': file_path
                 }
                 # Re-parse for subsequent edits
@@ -1260,7 +1297,7 @@ def writes(config: Optional[dict] = None) -> None:
             except IOError as e:
                 yield {
                     'success': False,
-                    'target': target,
+                    'target': result['target'],
                     'error': f'Failed to write file: {e}'
                 }
 

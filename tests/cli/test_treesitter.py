@@ -605,3 +605,169 @@ def test_treesitter_write_multi_edit_empty(invoke, tmp_path):
     result = json.loads(res.output.strip())
     assert result["success"] is False
     assert "empty" in result["error"].lower()
+
+
+def test_treesitter_write_delete_function(invoke, tmp_path):
+    """Test deleting a function."""
+    test_file = tmp_path / "test.py"
+    test_file.write_text('''def keep_this():
+    return 1
+
+def delete_me():
+    return 2
+
+def also_keep():
+    return 3
+''')
+
+    res = invoke(
+        ["plugin", "call", "treesitter_", "--mode", "write", "--file", str(test_file)],
+        input_data='{"operation": "delete", "target": "function:delete_me"}',
+    )
+
+    assert res.exit_code == 0
+    result = json.loads(res.output.strip())
+    assert result["success"] is True
+    assert result["operation"] == "delete"
+
+    # Check the function was removed
+    modified = result["modified"]
+    assert "def keep_this" in modified
+    assert "def delete_me" not in modified
+    assert "def also_keep" in modified
+
+
+def test_treesitter_write_insert_after(invoke, tmp_path):
+    """Test inserting a function after another function."""
+    test_file = tmp_path / "test.py"
+    test_file.write_text('''def first():
+    return 1
+
+def third():
+    return 3
+''')
+
+    new_func = "def second():\\n    return 2"
+    res = invoke(
+        ["plugin", "call", "treesitter_", "--mode", "write", "--file", str(test_file)],
+        input_data=f'{{"operation": "insert", "after": "function:first", "code": "{new_func}"}}',
+    )
+
+    assert res.exit_code == 0
+    result = json.loads(res.output.strip())
+    assert result["success"] is True
+    assert result["operation"] == "insert"
+
+    # Check the function was inserted
+    modified = result["modified"]
+    assert "def first" in modified
+    assert "def second" in modified
+    assert "def third" in modified
+
+    # Check order: first should come before second
+    first_pos = modified.find("def first")
+    second_pos = modified.find("def second")
+    third_pos = modified.find("def third")
+    assert first_pos < second_pos < third_pos
+
+
+def test_treesitter_write_insert_before(invoke, tmp_path):
+    """Test inserting a function before another function."""
+    test_file = tmp_path / "test.py"
+    test_file.write_text('''def second():
+    return 2
+
+def third():
+    return 3
+''')
+
+    new_func = "def first():\\n    return 1"
+    res = invoke(
+        ["plugin", "call", "treesitter_", "--mode", "write", "--file", str(test_file)],
+        input_data=f'{{"operation": "insert", "before": "function:second", "code": "{new_func}"}}',
+    )
+
+    assert res.exit_code == 0
+    result = json.loads(res.output.strip())
+    assert result["success"] is True
+    assert result["operation"] == "insert"
+
+    # Check the function was inserted
+    modified = result["modified"]
+    assert "def first" in modified
+    assert "def second" in modified
+    assert "def third" in modified
+
+    # Check order: first should come before second
+    first_pos = modified.find("def first")
+    second_pos = modified.find("def second")
+    assert first_pos < second_pos
+
+
+def test_treesitter_write_batch_with_delete(invoke, tmp_path):
+    """Test batch mode with mixed operations including delete."""
+    test_file = tmp_path / "test.py"
+    test_file.write_text('''def foo():
+    return 1
+
+def bar():
+    return 2
+
+def baz():
+    return 3
+''')
+
+    batch_input = json.dumps({
+        "edits": [
+            {"target": "function:foo", "replace": "body", "code": "return 10"},
+            {"operation": "delete", "target": "function:bar"},
+        ]
+    })
+
+    res = invoke(
+        ["plugin", "call", "treesitter_", "--mode", "write", "--file", str(test_file)],
+        input_data=batch_input,
+    )
+
+    assert res.exit_code == 0
+    result = json.loads(res.output.strip())
+    assert result["success"] is True
+    assert result["edits_applied"] == 2
+
+    # Check modifications
+    modified = result["modified"]
+    assert "return 10" in modified  # foo was modified
+    assert "def bar" not in modified  # bar was deleted
+    assert "def baz" in modified  # baz unchanged
+
+
+def test_treesitter_write_delete_nonexistent(invoke, tmp_path):
+    """Test deleting a nonexistent function returns error."""
+    test_file = tmp_path / "test.py"
+    test_file.write_text("def foo(): pass\n")
+
+    res = invoke(
+        ["plugin", "call", "treesitter_", "--mode", "write", "--file", str(test_file)],
+        input_data='{"operation": "delete", "target": "function:nonexistent"}',
+    )
+
+    assert res.exit_code == 0
+    result = json.loads(res.output.strip())
+    assert result["success"] is False
+    assert "not found" in result["error"].lower()
+
+
+def test_treesitter_write_insert_requires_position(invoke, tmp_path):
+    """Test insert without after/before returns error."""
+    test_file = tmp_path / "test.py"
+    test_file.write_text("def foo(): pass\n")
+
+    res = invoke(
+        ["plugin", "call", "treesitter_", "--mode", "write", "--file", str(test_file)],
+        input_data='{"operation": "insert", "code": "def bar(): pass"}',
+    )
+
+    assert res.exit_code == 0
+    result = json.loads(res.output.strip())
+    assert result["success"] is False
+    assert "after" in result["error"].lower() or "before" in result["error"].lower()

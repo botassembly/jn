@@ -169,7 +169,7 @@ Output (dry-run by default):
 - Dry-run output (returns modified code without writing)
 - Syntax validation of resulting code
 
-#### Phase 2: Multi-Edit Support 🚧 NEXT
+#### Phase 2: Multi-Edit Support ✅ DONE
 
 - Multiple replacements in single pass
 - Ordered by byte position (reverse order to preserve positions)
@@ -182,14 +182,15 @@ Output (dry-run by default):
   ]}
   ```
 
-#### Phase 3: Insert/Delete Operations 📋 PLANNED
+#### Phase 3: Insert/Delete Operations ✅ DONE
 
-- Insert new function/method at position
+- Insert new function/method at position (after or before target)
 - Delete function/class entirely
-- Add/remove decorators
-- Input format:
+- Works in both single and batch modes
+- Input formats:
   ```json
   {"operation": "insert", "after": "function:foo", "code": "def new_func(): pass"}
+  {"operation": "insert", "before": "function:bar", "code": "def first(): pass"}
   {"operation": "delete", "target": "function:deprecated"}
   ```
 
