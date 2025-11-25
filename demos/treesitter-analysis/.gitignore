@@ -1,0 +1,4 @@
+# Generated output files
+*.json
+modified_*.py
+working_copy.py
