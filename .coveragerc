@@ -9,3 +9,15 @@ show_missing = True
 skip_covered = False
 exclude_lines =
     ^if __name__ == .__main__.:$
+
+[html]
+directory = coverage-html
+
+[xml]
+output = coverage.xml
+
+[json]
+output = coverage.json
+
+[lcov]
+output = coverage.lcov

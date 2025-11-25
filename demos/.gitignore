@@ -17,3 +17,14 @@ shell-commands/*.json
 xlsx-files/*.xlsx
 xlsx-files/*.csv
 xlsx-files/*.json
+
+# Coverage analysis demo outputs
+coverage-analysis/uncovered.json
+coverage-analysis/low_coverage.json
+coverage-analysis/coverage_ranges.json
+coverage-analysis/poor_branches.json
+coverage-analysis/gaps.json
+coverage-analysis/summary.json
+coverage-analysis/hotspots.json
+coverage-analysis/coverage_report.md
+coverage-analysis/*.csv

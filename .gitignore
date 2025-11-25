@@ -10,7 +10,10 @@ __pycache__/
 *.pyo
 *.DS_Store
 coverage.xml
+coverage.json
+coverage.lcov
 htmlcov/
+coverage-html/
 .coverage
 jn.json
 

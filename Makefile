@@ -27,6 +27,8 @@ coverage:
 	find . -maxdepth 1 -name ".coverage.*" -delete || true
 	uv run coverage html -q
 	uv run coverage xml -q
+	uv run coverage json -q
+	uv run coverage lcov -q
 	# Single, authoritative coverage report (core only per .coveragerc)
 	uv run coverage report --fail-under=70
 
@@ -37,6 +39,9 @@ clean:
 	rm -rf src/*.egg-info/
 	rm -rf .coverage
 	rm -rf htmlcov/
+	rm -rf coverage-html/
+	rm -rf coverage.xml
+	rm -rf coverage.json
 	rm -rf .pytest_cache/
 	rm -rf .mypy_cache/
 	rm -rf .ruff_cache/
