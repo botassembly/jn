@@ -63,10 +63,11 @@ def setup_duckdb_profile():
     profile_dir = DEMO_DIR / "profiles" / "duckdb" / "genie"
     profile_dir.mkdir(parents=True, exist_ok=True)
 
-    # Create meta file
+    # Create meta file with relative path (relative to _meta.json location)
+    # From profiles/duckdb/genie/ back to demos/adapter-merge/ is ../../../
     meta = {
         "driver": "duckdb",
-        "path": str(DEMO_DIR / "genie.duckdb"),
+        "path": "../../../genie.duckdb",
         "description": "GENIE clinical data demo",
     }
     (profile_dir / "_meta.json").write_text(json.dumps(meta, indent=2))
