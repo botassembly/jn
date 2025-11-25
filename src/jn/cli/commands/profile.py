@@ -5,9 +5,24 @@ import sys
 
 import click
 
-from ...context import pass_context
-from ...plugins.discovery import get_cached_plugins_with_fallback
+from ...context import get_builtin_plugins_dir, pass_context
+from ...plugins.discovery import (
+    discover_plugins,
+    get_cached_plugins_with_fallback,
+)
 from ...profiles.service import get_profile_info, search_profiles
+
+
+def _get_builtin_plugins():
+    """Get builtin plugins for fallback during profile discovery."""
+    builtin_dir = get_builtin_plugins_dir()
+    if builtin_dir and builtin_dir.exists():
+        builtin_plugins = discover_plugins(builtin_dir)
+        # Resolve paths to absolute
+        for meta in builtin_plugins.values():
+            meta.path = str(builtin_dir / meta.path)
+        return builtin_plugins
+    return None
 
 
 def _get_profile_types(home_dir=None, plugin_dir=None, cache_path=None):
@@ -97,12 +112,14 @@ def list_cmd(ctx, query, output_format, type_filter):
     plugins = get_cached_plugins_with_fallback(
         ctx.plugin_dir, ctx.cache_path, fallback_to_builtin=True
     )
+    builtin_plugins = _get_builtin_plugins()
 
     profiles = search_profiles(
         query=query,
         type_filter=type_filter,
         discovered_plugins=plugins,
         home_dir=ctx.home,
+        builtin_plugins=builtin_plugins,
     )
 
     if not profiles:
@@ -183,16 +200,22 @@ def info(ctx, reference, output_format):
     plugins = get_cached_plugins_with_fallback(
         ctx.plugin_dir, ctx.cache_path, fallback_to_builtin=True
     )
+    builtin_plugins = _get_builtin_plugins()
 
     profile = get_profile_info(
-        reference, discovered_plugins=plugins, home_dir=ctx.home
+        reference,
+        discovered_plugins=plugins,
+        home_dir=ctx.home,
+        builtin_plugins=builtin_plugins,
     )
 
     if profile is None:
         click.echo(f"Error: Profile '{reference}' not found", err=True)
         click.echo("\nAvailable profiles:", err=True)
         all_profiles = search_profiles(
-            discovered_plugins=plugins, home_dir=ctx.home
+            discovered_plugins=plugins,
+            home_dir=ctx.home,
+            builtin_plugins=builtin_plugins,
         )
         for p in sorted(all_profiles, key=lambda x: x.reference)[:10]:
             click.echo(f"  {p.reference}", err=True)
@@ -283,9 +306,13 @@ def tree(ctx, type_filter):
     plugins = get_cached_plugins_with_fallback(
         ctx.plugin_dir, ctx.cache_path, fallback_to_builtin=True
     )
+    builtin_plugins = _get_builtin_plugins()
 
     profiles = search_profiles(
-        type_filter=type_filter, discovered_plugins=plugins, home_dir=ctx.home
+        type_filter=type_filter,
+        discovered_plugins=plugins,
+        home_dir=ctx.home,
+        builtin_plugins=builtin_plugins,
     )
 
     if not profiles:

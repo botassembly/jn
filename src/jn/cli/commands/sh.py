@@ -18,7 +18,15 @@ from ..helpers import build_subprocess_env_for_coverage, check_uv_available
 
 def _build_command(stage, command_str) -> list:
     """Build command from execution stage."""
-    cmd = ["uv", "run", "--script", stage.plugin_path, "--mode", stage.mode]
+    cmd = [
+        "uv",
+        "run",
+        "--quiet",
+        "--script",
+        stage.plugin_path,
+        "--mode",
+        stage.mode,
+    ]
 
     # Add full command string (not just URL, so plugin gets full context)
     cmd.append(command_str)
