@@ -1,4 +1,4 @@
-#!/usr/bin/env -S uv run --quiet --script
+#!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
@@ -1011,7 +1011,7 @@ def _check_git_status(file_path: str) -> Optional[str]:
 
     # Check if file is in a git repo
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # jn:ignore[subprocess_capture_output]: git status check, not streaming
             ['git', 'rev-parse', '--git-dir'],
             cwd=file_abs.parent,
             capture_output=True,
@@ -1023,7 +1023,7 @@ def _check_git_status(file_path: str) -> Optional[str]:
         return None  # git not installed
 
     # Check if file has uncommitted changes
-    result = subprocess.run(
+    result = subprocess.run(  # jn:ignore[subprocess_capture_output]: git status check, not streaming
         ['git', 'status', '--porcelain', str(file_abs)],
         cwd=file_abs.parent,
         capture_output=True,
@@ -1540,7 +1540,7 @@ if __name__ == '__main__':
             'git_safe': args.git_safe,
         }
         for record in writes(config):
-            print(json.dumps(record))
+            print(json.dumps(record), flush=True)
     else:
         config = {
             'mode': args.output_mode,
@@ -1548,4 +1548,4 @@ if __name__ == '__main__':
             'filename': args.filename,
         }
         for record in reads(config):
-            print(json.dumps(record))
+            print(json.dumps(record), flush=True)
