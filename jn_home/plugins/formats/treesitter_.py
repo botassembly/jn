@@ -690,33 +690,422 @@ def reads(config: Optional[dict] = None) -> Iterator[dict]:
     yield from extractor(tree, source_bytes, lang, filename)
 
 
+def _find_target_node(tree, source_bytes: bytes, target: str, lang: str):
+    """Find a node by target specification.
+
+    Target formats:
+        function:name       - Find function by name
+        method:class.name   - Find method by class and name
+        class:name          - Find class by name
+
+    Returns tuple of (node, node_type) or (None, None) if not found.
+    """
+    func_types = {
+        'python': ['function_definition'],
+        'javascript': ['function_declaration', 'function_expression', 'arrow_function', 'method_definition'],
+        'typescript': ['function_declaration', 'function_expression', 'arrow_function', 'method_definition'],
+        'tsx': ['function_declaration', 'function_expression', 'arrow_function', 'method_definition'],
+        'rust': ['function_item'],
+        'go': ['function_declaration', 'method_declaration'],
+        'java': ['method_declaration', 'constructor_declaration'],
+        'c': ['function_definition'],
+        'cpp': ['function_definition'],
+        'ruby': ['method', 'singleton_method'],
+    }
+
+    class_types = {
+        'python': ['class_definition'],
+        'javascript': ['class_declaration', 'class'],
+        'typescript': ['class_declaration', 'class', 'interface_declaration'],
+        'tsx': ['class_declaration', 'class', 'interface_declaration'],
+        'rust': ['struct_item', 'enum_item', 'impl_item', 'trait_item'],
+        'go': ['type_declaration'],
+        'java': ['class_declaration', 'interface_declaration', 'enum_declaration'],
+        'c': ['struct_specifier', 'enum_specifier'],
+        'cpp': ['class_specifier', 'struct_specifier'],
+        'ruby': ['class', 'module'],
+    }
+
+    # Parse target specification
+    if ':' not in target:
+        raise ValueError(f"Invalid target format: {target}. Expected 'function:name', 'method:class.name', or 'class:name'")
+
+    target_type, target_name = target.split(':', 1)
+
+    # For method targets, parse class.method
+    target_class = None
+    if target_type == 'method' and '.' in target_name:
+        target_class, target_name = target_name.rsplit('.', 1)
+
+    def search(node, current_class=None):
+        """Recursively search for target node."""
+        node_type = node.type
+
+        # Check for class definitions
+        if node_type in class_types.get(lang, []):
+            class_name = _extract_class_name(node, source_bytes, lang)
+
+            if target_type == 'class' and class_name == target_name:
+                return node, 'class'
+
+            # Recurse into class with class context
+            for child in node.children:
+                result = search(child, current_class=class_name)
+                if result[0]:
+                    return result
+            return None, None
+
+        # Check for function definitions
+        if node_type in func_types.get(lang, []):
+            func_name = _extract_function_name(node, source_bytes, lang)
+
+            if target_type == 'function' and func_name == target_name and current_class is None:
+                return node, 'function'
+
+            if target_type == 'method' and func_name == target_name:
+                if target_class is None or current_class == target_class:
+                    return node, 'method'
+
+        # Recurse into children
+        for child in node.children:
+            result = search(child, current_class)
+            if result[0]:
+                return result
+
+        return None, None
+
+    return search(tree.root_node)
+
+
+def _get_body_node(node, lang: str):
+    """Get the body node of a function/method."""
+    body_types = {
+        'python': 'block',
+        'javascript': 'statement_block',
+        'typescript': 'statement_block',
+        'tsx': 'statement_block',
+        'rust': 'block',
+        'go': 'block',
+        'java': 'block',
+        'c': 'compound_statement',
+        'cpp': 'compound_statement',
+        'ruby': 'body_statement',
+    }
+
+    body_type = body_types.get(lang, 'block')
+    for child in node.children:
+        if child.type == body_type:
+            return child
+    return None
+
+
+def _detect_indent(source: str, position: int) -> tuple[str, int]:
+    """Detect indentation at a position in the source.
+
+    Returns (indent_char, indent_width) where indent_char is ' ' or '\t'.
+    """
+    # Find the start of the line containing position
+    line_start = source.rfind('\n', 0, position) + 1
+
+    # Count leading whitespace
+    indent = ''
+    for ch in source[line_start:position]:
+        if ch in ' \t':
+            indent += ch
+        else:
+            break
+
+    # Detect indent style
+    if '\t' in indent:
+        return '\t', indent.count('\t')
+    else:
+        # Assume 4-space indent if we can't detect
+        width = len(indent)
+        return ' ', width
+
+
+def _reindent(code: str, target_indent: str) -> str:
+    """Re-indent code to match target indentation.
+
+    Assumes the first line of code has no indentation.
+    """
+    lines = code.split('\n')
+    if not lines:
+        return code
+
+    # Detect the base indent of the input code
+    base_indent = ''
+    for line in lines:
+        if line.strip():
+            for ch in line:
+                if ch in ' \t':
+                    base_indent += ch
+                else:
+                    break
+            break
+
+    # Re-indent each line
+    result = []
+    for line in lines:
+        if not line.strip():
+            result.append('')
+        elif line.startswith(base_indent):
+            result.append(target_indent + line[len(base_indent):])
+        else:
+            result.append(target_indent + line.lstrip())
+
+    return '\n'.join(result)
+
+
+def writes(config: Optional[dict] = None) -> None:
+    """Perform surgical code modifications.
+
+    Reads JSON edit specifications from stdin, applies them, outputs result.
+
+    Config:
+        file: Path to source file (required)
+        lang: Language override (default: auto-detect)
+
+    Input JSON format (one per line):
+        {
+            "target": "function:name" | "method:class.name" | "class:name",
+            "replace": "body" | "full",
+            "code": "new code here",
+            "dry_run": true/false (default: true)
+        }
+
+    Output JSON:
+        {
+            "success": true/false,
+            "target": "...",
+            "modified": "full modified source" (if dry_run),
+            "error": "error message" (if failed)
+        }
+    """
+    from tree_sitter import Parser
+
+    config = config or {}
+    file_path = config.get('file')
+    lang = config.get('lang')
+
+    if not file_path:
+        yield {
+            'success': False,
+            'error': 'No file specified. Use --file option.'
+        }
+        return
+
+    # Read source file
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            source = f.read()
+    except FileNotFoundError:
+        yield {
+            'success': False,
+            'error': f'File not found: {file_path}'
+        }
+        return
+
+    source_bytes = source.encode('utf-8')
+
+    # Auto-detect language
+    if not lang:
+        lang = _detect_language(file_path)
+
+    # Parse with tree-sitter
+    language = _get_language(lang)
+    parser = Parser(language)
+    tree = parser.parse(source_bytes)
+
+    # Process each edit from stdin
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+
+        try:
+            edit = json.loads(line)
+        except json.JSONDecodeError as e:
+            yield {
+                'success': False,
+                'error': f'Invalid JSON: {e}'
+            }
+            continue
+
+        target = edit.get('target')
+        replace_mode = edit.get('replace', 'body')
+        new_code = edit.get('code', '')
+        dry_run = edit.get('dry_run', True)
+
+        if not target:
+            yield {
+                'success': False,
+                'error': 'No target specified'
+            }
+            continue
+
+        # Find target node
+        try:
+            node, node_type = _find_target_node(tree, source_bytes, target, lang)
+        except ValueError as e:
+            yield {
+                'success': False,
+                'target': target,
+                'error': str(e)
+            }
+            continue
+
+        if not node:
+            yield {
+                'success': False,
+                'target': target,
+                'error': f'Target not found: {target}'
+            }
+            continue
+
+        # Determine what to replace
+        if replace_mode == 'body':
+            if node_type == 'class':
+                yield {
+                    'success': False,
+                    'target': target,
+                    'error': 'Cannot replace body of class (use replace=full)'
+                }
+                continue
+
+            body_node = _get_body_node(node, lang)
+            if not body_node:
+                yield {
+                    'success': False,
+                    'target': target,
+                    'error': f'Could not find body in {target}'
+                }
+                continue
+
+            replace_start = body_node.start_byte
+            replace_end = body_node.end_byte
+
+            # The body node doesn't include leading whitespace.
+            # Find the newline before the body to get the actual indentation.
+            newline_pos = source.rfind('\n', 0, replace_start)
+            if newline_pos >= 0:
+                # Everything between newline+1 and body start is the indent
+                target_indent = source[newline_pos + 1:replace_start]
+                # Start replacing from after the newline (include the indent in replacement)
+                actual_replace_start = newline_pos + 1
+            else:
+                # No newline found, body is at start of file
+                target_indent = ''
+                actual_replace_start = replace_start
+
+            reindented_code = _reindent(new_code.strip(), target_indent)
+
+            # Build the new source (replace from after the newline to include indent)
+            modified = source[:actual_replace_start] + reindented_code + source[replace_end:]
+
+        elif replace_mode == 'full':
+            replace_start = node.start_byte
+            replace_end = node.end_byte
+
+            # For full replacement, preserve the indentation of the original
+            indent_char, indent_width = _detect_indent(source, replace_start)
+            target_indent = indent_char * indent_width
+
+            reindented_code = _reindent(new_code.strip(), target_indent)
+            modified = source[:replace_start] + reindented_code + source[replace_end:]
+
+        else:
+            yield {
+                'success': False,
+                'target': target,
+                'error': f'Invalid replace mode: {replace_mode}. Use "body" or "full".'
+            }
+            continue
+
+        # Validate the modified code parses correctly
+        modified_bytes = modified.encode('utf-8')
+        modified_tree = parser.parse(modified_bytes)
+
+        # Check for parse errors (ERROR nodes)
+        def has_errors(node):
+            if node.type == 'ERROR':
+                return True
+            for child in node.children:
+                if has_errors(child):
+                    return True
+            return False
+
+        if has_errors(modified_tree.root_node):
+            yield {
+                'success': False,
+                'target': target,
+                'error': 'Modified code has syntax errors',
+                'modified': modified if dry_run else None
+            }
+            continue
+
+        # Output result
+        if dry_run:
+            yield {
+                'success': True,
+                'target': target,
+                'replace': replace_mode,
+                'modified': modified
+            }
+        else:
+            # Write to file
+            try:
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(modified)
+                yield {
+                    'success': True,
+                    'target': target,
+                    'replace': replace_mode,
+                    'file': file_path
+                }
+                # Re-parse for subsequent edits
+                source = modified
+                source_bytes = modified_bytes
+                tree = modified_tree
+            except IOError as e:
+                yield {
+                    'success': False,
+                    'target': target,
+                    'error': f'Failed to write file: {e}'
+                }
+
+
 if __name__ == '__main__':
     import argparse
 
     parser = argparse.ArgumentParser(description='Tree-sitter code analysis plugin')
     parser.add_argument('--mode', choices=['read', 'write'],
-                       default='read', help='Plugin mode (only read supported)')
+                       default='read', help='Plugin mode')
     parser.add_argument('--output-mode',
                        choices=['symbols', 'calls', 'imports', 'skeleton', 'strings', 'comments', 'decorators'],
-                       default='symbols', help='What to extract')
+                       default='symbols', help='What to extract (read mode)')
     parser.add_argument('--lang',
                        choices=['python', 'javascript', 'typescript', 'tsx', 'rust', 'go', 'java', 'c', 'cpp', 'ruby'],
                        help='Language (default: auto-detect)')
     parser.add_argument('--filename', default='input.py',
-                       help='Filename for language detection')
+                       help='Filename for language detection (read mode)')
+    parser.add_argument('--file',
+                       help='Source file to modify (write mode)')
 
     args = parser.parse_args()
 
     if args.mode == 'write':
-        print("ERROR: Tree-sitter write mode not implemented", file=sys.stderr)
-        print("This is an analysis plugin - source code mutation coming soon!", file=sys.stderr)
-        sys.exit(1)
-
-    config = {
-        'mode': args.output_mode,
-        'lang': args.lang,
-        'filename': args.filename,
-    }
-
-    for record in reads(config):
-        print(json.dumps(record))
+        config = {
+            'file': args.file,
+            'lang': args.lang,
+        }
+        for record in writes(config):
+            print(json.dumps(record))
+    else:
+        config = {
+            'mode': args.output_mode,
+            'lang': args.lang,
+            'filename': args.filename,
+        }
+        for record in reads(config):
+            print(json.dumps(record))

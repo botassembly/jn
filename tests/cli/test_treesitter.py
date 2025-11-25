@@ -269,15 +269,17 @@ def test_treesitter_empty_file(invoke):
     assert res.output.strip() == ""
 
 
-def test_treesitter_write_mode_error(invoke):
-    """Test that write mode returns error (not implemented)."""
+def test_treesitter_write_mode_no_file(invoke):
+    """Test that write mode requires --file option."""
     res = invoke(
         ["plugin", "call", "treesitter_", "--mode", "write"],
-        input_data="",
+        input_data='{"target": "function:foo", "code": "pass"}',
     )
 
-    assert res.exit_code == 1
-    assert "write mode not implemented" in res.output.lower()
+    assert res.exit_code == 0
+    result = json.loads(res.output.strip())
+    assert result["success"] is False
+    assert "No file specified" in result["error"]
 
 
 def test_treesitter_decorators_mode(invoke):
@@ -365,3 +367,111 @@ def users_endpoint():
     assert dec["target"] == "users_endpoint"
     assert len(dec["args"]) > 0  # Has arguments
     assert "/api/v1/users" in dec["raw"]
+
+
+def test_treesitter_write_body_replacement(invoke, tmp_path):
+    """Test surgical body replacement in write mode."""
+    # Create test file
+    test_file = tmp_path / "test.py"
+    test_file.write_text('''def calculate(a, b):
+    result = a + b
+    return result
+''')
+
+    res = invoke(
+        ["plugin", "call", "treesitter_", "--mode", "write", "--file", str(test_file)],
+        input_data='{"target": "function:calculate", "replace": "body", "code": "return a * b"}',
+    )
+
+    assert res.exit_code == 0
+    result = json.loads(res.output.strip())
+    assert result["success"] is True
+    assert "return a * b" in result["modified"]
+    assert "result = a + b" not in result["modified"]
+    # Signature should be preserved
+    assert "def calculate(a, b):" in result["modified"]
+
+
+def test_treesitter_write_method_replacement(invoke, tmp_path):
+    """Test method body replacement in write mode."""
+    test_file = tmp_path / "test.py"
+    test_file.write_text('''class Calculator:
+    def add(self, x, y):
+        return x + y
+
+    def multiply(self, x, y):
+        return x * y
+''')
+
+    res = invoke(
+        ["plugin", "call", "treesitter_", "--mode", "write", "--file", str(test_file)],
+        input_data='{"target": "method:Calculator.add", "replace": "body", "code": "return x + y + 1"}',
+    )
+
+    assert res.exit_code == 0
+    result = json.loads(res.output.strip())
+    assert result["success"] is True
+    assert "return x + y + 1" in result["modified"]
+    # Other method should be unchanged
+    assert "return x * y" in result["modified"]
+
+
+def test_treesitter_write_full_replacement(invoke, tmp_path):
+    """Test full function replacement in write mode."""
+    test_file = tmp_path / "test.py"
+    test_file.write_text('''def old_func():
+    return 42
+
+def keep_this():
+    return 1
+''')
+
+    res = invoke(
+        ["plugin", "call", "treesitter_", "--mode", "write", "--file", str(test_file)],
+        input_data='{"target": "function:old_func", "replace": "full", "code": "def new_func(x):\\n    return x * 2"}',
+    )
+
+    assert res.exit_code == 0
+    result = json.loads(res.output.strip())
+    assert result["success"] is True
+    assert "def new_func(x):" in result["modified"]
+    assert "def old_func" not in result["modified"]
+    # Other function should be unchanged
+    assert "def keep_this():" in result["modified"]
+
+
+def test_treesitter_write_target_not_found(invoke, tmp_path):
+    """Test error when target function not found."""
+    test_file = tmp_path / "test.py"
+    test_file.write_text("def foo(): pass\n")
+
+    res = invoke(
+        ["plugin", "call", "treesitter_", "--mode", "write", "--file", str(test_file)],
+        input_data='{"target": "function:nonexistent", "replace": "body", "code": "pass"}',
+    )
+
+    assert res.exit_code == 0
+    result = json.loads(res.output.strip())
+    assert result["success"] is False
+    assert "not found" in result["error"].lower()
+
+
+def test_treesitter_write_multiline_body(invoke, tmp_path):
+    """Test multi-line body replacement with proper indentation."""
+    test_file = tmp_path / "test.py"
+    test_file.write_text('''def process(x):
+    return x
+''')
+
+    new_code = "if x < 0:\\n    return 0\\nresult = x * 2\\nreturn result"
+
+    res = invoke(
+        ["plugin", "call", "treesitter_", "--mode", "write", "--file", str(test_file)],
+        input_data=f'{{"target": "function:process", "replace": "body", "code": "{new_code}"}}',
+    )
+
+    assert res.exit_code == 0
+    result = json.loads(res.output.strip())
+    assert result["success"] is True
+    assert "if x < 0:" in result["modified"]
+    assert "return result" in result["modified"]
