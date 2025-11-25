@@ -3,8 +3,8 @@ requires = ["hatchling>=1.21.0"]
 build-backend = "hatchling.build"
 
 [project]
-name = "jn"
-description = "JN: Agent-native ETL with NDJSON pipelines"
+name = "jn-cli"
+description = "jn: plugin-based, universal data streaming system using JSONL/ND format."
 version = "0.0.0dev1"
 readme = "README.md"
 classifiers = [

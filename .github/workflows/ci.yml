@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test-matrix:
+    name: tests (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Show uv and Python
+        run: |
+          uv --version
+          uv run --python=${{ matrix.python-version }} python -V
+
+      - name: Install and run tests
+        run: |
+          uv run --isolated --python=${{ matrix.python-version }} --extra dev pytest -q
+
+  test-windows-unit:
+    name: windows unit (py3.12)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Show uv and Python
+        run: |
+          uv --version
+          uv run --python=3.12 python -V
+
+      - name: Install and run tests
+        run: |
+          uv run --isolated --python=3.12 --extra dev pytest -q
+
+  make-target-smoke:
+    name: make test (smoke)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Run make test
+        run: |
+          make test
