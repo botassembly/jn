@@ -38,6 +38,7 @@ from .commands.run import run
 from .commands.sh import sh
 from .commands.table import table
 from .commands.tail import tail
+from .commands.vd import vd
 from .commands.view import view
 from .plugins import plugin
 
@@ -56,6 +57,7 @@ cli.add_command(inspect)
 cli.add_command(check)
 cli.add_command(plugin)
 cli.add_command(profile)
+cli.add_command(vd)
 cli.add_command(view)
 
 
