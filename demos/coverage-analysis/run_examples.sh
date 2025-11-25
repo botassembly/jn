@@ -97,15 +97,15 @@ jq -r '.[] | "   \(.module ): \(.coverage)% (\(.covered)/\(.statements) lines, \
 echo ""
 
 # Example 7: Coverage hotspots (large functions with low coverage)
-echo "7. Identify coverage hotspots (10+ statements, <70% coverage)..."
+echo "7. Identify coverage hotspots (10+ lines, <70% coverage)..."
 $JN cat coverage.lcov | \
-  $JN filter '@lcov/hotspots?min_statements=10&max_coverage=70' | \
+  $JN filter '@lcov/hotspots?min_lines=10&max_coverage=70' | \
   $JN put hotspots.json
 COUNT=$(jq '. | length' hotspots.json)
 echo "   ✓ Found $COUNT hotspot functions → hotspots.json"
 echo "   Sample (highest priority):"
 $JN cat hotspots.json | jq -s 'sort_by(.complexity_score) | reverse | .[:3] | .[]' | \
-  jq -r '"   \(.priority | ascii_upcase): \(.file):\(.function) - \(.statements) statements, \(.coverage)% coverage (score: \(.complexity_score))"'
+  jq -r '"   \(.priority | ascii_upcase): \(.file):\(.function) - \(.lines) lines, \(.coverage)% coverage (score: \(.complexity_score))"'
 echo ""
 
 # Example 8: Combined workflow - generate a coverage report
@@ -141,13 +141,13 @@ echo "8. Generate comprehensive coverage report..."
   echo "### Critical Hotspots"
   echo ""
   jq -s '.[] | select(.priority == "critical")' hotspots.json | \
-    jq -r '"- \(.file):\(.function) (\(.statements) statements, \(.coverage)% coverage)"' || \
+    jq -r '"- \(.file):\(.function) (\(.lines) lines, \(.coverage)% coverage)"' || \
     echo "(none)"
   echo ""
 
   echo "### High Priority Hotspots"
   echo ""
-  jq -s '.[] | select(.priority == "high") | "\(.file):\(.function) (\(.statements) statements, \(.coverage)% coverage)"' hotspots.json | \
+  jq -s '.[] | select(.priority == "high") | "\(.file):\(.function) (\(.lines) lines, \(.coverage)% coverage)"' hotspots.json | \
     head -5 | sed 's/^/- /' || \
     echo "(none)"
   echo ""
