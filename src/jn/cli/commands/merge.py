@@ -35,19 +35,26 @@ def _parse_source_spec(spec: str) -> Tuple[str, str]:
     return spec, spec  # Use source as default label
 
 
-def _stream_source(source: str, label: str) -> Iterator[dict]:
+def _stream_source(source: str, label: str, home_dir=None) -> Iterator[dict]:
     """Execute source via jn cat and yield records with metadata.
 
     Args:
         source: Data source address (file, URL, profile)
         label: Label to inject into records
+        home_dir: JN home directory to pass to subprocess
 
     Yields:
         Records from source with _label and _source metadata
     """
+    # Build command with --home if provided
+    cmd = [sys.executable, "-m", "jn.cli.main"]
+    if home_dir:
+        cmd.extend(["--home", str(home_dir)])
+    cmd.extend(["cat", source])
+
     # Execute jn cat for this source
     proc = popen_with_validation(
-        [sys.executable, "-m", "jn.cli.main", "cat", source],
+        cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -128,7 +135,7 @@ def merge(ctx, sources, fail_fast):
             source, label = _parse_source_spec(source_spec)
 
             try:
-                for record in _stream_source(source, label):
+                for record in _stream_source(source, label, ctx.home):
                     print(json.dumps(record), flush=True)
             except Exception as e:
                 if fail_fast:
