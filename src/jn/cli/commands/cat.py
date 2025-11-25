@@ -31,7 +31,15 @@ def _build_command(
         stage: Execution stage with plugin info
         command_str: Optional command string for shell plugins (overrides stage.url)
     """
-    cmd = ["uv", "run", "--script", stage.plugin_path, "--mode", stage.mode]
+    cmd = [
+        "uv",
+        "run",
+        "--quiet",
+        "--script",
+        stage.plugin_path,
+        "--mode",
+        stage.mode,
+    ]
 
     # DEBUG
     sys.stderr.flush()

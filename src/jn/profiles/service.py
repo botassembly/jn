@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from ..plugins.discovery import _builtin_plugins_dir, discover_plugins
+from ..context import _find_project_jn_dir
 
 
 @dataclass
@@ -31,6 +31,8 @@ class ProfileInfo:
 def _get_profile_paths(home_dir: Optional[Path] = None) -> List[Path]:
     """Get profile search paths in priority order.
 
+    Resolution uses walk-up logic consistent with JN_HOME resolution in context.py.
+
     Args:
         home_dir: JN home directory (overrides $JN_HOME)
 
@@ -39,12 +41,14 @@ def _get_profile_paths(home_dir: Optional[Path] = None) -> List[Path]:
     """
     paths = []
 
-    # 1. Project profiles (highest priority)
-    project_dir = Path.cwd() / ".jn" / "profiles"
-    if project_dir.exists():
-        paths.append(project_dir)
+    # 1. Project profiles (walk up from CWD to find .jn)
+    project_dir = _find_project_jn_dir()
+    if project_dir:
+        project_profiles = project_dir / "profiles"
+        if project_profiles.exists():
+            paths.append(project_profiles)
 
-    # 2. User profiles
+    # 2. User profiles (~/.local/jn/profiles)
     user_dir = Path.home() / ".local" / "jn" / "profiles"
     if user_dir.exists():
         paths.append(user_dir)
@@ -58,7 +62,7 @@ def _get_profile_paths(home_dir: Optional[Path] = None) -> List[Path]:
         if jn_home:
             bundled_dir = Path(jn_home) / "profiles"
         else:
-            # Fallback: relative to this file
+            # Fallback: relative to this file (bundled jn_home)
             bundled_dir = (
                 Path(__file__).parent.parent.parent.parent
                 / "jn_home"
@@ -185,6 +189,7 @@ def _parse_json_profile(
 def list_all_profiles(
     discovered_plugins: Optional[Dict] = None,
     home_dir: Optional[Path] = None,
+    builtin_plugins: Optional[Dict] = None,
 ) -> List[ProfileInfo]:
     """Scan filesystem and load all profiles.
 
@@ -194,6 +199,8 @@ def list_all_profiles(
     Args:
         discovered_plugins: Optional dict of discovered plugins for inspect-profiles mode
         home_dir: JN home directory (overrides $JN_HOME)
+        builtin_plugins: Optional dict of builtin plugins for fallback when custom
+            plugins don't support inspect-profiles
 
     Returns:
         List of all discovered profiles
@@ -216,35 +223,35 @@ def list_all_profiles(
     # Call plugins with --mode inspect-profiles to discover plugin-managed profiles
     # This replaces hardcoded directory scanning for http, gmail, mcp, duckdb, etc.
     if discovered_plugins:
-        # Prefer custom plugin implementations but fall back to the bundled version
-        # if the custom plugin doesn't support inspect-profiles.
+        from ..process_utils import build_subprocess_env_for_coverage
+
+        # Build list of plugin candidates to try
+        # Include discovered plugins (merged custom + builtin)
         plugin_candidates = list(discovered_plugins.values())
 
-        builtin_dir = _builtin_plugins_dir()
-        if builtin_dir and builtin_dir.exists():
-            builtin_plugins = discover_plugins(builtin_dir)
-            for meta in builtin_plugins.values():
-                meta.path = str(builtin_dir / meta.path)
-
+        # Also include builtin plugins as fallback for cases where:
+        # - A custom plugin shadows a builtin
+        # - The custom plugin doesn't support inspect-profiles
+        # - But the builtin does
+        if builtin_plugins:
             for name, meta in builtin_plugins.items():
                 if name not in discovered_plugins:
                     continue
-
+                # If paths differ, custom is shadowing builtin - add builtin as fallback
                 current_path = Path(discovered_plugins[name].path).resolve()
                 builtin_path = Path(meta.path).resolve()
-
                 if current_path != builtin_path:
                     plugin_candidates.append(meta)
-
-        from ..process_utils import build_subprocess_env_for_coverage
 
         for plugin in plugin_candidates:
             try:
                 # Use uv run --script to ensure PEP 723 dependencies are available
+                # Use --quiet to suppress "Installed X packages" messages
                 process = subprocess.Popen(
                     [
                         "uv",
                         "run",
+                        "--quiet",
                         "--script",
                         str(plugin.path),
                         "--mode",
@@ -297,6 +304,7 @@ def search_profiles(
     type_filter: Optional[str] = None,
     discovered_plugins: Optional[Dict] = None,
     home_dir: Optional[Path] = None,
+    builtin_plugins: Optional[Dict] = None,
 ) -> List[ProfileInfo]:
     """Search profiles by name or description.
 
@@ -308,11 +316,14 @@ def search_profiles(
         type_filter: Optional filter by type ("jq", "gmail", "http", "mcp")
         discovered_plugins: Optional dict of discovered plugins for inspect-profiles mode
         home_dir: JN home directory (overrides $JN_HOME)
+        builtin_plugins: Optional dict of builtin plugins for fallback
 
     Returns:
         Matching profiles, sorted alphabetically by reference
     """
-    all_profiles = list_all_profiles(discovered_plugins, home_dir)
+    all_profiles = list_all_profiles(
+        discovered_plugins, home_dir, builtin_plugins
+    )
 
     # Filter by type
     if type_filter:
@@ -339,6 +350,7 @@ def get_profile_info(
     reference: str,
     discovered_plugins: Optional[Dict] = None,
     home_dir: Optional[Path] = None,
+    builtin_plugins: Optional[Dict] = None,
 ) -> Optional[ProfileInfo]:
     """Get detailed info about a specific profile.
 
@@ -346,11 +358,14 @@ def get_profile_info(
         reference: Profile reference like "@gmail/inbox" or "@builtin/pivot"
         discovered_plugins: Optional dict of discovered plugins for inspect-profiles mode
         home_dir: JN home directory (overrides $JN_HOME)
+        builtin_plugins: Optional dict of builtin plugins for fallback
 
     Returns:
         ProfileInfo or None if not found
     """
-    all_profiles = list_all_profiles(discovered_plugins, home_dir)
+    all_profiles = list_all_profiles(
+        discovered_plugins, home_dir, builtin_plugins
+    )
 
     for profile in all_profiles:
         if profile.reference == reference:

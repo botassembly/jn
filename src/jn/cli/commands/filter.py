@@ -77,7 +77,7 @@ def filter(ctx, query):
 
         # Execute filter - pass query as argument
         proc = popen_with_validation(
-            ["uv", "run", "--script", plugin.path, query],
+            ["uv", "run", "--quiet", "--script", plugin.path, query],
             stdin=stdin_source,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

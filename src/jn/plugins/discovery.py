@@ -3,11 +3,12 @@
 import json
 import re
 from dataclasses import asdict, dataclass
-from importlib import resources
 from pathlib import Path
 from typing import Dict, List, Optional
 
 import tomllib
+
+from ..context import get_builtin_plugins_dir
 
 # PEP 723 regex pattern
 PEP723_PATTERN = re.compile(
@@ -173,10 +174,11 @@ def get_cached_plugins(
 
 
 def _builtin_plugins_dir() -> Optional[Path]:
-    """Locate the packaged default plugins under jn_home.plugins."""
-    pkg = resources.files("jn_home").joinpath("plugins")
-    with resources.as_file(pkg) as p:
-        return Path(p)
+    """Locate the packaged default plugins under jn_home.plugins.
+
+    Deprecated: Use get_builtin_plugins_dir() from jn.context instead.
+    """
+    return get_builtin_plugins_dir()
 
 
 def get_cached_plugins_with_fallback(
@@ -187,7 +189,7 @@ def get_cached_plugins_with_fallback(
     result: Dict[str, PluginMetadata] = {}
 
     if fallback_to_builtin:
-        builtin_dir = _builtin_plugins_dir()
+        builtin_dir = get_builtin_plugins_dir()
         if builtin_dir and builtin_dir.exists():
             builtin_plugins = discover_plugins(builtin_dir)
             for _name, meta in builtin_plugins.items():

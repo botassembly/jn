@@ -21,7 +21,15 @@ from ..helpers import build_subprocess_env_for_coverage, check_uv_available
 
 def _build_command(stage: ExecutionStage) -> list:
     """Build command from execution stage."""
-    cmd = ["uv", "run", "--script", stage.plugin_path, "--mode", stage.mode]
+    cmd = [
+        "uv",
+        "run",
+        "--quiet",
+        "--script",
+        stage.plugin_path,
+        "--mode",
+        stage.mode,
+    ]
 
     # Add configuration parameters
     for key, value in stage.config.items():

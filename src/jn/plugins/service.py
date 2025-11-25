@@ -173,8 +173,9 @@ def call_plugin(plugin_path: str, args: List[str]) -> int:
 
     # Always use binary mode for the subprocess
     # This allows plugins to output either text (NDJSON) or binary (XLSX, PDF, etc.)
+    # Use --quiet to suppress "Installed X packages" messages from uv
     proc = popen_with_validation(
-        ["uv", "run", "--script", plugin_path, *args],
+        ["uv", "run", "--quiet", "--script", plugin_path, *args],
         stdin=stdin_source,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
