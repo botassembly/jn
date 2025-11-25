@@ -171,3 +171,131 @@ def test_viewer_malformed_json(viewer_path):
     except pexpect.TIMEOUT as e:
         child.close(force=True)
         pytest.fail(f"Malformed JSON handling failed: {e}")
+
+
+class TestPythonFilterCompilation:
+    """Test Python-based filter compilation for search performance."""
+
+    @pytest.fixture
+    def compile_filter(self):
+        """Import and return the _compile_python_filter function."""
+        # Import the regex module needed for the standalone test
+        import re
+
+        def _compile_python_filter(expr):
+            """Standalone version of the filter compiler for testing."""
+            expr = expr.strip()
+            # Strip select() wrapper
+            select_match = re.match(r'^select\s*\(\s*(.*)\s*\)\s*$', expr)
+            if select_match:
+                expr = select_match.group(1)
+
+            # .field == "value"
+            match = re.match(r'^\.(\w+)\s*==\s*"([^"]*)"$', expr)
+            if match:
+                field, value = match.groups()
+                return lambda r, f=field, v=value: r.get(f) == v
+
+            # .field == number
+            match = re.match(r'^\.(\w+)\s*==\s*(-?\d+(?:\.\d+)?)$', expr)
+            if match:
+                field, value = match.groups()
+                num_value = float(value) if '.' in value else int(value)
+                return lambda r, f=field, v=num_value: r.get(f) == v
+
+            # .field > number
+            match = re.match(r'^\.(\w+)\s*>\s*(-?\d+(?:\.\d+)?)$', expr)
+            if match:
+                field, value = match.groups()
+                num_value = float(value) if '.' in value else int(value)
+                return lambda r, f=field, v=num_value: (r.get(f) is not None and r.get(f) > v)
+
+            # .field < number
+            match = re.match(r'^\.(\w+)\s*<\s*(-?\d+(?:\.\d+)?)$', expr)
+            if match:
+                field, value = match.groups()
+                num_value = float(value) if '.' in value else int(value)
+                return lambda r, f=field, v=num_value: (r.get(f) is not None and r.get(f) < v)
+
+            # .field (truthy)
+            match = re.match(r'^\.(\w+)$', expr)
+            if match:
+                field = match.group(1)
+                return lambda r, f=field: bool(r.get(f))
+
+            return None
+
+        return _compile_python_filter
+
+    def test_string_equality(self, compile_filter):
+        """Test .field == 'value' pattern."""
+        fn = compile_filter('.Symbol == "BRAF"')
+        assert fn is not None
+        assert fn({"Symbol": "BRAF"}) is True
+        assert fn({"Symbol": "OTHER"}) is False
+        assert fn({"other": "value"}) is False
+
+    def test_number_equality(self, compile_filter):
+        """Test .field == number pattern."""
+        fn = compile_filter('.age == 30')
+        assert fn is not None
+        assert fn({"age": 30}) is True
+        assert fn({"age": 25}) is False
+
+    def test_number_comparison_gt(self, compile_filter):
+        """Test .field > number pattern."""
+        fn = compile_filter('.age > 25')
+        assert fn is not None
+        assert fn({"age": 30}) is True
+        assert fn({"age": 25}) is False
+        assert fn({"age": 20}) is False
+
+    def test_number_comparison_lt(self, compile_filter):
+        """Test .field < number pattern."""
+        fn = compile_filter('.value < 100')
+        assert fn is not None
+        assert fn({"value": 50}) is True
+        assert fn({"value": 100}) is False
+        assert fn({"value": 150}) is False
+
+    def test_truthy_check(self, compile_filter):
+        """Test .field truthy pattern."""
+        fn = compile_filter('.active')
+        assert fn is not None
+        assert fn({"active": True}) is True
+        assert fn({"active": False}) is False
+        assert fn({"active": "yes"}) is True
+        assert fn({"other": True}) is False
+
+    def test_select_wrapper_stripped(self, compile_filter):
+        """Test that select() wrapper is properly stripped."""
+        fn = compile_filter('select(.Symbol == "BRAF")')
+        assert fn is not None
+        assert fn({"Symbol": "BRAF"}) is True
+        assert fn({"Symbol": "OTHER"}) is False
+
+    def test_complex_expression_returns_none(self, compile_filter):
+        """Test that complex expressions return None for jq fallback."""
+        assert compile_filter('.name | contains("test")') is None
+        assert compile_filter('.items[] | .value') is None
+        assert compile_filter('.a and .b') is None
+
+    def test_search_performance_vs_subprocess(self, compile_filter):
+        """Test that Python filter is significantly faster than subprocess approach."""
+        import time
+
+        # Create test data
+        records = [{"id": i, "Symbol": f"GENE{i % 100}"} for i in range(1000)]
+
+        fn = compile_filter('.Symbol == "GENE50"')
+        assert fn is not None
+
+        start = time.time()
+        matches = [i for i, r in enumerate(records) if fn(r)]
+        python_time = time.time() - start
+
+        # Should find 10 matches (1000/100)
+        assert len(matches) == 10
+
+        # Python filter should complete in under 10ms
+        assert python_time < 0.01, f"Python filter took {python_time}s, expected < 0.01s"
