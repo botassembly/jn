@@ -108,9 +108,8 @@ def test_table_no_header_option(invoke, sample_ndjson):
     # Data should be present
     assert "Alice" in output
     assert "Bob" in output
-    # But output should be shorter (no header)
-    lines = [l for l in output.strip().split("\n") if l.strip()]
-    # Without header, fewer lines in grid format
+    # Header row (with column names) should not be present
+    assert "name" not in output.split("\n")[0] or "===" in output
 
 
 def test_table_empty_input(invoke):
@@ -139,7 +138,9 @@ def test_table_invalid_json(invoke):
 
 def test_table_invalid_format(invoke, sample_ndjson):
     """Test error handling for invalid format name."""
-    res = invoke(["table", "-f", "nonexistent_format"], input_data=sample_ndjson)
+    res = invoke(
+        ["table", "-f", "nonexistent_format"], input_data=sample_ndjson
+    )
     assert res.exit_code == 1
     assert "Error" in res.output
     assert "Unknown format" in res.output

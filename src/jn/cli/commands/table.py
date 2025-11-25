@@ -1,11 +1,11 @@
 """Table command - render NDJSON as formatted tables."""
 
+import contextlib
 import json
 import signal
 import sys
 
 import click
-
 
 # Handle SIGPIPE gracefully (e.g., when piped to `head`)
 signal.signal(signal.SIGPIPE, signal.SIG_DFL)
@@ -89,7 +89,9 @@ TABULATE_FORMATS = [
     default="left",
     help="String alignment [default: left]",
 )
-def table(tablefmt, maxcolwidths, showindex, disable_headers, numalign, stralign):
+def table(
+    tablefmt, maxcolwidths, showindex, disable_headers, numalign, stralign
+):
     """Render NDJSON as a formatted table.
 
     Reads NDJSON from stdin and outputs a formatted table to stdout.
@@ -179,10 +181,8 @@ def table(tablefmt, maxcolwidths, showindex, disable_headers, numalign, stralign
     except BrokenPipeError:
         # Gracefully handle broken pipe (e.g., piping to `head`)
         # Close stdout to avoid further errors
-        try:
+        with contextlib.suppress(BrokenPipeError):
             sys.stdout.close()
-        except BrokenPipeError:
-            pass
         sys.exit(0)
 
     except Exception as e:
