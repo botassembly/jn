@@ -25,6 +25,59 @@ class ProfileError(Exception):
     pass
 
 
+def find_profile_path(profile_ref: str, plugin_name: str) -> Optional[Path]:
+    """Find profile file path without resolving content.
+
+    This is useful when you want to pass the file to a tool that
+    can handle file input directly (e.g., jq -f file.jq).
+
+    Args:
+        profile_ref: Profile reference like "@builtin/pivot"
+        plugin_name: Name of plugin (e.g., "jq_")
+
+    Returns:
+        Path to profile file, or None if not found
+    """
+    # Remove @ prefix
+    profile_path = profile_ref.lstrip("@")
+
+    # Derive plugin directory name (remove trailing underscore if present)
+    plugin_dir = plugin_name.rstrip("_")
+
+    # Build search paths
+    search_bases = []
+
+    # 1. User profiles in ~/.local/jn
+    search_bases.append(
+        Path.home() / ".local" / "jn" / "profiles" / plugin_dir / profile_path
+    )
+
+    # 2. Project profiles (if JN_HOME is set)
+    if "JN_HOME" in os.environ:
+        search_bases.append(
+            Path(os.environ["JN_HOME"])
+            / "profiles"
+            / plugin_dir
+            / profile_path
+        )
+
+    # 3. Bundled profiles (relative to this module)
+    package_root = Path(__file__).parent.parent.parent.parent
+    bundled_base = (
+        package_root / "jn_home" / "profiles" / plugin_dir / profile_path
+    )
+    search_bases.append(bundled_base)
+
+    # Search for profile file with any extension
+    for base in search_bases:
+        pattern = str(base) + ".*"
+        matches = glob.glob(pattern)
+        if matches:
+            return Path(matches[0])
+
+    return None
+
+
 def resolve_profile(
     profile_ref: str, plugin_name: str, params: Optional[Dict[str, str]] = None
 ) -> str:

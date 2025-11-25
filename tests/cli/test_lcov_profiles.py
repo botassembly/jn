@@ -11,7 +11,9 @@ def test_lcov_uncovered_functions(invoke, test_data):
         lcov_content = f.read()
 
     # First convert LCOV to NDJSON
-    res = invoke(["plugin", "call", "lcov_", "--mode", "read"], input_data=lcov_content)
+    res = invoke(
+        ["plugin", "call", "lcov_", "--mode", "read"], input_data=lcov_content
+    )
     assert res.exit_code == 0
 
     # Then filter with the profile
@@ -36,7 +38,9 @@ def test_lcov_functions_below_threshold(invoke, test_data):
         lcov_content = f.read()
 
     # First convert LCOV to NDJSON
-    res = invoke(["plugin", "call", "lcov_", "--mode", "read"], input_data=lcov_content)
+    res = invoke(
+        ["plugin", "call", "lcov_", "--mode", "read"], input_data=lcov_content
+    )
     assert res.exit_code == 0
 
     # Then filter with threshold parameter
@@ -62,7 +66,9 @@ def test_lcov_files_by_coverage(invoke, test_data):
         lcov_content = f.read()
 
     # First convert LCOV to NDJSON
-    res = invoke(["plugin", "call", "lcov_", "--mode", "read"], input_data=lcov_content)
+    res = invoke(
+        ["plugin", "call", "lcov_", "--mode", "read"], input_data=lcov_content
+    )
     assert res.exit_code == 0
 
     # Then filter with the profile
@@ -89,7 +95,9 @@ def test_lcov_summary_by_module(invoke, test_data):
         lcov_content = f.read()
 
     # First convert LCOV to NDJSON
-    res = invoke(["plugin", "call", "lcov_", "--mode", "read"], input_data=lcov_content)
+    res = invoke(
+        ["plugin", "call", "lcov_", "--mode", "read"], input_data=lcov_content
+    )
     assert res.exit_code == 0
 
     # Then filter with the profile
@@ -115,7 +123,9 @@ def test_lcov_largest_gaps(invoke, test_data):
         lcov_content = f.read()
 
     # First convert LCOV to NDJSON
-    res = invoke(["plugin", "call", "lcov_", "--mode", "read"], input_data=lcov_content)
+    res = invoke(
+        ["plugin", "call", "lcov_", "--mode", "read"], input_data=lcov_content
+    )
     assert res.exit_code == 0
 
     # Then filter with min_missing parameter
@@ -140,7 +150,9 @@ def test_lcov_hotspots(invoke, test_data):
         lcov_content = f.read()
 
     # First convert LCOV to NDJSON
-    res = invoke(["plugin", "call", "lcov_", "--mode", "read"], input_data=lcov_content)
+    res = invoke(
+        ["plugin", "call", "lcov_", "--mode", "read"], input_data=lcov_content
+    )
     assert res.exit_code == 0
 
     # Then filter - use low threshold to get results from sample data
@@ -167,7 +179,9 @@ def test_lcov_poor_branch_coverage(invoke, test_data):
         lcov_content = f.read()
 
     # First convert LCOV to NDJSON
-    res = invoke(["plugin", "call", "lcov_", "--mode", "read"], input_data=lcov_content)
+    res = invoke(
+        ["plugin", "call", "lcov_", "--mode", "read"], input_data=lcov_content
+    )
     assert res.exit_code == 0
 
     # Then filter with threshold
@@ -191,7 +205,9 @@ def test_lcov_plugin_read_functions_mode(invoke, test_data):
     with open(lcov_file) as f:
         lcov_content = f.read()
 
-    res = invoke(["plugin", "call", "lcov_", "--mode", "read"], input_data=lcov_content)
+    res = invoke(
+        ["plugin", "call", "lcov_", "--mode", "read"], input_data=lcov_content
+    )
     assert res.exit_code == 0
 
     lines = [line for line in res.output.strip().split("\n") if line]
@@ -216,7 +232,15 @@ def test_lcov_plugin_read_files_mode(invoke, test_data):
         lcov_content = f.read()
 
     res = invoke(
-        ["plugin", "call", "lcov_", "--mode", "read", "--output-mode", "files"],
+        [
+            "plugin",
+            "call",
+            "lcov_",
+            "--mode",
+            "read",
+            "--output-mode",
+            "files",
+        ],
         input_data=lcov_content,
     )
     assert res.exit_code == 0

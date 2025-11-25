@@ -30,6 +30,7 @@ from .commands.check import check
 from .commands.filter import filter
 from .commands.head import head
 from .commands.inspect import inspect
+from .commands.merge import merge
 from .commands.profile import profile
 from .commands.put import put
 from .commands.run import run
@@ -44,6 +45,7 @@ cli.add_command(put)
 cli.add_command(run)
 cli.add_command(filter)
 cli.add_command(head)
+cli.add_command(merge)
 cli.add_command(tail)
 cli.add_command(sh)
 cli.add_command(inspect)
