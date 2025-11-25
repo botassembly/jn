@@ -516,3 +516,31 @@ def test_join_dead_code_hunter_scenario(invoke, tmp_path):
     ]
     assert len(dead_code) == 1
     assert dead_code[0]["function"] == "unused_helper"
+
+
+def test_join_right_source_failure(invoke, tmp_path):
+    """Test that join fails when right source is not found."""
+    left_csv = tmp_path / "left.csv"
+    left_csv.write_text("id,name\n1,Alice\n")
+
+    left_result = invoke(["cat", str(left_csv)])
+    assert left_result.exit_code == 0
+
+    # Join with non-existent right source
+    result = invoke(
+        [
+            "join",
+            str(tmp_path / "nonexistent.csv"),
+            "--left-key",
+            "id",
+            "--right-key",
+            "id",
+            "--target",
+            "data",
+        ],
+        input_data=left_result.output,
+    )
+
+    # Should fail, not silently continue with empty results
+    assert result.exit_code != 0
+    assert "failed" in result.output.lower() or "error" in result.output.lower()
