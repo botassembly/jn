@@ -75,19 +75,29 @@ def parse_lcov(input_stream) -> dict:
                 })
 
         elif line.startswith('FN:'):
-            # Function definition: FN:start_line,end_line,function_name
+            # Function definition: FN:start_line,end_line,function_name (coverage.py extension)
+            #                  or: FN:line,function_name (standard LCOV)
             parts = line[3:].split(',', 2)
             if len(parts) >= 3:
+                # Extended format with end line (coverage.py)
                 start_line = int(parts[0])
                 end_line = int(parts[1])
                 function_name = parts[2]
-                current_functions[function_name] = {
-                    'name': function_name,
-                    'start_line': start_line,
-                    'end_line': end_line,
-                    'lines': end_line - start_line + 1,
-                    'hit_count': 0  # Will be filled by FNDA
-                }
+            elif len(parts) == 2:
+                # Standard LCOV format (line,name only)
+                start_line = int(parts[0])
+                end_line = start_line  # Assume single-line function
+                function_name = parts[1]
+            else:
+                continue  # Invalid format, skip
+
+            current_functions[function_name] = {
+                'name': function_name,
+                'start_line': start_line,
+                'end_line': end_line,
+                'lines': end_line - start_line + 1,
+                'hit_count': 0  # Will be filled by FNDA
+            }
 
         elif line.startswith('FNDA:'):
             # Function execution count: FNDA:hit_count,function_name
