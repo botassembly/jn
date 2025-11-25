@@ -266,12 +266,15 @@ def extract_symbols(tree, source_bytes: bytes, lang: str, filename: str) -> Iter
             # Determine if it's a method (inside a class)
             symbol_type = 'method' if parent_class else 'function'
 
+            # Create qualified name (Class.method or just function) for LCOV join
+            qualified_name = f"{parent_class}.{func_name}" if parent_class else func_name
+
             yield {
                 'file': filename,
                 'filename': Path(filename).name,
                 'type': symbol_type,
-                'function': func_name,    # Use 'function' to match LCOV output
-                'name': func_name,        # Keep 'name' for backward compat
+                'function': qualified_name,  # Qualified name for LCOV join (Class.method)
+                'name': func_name,           # Keep 'name' for backward compat
                 'node_type': node_type,
                 'start_line': node.start_point[0] + 1,
                 'end_line': node.end_point[0] + 1,

@@ -56,13 +56,14 @@ def test_treesitter_symbols_mode(invoke):
     # Check methods have parent_class and 'function' field for LCOV compatibility
     for method in methods:
         assert method["parent_class"] == "Calculator"
-        assert method["function"] == method["name"]  # Both fields present
+        # Qualified function name: Class.method for LCOV join
+        assert method["function"] == f"Calculator.{method['name']}"
 
     # Check function
     functions = [r for r in records if r["type"] == "function"]
     assert len(functions) == 1
     assert functions[0]["name"] == "main"
-    assert functions[0]["function"] == "main"  # 'function' field for LCOV join
+    assert functions[0]["function"] == "main"  # Top-level functions: function == name
     assert functions[0]["parent_class"] is None
 
     # Check class has both 'name' and 'class' fields

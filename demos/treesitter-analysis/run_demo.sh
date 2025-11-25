@@ -227,23 +227,105 @@ echo ""
 rm -f working_copy.py modified_process_result.json
 
 # ============================================
-# PART 3: JOINING WITH LCOV (Preview)
+# PART 3: JOINING WITH LCOV COVERAGE
 # ============================================
 
 echo "=============================================="
-echo "PART 3: LCOV JOIN COMPATIBILITY"
+echo "PART 3: JOIN TREE-SITTER WITH LCOV COVERAGE"
 echo "=============================================="
 echo ""
-echo "Tree-sitter symbols include 'function' field for LCOV join:"
+
+# Create sample LCOV data for our module
+cat > coverage.lcov << 'LCOVEOF'
+SF:sample_module.py
+FN:29,Calculator.__init__
+FNDA:10,Calculator.__init__
+FN:32,Calculator.add
+FNDA:8,Calculator.add
+FN:38,Calculator.subtract
+FNDA:2,Calculator.subtract
+FN:44,Calculator.multiply
+FNDA:5,Calculator.multiply
+FN:50,Calculator.divide
+FNDA:0,Calculator.divide
+FN:58,Calculator.get_history
+FNDA:3,Calculator.get_history
+FN:66,AdvancedCalculator.power
+FNDA:4,AdvancedCalculator.power
+FN:72,AdvancedCalculator.factorial
+FNDA:0,AdvancedCalculator.factorial
+FN:85,process_users
+FNDA:6,process_users
+FN:100,validate_email
+FNDA:0,validate_email
+FN:112,main
+FNDA:1,main
+DA:29,10
+DA:30,10
+DA:32,8
+DA:33,8
+DA:34,8
+DA:35,8
+DA:36,8
+DA:38,2
+DA:39,2
+DA:40,2
+DA:41,2
+DA:42,2
+DA:44,5
+DA:45,5
+DA:46,5
+DA:47,5
+DA:48,5
+DA:50,0
+DA:51,0
+DA:52,0
+DA:53,0
+DA:54,0
+DA:55,0
+DA:56,0
+end_of_record
+LCOVEOF
+
+echo "Created sample coverage.lcov with function hit counts"
 echo ""
-$JN cat symbols.json | \
-  $JN filter 'select(.type == "function" or .type == "method")' | \
-  $JN filter '{file: .filename, function, type, start_line, end_line}' | \
+
+echo "9. PARSE LCOV - Extract coverage data"
+echo "   Command: jn cat coverage.lcov"
+echo ""
+$JN cat coverage.lcov | $JN put coverage_parsed.json
+echo "   Coverage data (functions):"
+$JN cat coverage_parsed.json | $JN filter '{function, hit_count, coverage}' | $JN head -n 5
+echo ""
+
+echo "10. JOIN - Enrich coverage with code structure"
+echo "    Command: jn cat coverage_parsed.json | jn join symbols.json --left-key function --right-key function --target code_info"
+echo ""
+
+echo "    Joining coverage data with Tree-sitter symbols..."
+$JN cat coverage_parsed.json | \
+  $JN join symbols.json --left-key function --right-key function --target code_info | \
+  $JN put enriched_coverage.json
+echo ""
+
+echo "    Enriched coverage (coverage + code structure):"
+$JN cat enriched_coverage.json | \
+  $JN filter '{function, hit_count, coverage, code_info: (.code_info[0] // {} | {type, start_line, end_line, lines, parent_class})}' | \
   $JN head -n 5
 echo ""
-echo "This matches LCOV output format (file, function, start_line, end_line)"
-echo "enabling joins like: jn cat coverage.lcov | jn join symbols.json --on function"
+
+echo "11. FIND DEAD CODE - Uncovered functions with context"
+echo "    Command: Filter for hit_count=0, show code location"
 echo ""
+$JN cat enriched_coverage.json | \
+  $JN filter 'select(.hit_count == 0)' | \
+  $JN filter '{function, hit_count, location: (.code_info[0] // {} | "\(.start_line)-\(.end_line) (\(.lines) lines)"), parent_class: (.code_info[0] // {}).parent_class}'
+echo ""
+echo "    These functions have 0 test coverage - potential dead code!"
+echo ""
+
+# Clean up intermediate files
+rm -f coverage.lcov coverage_parsed.json
 
 # ============================================
 # Summary
