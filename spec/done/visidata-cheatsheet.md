@@ -168,6 +168,105 @@ Shows per column: type, nulls, unique count, mode, min, max, mean, median, stdev
 
 ---
 
+## Deep Dive: VisiData's JSON Handling
+
+VisiData has powerful built-in JSON capabilities that deserve special attention.
+
+### JSON File Formats Supported
+
+| Format | Description | Since |
+|--------|-------------|-------|
+| `json` | Standard JSON (arrays/objects) | v0.28 |
+| `jsonl` / `ndjson` / `ldjson` | JSON Lines (one object per line) | v1.3 |
+| `vdj` | VisiData command log (JSON) | v2.0 |
+
+### JSON Column Expansion Commands
+
+| Key | Command | Description |
+|-----|---------|-------------|
+| `(` | `expand-col` | Expand nested dict/list one level |
+| `)` | `contract-col` | Collapse expanded columns |
+| `z(` | `expand-col-depth` | Expand to specific depth (0 = fully flatten) |
+| `gz(` | `expand-cols` | Expand ALL columns recursively |
+| `z Shift+M` | `unfurl-col` | Row-wise expansion (creates new rows for list items) |
+| `z^Y` | `pyobj-cell` | Open cell as Python object (explore nested structures) |
+
+### Expand vs Unfurl: When to Use Which
+
+**Expand (`(`)** - Column-wise expansion:
+- Adds new columns for nested keys
+- Row count stays the same
+- Best for: Flattening nested objects
+
+```
+Before:                          After (pressing `(` on address):
+┌────────────────────────┐       ┌───────────────────────────────────────┐
+│ name    │ address      │       │ name    │ address.city │ address.zip │
+├─────────┼──────────────┤       ├─────────┼──────────────┼─────────────┤
+│ Alice   │ {city, zip}  │  →    │ Alice   │ NYC          │ 10001       │
+│ Bob     │ {city, zip}  │       │ Bob     │ Boston       │ 02101       │
+└─────────┴──────────────┘       └─────────┴──────────────┴─────────────┘
+```
+
+**Unfurl (`z Shift+M`)** - Row-wise expansion:
+- Creates new rows for each list item
+- Duplicates other columns
+- Best for: Exploding arrays into rows
+
+```
+Before:                          After (pressing `z Shift+M` on tags):
+┌────────────────────────┐       ┌─────────────────────┐
+│ name    │ tags         │       │ name    │ tags      │
+├─────────┼──────────────┤       ├─────────┼───────────┤
+│ Alice   │ [a, b, c]    │  →    │ Alice   │ a         │
+│ Bob     │ [x, y]       │       │ Alice   │ b         │
+└─────────┴──────────────┘       │ Alice   │ c         │
+                                 │ Bob     │ x         │
+                                 │ Bob     │ y         │
+                                 └─────────┴───────────┘
+```
+
+### JSON Save Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `json_indent` | None | Indentation for pretty-printing (None = minified) |
+| `json_sort_keys` | False | Sort object keys alphabetically |
+| `default_colname` | "" | Column name for non-dict rows |
+
+### Exploring Deeply Nested JSON
+
+For deeply nested structures, use `z^Y` (pyobj-cell) to open any cell as its own explorable sheet:
+
+```
+1. Navigate to cell containing nested data
+2. Press z^Y
+3. VisiData opens the cell contents as a new sheet
+4. Navigate/expand as needed
+5. Press q to return to parent sheet
+```
+
+This is VisiData's equivalent to jn view's tree navigation!
+
+### JMESPath Support (Built-in since v2.12)
+
+VisiData v2.12+ has built-in JMESPath support for JSON querying:
+
+| Key | Command | Description |
+|-----|---------|-------------|
+| `z=` + expr | Add JMESPath column | Create new column from JMESPath expression |
+| `z\|` + expr | Select by JMESPath | Select rows matching JMESPath expression |
+
+**Note:** For older versions, install the [ajkerrigan/visidata-plugins](https://github.com/ajkerrigan/visidata-plugins) JMESPath plugin.
+
+JMESPath is similar to jq but with a cleaner syntax for simple queries. Example:
+```
+JMESPath: user.address.city
+jq:       .user.address.city
+```
+
+---
+
 ## VisiData Features NOT in Original jn view Plans
 
 These are powerful features VisiData provides that weren't in the original specs:
@@ -455,7 +554,22 @@ uv tool install visidata
 
 ## References
 
-- VisiData Official Site: https://www.visidata.org/
-- VisiData Manual: https://www.visidata.org/man/
-- VisiData Cheat Sheet: https://jsvine.github.io/visidata-cheat-sheet/
+### Official Documentation
+- [VisiData Official Site](https://www.visidata.org/)
+- [VisiData Manual](https://www.visidata.org/man/)
+- [VisiData Cheat Sheet](https://jsvine.github.io/visidata-cheat-sheet/)
+- [VisiData Loader API](https://www.visidata.org/docs/api/loaders)
+- [VisiData Formats](https://www.visidata.org/docs/formats/)
+
+### VisiData Plugins
+- [ajkerrigan/visidata-plugins](https://github.com/ajkerrigan/visidata-plugins) - JMESPath, S3, and more
+- [VisiData Plugin API](https://www.visidata.org/docs/api/)
+
+### GitHub Discussions (Useful Examples)
+- [Flatten structured data](https://github.com/saulpw/visidata/discussions/1605) - Using expand/unfurl
+- [Stdin pipe usage](https://github.com/saulpw/visidata/discussions/1106) - Piping data to VisiData
+- [Piping example](https://github.com/saulpw/visidata/discussions/1818) - Example workflows
+
+### JN Documentation
 - JN VisiData Integration: `spec/done/visidata-integration.md`
+- JN VisiData Plugin Design: `spec/wip/visidata-plugin-design.md`
