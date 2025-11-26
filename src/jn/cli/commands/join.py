@@ -10,7 +10,38 @@ import click
 
 from ...context import pass_context
 from ...process_utils import popen_with_validation
-from ..helpers import build_subprocess_env_for_coverage, check_uv_available
+from ..helpers import (
+    build_subprocess_env_for_coverage,
+    check_jq_available,
+    check_uv_available,
+)
+
+
+def _apply_jq_transform(record: dict, jq_expr: str) -> dict | None:
+    """Apply a jq expression to transform a record.
+
+    Args:
+        record: The input record to transform
+        jq_expr: A jq expression to apply
+
+    Returns:
+        Transformed record, or None if transformation fails.
+    """
+    proc = subprocess.run(  # noqa: S603
+        ["jq", "-c", jq_expr],  # noqa: S607
+        input=json.dumps(record),
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        return None
+    output = proc.stdout.strip()
+    if not output:
+        return None
+    try:
+        return json.loads(output)
+    except json.JSONDecodeError:
+        return None
 
 
 def _load_right_side(
@@ -18,6 +49,7 @@ def _load_right_side(
     right_key: str,
     pick_fields: Optional[tuple[str, ...]],
     home_dir=None,
+    transform: Optional[str] = None,
 ) -> dict[str, list[dict]]:
     """Load right source into a lookup table.
 
@@ -26,6 +58,7 @@ def _load_right_side(
         right_key: Field name to use as lookup key
         pick_fields: Optional tuple of field names to include
         home_dir: JN home directory (overrides $JN_HOME)
+        transform: Optional jq expression to transform records before keying
 
     Returns:
         Dict mapping key values to lists of matching records.
@@ -55,7 +88,14 @@ def _load_right_side(
                 )
                 continue
 
-            key_value = record.get(right_key)
+            # Apply transform if specified
+            keying_record = record
+            if transform:
+                keying_record = _apply_jq_transform(record, transform)
+                if keying_record is None:
+                    continue
+
+            key_value = keying_record.get(right_key)
             if key_value is None:
                 continue
 
@@ -89,6 +129,7 @@ def _stream_and_enrich(
     left_key: str,
     target: str,
     inner_join: bool,
+    transform: Optional[str] = None,
 ) -> Iterator[dict]:
     """Stream stdin and enrich with lookup data.
 
@@ -97,6 +138,7 @@ def _stream_and_enrich(
         left_key: Field name in left records to match on
         target: Field name for embedded array of matches
         inner_join: If True, only emit records with matches
+        transform: Optional jq expression to transform records before keying
 
     Yields:
         Enriched records with matches embedded in target field.
@@ -115,7 +157,14 @@ def _stream_and_enrich(
             )
             continue
 
-        key_value = record.get(left_key)
+        # Apply transform if specified
+        keying_record = record
+        if transform:
+            keying_record = _apply_jq_transform(record, transform)
+            if keying_record is None:
+                continue
+
+        key_value = keying_record.get(left_key)
         key_str = str(key_value) if key_value is not None else None
 
         matches = lookup.get(key_str, []) if key_str else []
@@ -159,9 +208,27 @@ def _stream_and_enrich(
     multiple=True,
     help="Fields to include from right records (can repeat).",
 )
+@click.option(
+    "--left-transform",
+    "left_transform",
+    help="jq expression to transform left records before extracting key.",
+)
+@click.option(
+    "--right-transform",
+    "right_transform",
+    help="jq expression to transform right records before extracting key.",
+)
 @pass_context
 def join(
-    ctx, right_source, left_key, right_key, target, inner_join, pick_fields
+    ctx,
+    right_source,
+    left_key,
+    right_key,
+    target,
+    inner_join,
+    pick_fields,
+    left_transform,
+    right_transform,
 ):
     """Enrich NDJSON stream with data from a secondary source.
 
@@ -194,6 +261,12 @@ def join(
           --left-key id --right-key id --target data \\
           --pick name --pick value
 
+        # Composite key join (normalize paths before joining)
+        jn cat symbols.ndjson | jn join coverage.ndjson \\
+          --left-transform '. + {_key: (.file + ":" + .function)}' \\
+          --right-transform '. + {_key: ((.file | split("/") | .[-1]) + ":" + .function)}' \\
+          --left-key _key --right-key _key --target coverage
+
     \b
     Output format (left join):
         {"id": 1, "name": "Alice", "orders": [{"order_id": "O1"}, {"order_id": "O2"}]}
@@ -204,6 +277,8 @@ def join(
     """
     try:
         check_uv_available()
+        if left_transform or right_transform:
+            check_jq_available()
 
         # Phase 1: Load right side into lookup table
         lookup = _load_right_side(
@@ -211,10 +286,13 @@ def join(
             right_key,
             pick_fields if pick_fields else None,
             home_dir=ctx.home,
+            transform=right_transform,
         )
 
         # Phase 2 & 3: Stream left side and enrich
-        for record in _stream_and_enrich(lookup, left_key, target, inner_join):
+        for record in _stream_and_enrich(
+            lookup, left_key, target, inner_join, transform=left_transform
+        ):
             print(json.dumps(record), flush=True)
 
     except KeyboardInterrupt:
