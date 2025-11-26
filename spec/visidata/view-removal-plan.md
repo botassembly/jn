@@ -146,8 +146,8 @@ jn cat source | [jn filter] | vd -f jsonl -
 - [x] Keep `jn view` as alias for `jn vd`
 - [x] Remove Textual-specific options (--depth, --start-at)
 - [x] Add VisiData quick reference to help text
-- [ ] Remove `jn_home/plugins/formats/json_viewer.py` (optional)
-- [ ] Check and update `pyproject.toml` (optional)
-- [ ] Archive old spec documents
-- [ ] Update CLAUDE.md
-- [ ] Run full test suite
+- [x] Remove `jn_home/plugins/formats/json_viewer.py`
+- [x] Check `pyproject.toml` (no textual dependency found)
+- [x] Archive old spec documents to `spec/archive/textual-viewer/`
+- [x] Update CLAUDE.md (removed Textual section)
+- [x] Run full test suite (all tests pass)

@@ -28,43 +28,6 @@ uv run csv_.py --mode read < data.csv  # ❌ NO!
 
 ---
 
-## ⚠️ CRITICAL: Textual TUI + Stdin Integration
-
-**The Problem**: Textual TUIs read keyboard from stdin, but JN pipes data through stdin. They conflict!
-
-**Core Rules (See `spec/done/textual-stdin-architecture.md` for details):**
-
-1. **NEVER Pre-load All Data Into RAM** (violates JN's constant memory principle)
-   - ❌ `records = [json.loads(line) for line in sys.stdin]  # Loads everything!`
-   - ✅ Use disk-backed streaming instead
-
-2. **Disk-Backed Streaming Pattern** (RECOMMENDED):
-   ```python
-   # Save piped stdin to temp file, then stream from disk
-   temp_file = save_stdin_to_temp()  # One-pass streaming write
-   redirect_stdin_to_tty()           # Keyboard now works
-   stream_from_file(temp_file)       # Constant memory reads
-   ```
-   - ✅ Constant memory (~1MB, any size dataset)
-   - ✅ Can seek forward/back efficiently
-   - ✅ Preserves JN's streaming architecture
-
-3. **stdin Redirection** (required for keyboard input):
-   ```python
-   tty_fd = os.open('/dev/tty', os.O_RDONLY)
-   os.dup2(tty_fd, 0)  # Redirect fd 0 to /dev/tty (don't close it!)
-   os.close(tty_fd)
-   sys.stdin = open(0, 'r')
-   ```
-   - ✅ Works on Linux, macOS, Ghostty, tmux
-   - ❌ Never `sys.stdin.close()` (breaks Textual)
-
-**When Pre-loading Is Acceptable**: Only for tiny datasets (< 10K records) where memory is negligible
-
-**Full architecture doc**: `spec/done/textual-stdin-architecture.md`
-
----
-
 ## What is JN?
 
 JN is an **agent-native ETL framework** that uses:
