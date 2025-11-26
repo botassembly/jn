@@ -1,9 +1,9 @@
-"""Interactive NDJSON viewer command."""
+"""Interactive NDJSON viewer command - launches VisiData."""
 
+import shutil
 import subprocess
 import sys
 from contextlib import ExitStack
-from pathlib import Path
 
 import click
 
@@ -22,19 +22,16 @@ from ...process_utils import popen_with_validation
     "filter_expr",
     help="Pre-filter with jq expression before viewing",
 )
-@click.option(
-    "--depth", type=int, default=2, help="Initial tree expansion depth"
-)
-@click.option(
-    "--start-at", type=int, default=0, help="Start at record N (0-based)"
-)
 @click.pass_obj
-def view(
-    ctx: JNContext, source: str, filter_expr: str, depth: int, start_at: int
-) -> None:
-    """View NDJSON data interactively.
+def view(ctx: JNContext, source: str, filter_expr: str) -> None:
+    """View NDJSON data interactively using VisiData.
 
-    Opens a TUI viewer for exploring NDJSON records one at a time.
+    Opens VisiData for exploring NDJSON data with full spreadsheet capabilities:
+    sorting, filtering, aggregation, frequency tables, and more.
+
+    This command is an alias for 'jn vd'. For the canonical command, use 'jn vd'.
+
+    Requires VisiData to be installed: uv tool install visidata
 
     \b
     Examples:
@@ -48,28 +45,35 @@ def view(
         # With pre-filtering
         jn view data.json --filter '.age > 30'
 
-        # Start at specific record
-        jn view data.json --start-at 100 --depth 3
+    \b
+    VisiData Quick Reference:
+        q       Quit
+        j/k     Move down/up
+        h/l     Move left/right
+        /       Search
+        [       Sort ascending
+        ]       Sort descending
+        Shift+F Frequency table for column
+        .       Select row
+        "       Open selected rows as new sheet
+
+    For full VisiData documentation: https://visidata.org/man/
     """
+    # Check if visidata is available
+    vd_path = shutil.which("vd") or shutil.which("visidata")
+    if not vd_path:
+        click.echo(
+            "Error: VisiData not found. Install with: uv tool install visidata",
+            err=True,
+        )
+        sys.exit(1)
+
     # Discover plugins
     plugins = get_cached_plugins_with_fallback(ctx.plugin_dir, ctx.cache_path)
 
-    # Find viewer plugin
-    viewer_plugin = None
-    for plugin in plugins.values():
-        # Check if this is the json_viewer plugin
-        plugin_path = (
-            Path(plugin.path) if isinstance(plugin.path, str) else plugin.path
-        )
-        if "viewer" in plugin_path.name.lower():
-            viewer_plugin = plugin
-            break
+    # VisiData command to receive NDJSON from stdin
+    vd_cmd = [vd_path, "-f", "jsonl", "-"]
 
-    if not viewer_plugin:
-        click.echo("Error: Viewer plugin not found", err=True)
-        sys.exit(1)
-
-    # Build pipeline based on whether source is provided
     if source:
         # Parse source address
         try:
@@ -108,6 +112,8 @@ def view(
             # Find jq filter plugin
             filter_plugin = None
             for plugin in plugins.values():
+                from pathlib import Path
+
                 plugin_path = (
                     Path(plugin.path)
                     if isinstance(plugin.path, str)
@@ -137,33 +143,17 @@ def view(
         else:
             filter_cmd = None
 
-        # Phase 3: viewer
-        viewer_cmd = [
-            "uv",
-            "run",
-            "--script",
-            str(viewer_plugin.path),
-            "--mode",
-            "write",
-            "--depth",
-            str(depth),
-            "--start-at",
-            str(start_at),
-        ]
-
         # Execute pipeline
         with ExitStack() as stack:
             try:
-                # Start cat process (keep as binary pipes - each script handles encoding)
+                # Start cat process
                 if resolved.url:
-                    # For protocols, no stdin needed (URL is argument)
                     cat_proc = popen_with_validation(
                         cat_cmd,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
                     )
                 else:
-                    # For files, open and pass as stdin
                     if addr.base != "-":
                         infile = stack.enter_context(open(addr.base, "rb"))
                     else:
@@ -184,20 +174,19 @@ def view(
                         stderr=subprocess.PIPE,
                     )
                     cat_proc.stdout.close()  # Allow cat to receive SIGPIPE
-                    viewer_stdin = filter_proc.stdout
-                    filter_proc.stdout = None  # Will be closed by viewer
+                    vd_stdin = filter_proc.stdout
+                    filter_proc.stdout = None
                 else:
-                    viewer_stdin = cat_proc.stdout
-                    cat_proc.stdout = None  # Will be closed by viewer
+                    vd_stdin = cat_proc.stdout
+                    cat_proc.stdout = None
 
-                # Start viewer process
-                viewer_proc = popen_with_validation(
-                    viewer_cmd, stdin=viewer_stdin, stderr=sys.stderr
+                # Start VisiData process
+                vd_proc = popen_with_validation(
+                    vd_cmd, stdin=vd_stdin, stderr=sys.stderr
                 )
 
-                # Wait for viewer to complete
-                # Note: viewer_stdin will be closed automatically when viewer exits
-                viewer_proc.wait()
+                # Wait for VisiData to complete
+                vd_proc.wait()
 
                 # Check for errors
                 if filter_cmd:
@@ -208,53 +197,36 @@ def view(
                             if filter_proc.stderr
                             else b""
                         )
-                        click.echo(
-                            f"Filter error: {stderr.decode()}", err=True
-                        )
+                        click.echo(f"Filter error: {stderr.decode()}", err=True)
 
                 cat_proc.wait()
                 if cat_proc.returncode != 0:
                     stderr = cat_proc.stderr.read() if cat_proc.stderr else b""
                     click.echo(f"Source error: {stderr.decode()}", err=True)
 
-                # Exit with viewer's return code
-                sys.exit(viewer_proc.returncode)
+                sys.exit(vd_proc.returncode)
 
             except KeyboardInterrupt:
-                # Clean shutdown on Ctrl+C
                 if "cat_proc" in locals():
                     cat_proc.terminate()
                 if "filter_proc" in locals():
                     filter_proc.terminate()
-                if "viewer_proc" in locals():
-                    viewer_proc.terminate()
-                sys.exit(130)  # Standard Unix Ctrl+C exit code
+                if "vd_proc" in locals():
+                    vd_proc.terminate()
+                sys.exit(130)
             except Exception as e:
-                click.echo(f"Error running viewer pipeline: {e}", err=True)
+                click.echo(f"Error running VisiData pipeline: {e}", err=True)
                 sys.exit(1)
 
     else:
-        # Read from stdin (existing behavior)
-        viewer_cmd = [
-            "uv",
-            "run",
-            "--script",
-            str(viewer_plugin.path),
-            "--mode",
-            "write",
-            "--depth",
-            str(depth),
-            "--start-at",
-            str(start_at),
-        ]
-
+        # Read from stdin - pipe directly to VisiData
         try:
-            viewer_proc = popen_with_validation(viewer_cmd, stdin=sys.stdin)
-            viewer_proc.wait()
-            sys.exit(viewer_proc.returncode)
+            vd_proc = popen_with_validation(vd_cmd, stdin=sys.stdin)
+            vd_proc.wait()
+            sys.exit(vd_proc.returncode)
         except KeyboardInterrupt:
-            viewer_proc.terminate()
+            vd_proc.terminate()
             sys.exit(130)
         except Exception as e:
-            click.echo(f"Error running viewer: {e}", err=True)
+            click.echo(f"Error running VisiData: {e}", err=True)
             sys.exit(1)

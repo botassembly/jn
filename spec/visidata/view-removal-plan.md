@@ -1,124 +1,91 @@
-# JN View Removal Plan
+# JN View Migration Plan
 
 **Date:** 2025-11-25
-**Status:** Planned
+**Status:** Completed
 **Rationale:** VisiData provides all planned `jn view` functionality and more
 
 ---
 
 ## Summary
 
-Remove the Textual-based `jn view` command and related code in favor of VisiData integration via `jn vd`. VisiData is a mature, feature-rich tool that exceeds our original design goals.
+The `jn view` command has been repurposed to launch VisiData instead of the Textual-based viewer. Both `jn view` and `jn vd` now launch VisiData as a separate process.
+
+**Key change:** Rather than removing `jn view`, we kept it as an alias for `jn vd`.
 
 ---
 
-## What's Being Removed
+## What Changed
 
-### Code Files
+### Repurposed Files
 
 ```
-src/jn/cli/commands/view.py          # The view command
+src/jn/cli/commands/view.py   # Now launches VisiData (was Textual-based)
+src/jn/cli/commands/vd.py     # VisiData command (unchanged)
+```
+
+### Files to Remove (Optional Cleanup)
+
+The Textual-based viewer plugin is no longer used:
+
+```
 jn_home/plugins/formats/json_viewer.py  # The Textual-based viewer plugin
 ```
 
-### Spec Documents (Archive or Delete)
-
-```
-spec/done/single-record-json-viewer.md    # MVP viewer design
-spec/done/textual-stdin-architecture.md   # Textual stdin handling
-spec/todo/json-viewer-pro-design.md       # Pro viewer design
-spec/wip/viewer-ux-brainstorm.md          # UX brainstorm
-spec/wip/viewer-v2-design.md              # Viewer v2 design
-```
-
-### Dependencies
+### Dependencies to Remove
 
 Remove from `pyproject.toml` (if not used elsewhere):
 - `textual` (check if other commands use it)
-- Any viewer-specific dependencies
 
 ---
 
-## What's Being Kept
+## Migration for Users
 
-### VisiData Integration
+Both commands work identically:
 
-```
-src/jn/cli/commands/vd.py           # jn vd command
-spec/visidata/                       # All VisiData documentation
-```
+| Command | Description |
+|---------|-------------|
+| `jn view data.json` | Opens VisiData |
+| `jn vd data.json` | Opens VisiData |
+| `jn cat data.csv \| jn view` | Pipes to VisiData |
+| `jn cat data.csv \| jn vd` | Pipes to VisiData |
 
-### Main.py Updates
+### Removed Options
 
-The `jn vd` command is already registered. Remove `jn view`:
-
-```python
-# Remove these lines from main.py:
-from .commands.view import view
-cli.add_command(view)
-```
-
----
-
-## Migration Guide
-
-### For Users
-
-| Old Command | New Command |
-|-------------|-------------|
-| `jn view data.json` | `jn vd data.json` |
-| `jn cat data.csv \| jn view` | `jn cat data.csv \| jn vd` |
-| `jn view --filter '.x > 10'` | `jn vd --filter '.x > 10'` |
+The following Textual-specific options were removed from `jn view`:
+- `--depth` - VisiData uses `(` to expand nested data
+- `--start-at` - VisiData uses `zr N` to jump to row N
 
 ### Feature Mapping
 
-| jn view Feature | VisiData Equivalent |
-|-----------------|---------------------|
+| Old jn view Feature | VisiData Equivalent |
+|---------------------|---------------------|
 | Tree navigation | `z^Y` (pyobj-cell) or `(` expand |
 | Record n/p navigation | `j/k` row navigation |
-| Jump to record | `zr N` |
+| Jump to record N | `zr N` |
 | Search | `/` or `g/` |
 | Bookmarks | `s` select, `"` open as sheet |
 | Help | `Ctrl+H` |
 
 ---
 
-## Removal Steps
+## Cleanup Steps
 
-### Phase 1: Deprecation Notice (Optional)
+### Phase 1: Remove Unused Code (Optional)
 
-If backward compatibility is important:
-
-1. Add deprecation warning to `jn view`:
-   ```python
-   click.echo("Warning: 'jn view' is deprecated. Use 'jn vd' instead.", err=True)
-   ```
-2. Keep for 1-2 releases
-
-### Phase 2: Code Removal
-
-1. **Remove view command:**
-   ```bash
-   rm src/jn/cli/commands/view.py
-   ```
-
-2. **Remove viewer plugin:**
+1. **Remove unused viewer plugin:**
    ```bash
    rm jn_home/plugins/formats/json_viewer.py
    ```
 
-3. **Update main.py:**
-   Remove view imports and registration
-
-4. **Update pyproject.toml:**
+2. **Update pyproject.toml:**
    Remove textual dependency if not used elsewhere
 
-5. **Run tests:**
+3. **Run tests:**
    ```bash
    make test
    ```
 
-### Phase 3: Spec Cleanup
+### Phase 2: Spec Cleanup
 
 1. **Archive old specs:**
    ```bash
@@ -131,25 +98,16 @@ If backward compatibility is important:
    ```
 
 2. **Update CLAUDE.md:**
-   Remove references to `jn view` and Textual TUI architecture
+   Remove references to Textual TUI architecture
 
 3. **Update any README or docs:**
-   Search for "jn view" references and update to "jn vd"
-
-### Phase 4: Documentation Update
-
-1. Update main README with VisiData info
-2. Add migration note to changelog
-3. Update any tutorials or examples
+   Search for Textual references and update
 
 ---
 
 ## Grep Commands for Cleanup
 
 ```bash
-# Find all references to jn view
-grep -r "jn view" --include="*.md" --include="*.py" .
-
 # Find all references to textual
 grep -r "textual" --include="*.md" --include="*.py" .
 
@@ -162,45 +120,34 @@ find spec -name "*viewer*" -o -name "*textual*"
 
 ---
 
-## Risks & Mitigations
+## Architecture Notes
 
-### Risk: Users depend on jn view
+### Why VisiData as a Separate Process?
 
-**Mitigation:**
-- `jn vd` provides same functionality
-- Document migration path
-- Optional deprecation period
+1. **GPL v3 License:** VisiData is GPL v3; keeping it as a subprocess avoids any licensing concerns with JN's MIT license
+2. **No Dependencies:** No need to add visidata to pyproject.toml
+3. **Clean Exit:** VisiData manages its own terminal state
+4. **Parallel Execution:** Pipeline stages run concurrently
 
-### Risk: Textual used elsewhere
+### Process Flow
 
-**Mitigation:**
-- Check before removing dependency
-- `grep -r "textual" src/`
-
-### Risk: Tree view for nested JSON
-
-**Mitigation:**
-- VisiData's `z^Y` (pyobj-cell) provides similar functionality
-- Document this clearly in cheat sheet
-
----
-
-## Timeline
-
-1. **Immediate:** Create this plan, document VisiData alternatives
-2. **Next release:** Add deprecation warning (optional)
-3. **Following release:** Remove code and specs
+```
+jn cat source | [jn filter] | vd -f jsonl -
+     │              │            │
+     └── Phase 1    └── Phase 2  └── VisiData
+         (read)        (filter)      (display)
+```
 
 ---
 
 ## Checklist
 
-- [ ] Remove `src/jn/cli/commands/view.py`
-- [ ] Remove `jn_home/plugins/formats/json_viewer.py`
-- [ ] Update `src/jn/cli/main.py`
-- [ ] Check and update `pyproject.toml`
+- [x] Modify `src/jn/cli/commands/view.py` to launch VisiData
+- [x] Keep `jn view` as alias for `jn vd`
+- [x] Remove Textual-specific options (--depth, --start-at)
+- [x] Add VisiData quick reference to help text
+- [ ] Remove `jn_home/plugins/formats/json_viewer.py` (optional)
+- [ ] Check and update `pyproject.toml` (optional)
 - [ ] Archive old spec documents
 - [ ] Update CLAUDE.md
-- [ ] Search and update all "jn view" references
 - [ ] Run full test suite
-- [ ] Update changelog
