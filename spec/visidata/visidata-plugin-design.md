@@ -1,8 +1,24 @@
 # VisiData Plugin for JN: Bidirectional Integration
 
 **Date:** 2025-11-25
-**Status:** Design Proposal
+**Status:** Optional / Future Work
 **Author:** Claude
+
+---
+
+## Implementation Notes
+
+**This plugin requires a separate repository with GPL v3 license.**
+
+VisiData is GPL v3. A plugin that imports VisiData modules runs inside VisiData's
+process, making the combined work GPL. To keep jn cleanly MIT-licensed:
+
+- Create separate repo: `vd-jn` (or similar)
+- License: GPL v3
+- Publish to PyPI: `pip install vd-jn`
+
+This is **optional work** - the core jn → VisiData flow (`jn cat | jn vd`) works
+without this plugin. This plugin enables the reverse: VisiData → jn.
 
 ---
 
