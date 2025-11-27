@@ -12,53 +12,47 @@ from ...context import pass_context
 from ...process_utils import popen_with_validation
 from ..helpers import (
     build_subprocess_env_for_coverage,
-    check_jq_available,
     check_uv_available,
 )
 
 
-def _apply_jq_transform(record: dict, jq_expr: str) -> dict | None:
-    """Apply a jq expression to transform a record.
+def _make_key(record: dict, fields: list[str]) -> str | None:
+    """Create a composite key from multiple fields.
 
     Args:
-        record: The input record to transform
-        jq_expr: A jq expression to apply
+        record: The record to extract key from
+        fields: List of field names to use for the key
 
     Returns:
-        Transformed record, or None if transformation fails.
+        A string key (tuple repr for composite), or None if any field missing.
     """
-    proc = subprocess.run(  # noqa: S603
-        ["jq", "-c", jq_expr],  # noqa: S607
-        input=json.dumps(record),
-        capture_output=True,
-        text=True,
-    )
-    if proc.returncode != 0:
-        return None
-    output = proc.stdout.strip()
-    if not output:
-        return None
-    try:
-        return json.loads(output)
-    except json.JSONDecodeError:
-        return None
+    values = []
+    for field in fields:
+        value = record.get(field)
+        if value is None:
+            return None
+        values.append(str(value))
+
+    # Single field: just the value string
+    # Multiple fields: tuple-like representation
+    if len(values) == 1:
+        return values[0]
+    return tuple(values).__repr__()
 
 
 def _load_right_side(
     source: str,
-    right_key: str,
+    right_fields: list[str],
     pick_fields: Optional[tuple[str, ...]],
     home_dir=None,
-    transform: Optional[str] = None,
 ) -> dict[str, list[dict]]:
     """Load right source into a lookup table.
 
     Args:
         source: Data source address (file, URL, profile)
-        right_key: Field name to use as lookup key
+        right_fields: Field names to use as lookup key
         pick_fields: Optional tuple of field names to include
         home_dir: JN home directory (overrides $JN_HOME)
-        transform: Optional jq expression to transform records before keying
 
     Returns:
         Dict mapping key values to lists of matching records.
@@ -88,19 +82,9 @@ def _load_right_side(
                 )
                 continue
 
-            # Apply transform if specified
-            keying_record = record
-            if transform:
-                keying_record = _apply_jq_transform(record, transform)
-                if keying_record is None:
-                    continue
-
-            key_value = keying_record.get(right_key)
-            if key_value is None:
+            key_str = _make_key(record, right_fields)
+            if key_str is None:
                 continue
-
-            # Convert key to string for consistent matching
-            key_str = str(key_value)
 
             # Apply field selection if specified
             if pick_fields:
@@ -126,19 +110,17 @@ def _load_right_side(
 
 def _stream_and_enrich(
     lookup: dict[str, list[dict]],
-    left_key: str,
+    left_fields: list[str],
     target: str,
     inner_join: bool,
-    transform: Optional[str] = None,
 ) -> Iterator[dict]:
     """Stream stdin and enrich with lookup data.
 
     Args:
         lookup: Dict mapping key values to lists of matching records
-        left_key: Field name in left records to match on
+        left_fields: Field names in left records to match on
         target: Field name for embedded array of matches
         inner_join: If True, only emit records with matches
-        transform: Optional jq expression to transform records before keying
 
     Yields:
         Enriched records with matches embedded in target field.
@@ -157,16 +139,7 @@ def _stream_and_enrich(
             )
             continue
 
-        # Apply transform if specified
-        keying_record = record
-        if transform:
-            keying_record = _apply_jq_transform(record, transform)
-            if keying_record is None:
-                continue
-
-        key_value = keying_record.get(left_key)
-        key_str = str(key_value) if key_value is not None else None
-
+        key_str = _make_key(record, left_fields)
         matches = lookup.get(key_str, []) if key_str else []
 
         # Inner join: skip records with no matches
@@ -181,14 +154,19 @@ def _stream_and_enrich(
 @click.command()
 @click.argument("right_source")
 @click.option(
-    "--left-key",
-    required=True,
-    help="Field in left (stdin) records to match on.",
+    "--on",
+    "on_fields",
+    help="Field(s) to join on (same name on both sides). Comma-separated for composite key.",
 )
 @click.option(
-    "--right-key",
-    required=True,
-    help="Field in right source records to match on.",
+    "--left-on",
+    "left_on",
+    help="Field(s) in left (stdin) records. Comma-separated for composite key.",
+)
+@click.option(
+    "--right-on",
+    "right_on",
+    help="Field(s) in right source records. Comma-separated for composite key.",
 )
 @click.option(
     "--target",
@@ -208,27 +186,16 @@ def _stream_and_enrich(
     multiple=True,
     help="Fields to include from right records (can repeat).",
 )
-@click.option(
-    "--left-transform",
-    "left_transform",
-    help="jq expression to transform left records before extracting key.",
-)
-@click.option(
-    "--right-transform",
-    "right_transform",
-    help="jq expression to transform right records before extracting key.",
-)
 @pass_context
 def join(
     ctx,
     right_source,
-    left_key,
-    right_key,
+    on_fields,
+    left_on,
+    right_on,
     target,
     inner_join,
     pick_fields,
-    left_transform,
-    right_transform,
 ):
     """Enrich NDJSON stream with data from a secondary source.
 
@@ -240,32 +207,25 @@ def join(
 
     \b
     Examples:
-        # Enrich customers with their orders
+        # Simple join (same field name)
         jn cat customers.csv | jn join orders.csv \\
-          --left-key customer_id \\
-          --right-key customer_id \\
-          --target orders
+          --on customer_id --target orders
 
-        # Find functions with their callers
-        jn cat coverage.json | jn join callers.json \\
-          --left-key function \\
-          --right-key callee \\
-          --target callers
+        # Different field names
+        jn cat users.csv | jn join purchases.csv \\
+          --left-on id --right-on user_id --target purchases
+
+        # Composite key join (multiple fields)
+        jn cat symbols.ndjson | jn join coverage.ndjson \\
+          --on file,function --target coverage
 
         # Inner join - only emit matches
         jn cat left.csv | jn join right.csv \\
-          --left-key id --right-key id --target matches --inner
+          --on id --target matches --inner
 
         # Pick specific fields from right
         jn cat left.csv | jn join right.csv \\
-          --left-key id --right-key id --target data \\
-          --pick name --pick value
-
-        # Composite key join (normalize paths before joining)
-        jn cat symbols.ndjson | jn join coverage.ndjson \\
-          --left-transform '. + {_key: (.file + ":" + .function)}' \\
-          --right-transform '. + {_key: ((.file | split("/") | .[-1]) + ":" + .function)}' \\
-          --left-key _key --right-key _key --target coverage
+          --on id --target data --pick name --pick value
 
     \b
     Output format (left join):
@@ -277,21 +237,39 @@ def join(
     """
     try:
         check_uv_available()
-        if left_transform or right_transform:
-            check_jq_available()
+
+        # Resolve field names
+        if on_fields:
+            # --on specifies same field(s) for both sides
+            left_fields = [f.strip() for f in on_fields.split(",")]
+            right_fields = left_fields
+        elif left_on and right_on:
+            # Different field names on each side
+            left_fields = [f.strip() for f in left_on.split(",")]
+            right_fields = [f.strip() for f in right_on.split(",")]
+        else:
+            raise click.ClickException(
+                "Must specify either --on or both --left-on and --right-on"
+            )
+
+        # Validate composite key lengths match
+        if len(left_fields) != len(right_fields):
+            raise click.ClickException(
+                f"Key field count mismatch: left has {len(left_fields)}, "
+                f"right has {len(right_fields)}"
+            )
 
         # Phase 1: Load right side into lookup table
         lookup = _load_right_side(
             right_source,
-            right_key,
+            right_fields,
             pick_fields if pick_fields else None,
             home_dir=ctx.home,
-            transform=right_transform,
         )
 
         # Phase 2 & 3: Stream left side and enrich
         for record in _stream_and_enrich(
-            lookup, left_key, target, inner_join, transform=left_transform
+            lookup, left_fields, target, inner_join
         ):
             print(json.dumps(record), flush=True)
 

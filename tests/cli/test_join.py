@@ -19,14 +19,14 @@ def test_join_basic_left_join(invoke, tmp_path):
     left_result = invoke(["cat", str(customers_csv)])
     assert left_result.exit_code == 0, f"Cat failed: {left_result.output}"
 
-    # Join with right side
+    # Join with different key names
     result = invoke(
         [
             "join",
             str(orders_csv),
-            "--left-key",
+            "--left-on",
             "id",
-            "--right-key",
+            "--right-on",
             "customer_id",
             "--target",
             "orders",
@@ -71,9 +71,7 @@ def test_join_inner_join(invoke, tmp_path):
         [
             "join",
             str(right_csv),
-            "--left-key",
-            "id",
-            "--right-key",
+            "--on",
             "id",
             "--target",
             "data",
@@ -110,9 +108,7 @@ def test_join_pick_fields(invoke, tmp_path):
         [
             "join",
             str(right_csv),
-            "--left-key",
-            "id",
-            "--right-key",
+            "--on",
             "id",
             "--target",
             "data",
@@ -157,9 +153,9 @@ def test_join_one_to_many(invoke, tmp_path):
         [
             "join",
             str(callers_csv),
-            "--left-key",
+            "--left-on",
             "function",
-            "--right-key",
+            "--right-on",
             "callee",
             "--target",
             "callers",
@@ -196,9 +192,7 @@ def test_join_preserves_left_fields(invoke, tmp_path):
         [
             "join",
             str(right_csv),
-            "--left-key",
-            "id",
-            "--right-key",
+            "--on",
             "id",
             "--target",
             "data",
@@ -238,9 +232,7 @@ def test_join_with_json_files(invoke, tmp_path):
         [
             "join",
             str(right_json),
-            "--left-key",
-            "id",
-            "--right-key",
+            "--on",
             "id",
             "--target",
             "scores",
@@ -261,7 +253,7 @@ def test_join_with_json_files(invoke, tmp_path):
 
 
 def test_join_missing_required_options(invoke, tmp_path):
-    """Test that join requires all mandatory options."""
+    """Test that join requires --on or both --left-on and --right-on."""
     left_csv = tmp_path / "left.csv"
     left_csv.write_text("id,name\n1,Alice\n")
 
@@ -271,12 +263,25 @@ def test_join_missing_required_options(invoke, tmp_path):
     left_result = invoke(["cat", str(left_csv)])
     assert left_result.exit_code == 0
 
-    # Missing --left-key
+    # Missing both --on and --left-on/--right-on
     result = invoke(
         [
             "join",
             str(right_csv),
-            "--right-key",
+            "--target",
+            "data",
+        ],
+        input_data=left_result.output,
+    )
+    assert result.exit_code != 0
+    assert "--on" in result.output or "left-on" in result.output
+
+    # Only --left-on without --right-on
+    result = invoke(
+        [
+            "join",
+            str(right_csv),
+            "--left-on",
             "id",
             "--target",
             "data",
@@ -284,17 +289,13 @@ def test_join_missing_required_options(invoke, tmp_path):
         input_data=left_result.output,
     )
     assert result.exit_code != 0
-    assert (
-        "left-key" in result.output.lower()
-        or "required" in result.output.lower()
-    )
 
-    # Missing --right-key
+    # Only --right-on without --left-on
     result = invoke(
         [
             "join",
             str(right_csv),
-            "--left-key",
+            "--right-on",
             "id",
             "--target",
             "data",
@@ -308,9 +309,7 @@ def test_join_missing_required_options(invoke, tmp_path):
         [
             "join",
             str(right_csv),
-            "--left-key",
-            "id",
-            "--right-key",
+            "--on",
             "id",
         ],
         input_data=left_result.output,
@@ -328,9 +327,7 @@ def test_join_empty_left_stream(invoke, tmp_path):
         [
             "join",
             str(right_csv),
-            "--left-key",
-            "id",
-            "--right-key",
+            "--on",
             "id",
             "--target",
             "data",
@@ -358,9 +355,7 @@ def test_join_empty_right_source(invoke, tmp_path):
         [
             "join",
             str(right_csv),
-            "--left-key",
-            "id",
-            "--right-key",
+            "--on",
             "id",
             "--target",
             "data",
@@ -395,9 +390,7 @@ def test_join_numeric_key_matching(invoke, tmp_path):
         [
             "join",
             str(right_csv),
-            "--left-key",
-            "id",
-            "--right-key",
+            "--on",
             "id",
             "--target",
             "data",
@@ -429,9 +422,7 @@ def test_join_pick_nonexistent_field(invoke, tmp_path):
         [
             "join",
             str(right_csv),
-            "--left-key",
-            "id",
-            "--right-key",
+            "--on",
             "id",
             "--target",
             "data",
@@ -480,9 +471,9 @@ def test_join_dead_code_hunter_scenario(invoke, tmp_path):
         [
             "join",
             str(callers_csv),
-            "--left-key",
+            "--left-on",
             "function",
-            "--right-key",
+            "--right-on",
             "callee",
             "--target",
             "callers",
@@ -531,9 +522,7 @@ def test_join_right_source_failure(invoke, tmp_path):
         [
             "join",
             str(tmp_path / "nonexistent.csv"),
-            "--left-key",
-            "id",
-            "--right-key",
+            "--on",
             "id",
             "--target",
             "data",
@@ -546,3 +535,98 @@ def test_join_right_source_failure(invoke, tmp_path):
     assert (
         "failed" in result.output.lower() or "error" in result.output.lower()
     )
+
+
+def test_join_composite_key(invoke, tmp_path):
+    """Test join with composite key (multiple fields)."""
+    # Left side with file + function
+    left_json = tmp_path / "left.json"
+    left_json.write_text(
+        '{"file": "utils.py", "function": "add", "lines": 5}\n'
+        '{"file": "utils.py", "function": "sub", "lines": 3}\n'
+        '{"file": "core.py", "function": "add", "lines": 10}\n'
+    )
+
+    # Right side with same file + function combo
+    right_json = tmp_path / "right.json"
+    right_json.write_text(
+        '{"file": "utils.py", "function": "add", "coverage": 80}\n'
+        '{"file": "core.py", "function": "add", "coverage": 95}\n'
+    )
+
+    left_result = invoke(["cat", str(left_json)])
+    assert left_result.exit_code == 0
+
+    result = invoke(
+        [
+            "join",
+            str(right_json),
+            "--on",
+            "file,function",
+            "--target",
+            "coverage",
+        ],
+        input_data=left_result.output,
+    )
+
+    assert result.exit_code == 0, f"Join failed: {result.output}"
+
+    lines = [line for line in result.output.strip().split("\n") if line]
+    records = [json.loads(line) for line in lines]
+
+    assert len(records) == 3
+
+    # utils.py:add should match
+    utils_add = next(
+        r for r in records if r["file"] == "utils.py" and r["function"] == "add"
+    )
+    assert len(utils_add["coverage"]) == 1
+    assert utils_add["coverage"][0]["coverage"] == 80
+
+    # utils.py:sub should NOT match
+    utils_sub = next(
+        r for r in records if r["file"] == "utils.py" and r["function"] == "sub"
+    )
+    assert utils_sub["coverage"] == []
+
+    # core.py:add should match
+    core_add = next(
+        r for r in records if r["file"] == "core.py" and r["function"] == "add"
+    )
+    assert len(core_add["coverage"]) == 1
+    assert core_add["coverage"][0]["coverage"] == 95
+
+
+def test_join_on_shorthand(invoke, tmp_path):
+    """Test that --on works as shorthand for same field on both sides."""
+    left_csv = tmp_path / "left.csv"
+    left_csv.write_text("id,name\n1,Alice\n2,Bob\n")
+
+    right_csv = tmp_path / "right.csv"
+    right_csv.write_text("id,score\n1,95\n1,87\n")
+
+    left_result = invoke(["cat", str(left_csv)])
+    assert left_result.exit_code == 0
+
+    result = invoke(
+        [
+            "join",
+            str(right_csv),
+            "--on",
+            "id",
+            "--target",
+            "scores",
+        ],
+        input_data=left_result.output,
+    )
+
+    assert result.exit_code == 0, f"Join failed: {result.output}"
+
+    lines = [line for line in result.output.strip().split("\n") if line]
+    records = [json.loads(line) for line in lines]
+
+    alice = next(r for r in records if r["name"] == "Alice")
+    assert len(alice["scores"]) == 2
+
+    bob = next(r for r in records if r["name"] == "Bob")
+    assert bob["scores"] == []
