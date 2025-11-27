@@ -72,7 +72,9 @@ def _load_right_side(
 
         if proc.returncode != 0:
             err = proc.stderr.read()
-            raise click.ClickException(f"Right source '{source}' failed: {err}")
+            raise click.ClickException(
+                f"Right source '{source}' failed: {err}"
+            )
 
     finally:
         if proc.poll() is None:
