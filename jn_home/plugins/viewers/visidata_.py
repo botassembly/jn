@@ -4,6 +4,7 @@
 # dependencies = []
 # [tool.jn]
 # type = "viewer"
+# matches = []
 # description = "Interactive data exploration with VisiData"
 # ///
 """

@@ -199,7 +199,9 @@ def vd(ctx: JNContext, source: str, filter_expr: str) -> None:
                             if filter_proc.stderr
                             else b""
                         )
-                        click.echo(f"Filter error: {stderr.decode()}", err=True)
+                        click.echo(
+                            f"Filter error: {stderr.decode()}", err=True
+                        )
 
                 cat_proc.wait()
                 if cat_proc.returncode != 0:
