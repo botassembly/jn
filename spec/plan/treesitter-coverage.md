@@ -1,295 +1,208 @@
 # Tree-sitter + LCOV: Language-Agnostic Coverage Analysis
 
-## Executive Summary
+## Goal
 
-This spec proposes enhancements to JN that enable language-agnostic code coverage analysis by:
-1. Adding a tree-sitter plugin for code structure extraction
-2. Enhancing `jn join` with range/interval join support
-3. Adding aggregation primitives
+Enable language-agnostic function-level coverage analysis that:
+- Works with **any** LCOV file (C, Go, Rust, Python, JS, etc.)
+- Produces **better** output than coverage.py's HTML report
+- Uses **natural joins** - schemas align, commands are simple
 
-**Demo goal:** Run `make coverage` on the jn project, then use jn itself to analyze the coverage and identify low-coverage functions - matching the accuracy of coverage.py's HTML report.
+## The Design
 
-## The Problem: Join Limitations
+### Schema Alignment
 
-### Current Pain
-
-To compute function-level coverage, we need to match **line ranges** (functions) with **individual lines** (coverage data). This is a classic **range join**:
-
-```sql
--- What we want to express
-SELECT f.function, COUNT(l.line) as total, SUM(l.executed) as hit
-FROM functions f
-JOIN lines l ON l.file = f.file
-            AND l.line BETWEEN f.start_line AND f.end_line
-GROUP BY f.function
+**Tree-sitter output** (functions with line ranges):
+```json
+{"file": "src/cli/vd.py", "function": "vd", "start_line": 27, "end_line": 249}
 ```
 
-**Current jn join only supports equality on single fields:**
-```bash
-jn join lines.json --left-key file --right-key file --target lines
+**LCOV output** (lines with execution data):
+```json
+{"file": "src/cli/vd.py", "line": 66, "executed": false}
 ```
 
-This forces a **47-line jq workaround** to filter and aggregate:
+Common field: `file`. Range condition: `line ∈ [start_line, end_line]`.
+
+### The Pipeline
 
 ```bash
-# PAINFUL: Current workflow
-jn join lines.json --left-key file --right-key file --target all_lines \
-  | jq '. as $orig |
-      ($orig.start_line) as $start |
-      ($orig.end_line) as $end |
-      {
-        file: $orig.file,
-        function: $orig.function,
-        func_lines: [$orig.all_lines[] | select(.line >= $start and .line <= $end)]
-      } | {
-        file,
-        function,
-        total: (.func_lines | length),
-        executed: ([.func_lines[] | select(.executed)] | length),
-        coverage: (([.func_lines[] | select(.executed)] | length) / (.func_lines | length) * 100)
-      }'
+# Extract functions → Join with coverage → Aggregate → Display
+jn cat "src/**/*.py" --plugin ts_ \
+  | jn join coverage.lcov~lcov?mode=lines \
+      --on file \
+      --where ".line >= .start_line and .line <= .end_line" \
+      --agg "total: count, hit: sum(.executed)" \
+  | jn filter '.coverage = (.hit / .total * 100 | floor)' \
+  | jn table --sort coverage
 ```
 
-### Proposed Solution
+### Output (Better than htmlcov)
 
-**Option A: Enhanced `jn join` with `--on` syntax**
-
-```bash
-# IDEAL: One command with range join
-jn join lines.json \
-  --on "file = file" \
-  --on "line BETWEEN start_line AND end_line" \
-  --target func_lines
 ```
-
-**Option B: `jn sql` command (DuckDB backend)**
-
-```bash
-# ALTERNATIVE: Full SQL power
-jn sql "
-  SELECT f.function,
-         COUNT(l.line) as total,
-         SUM(CAST(l.executed AS INT)) as hit,
-         ROUND(100.0 * SUM(CAST(l.executed AS INT)) / COUNT(l.line), 1) as coverage
-  FROM read_ndjson('functions.json') f
-  LEFT JOIN read_ndjson('lines.json') l
-    ON l.file = f.file AND l.line BETWEEN f.start_line AND f.end_line
-  GROUP BY f.file, f.function
-  ORDER BY coverage ASC
-"
+file                          function                   total   hit  coverage
+──────────────────────────────────────────────────────────────────────────────
+src/jn/profiles/gmail.py      load_gmail_profile            12     0        0%
+src/jn/profiles/gmail.py      resolve_gmail_reference       12     0        0%
+src/jn/cli/commands/vd.py     vd                            90     0        0%
+src/jn/shell/jc_fallback.py   execute_with_jc               68     0        0%
+src/jn/cli/commands/sh.py     sh                            36     0        0%
+...
 ```
 
 ## Components
 
 ### 1. Tree-sitter Plugin (`ts_.py`)
 
-Extracts code structure (functions, methods, classes) from source files using tree-sitter.
+Extracts functions/methods/classes from source files.
 
-**Usage:**
 ```bash
-jn cat "src/jn/**/*.py" --plugin ts_
+jn cat file.py --plugin ts_
+jn cat "src/**/*.py" --plugin ts_    # glob support
 ```
 
-**Output:**
+**Output schema:**
 ```json
-{"file": "src/jn/filtering.py", "function": "parse_operator", "start_line": 7, "end_line": 49}
-{"file": "src/jn/filtering.py", "function": "build_jq_filter", "start_line": 149, "end_line": 210}
+{
+  "file": "src/jn/filtering.py",
+  "function": "parse_operator",
+  "type": "function",
+  "class": null,
+  "start_line": 7,
+  "end_line": 49
+}
 ```
 
-**Supported languages:** Python, JavaScript, TypeScript, Go, Rust, C/C++, Java
+**Supported languages:** Python, JavaScript, TypeScript, Go, Rust, C, C++, Java
 
-### 2. Enhanced LCOV Plugin
+### 2. Enhanced `jn join`
 
-Already implemented. Add documentation for `--mode=lines`:
+Add three new options:
+
+| Option | Purpose | Example |
+|--------|---------|---------|
+| `--on FIELD` | Join on common field (natural join) | `--on file` |
+| `--where EXPR` | Filter matches with jq expression | `--where ".line >= .start_line"` |
+| `--agg SPEC` | Aggregate matches inline | `--agg "total: count, hit: sum(.executed)"` |
+
+**Without aggregation** (embed matches):
+```bash
+jn join right.json --on file --where ".x > .y" --target matches
+# Output: {"file": "a.py", "matches": [{...}, {...}]}
+```
+
+**With aggregation** (compute stats):
+```bash
+jn join right.json --on file --where ".x > .y" --agg "n: count, total: sum(.value)"
+# Output: {"file": "a.py", "n": 5, "total": 100}
+```
+
+### 3. LCOV Plugin (already exists)
 
 ```bash
 jn cat coverage.lcov --mode=lines
 ```
 
-**Output:**
-```json
-{"file": "src/jn/filtering.py", "line": 7, "hits": 1, "executed": true}
-{"file": "src/jn/filtering.py", "line": 35, "hits": 0, "executed": false}
+## Implementation
+
+### Phase 1: ts_ plugin
+
+```python
+#!/usr/bin/env -S uv run --quiet --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["tree-sitter>=0.24", "tree-sitter-python>=0.24", ...]
+# [tool.jn]
+# matches = []  # explicit --plugin only
+# ///
+
+def reads(config):
+    """Extract functions from source file."""
+    lang = detect_language(config.get('file'))
+    parser = get_parser(lang)
+    tree = parser.parse(source_bytes)
+
+    for func in extract_functions(tree, lang):
+        yield {
+            'file': config['file'],
+            'function': func.qualified_name,
+            'type': func.type,  # function, method, class
+            'class': func.class_name,
+            'start_line': func.start_line,
+            'end_line': func.end_line,
+        }
 ```
 
-### 3. Enhanced `jn join` (Option A)
+### Phase 2: Enhanced join
 
-Add `--on` syntax supporting:
+```python
+# In src/jn/cli/commands/join.py
 
-| Feature | Syntax | Example |
-|---------|--------|---------|
-| Equality (different names) | `--on "left_field = right_field"` | `--on "customer_id = cust_id"` |
-| Composite key (tuple) | `--on "f1, f2 = f1, f2"` | `--on "file, name = file, func"` |
-| Range/interval | `--on "field BETWEEN start AND end"` | `--on "line BETWEEN start_line AND end_line"` |
-| Comparison | `--on "field >= threshold"` | `--on "score >= min_score"` |
+@click.option('--on', 'join_field', help='Field to join on (natural join)')
+@click.option('--where', 'where_expr', help='jq expression to filter matches')
+@click.option('--agg', 'agg_spec', help='Aggregation: "name: func, ..."')
 
-**Implementation:** Parse `--on` expressions and apply during join loop.
+def _stream_and_enrich(..., join_field, where_expr, agg_spec):
+    for left_record in stdin:
+        key = left_record.get(join_field)
+        matches = lookup.get(str(key), [])
 
-### 4. `jn sql` Command (Option B)
+        # Apply where filter
+        if where_expr:
+            matches = [m for m in matches if eval_jq(where_expr, {**left_record, **m})]
 
-Wrap DuckDB for complex queries:
+        # Aggregate or embed
+        if agg_spec:
+            left_record.update(aggregate(matches, agg_spec))
+        else:
+            left_record[target] = matches
 
-```bash
-jn sql "SELECT * FROM read_ndjson('data.json') WHERE x > 10"
-jn cat data.json | jn sql "SELECT * FROM stdin WHERE x > 10"
+        yield left_record
 ```
 
-**Pros:** Full SQL power, handles any join type, aggregation built-in
-**Cons:** New dependency (DuckDB ~15MB), different mental model
-
-### 5. `jn agg` Command (Complementary)
-
-Simple aggregation without full SQL:
-
-```bash
-jn cat data.json | jn group --by category | jn agg "sum(value), avg(score), count()"
-```
-
-## The Demo
-
-### Setup
-```bash
-# Generate coverage data (already exists in jn project)
-make coverage
-```
-
-### Demo Script
+## Demo Script
 
 ```bash
 #!/bin/bash
-# demo: Language-agnostic coverage analysis with jn
+# demo/coverage.sh - Analyze jn's own coverage
 
-echo "=== Extract function boundaries with tree-sitter ==="
-jn cat "src/jn/**/*.py" --plugin ts_ | head -3
+# Ensure coverage data exists
+[ -f coverage.lcov ] || make coverage
 
+echo "=== Function Coverage Report ==="
 echo ""
-echo "=== Get line-level coverage from LCOV ==="
-jn cat coverage.lcov --mode=lines | head -3
 
-echo ""
-echo "=== Join + aggregate to get function coverage ==="
 jn cat "src/jn/**/*.py" --plugin ts_ \
   | jn join coverage.lcov~lcov?mode=lines \
-      --on "file = file" \
-      --on "line BETWEEN start_line AND end_line" \
-      --agg "count() as total, sum(executed) as hit" \
-  | jn filter '.coverage = (if .total > 0 then (.hit / .total * 100) else 0 end)' \
-  | jn filter 'select(.coverage < 50)' \
+      --on file \
+      --where ".line >= .start_line and .line <= .end_line" \
+      --agg "total: count, hit: sum(.executed)" \
+  | jn filter '.coverage = (if .total > 0 then (.hit / .total * 100 | floor) else 0 end)' \
   | jn filter 'sort_by(.coverage)' \
-  | jn head -n 15 \
-  | jn table
+  | jn table --columns file,function,total,hit,coverage
 
-# Expected output (matches coverage.py HTML report):
-# file                          function                   total  hit  coverage
-# ─────────────────────────────────────────────────────────────────────────────
-# profiles/gmail.py             load_gmail_profile           12    0      0.0%
-# profiles/gmail.py             resolve_gmail_reference      12    0      0.0%
-# cli/commands/vd.py            vd                           90    0      0.0%
-# shell/jc_fallback.py          execute_with_jc              68    0      0.0%
-# cli/commands/sh.py            sh                           36    0      0.0%
-```
-
-### Alternative Demo (DuckDB path)
-
-```bash
-#!/bin/bash
-# demo: Coverage analysis with jn sql
-
-# Prepare data
-jn cat "src/jn/**/*.py" --plugin ts_ > /tmp/functions.json
-jn cat coverage.lcov --mode=lines > /tmp/lines.json
-
-# One SQL query does everything
-jn sql "
-  SELECT
-    f.file,
-    f.function,
-    COUNT(l.line) as total,
-    SUM(CAST(l.executed AS INT)) as hit,
-    ROUND(100.0 * SUM(CAST(l.executed AS INT)) / NULLIF(COUNT(l.line), 0), 1) as coverage
-  FROM read_ndjson('/tmp/functions.json') f
-  LEFT JOIN read_ndjson('/tmp/lines.json') l
-    ON l.file = f.file
-    AND l.line BETWEEN f.start_line AND f.end_line
-  GROUP BY f.file, f.function, f.start_line, f.end_line
-  HAVING coverage < 50
-  ORDER BY coverage ASC
-  LIMIT 15
-" | jn table
-```
-
-## Implementation Priority
-
-### Phase 1: Core (MVP for demo)
-1. **`ts_.py` plugin** - Tree-sitter extraction for Python
-2. **Enhanced `--on` for join** - Range join support
-
-### Phase 2: Polish
-3. **`jn agg` command** - Simple aggregation
-4. **Multi-language ts_** - JS, Go, Rust, etc.
-
-### Phase 3: Power User
-5. **`jn sql` command** - DuckDB integration
-6. **`jn coverage` convenience** - Wraps the full pipeline
-
-## Design Decisions
-
-### Why Range Join in `jn join` (not just `jn sql`)?
-
-1. **Composability:** Stays in the streaming pipeline model
-2. **Familiarity:** Users already know `jn join`
-3. **No new deps:** Doesn't require DuckDB
-4. **Incremental:** Can add more `--on` features over time
-
-### Why Tree-sitter (not language-specific AST)?
-
-1. **100+ languages** with consistent API
-2. **Error tolerant** - parses partial/broken code
-3. **Fast** - designed for real-time editor use
-4. **Single dependency** - `tree-sitter` package + language grammars
-
-### Output Schema Consistency
-
-All coverage tools should produce the same schema:
-
-```json
-{
-  "file": "path/to/file.py",
-  "function": "qualified_function_name",
-  "start_line": 10,
-  "end_line": 25,
-  "total_statements": 12,
-  "executed_statements": 8,
-  "coverage": 66.67
-}
+echo ""
+echo "=== Summary ==="
+jn cat "src/jn/**/*.py" --plugin ts_ \
+  | jn join coverage.lcov~lcov?mode=lines \
+      --on file \
+      --where ".line >= .start_line and .line <= .end_line" \
+      --agg "total: count, hit: sum(.executed)" \
+  | jn filter '{
+      functions: length,
+      zero_coverage: [.[] | select(.hit == 0)] | length,
+      full_coverage: [.[] | select(.hit == .total)] | length
+    }'
 ```
 
 ## Success Criteria
 
-1. **Accuracy:** Output matches coverage.py HTML report's function table
-2. **Simplicity:** Demo fits in <10 lines of shell
-3. **Performance:** Processes jn codebase in <5 seconds
-4. **Extensibility:** Adding a new language = adding one tree-sitter grammar
+1. **Simple:** Demo is <15 lines of shell
+2. **Accurate:** Matches coverage.py HTML report numbers
+3. **Universal:** Works with any LCOV file, any tree-sitter language
+4. **Fast:** Processes jn codebase in <3 seconds
 
-## Appendix: LCOV Plugin Modes
+## File Locations
 
-The existing lcov plugin supports multiple output modes:
-
-| Mode | Output | Use Case |
-|------|--------|----------|
-| `functions` (default) | One record per function | Function-level reports |
-| `files` | One record per file | File-level summary |
-| `lines` | One record per line | Join with tree-sitter |
-| `branches` | One record per branch | Branch coverage analysis |
-
-```bash
-jn cat coverage.lcov                    # functions (default)
-jn cat coverage.lcov --mode=lines       # for joining
-jn cat coverage.lcov --mode=files       # file summary
-```
-
-## References
-
-- [py-tree-sitter](https://github.com/tree-sitter/py-tree-sitter)
-- [DuckDB read_ndjson](https://duckdb.org/docs/data/json/overview)
-- [LCOV format](https://wiki.documentfoundation.org/Development/Lcov)
+- Plugin: `jn_home/plugins/formats/ts_.py`
+- Join enhancements: `src/jn/cli/commands/join.py`
+- Demo: `demo/coverage.sh`
