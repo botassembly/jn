@@ -1,5 +1,6 @@
 """VisiData integration command - open NDJSON in VisiData."""
 
+import json
 import shutil
 import subprocess
 import sys
@@ -105,8 +106,20 @@ def vd(ctx: JNContext, source: str, filter_expr: str) -> None:
             "read",
         ]
 
-        # Add URL argument if this is a protocol plugin
+        # Add configuration parameters from resolved address
+        for key, value in resolved.config.items():
+            if isinstance(value, bool):
+                if value:
+                    cat_cmd.append(f"--{key}")
+                else:
+                    cat_cmd.extend([f"--{key}", "false"])
+            else:
+                cat_cmd.extend([f"--{key}", str(value)])
+
+        # Add URL and headers if this is a protocol plugin
         if resolved.url:
+            if resolved.headers:
+                cat_cmd.extend(["--headers", json.dumps(resolved.headers)])
             cat_cmd.append(resolved.url)
 
         # Phase 2: filter (optional)
