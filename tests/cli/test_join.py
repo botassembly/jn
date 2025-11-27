@@ -543,4 +543,6 @@ def test_join_right_source_failure(invoke, tmp_path):
 
     # Should fail, not silently continue with empty results
     assert result.exit_code != 0
-    assert "failed" in result.output.lower() or "error" in result.output.lower()
+    assert (
+        "failed" in result.output.lower() or "error" in result.output.lower()
+    )
