@@ -99,6 +99,67 @@ def get_parser(language: str):
 
 
 # =============================================================================
+# Language-agnostic body detection
+# =============================================================================
+
+def get_body_range(node, code: bytes, language: str) -> tuple[int, int]:
+    """Get the executable body range (start_line, end_line) for a function.
+
+    This is language-agnostic: uses the 'body' field which exists in all
+    supported languages (Python, JS, Go, Rust).
+
+    Returns line numbers (1-indexed) for the body only, excluding:
+    - The function definition line (def, func, fn, function)
+    - Docstrings (Python)
+    - The closing brace line (where applicable)
+    """
+    body = node.child_by_field_name('body')
+
+    if body:
+        body_start = body.start_point[0] + 1  # 1-indexed
+        body_end = body.end_point[0] + 1
+
+        # For block bodies with braces, exclude the braces themselves
+        # Check if body starts with '{'
+        if body.type in ('block', 'statement_block'):
+            # Body includes braces, so actual content starts after '{'
+            # and ends before '}'
+            if body.child_count > 0:
+                first_child = body.children[0]
+                last_child = body.children[-1]
+
+                # Skip opening brace if it's a separate token
+                if first_child.type == '{':
+                    if body.child_count > 1:
+                        body_start = body.children[1].start_point[0] + 1
+
+                # Skip closing brace
+                if last_child.type == '}':
+                    if body.child_count > 1:
+                        body_end = body.children[-2].end_point[0] + 1
+
+        # Python-specific: skip docstring
+        if language == 'python' and body.child_count > 0:
+            first_stmt = body.children[0]
+            if first_stmt.type == 'expression_statement':
+                # Check if it's a string (docstring)
+                if first_stmt.child_count > 0:
+                    expr = first_stmt.children[0]
+                    if expr.type == 'string':
+                        # Skip the docstring
+                        if body.child_count > 1:
+                            body_start = body.children[1].start_point[0] + 1
+                        else:
+                            # Only docstring in body, use docstring end
+                            body_start = first_stmt.end_point[0] + 1
+
+        return (body_start, body_end)
+
+    # Fallback: use full node range but skip first line (def/func/fn)
+    return (node.start_point[0] + 2, node.end_point[0] + 1)
+
+
+# =============================================================================
 # Code extraction by language
 # =============================================================================
 
@@ -110,13 +171,14 @@ def extract_python(tree, code: bytes, file_path: str) -> Iterator[dict]:
             name_node = node.child_by_field_name('name')
             if name_node:
                 class_name = code[name_node.start_byte:name_node.end_byte].decode('utf-8')
+                body_start, body_end = get_body_range(node, code, 'python')
                 yield {
                     'file': file_path,
                     'function': class_name,
                     'type': 'class',
                     'class': None,
-                    'start_line': node.start_point[0] + 1,
-                    'end_line': node.end_point[0] + 1,
+                    'start_line': body_start,
+                    'end_line': body_end,
                 }
                 for child in node.children:
                     yield from visit(child, class_name)
@@ -132,13 +194,14 @@ def extract_python(tree, code: bytes, file_path: str) -> Iterator[dict]:
                     display_name = func_name
                     func_type = 'function'
 
+                body_start, body_end = get_body_range(node, code, 'python')
                 yield {
                     'file': file_path,
                     'function': display_name,
                     'type': func_type,
                     'class': current_class,
-                    'start_line': node.start_point[0] + 1,
-                    'end_line': node.end_point[0] + 1,
+                    'start_line': body_start,
+                    'end_line': body_end,
                 }
         else:
             for child in node.children:
@@ -155,13 +218,14 @@ def extract_javascript(tree, code: bytes, file_path: str) -> Iterator[dict]:
             name_node = node.child_by_field_name('name')
             if name_node:
                 func_name = code[name_node.start_byte:name_node.end_byte].decode('utf-8')
+                body_start, body_end = get_body_range(node, code, 'javascript')
                 yield {
                     'file': file_path,
                     'function': func_name,
                     'type': 'function',
                     'class': current_class,
-                    'start_line': node.start_point[0] + 1,
-                    'end_line': node.end_point[0] + 1,
+                    'start_line': body_start,
+                    'end_line': body_end,
                 }
 
         elif node.type == 'method_definition':
@@ -169,26 +233,28 @@ def extract_javascript(tree, code: bytes, file_path: str) -> Iterator[dict]:
             if name_node:
                 method_name = code[name_node.start_byte:name_node.end_byte].decode('utf-8')
                 display_name = f"{current_class}.{method_name}" if current_class else method_name
+                body_start, body_end = get_body_range(node, code, 'javascript')
                 yield {
                     'file': file_path,
                     'function': display_name,
                     'type': 'method',
                     'class': current_class,
-                    'start_line': node.start_point[0] + 1,
-                    'end_line': node.end_point[0] + 1,
+                    'start_line': body_start,
+                    'end_line': body_end,
                 }
 
         elif node.type == 'class_declaration':
             name_node = node.child_by_field_name('name')
             if name_node:
                 class_name = code[name_node.start_byte:name_node.end_byte].decode('utf-8')
+                body_start, body_end = get_body_range(node, code, 'javascript')
                 yield {
                     'file': file_path,
                     'function': class_name,
                     'type': 'class',
                     'class': None,
-                    'start_line': node.start_point[0] + 1,
-                    'end_line': node.end_point[0] + 1,
+                    'start_line': body_start,
+                    'end_line': body_end,
                 }
                 for child in node.children:
                     yield from visit(child, class_name)
@@ -200,13 +266,14 @@ def extract_javascript(tree, code: bytes, file_path: str) -> Iterator[dict]:
                 name_node = parent.child_by_field_name('name')
                 if name_node:
                     func_name = code[name_node.start_byte:name_node.end_byte].decode('utf-8')
+                    body_start, body_end = get_body_range(node, code, 'javascript')
                     yield {
                         'file': file_path,
                         'function': func_name,
                         'type': 'function',
                         'class': current_class,
-                        'start_line': node.start_point[0] + 1,
-                        'end_line': node.end_point[0] + 1,
+                        'start_line': body_start,
+                        'end_line': body_end,
                     }
 
         for child in node.children:
@@ -223,13 +290,14 @@ def extract_go(tree, code: bytes, file_path: str) -> Iterator[dict]:
             name_node = node.child_by_field_name('name')
             if name_node:
                 func_name = code[name_node.start_byte:name_node.end_byte].decode('utf-8')
+                body_start, body_end = get_body_range(node, code, 'go')
                 yield {
                     'file': file_path,
                     'function': func_name,
                     'type': 'function',
                     'class': None,
-                    'start_line': node.start_point[0] + 1,
-                    'end_line': node.end_point[0] + 1,
+                    'start_line': body_start,
+                    'end_line': body_end,
                 }
 
         elif node.type == 'method_declaration':
@@ -247,13 +315,14 @@ def extract_go(tree, code: bytes, file_path: str) -> Iterator[dict]:
                                 receiver_type = receiver_type.lstrip('*')
 
                 display_name = f"{receiver_type}.{method_name}" if receiver_type else method_name
+                body_start, body_end = get_body_range(node, code, 'go')
                 yield {
                     'file': file_path,
                     'function': display_name,
                     'type': 'method',
                     'class': receiver_type,
-                    'start_line': node.start_point[0] + 1,
-                    'end_line': node.end_point[0] + 1,
+                    'start_line': body_start,
+                    'end_line': body_end,
                 }
 
         for child in node.children:
@@ -277,13 +346,14 @@ def extract_rust(tree, code: bytes, file_path: str) -> Iterator[dict]:
                     display_name = func_name
                     func_type = 'function'
 
+                body_start, body_end = get_body_range(node, code, 'rust')
                 yield {
                     'file': file_path,
                     'function': display_name,
                     'type': func_type,
                     'class': current_impl,
-                    'start_line': node.start_point[0] + 1,
-                    'end_line': node.end_point[0] + 1,
+                    'start_line': body_start,
+                    'end_line': body_end,
                 }
 
         elif node.type == 'impl_item':
