@@ -5,15 +5,14 @@
 
 ## Summary
 
-All three experiments passed, validating the core assumptions of the polyglot architecture.
+All experiments passed, validating the core assumptions of the polyglot architecture.
 
 | Experiment | Status | Key Finding |
 |------------|--------|-------------|
-| zig-cimport | ✅ PASS | @cImport with PCRE2 works seamlessly |
-| zig-stream-bench | ✅ PASS | 35x faster than Python (I/O passthrough) |
-| zig-cross-compile | ✅ PASS | All 5 targets build, binaries <100KB |
-| rust-jaq | ✅ PASS | jaq library works, eliminates jq dependency |
-| zig-jq-subset | ✅ PASS | **2-3x faster than jq**, 10x faster than jaq |
+| zig-cimport | PASS | @cImport with PCRE2 works seamlessly |
+| zig-stream-bench | PASS | 35x faster than Python (I/O passthrough) |
+| zig-cross-compile | PASS | All 5 targets build, binaries <100KB |
+| zig-jq-subset | PASS | **2-3x faster than jq** for core operations |
 
 ---
 
@@ -21,7 +20,7 @@ All three experiments passed, validating the core assumptions of the polyglot ar
 
 **Goal:** Validate C library integration via @cImport
 
-**Result:** ✅ PASS
+**Result:** PASS
 
 - PCRE2 headers import cleanly
 - Regex compilation and matching work correctly
@@ -39,13 +38,15 @@ no match: test.json
 - Required `libpcre2-dev` system package
 - Zig 0.11.0 uses `.{ .path = "..." }` for source files (not `b.path()`)
 
+**Implications:** Can integrate simdjson, libcurl, or any C library for hot paths.
+
 ---
 
 ## 2. zig-stream-bench (I/O Performance)
 
 **Goal:** Validate performance claims (10x faster than Python)
 
-**Result:** ✅ PASS (35x faster)
+**Result:** PASS (35x faster)
 
 **Benchmark:** 500K lines NDJSON passthrough (11MB)
 
@@ -67,13 +68,15 @@ no match: test.json
 - ReleaseSmall trades speed for size (still 13x faster)
 - For plugins, ReleaseFast recommended (size is less critical)
 
+**Implications:** Zig plugins will dramatically outperform Python for I/O-bound operations.
+
 ---
 
 ## 3. zig-cross-compile (Multi-Platform)
 
 **Goal:** Validate cross-compilation for all target platforms
 
-**Result:** ✅ PASS
+**Result:** PASS
 
 **Built artifacts (ReleaseSmall):**
 
@@ -91,65 +94,27 @@ no match: test.json
 - Linux binaries are statically linked (no libc dependency)
 - macOS binaries are larger due to Mach-O format
 
----
-
-## 4. rust-jaq (jq Replacement)
-
-**Goal:** Validate jaq library for NDJSON filtering, compare to jq
-
-**Result:** ✅ PASS (functional, with caveats)
-
-**Benchmark:** 100K NDJSON records
-
-| Implementation | select(.id > 50000) | .value | Startup |
-|---------------|---------------------|--------|---------|
-| jaq-filter (Rust) | 408ms | 561ms | 16ms |
-| jq | 181ms | 130ms | 20ms |
-| Python + jq | 238ms | N/A | 87ms |
-
-**Observations:**
-- jq is 2-4x faster for throughput than our naive jaq implementation
-- Startup times are similar (jq ~20ms, jaq ~16ms)
-- Python adds ~70ms overhead per invocation
-- Binary size: 5.0MB (at target)
-
-**Why still use jaq?**
-
-1. **No external dependency** - jq must be installed separately
-2. **Bundled distribution** - Single binary includes filter capability
-3. **Cross-platform** - Same binary works everywhere
-4. **API compatibility** - Supports JN's usage patterns (select, field access)
-
-**Performance Note:**
-Our implementation uses serde_json for parsing/serialization. jaq docs recommend `hifijson` for better performance. A production implementation should:
-- Use `hifijson` instead of serde_json
-- Avoid Val↔JSON conversions where possible
-- Consider streaming JSON parsing
-
-**Compatibility Tested:**
-- [x] Field access: `.name`, `.nested.field`
-- [x] Select: `select(.active)`, `select(.id > N)`
-- [x] Identity: `.`
+**Implications:** Single CI pipeline can produce all platform binaries.
 
 ---
 
-## 5. zig-jq-subset (zq)
+## 4. zig-jq-subset (ZQ)
 
 **Goal:** Prototype minimal jq in Zig for JN's actual filter needs
 
-**Result:** ✅ PASS (2-3x faster than jq!)
+**Result:** PASS (2-3x faster than jq!)
 
 **Benchmark:** 100K NDJSON records
 
-| Expression | zq (Zig) | jq | jaq-filter | zq vs jq |
-|------------|----------|-----|------------|----------|
-| `select(.id > 50000)` | 61ms | 196ms | 665ms | **3.2x faster** |
-| `.value` | 59ms | 131ms | 596ms | **2.2x faster** |
-| `.` (identity) | 68ms | 191ms | - | **2.8x faster** |
-| `.meta.score` | 100ms | 189ms | - | **1.9x faster** |
-| `select(.meta.active)` | 133ms | 265ms | - | **2.0x faster** |
+| Expression | ZQ (Zig) | jq | ZQ vs jq |
+|------------|----------|-----|----------|
+| `select(.id > 50000)` | 61ms | 196ms | **3.2x faster** |
+| `.value` | 59ms | 131ms | **2.2x faster** |
+| `.` (identity) | 68ms | 191ms | **2.8x faster** |
+| `.meta.score` | 100ms | 189ms | **1.9x faster** |
+| `select(.meta.active)` | 133ms | 265ms | **2.0x faster** |
 
-**Binary size:** 2.3MB (vs jaq's 5.0MB)
+**Binary size:** 2.3MB
 
 **Key optimizations:**
 1. **Arena allocator with reset** - No per-line allocations
@@ -164,7 +129,7 @@ Our implementation uses serde_json for parsing/serialization. jaq docs recommend
 
 **Initial bug:** Used GeneralPurposeAllocator which is debug-oriented. First run was 47s (267x slower than jq!). Switching to ArenaAllocator with per-line reset fixed it.
 
-**Conclusion:** A minimal Zig jq implementation can beat jq at its own game. For JN's filter needs, this is the fastest option.
+**Implications:** ZQ will be JN's native filter language, replacing jq dependency.
 
 ---
 
@@ -199,18 +164,18 @@ const builtin = @import("builtin");
 @tagName(builtin.cpu.arch)
 ```
 
-### 3. jaq API Changes (v1.5)
+### 3. GeneralPurposeAllocator Performance
 
-**Problem:** jaq-core/jaq-std v2 doesn't exist, v1.5 has different API
+**Problem:** GPA is debug-oriented, 267x slower than expected
 
-**Fix:** Use jaq-interpret v1.5 with ParseCtx
+**Fix:** Use ArenaAllocator with `.reset(.retain_capacity)` per line
 
-```rust
-// Build with ParseCtx instead of Definitions
-let mut defs = ParseCtx::new(Vec::new());
-defs.insert_natives(jaq_core::core());
-defs.insert_defs(jaq_std::std());
-let filter = defs.compile(filter);
+```zig
+var arena = std.heap.ArenaAllocator.init(page_alloc);
+while (readLine()) |line| {
+    _ = arena.reset(.retain_capacity);  // O(1) memory reclaim
+    // ... process line
+}
 ```
 
 ---
@@ -223,15 +188,11 @@ let filter = defs.compile(filter);
 
 3. **Cross-compilation works** - Single command builds for all platforms, no toolchain setup.
 
-4. **Binary sizes are excellent** - 8-50KB for Zig binaries, 2.3MB for Zig jq-subset, 5MB for Rust jaq.
+4. **Binary sizes are excellent** - 8-50KB for simple binaries, 2.3MB for ZQ with JSON parsing.
 
-5. **Zig jq-subset beats jq** - 2-3x faster than jq itself! Arena allocator + direct evaluation + buffered I/O is the winning combination.
+5. **ZQ beats jq** - 2-3x faster than jq itself! Arena allocator + direct evaluation + buffered I/O is the winning combination.
 
-6. **jaq works but is slower** - Functional jq replacement, but naive implementation is 2-4x slower than jq due to serde_json conversions. Could optimize with hifijson, but Zig approach is better.
-
-**Recommendation:** Proceed with Sprint 01. All core assumptions validated:
-- Zig for core and hot-path plugins ✅
-- **Zig for jq replacement** ✅ (faster than jq, no dependency)
-- Cross-platform distribution ✅
-
-**Updated plan:** Consider Zig jq-subset instead of Rust/jaq for filter plugin. Simpler, faster, smaller binary.
+**Recommendation:** Proceed with Zig implementation. All core assumptions validated:
+- Zig for core and hot-path plugins
+- Zig for ZQ (filter language)
+- Cross-platform distribution
