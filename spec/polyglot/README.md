@@ -22,6 +22,7 @@ JN is migrating from Python-only plugins to a language-agnostic architecture whe
 | [05-auto-manifests.md](05-auto-manifests.md) | Auto-generating manifests from binary `--jn-meta` |
 | [06-language-comparison.md](06-language-comparison.md) | Rust vs Go vs C vs Shell - when to use each |
 | [07-zig-proposal.md](07-zig-proposal.md) | Zig as optimal choice for core plugins |
+| [08-core-zig-evaluation.md](08-core-zig-evaluation.md) | Evaluation of replacing JN core with Zig |
 
 ## Key Decisions
 
