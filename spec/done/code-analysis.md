@@ -124,6 +124,21 @@ Used to compute `caller_count` for dead code detection.
 
 ### @code/functions
 
+Without coverage:
+```json
+{
+  "file": "src/jn/parser.py",
+  "function": "parse_address",
+  "type": "function",
+  "class": null,
+  "start_line": 49,
+  "end_line": 129,
+  "module": "src/jn",
+  "caller_count": 9
+}
+```
+
+With `lcov` parameter (additional fields):
 ```json
 {
   "file": "src/jn/parser.py",
@@ -148,6 +163,21 @@ Used to compute `caller_count` for dead code detection.
   "callee": "_validate_address",
   "file": "src/jn/parser.py",
   "line": 127
+}
+```
+
+### @code/dead
+
+```json
+{
+  "file": "src/jn/context.py",
+  "function": "get_profile_dir",
+  "type": "function",
+  "class": null,
+  "start_line": 139,
+  "end_line": 151,
+  "module": "src/jn",
+  "reason": "no_callers"
 }
 ```
 
