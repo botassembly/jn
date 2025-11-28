@@ -1002,7 +1002,7 @@ def reads(config: Optional[dict] = None) -> Iterator[dict]:
 def main():
     parser = argparse.ArgumentParser(description='Code structure plugin')
     parser.add_argument('--mode', choices=['read'], default='read')
-    parser.add_argument('--source', help='Source address (@code/...)')
+    parser.add_argument('source', nargs='?', help='Source address (@code/...)')
     parser.add_argument('--root', help='Source root directory')
     parser.add_argument('--globs', help='File patterns (comma-separated)')
     parser.add_argument('--lcov', help='LCOV file for coverage')
@@ -1010,7 +1010,7 @@ def main():
     parser.add_argument('--max', type=int, help='Max coverage %')
     parser.add_argument('--type', help='Filter: function, method, class')
 
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
 
     config = {'source': args.source or '@code/functions'}
     if args.root:

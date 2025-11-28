@@ -17,9 +17,8 @@ PROJECT_ROOT="$(cd "$DEMO_DIR/../.." && pwd)"
 # Run from project root for consistent paths
 cd "$PROJECT_ROOT"
 
-# Use uv run with project
+# Use uv run jn
 JN="uv run jn"
-CODE_PLUGIN="uv run --script jn_home/plugins/protocols/code_.py"
 
 # Output file (in demo directory)
 OUTPUT="$DEMO_DIR/output.txt"
@@ -42,7 +41,7 @@ echo "## 1. Low Coverage Functions" | tee -a "$OUTPUT"
 echo "# Functions with less than 50% line coverage" >> "$OUTPUT"
 echo "" >> "$OUTPUT"
 
-$CODE_PLUGIN --source "@code/functions" --root "$SRC_ROOT" --lcov "$LCOV" \
+$JN cat "@code/functions?root=$SRC_ROOT&lcov=$LCOV" \
   | $JN filter 'select(.coverage != null and .coverage < 50)' \
   | $JN filter '{file, function, lines, coverage, callers: .caller_count}' \
   | $JN table -f simple \
@@ -55,7 +54,7 @@ echo "## 2. Zero Coverage Functions" | tee -a "$OUTPUT"
 echo "# Functions with 0% coverage (never executed)" >> "$OUTPUT"
 echo "" >> "$OUTPUT"
 
-$CODE_PLUGIN --source "@code/functions" --root "$SRC_ROOT" --lcov "$LCOV" \
+$JN cat "@code/functions?root=$SRC_ROOT&lcov=$LCOV" \
   | $JN filter 'select(.coverage == 0)' \
   | $JN filter '{file, function, lines}' \
   | $JN head -n 20 \
@@ -69,7 +68,7 @@ echo "## 3. Potentially Dead Code" | tee -a "$OUTPUT"
 echo "# Functions with no callers (excludes CLI commands, tests, dunders)" >> "$OUTPUT"
 echo "" >> "$OUTPUT"
 
-$CODE_PLUGIN --source "@code/dead" --root "$SRC_ROOT" \
+$JN cat "@code/dead?root=$SRC_ROOT" \
   | $JN filter '{file, function, lines: (.end_line - .start_line + 1)}' \
   | $JN head -n 20 \
   | $JN table -f simple \
@@ -82,7 +81,7 @@ echo "## 4. Most Called Functions" | tee -a "$OUTPUT"
 echo "# Functions with the most callers (hot paths)" >> "$OUTPUT"
 echo "" >> "$OUTPUT"
 
-$CODE_PLUGIN --source "@code/functions" --root "$SRC_ROOT" \
+$JN cat "@code/functions?root=$SRC_ROOT" \
   | $JN filter 'select(.caller_count > 0)' \
   | $JN filter '{file, function, callers: .caller_count}' \
   | jq -sc 'sort_by(-.callers) | .[0:15] | .[]' \
@@ -96,7 +95,7 @@ echo "## 5. Call Graph Sample" | tee -a "$OUTPUT"
 echo "# Sample of caller -> callee relationships" >> "$OUTPUT"
 echo "" >> "$OUTPUT"
 
-$CODE_PLUGIN --source "@code/calls" --root "$SRC_ROOT" 2>/dev/null \
+$JN cat "@code/calls?root=$SRC_ROOT" 2>/dev/null \
   | $JN filter '{caller, callee, file}' \
   | $JN head -n 20 \
   | $JN table -f simple \
