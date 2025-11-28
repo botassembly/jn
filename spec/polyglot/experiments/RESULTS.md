@@ -12,6 +12,7 @@ All three experiments passed, validating the core assumptions of the polyglot ar
 | zig-cimport | ✅ PASS | @cImport with PCRE2 works seamlessly |
 | zig-stream-bench | ✅ PASS | 35x faster than Python (I/O passthrough) |
 | zig-cross-compile | ✅ PASS | All 5 targets build, binaries <100KB |
+| rust-jaq | ✅ PASS | jaq library works, eliminates jq dependency |
 
 ---
 
@@ -91,6 +92,46 @@ no match: test.json
 
 ---
 
+## 4. rust-jaq (jq Replacement)
+
+**Goal:** Validate jaq library for NDJSON filtering, compare to jq
+
+**Result:** ✅ PASS (functional, with caveats)
+
+**Benchmark:** 100K NDJSON records
+
+| Implementation | select(.id > 50000) | .value | Startup |
+|---------------|---------------------|--------|---------|
+| jaq-filter (Rust) | 408ms | 561ms | 16ms |
+| jq | 181ms | 130ms | 20ms |
+| Python + jq | 238ms | N/A | 87ms |
+
+**Observations:**
+- jq is 2-4x faster for throughput than our naive jaq implementation
+- Startup times are similar (jq ~20ms, jaq ~16ms)
+- Python adds ~70ms overhead per invocation
+- Binary size: 5.0MB (at target)
+
+**Why still use jaq?**
+
+1. **No external dependency** - jq must be installed separately
+2. **Bundled distribution** - Single binary includes filter capability
+3. **Cross-platform** - Same binary works everywhere
+4. **API compatibility** - Supports JN's usage patterns (select, field access)
+
+**Performance Note:**
+Our implementation uses serde_json for parsing/serialization. jaq docs recommend `hifijson` for better performance. A production implementation should:
+- Use `hifijson` instead of serde_json
+- Avoid Val↔JSON conversions where possible
+- Consider streaming JSON parsing
+
+**Compatibility Tested:**
+- [x] Field access: `.name`, `.nested.field`
+- [x] Select: `select(.active)`, `select(.id > N)`
+- [x] Identity: `.`
+
+---
+
 ## Issues Found & Fixed
 
 ### 1. Zig 0.11.0 API Changes
@@ -122,16 +163,35 @@ const builtin = @import("builtin");
 @tagName(builtin.cpu.arch)
 ```
 
+### 3. jaq API Changes (v1.5)
+
+**Problem:** jaq-core/jaq-std v2 doesn't exist, v1.5 has different API
+
+**Fix:** Use jaq-interpret v1.5 with ParseCtx
+
+```rust
+// Build with ParseCtx instead of Definitions
+let mut defs = ParseCtx::new(Vec::new());
+defs.insert_natives(jaq_core::core());
+defs.insert_defs(jaq_std::std());
+let filter = defs.compile(filter);
+```
+
 ---
 
 ## Conclusions
 
 1. **C interop works** - @cImport with PCRE2 is seamless. simdjson, libcurl should work similarly.
 
-2. **Performance is validated** - 35x faster I/O than Python exceeds our 10x target.
+2. **Zig performance validated** - 35x faster I/O than Python exceeds our 10x target.
 
 3. **Cross-compilation works** - Single command builds for all platforms, no toolchain setup.
 
-4. **Binary sizes are excellent** - 8-50KB for minimal binaries. Even complex plugins should stay <500KB.
+4. **Binary sizes are excellent** - 8-50KB for Zig binaries, 5MB for Rust with jaq.
 
-**Recommendation:** Proceed with Sprint 01. No blocking issues discovered.
+5. **jaq works but needs optimization** - Functional jq replacement, but naive implementation is slower than jq. Production version should use hifijson and avoid unnecessary conversions.
+
+**Recommendation:** Proceed with Sprint 01. All core assumptions validated:
+- Zig for core and hot-path plugins ✅
+- Rust/jaq for jq replacement ✅ (eliminates jq dependency)
+- Cross-platform distribution ✅
