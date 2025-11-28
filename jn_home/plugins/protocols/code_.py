@@ -32,6 +32,7 @@ Components:
     classes     - Only classes
     methods     - Only methods
     files       - List of files found
+    calls       - Call graph (caller -> callee relationships)
 
 Parameters:
     root        - Source root directory (default: ".")
@@ -380,6 +381,341 @@ EXTRACTORS = {
 }
 
 
+# =============================================================================
+# Call graph extraction by language
+# =============================================================================
+
+def extract_calls_python(tree, code: bytes, file_path: str) -> Iterator[dict]:
+    """Extract function calls from Python code."""
+
+    def get_call_name(call_node) -> Optional[str]:
+        """Extract the function name from a call node."""
+        func = call_node.child_by_field_name('function')
+        if not func:
+            return None
+
+        # Simple name: foo()
+        if func.type == 'identifier':
+            return code[func.start_byte:func.end_byte].decode('utf-8')
+
+        # Attribute access: obj.method() or module.func()
+        if func.type == 'attribute':
+            attr = func.child_by_field_name('attribute')
+            obj = func.child_by_field_name('object')
+            if attr:
+                attr_name = code[attr.start_byte:attr.end_byte].decode('utf-8')
+                # Include object for method calls
+                if obj:
+                    obj_name = code[obj.start_byte:obj.end_byte].decode('utf-8')
+                    return f"{obj_name}.{attr_name}"
+                return attr_name
+
+        return None
+
+    def find_calls_in_node(node) -> Iterator[tuple[str, int]]:
+        """Find all calls within a node, yielding (callee, line)."""
+        if node.type == 'call':
+            callee = get_call_name(node)
+            if callee:
+                yield (callee, node.start_point[0] + 1)
+
+        for child in node.children:
+            yield from find_calls_in_node(child)
+
+    def visit(node, current_class=None, current_func=None):
+        if node.type == 'class_definition':
+            name_node = node.child_by_field_name('name')
+            if name_node:
+                class_name = code[name_node.start_byte:name_node.end_byte].decode('utf-8')
+                for child in node.children:
+                    yield from visit(child, class_name, current_func)
+                return
+
+        elif node.type == 'function_definition':
+            name_node = node.child_by_field_name('name')
+            if name_node:
+                func_name = code[name_node.start_byte:name_node.end_byte].decode('utf-8')
+                if current_class:
+                    caller = f"{current_class}.{func_name}"
+                else:
+                    caller = func_name
+
+                # Find all calls in function body
+                body = node.child_by_field_name('body')
+                if body:
+                    for callee, line in find_calls_in_node(body):
+                        yield {
+                            'file': file_path,
+                            'caller': caller,
+                            'callee': callee,
+                            'line': line,
+                        }
+                return
+
+        for child in node.children:
+            yield from visit(child, current_class, current_func)
+
+    yield from visit(tree.root_node)
+
+
+def extract_calls_javascript(tree, code: bytes, file_path: str) -> Iterator[dict]:
+    """Extract function calls from JavaScript/TypeScript code."""
+
+    def get_call_name(call_node) -> Optional[str]:
+        """Extract the function name from a call expression."""
+        func = call_node.child_by_field_name('function')
+        if not func:
+            return None
+
+        # Simple name: foo()
+        if func.type == 'identifier':
+            return code[func.start_byte:func.end_byte].decode('utf-8')
+
+        # Member expression: obj.method()
+        if func.type == 'member_expression':
+            prop = func.child_by_field_name('property')
+            obj = func.child_by_field_name('object')
+            if prop:
+                prop_name = code[prop.start_byte:prop.end_byte].decode('utf-8')
+                if obj and obj.type == 'identifier':
+                    obj_name = code[obj.start_byte:obj.end_byte].decode('utf-8')
+                    return f"{obj_name}.{prop_name}"
+                return prop_name
+
+        return None
+
+    def find_calls_in_node(node) -> Iterator[tuple[str, int]]:
+        """Find all calls within a node."""
+        if node.type == 'call_expression':
+            callee = get_call_name(node)
+            if callee:
+                yield (callee, node.start_point[0] + 1)
+
+        for child in node.children:
+            yield from find_calls_in_node(child)
+
+    def visit(node, current_class=None, current_func=None):
+        if node.type == 'class_declaration':
+            name_node = node.child_by_field_name('name')
+            if name_node:
+                class_name = code[name_node.start_byte:name_node.end_byte].decode('utf-8')
+                for child in node.children:
+                    yield from visit(child, class_name, current_func)
+                return
+
+        elif node.type in ('function_declaration', 'method_definition'):
+            name_node = node.child_by_field_name('name')
+            if name_node:
+                func_name = code[name_node.start_byte:name_node.end_byte].decode('utf-8')
+                if current_class:
+                    caller = f"{current_class}.{func_name}"
+                else:
+                    caller = func_name
+
+                body = node.child_by_field_name('body')
+                if body:
+                    for callee, line in find_calls_in_node(body):
+                        yield {
+                            'file': file_path,
+                            'caller': caller,
+                            'callee': callee,
+                            'line': line,
+                        }
+                return
+
+        elif node.type == 'arrow_function':
+            parent = node.parent
+            if parent and parent.type == 'variable_declarator':
+                name_node = parent.child_by_field_name('name')
+                if name_node:
+                    caller = code[name_node.start_byte:name_node.end_byte].decode('utf-8')
+                    body = node.child_by_field_name('body')
+                    if body:
+                        for callee, line in find_calls_in_node(body):
+                            yield {
+                                'file': file_path,
+                                'caller': caller,
+                                'callee': callee,
+                                'line': line,
+                            }
+                    return
+
+        for child in node.children:
+            yield from visit(child, current_class, current_func)
+
+    yield from visit(tree.root_node)
+
+
+def extract_calls_go(tree, code: bytes, file_path: str) -> Iterator[dict]:
+    """Extract function calls from Go code."""
+
+    def get_call_name(call_node) -> Optional[str]:
+        """Extract the function name from a call expression."""
+        func = call_node.child_by_field_name('function')
+        if not func:
+            return None
+
+        # Simple name: foo()
+        if func.type == 'identifier':
+            return code[func.start_byte:func.end_byte].decode('utf-8')
+
+        # Selector expression: pkg.Func() or obj.Method()
+        if func.type == 'selector_expression':
+            field = func.child_by_field_name('field')
+            operand = func.child_by_field_name('operand')
+            if field:
+                field_name = code[field.start_byte:field.end_byte].decode('utf-8')
+                if operand and operand.type == 'identifier':
+                    op_name = code[operand.start_byte:operand.end_byte].decode('utf-8')
+                    return f"{op_name}.{field_name}"
+                return field_name
+
+        return None
+
+    def find_calls_in_node(node) -> Iterator[tuple[str, int]]:
+        """Find all calls within a node."""
+        if node.type == 'call_expression':
+            callee = get_call_name(node)
+            if callee:
+                yield (callee, node.start_point[0] + 1)
+
+        for child in node.children:
+            yield from find_calls_in_node(child)
+
+    def visit(node, receiver_type=None):
+        if node.type == 'function_declaration':
+            name_node = node.child_by_field_name('name')
+            if name_node:
+                caller = code[name_node.start_byte:name_node.end_byte].decode('utf-8')
+                body = node.child_by_field_name('body')
+                if body:
+                    for callee, line in find_calls_in_node(body):
+                        yield {
+                            'file': file_path,
+                            'caller': caller,
+                            'callee': callee,
+                            'line': line,
+                        }
+                return
+
+        elif node.type == 'method_declaration':
+            name_node = node.child_by_field_name('name')
+            receiver_node = node.child_by_field_name('receiver')
+            if name_node:
+                method_name = code[name_node.start_byte:name_node.end_byte].decode('utf-8')
+                recv_type = None
+                if receiver_node:
+                    for child in receiver_node.children:
+                        if child.type == 'parameter_declaration':
+                            type_node = child.child_by_field_name('type')
+                            if type_node:
+                                recv_type = code[type_node.start_byte:type_node.end_byte].decode('utf-8')
+                                recv_type = recv_type.lstrip('*')
+
+                caller = f"{recv_type}.{method_name}" if recv_type else method_name
+                body = node.child_by_field_name('body')
+                if body:
+                    for callee, line in find_calls_in_node(body):
+                        yield {
+                            'file': file_path,
+                            'caller': caller,
+                            'callee': callee,
+                            'line': line,
+                        }
+                return
+
+        for child in node.children:
+            yield from visit(child, receiver_type)
+
+    yield from visit(tree.root_node)
+
+
+def extract_calls_rust(tree, code: bytes, file_path: str) -> Iterator[dict]:
+    """Extract function calls from Rust code."""
+
+    def get_call_name(call_node) -> Optional[str]:
+        """Extract the function name from a call expression."""
+        func = call_node.child_by_field_name('function')
+        if not func:
+            return None
+
+        # Simple name: foo()
+        if func.type == 'identifier':
+            return code[func.start_byte:func.end_byte].decode('utf-8')
+
+        # Scoped identifier: module::func()
+        if func.type == 'scoped_identifier':
+            name = func.child_by_field_name('name')
+            path = func.child_by_field_name('path')
+            if name:
+                name_str = code[name.start_byte:name.end_byte].decode('utf-8')
+                if path:
+                    path_str = code[path.start_byte:path.end_byte].decode('utf-8')
+                    return f"{path_str}::{name_str}"
+                return name_str
+
+        # Field expression: obj.method()
+        if func.type == 'field_expression':
+            field = func.child_by_field_name('field')
+            if field:
+                return code[field.start_byte:field.end_byte].decode('utf-8')
+
+        return None
+
+    def find_calls_in_node(node) -> Iterator[tuple[str, int]]:
+        """Find all calls within a node."""
+        if node.type == 'call_expression':
+            callee = get_call_name(node)
+            if callee:
+                yield (callee, node.start_point[0] + 1)
+
+        for child in node.children:
+            yield from find_calls_in_node(child)
+
+    def visit(node, current_impl=None):
+        if node.type == 'function_item':
+            name_node = node.child_by_field_name('name')
+            if name_node:
+                func_name = code[name_node.start_byte:name_node.end_byte].decode('utf-8')
+                if current_impl:
+                    caller = f"{current_impl}::{func_name}"
+                else:
+                    caller = func_name
+
+                body = node.child_by_field_name('body')
+                if body:
+                    for callee, line in find_calls_in_node(body):
+                        yield {
+                            'file': file_path,
+                            'caller': caller,
+                            'callee': callee,
+                            'line': line,
+                        }
+                return
+
+        elif node.type == 'impl_item':
+            type_node = node.child_by_field_name('type')
+            impl_name = None
+            if type_node:
+                impl_name = code[type_node.start_byte:type_node.end_byte].decode('utf-8')
+            for child in node.children:
+                yield from visit(child, impl_name)
+            return
+
+        for child in node.children:
+            yield from visit(child, current_impl)
+
+    yield from visit(tree.root_node)
+
+
+CALL_EXTRACTORS = {
+    'python': extract_calls_python,
+    'javascript': extract_calls_javascript,
+    'go': extract_calls_go,
+    'rust': extract_calls_rust,
+}
+
+
 def extract_from_file(file_path: str) -> Iterator[dict]:
     """Extract code structure from a single file."""
     path = Path(file_path)
@@ -398,6 +734,28 @@ def extract_from_file(file_path: str) -> Iterator[dict]:
     tree = parser.parse(code)
 
     extractor = EXTRACTORS.get(lang)
+    if extractor:
+        yield from extractor(tree, code, file_path)
+
+
+def extract_calls_from_file(file_path: str) -> Iterator[dict]:
+    """Extract call graph from a single file."""
+    path = Path(file_path)
+    if not path.exists():
+        return
+
+    lang = get_language(file_path)
+    if not lang:
+        return
+
+    parser = get_parser(lang)
+    if not parser:
+        return
+
+    code = path.read_bytes()
+    tree = parser.parse(code)
+
+    extractor = CALL_EXTRACTORS.get(lang)
     if extractor:
         yield from extractor(tree, code, file_path)
 
@@ -522,6 +880,13 @@ def reads(config: Optional[dict] = None) -> Iterator[dict]:
         # Just list files
         for f in sorted(find_files(root, globs)):
             yield {'file': f}
+        return
+    elif component == 'calls':
+        # Extract call graph
+        for file_path in sorted(find_files(root, globs)):
+            for record in extract_calls_from_file(file_path):
+                record['module'] = str(Path(record['file']).parent)
+                yield record
         return
 
     # Load LCOV if specified
