@@ -231,6 +231,27 @@ def _expand_shorthand(format_name: str, variant: str) -> Dict[str, str]:
     return {}
 
 
+def _is_glob_pattern(path: str) -> bool:
+    """Check if path contains glob pattern characters.
+
+    Detects:
+    - * (match any characters)
+    - ? (match single character)
+    - ** (recursive match)
+    - [] (character class)
+    - {} (brace expansion)
+
+    Args:
+        path: Path to check
+
+    Returns:
+        True if path contains glob patterns
+    """
+    # Common glob pattern indicators
+    glob_chars = ("*", "?", "[", "]", "{", "}")
+    return any(c in path for c in glob_chars)
+
+
 def _determine_type(base: str) -> AddressType:
     """Determine address type from base address.
 
@@ -255,6 +276,12 @@ def _determine_type(base: str) -> AddressType:
 
         >>> _determine_type("file.csv")
         "file"
+
+        >>> _determine_type("data/**/*.jsonl")
+        "glob"
+
+        >>> _determine_type("*.csv")
+        "glob"
     """
     if base == "-" or base == "stdin" or base == "stdout":
         return "stdio"
@@ -264,7 +291,12 @@ def _determine_type(base: str) -> AddressType:
         else:
             return "plugin"  # @plugin
     elif "://" in base:
+        # Check for glob:// protocol
+        if base.startswith("glob://"):
+            return "glob"
         return "protocol"  # http://, s3://, gmail://
+    elif _is_glob_pattern(base):
+        return "glob"  # Glob pattern with wildcards
     else:
         return "file"  # Filesystem path
 

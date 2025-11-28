@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Dict, Literal, Optional
 
-AddressType = Literal["file", "protocol", "profile", "plugin", "stdio"]
+AddressType = Literal["file", "protocol", "profile", "plugin", "stdio", "glob"]
 
 
 @dataclass
@@ -51,6 +51,7 @@ class Address:
     - profile: Profile reference (@namespace/component)
     - plugin: Direct plugin reference (@plugin)
     - stdio: Stdin/stdout (-)
+    - glob: Glob pattern with wildcards (*, ?, **)
     """
 
     compression: Optional[str] = None
