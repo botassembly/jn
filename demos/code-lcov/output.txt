@@ -1,0 +1,39 @@
+# Code Coverage Analysis Demo
+# Generated: Fri Nov 28 13:03:38 UTC 2025
+
+## 1. Low Coverage Functions
+# Functions with less than 50% line coverage
+
+file                                      function                               lines    coverage    callers
+----------------------------------------  -----------------------------------  -------  ----------  ---------
+src/jn/addressing/types.py                ResolvedAddress.__str__                    6           0          0
+src/jn/checker/report.py                  format_json                               10           0          1
+src/jn/checker/rules/subprocess_rules.py  SubprocessChecker._is_thread_create        5           0          1
+src/jn/checker/scanner.py                 find_plugin_files                         12           0          4
+src/jn/checker/violation.py               Violation.__str__                          4           0          0
+src/jn/checker/violation.py               CheckResult.info_count                     1           0          0
+src/jn/checker/whitelist.py               Whitelist.get_reason                       9           0          0
+src/jn/cli/commands/analyze.py            SchemaTracker._infer_type                 13          46          1
+src/jn/cli/commands/analyze.py            analyze                                   49          44          0
+src/jn/cli/commands/inspect.py            _format_data_text                         69          43          1
+src/jn/cli/commands/join.py               _eval_where                               11           0          1
+src/jn/cli/commands/join.py               _parse_agg_spec                           20           0          1
+src/jn/cli/commands/join.py               _aggregate                                22           0          1
+src/jn/cli/commands/merge.py              merge                                     15          46          0
+src/jn/cli/commands/sh.py                 _build_command                             3           0          8
+src/jn/cli/commands/sh.py                 sh                                        36           0          0
+src/jn/cli/commands/vd.py                 vd                                        90           0          0
+src/jn/cli/helpers.py                     check_uv_available                         3          33         10
+src/jn/cli/helpers.py                     check_jq_available                         3          33          1
+src/jn/context.py                         _user_global_home                          1           0          2
+src/jn/context.py                         get_profile_dir                            1           0          0
+src/jn/filtering.py                       parse_filter_params                        5           0          0
+src/jn/plugins/discovery.py               load_cache                                 7          28          1
+src/jn/plugins/discovery.py               _builtin_plugins_dir                       1           0          0
+src/jn/plugins/service.py                 _check_uv_available                        9          11          1
+src/jn/profiles/gmail.py                  GmailProfileError                          1           0          3
+src/jn/profiles/gmail.py                  load_gmail_profile                        12           0          1
+src/jn/profiles/gmail.py                  resolve_gmail_reference                   12           0          1
+src/jn/profiles/service.py                _parse_jq_profile                         29           0          1
+src/jn/profiles/service.py                _parse_json_profile                       12           0          0
+src/jn/shell/jc_fallback.py               execute_with_jc                           68           0          3

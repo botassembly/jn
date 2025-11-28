@@ -132,6 +132,7 @@ def get_plugin_config_params(plugin_path: str) -> List[str]:
             "timeout",
             "headers",
             "format",
+            "mode",  # Output mode (e.g., lcov lines/functions/branches)
         ]
 
     return params
