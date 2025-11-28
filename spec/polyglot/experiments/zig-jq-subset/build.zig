@@ -4,14 +4,23 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    // Native implementation (zq)
     const exe = b.addExecutable(.{
         .name = "zq",
         .root_source_file = .{ .path = "src/main.zig" },
         .target = target,
         .optimize = optimize,
     });
-
     b.installArtifact(exe);
+
+    // Wrapper around system jq (zq-wrap)
+    const wrap_exe = b.addExecutable(.{
+        .name = "zq-wrap",
+        .root_source_file = .{ .path = "src/wrap.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
+    b.installArtifact(wrap_exe);
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
