@@ -1,4 +1,4 @@
-#!/usr/bin/env -S uv run --quiet --script
+#!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.11"
 # dependencies = []
@@ -307,4 +307,4 @@ if __name__ == '__main__':
     config = {'mode': output_mode}
 
     for record in reads(config):
-        print(json.dumps(record))
+        print(json.dumps(record), flush=True)

@@ -33,14 +33,18 @@ def _eval_where(expr: str, left: dict, right: dict) -> bool:
         return f"combined.get('{field}')"
 
     # Pattern matches .fieldname
-    py_expr = re.sub(r'\.([a-zA-Z_][a-zA-Z0-9_]*)', replace_field, expr)
+    py_expr = re.sub(r"\.([a-zA-Z_][a-zA-Z0-9_]*)", replace_field, expr)
 
     # Replace 'and' and 'or' (jq style) to Python
-    py_expr = py_expr.replace(' and ', ' and ')
-    py_expr = py_expr.replace(' or ', ' or ')
+    py_expr = py_expr.replace(" and ", " and ")
+    py_expr = py_expr.replace(" or ", " or ")
 
     try:
-        return bool(eval(py_expr, {"combined": combined, "__builtins__": {}}))
+        return bool(
+            eval(  # noqa: S307 - sandboxed eval with empty __builtins__
+                py_expr, {"combined": combined, "__builtins__": {}}
+            )
+        )
     except Exception:
         return False
 
@@ -51,25 +55,25 @@ def _parse_agg_spec(spec: str) -> list[tuple[str, str, Optional[str]]]:
     Returns list of (output_name, function, field) tuples.
     """
     result = []
-    for part in spec.split(','):
+    for part in spec.split(","):
         part = part.strip()
-        if ':' in part:
-            name, func_expr = part.split(':', 1)
+        if ":" in part:
+            name, func_expr = part.split(":", 1)
             name = name.strip()
             func_expr = func_expr.strip()
         else:
             # No name, use function as name
             func_expr = part
-            name = func_expr.split('(')[0] if '(' in func_expr else func_expr
+            name = func_expr.split("(")[0] if "(" in func_expr else func_expr
 
         # Parse function and optional field
-        if '(' in func_expr:
-            match = re.match(r'(\w+)\(([^)]*)\)', func_expr)
+        if "(" in func_expr:
+            match = re.match(r"(\w+)\(([^)]*)\)", func_expr)
             if match:
                 func = match.group(1)
                 field = match.group(2).strip()
                 # Remove leading dot from field
-                if field.startswith('.'):
+                if field.startswith("."):
                     field = field[1:]
                 result.append((name, func, field if field else None))
             else:
@@ -89,22 +93,24 @@ def _aggregate(matches: list[dict], agg_spec: str) -> dict:
     result = {}
 
     for name, func, field in parsed:
-        if func == 'count':
+        if func == "count":
             result[name] = len(matches)
-        elif func == 'sum':
+        elif func == "sum":
             values = [m.get(field, 0) for m in matches]
             # Convert booleans to int
             values = [int(v) if isinstance(v, bool) else v for v in values]
-            result[name] = sum(v for v in values if isinstance(v, (int, float)))
-        elif func == 'avg':
+            result[name] = sum(
+                v for v in values if isinstance(v, (int, float))
+            )
+        elif func == "avg":
             values = [m.get(field) for m in matches]
             values = [v for v in values if isinstance(v, (int, float))]
             result[name] = sum(values) / len(values) if values else 0
-        elif func == 'min':
+        elif func == "min":
             values = [m.get(field) for m in matches]
             values = [v for v in values if v is not None]
             result[name] = min(values) if values else None
-        elif func == 'max':
+        elif func == "max":
             values = [m.get(field) for m in matches]
             values = [v for v in values if v is not None]
             result[name] = max(values) if values else None
@@ -225,7 +231,9 @@ def _stream_and_enrich(
 
         # Apply where filter if specified
         if where_expr and matches:
-            matches = [m for m in matches if _eval_where(where_expr, record, m)]
+            matches = [
+                m for m in matches if _eval_where(where_expr, record, m)
+            ]
 
         # Inner join: skip records with no matches
         if inner_join and not matches:
@@ -286,8 +294,16 @@ def _stream_and_enrich(
 )
 @pass_context
 def join(
-    ctx, right_source, join_field, left_key, right_key, target, where_expr,
-    agg_spec, inner_join, pick_fields
+    ctx,
+    right_source,
+    join_field,
+    left_key,
+    right_key,
+    target,
+    where_expr,
+    agg_spec,
+    inner_join,
+    pick_fields,
 ):
     """Enrich NDJSON stream with data from a secondary source.
 

@@ -1030,7 +1030,7 @@ def main():
         for record in reads(config):
             print(json.dumps(record), flush=True)
     except Exception as e:
-        print(json.dumps({'error': str(e)}), file=sys.stderr)
+        print(json.dumps({'error': str(e)}), file=sys.stderr, flush=True)
         sys.exit(1)
 
 
