@@ -13,6 +13,7 @@ All three experiments passed, validating the core assumptions of the polyglot ar
 | zig-stream-bench | ✅ PASS | 35x faster than Python (I/O passthrough) |
 | zig-cross-compile | ✅ PASS | All 5 targets build, binaries <100KB |
 | rust-jaq | ✅ PASS | jaq library works, eliminates jq dependency |
+| zig-jq-subset | ✅ PASS | **2-3x faster than jq**, 10x faster than jaq |
 
 ---
 
@@ -132,6 +133,41 @@ Our implementation uses serde_json for parsing/serialization. jaq docs recommend
 
 ---
 
+## 5. zig-jq-subset (zq)
+
+**Goal:** Prototype minimal jq in Zig for JN's actual filter needs
+
+**Result:** ✅ PASS (2-3x faster than jq!)
+
+**Benchmark:** 100K NDJSON records
+
+| Expression | zq (Zig) | jq | jaq-filter | zq vs jq |
+|------------|----------|-----|------------|----------|
+| `select(.id > 50000)` | 61ms | 196ms | 665ms | **3.2x faster** |
+| `.value` | 59ms | 131ms | 596ms | **2.2x faster** |
+| `.` (identity) | 68ms | 191ms | - | **2.8x faster** |
+| `.meta.score` | 100ms | 189ms | - | **1.9x faster** |
+| `select(.meta.active)` | 133ms | 265ms | - | **2.0x faster** |
+
+**Binary size:** 2.3MB (vs jaq's 5.0MB)
+
+**Key optimizations:**
+1. **Arena allocator with reset** - No per-line allocations
+2. **Direct evaluation** - No AST interpretation
+3. **Buffered I/O** - Both input and output
+4. **Single parse** - No JSON→Val→JSON conversions
+
+**Supported expressions:**
+- `.field`, `.a.b.c` (field access)
+- `select(.x)`, `select(.x > N)`, `select(.x == "str")` (filtering)
+- `.` (identity)
+
+**Initial bug:** Used GeneralPurposeAllocator which is debug-oriented. First run was 47s (267x slower than jq!). Switching to ArenaAllocator with per-line reset fixed it.
+
+**Conclusion:** A minimal Zig jq implementation can beat jq at its own game. For JN's filter needs, this is the fastest option.
+
+---
+
 ## Issues Found & Fixed
 
 ### 1. Zig 0.11.0 API Changes
@@ -187,11 +223,15 @@ let filter = defs.compile(filter);
 
 3. **Cross-compilation works** - Single command builds for all platforms, no toolchain setup.
 
-4. **Binary sizes are excellent** - 8-50KB for Zig binaries, 5MB for Rust with jaq.
+4. **Binary sizes are excellent** - 8-50KB for Zig binaries, 2.3MB for Zig jq-subset, 5MB for Rust jaq.
 
-5. **jaq works but needs optimization** - Functional jq replacement, but naive implementation is slower than jq. Production version should use hifijson and avoid unnecessary conversions.
+5. **Zig jq-subset beats jq** - 2-3x faster than jq itself! Arena allocator + direct evaluation + buffered I/O is the winning combination.
+
+6. **jaq works but is slower** - Functional jq replacement, but naive implementation is 2-4x slower than jq due to serde_json conversions. Could optimize with hifijson, but Zig approach is better.
 
 **Recommendation:** Proceed with Sprint 01. All core assumptions validated:
 - Zig for core and hot-path plugins ✅
-- Rust/jaq for jq replacement ✅ (eliminates jq dependency)
+- **Zig for jq replacement** ✅ (faster than jq, no dependency)
 - Cross-platform distribution ✅
+
+**Updated plan:** Consider Zig jq-subset instead of Rust/jaq for filter plugin. Simpler, faster, smaller binary.
