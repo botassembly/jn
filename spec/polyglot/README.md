@@ -61,15 +61,20 @@ See [experiments/RESULTS.md](experiments/RESULTS.md) for detailed benchmark data
 
 ### Sprint Plans
 
-| Sprint | Focus | Status |
-|--------|-------|--------|
-| [01-foundation-csv-plugin](sprints/01-foundation-csv-plugin.md) | Zig build, CSV plugin | Planned |
+| Sprint | Focus | Deliverables |
+|--------|-------|--------------|
+| [01-zq-foundation](sprints/01-zq-foundation.md) | ZQ core features | Identity, field access, select, boolean logic |
+| [02-zq-extended](sprints/02-zq-extended.md) | ZQ extended | Object construction, pipes, conditionals |
+| [03-zq-aggregation](sprints/03-zq-aggregation.md) | ZQ aggregation | Arrays, slurp mode, group_by, map |
+| [04-zig-plugin-library](sprints/04-zig-plugin-library.md) | jn-plugin library | Reusable library for Zig plugins |
+| [05-csv-json-plugins](sprints/05-csv-json-plugins.md) | Format plugins | CSV and JSON plugins using library |
+| [06-integration](sprints/06-integration.md) | Production ready | CI, testing, benchmarks, release |
 
 ---
 
 ## Implementation Roadmap
 
-### Phase 1: ZQ Filter Language
+### Sprints 01-03: ZQ Filter Language
 
 Build ZQ as the first Zig component to validate the toolchain and architecture.
 
@@ -79,34 +84,38 @@ Build ZQ as the first Zig component to validate the toolchain and architecture.
 - Proves Zig JSON handling at scale
 - Immediate value (faster filters)
 
-**Deliverables:**
-1. ZQ binary with core expressions (see [ZQ.md](ZQ.md))
-2. Integration with `jn filter` command
-3. Benchmark suite
+**Progression:**
+1. **Sprint 01:** Core expressions (`.field`, `select`, boolean logic)
+2. **Sprint 02:** Object construction, pipes, conditionals
+3. **Sprint 03:** Arrays, aggregation, full ZQ.md spec
 
-### Phase 2: Zig Core Infrastructure
+### Sprint 04: Zig Plugin Library
 
-Migrate jn binary from Python to Zig.
+Create reusable `jn-plugin` library for building Zig plugins.
 
 **Components:**
-- CLI argument parsing
-- Address parsing (`address[~format][?params]`)
-- Plugin discovery and manifest loading
-- Pipeline orchestration (Popen equivalent)
+- CLI argument parsing (`--mode`, `--jn-meta`)
+- NDJSON reader/writer with buffering
+- Manifest generation
 
-### Phase 3: Format Plugins
+### Sprint 05: Format Plugins
 
-Migrate hot-path format plugins to Zig.
+Build production CSV and JSON plugins.
 
-**Priority order:**
-1. JSON/JSONL (most common)
-2. CSV (complex, validates parser design)
-3. YAML/TOML (simpler)
-4. GZ (compression wrapper)
+**Plugins:**
+- CSV (read/write) - most common format
+- JSON (read) - array → NDJSON
+- JSONL (read/write) - validation pass-through
 
-### Phase 4: Protocol Plugins
+### Sprint 06: Integration & Production
 
-Migrate HTTP plugin to Zig (optional, Python works fine for protocols).
+Full testing, CI/CD, and release process.
+
+**Deliverables:**
+- Cross-platform CI (5 targets)
+- Performance regression suite
+- Documentation
+- Release artifacts
 
 ---
 
