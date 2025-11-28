@@ -6,10 +6,12 @@ This folder contains the design documents for JN's polyglot plugin system, enabl
 
 JN is migrating from Python-only plugins to a language-agnostic architecture where:
 
-1. **Plugins are standalone executables** with a standard CLI contract
-2. **Rust replaces Python** for hot-path format plugins (10x performance)
-3. **Manifests are auto-generated** from binaries via `--jn-meta`
-4. **Core libraries** reduce boilerplate in both Python and Rust
+1. **Zig core binary** replaces Python CLI for instant startup (<5ms)
+2. **Zig plugins** for hot-path formats (csv, json, http) - 10x performance
+3. **Rust plugin** for jq replacement (jaq-based) - 30x faster startup
+4. **Python plugins** retained for complex APIs (gmail, mcp, duckdb)
+5. **Core libraries** for Python, Zig, and Rust plugin development
+6. **Manifests auto-generated** from binaries via `--jn-meta`
 
 ## Documents
 
@@ -23,6 +25,7 @@ JN is migrating from Python-only plugins to a language-agnostic architecture whe
 | [06-language-comparison.md](06-language-comparison.md) | Rust vs Go vs C vs Shell - when to use each |
 | [07-zig-proposal.md](07-zig-proposal.md) | Zig as optimal choice for core plugins |
 | [08-core-zig-evaluation.md](08-core-zig-evaluation.md) | Evaluation of replacing JN core with Zig |
+| [09-implementation-plan.md](09-implementation-plan.md) | **Final implementation plan with timeline** |
 
 ## Key Decisions
 
@@ -47,9 +50,11 @@ Special:
 
 | Plugin | Language | Rationale |
 |--------|----------|-----------|
-| csv, json, yaml, toml, xlsx, xml, gz | **Rust** | Hot path, 10x speedup |
-| http, gmail, mcp, duckdb | Python | Complex APIs, not hot path |
-| jq, markdown, table | Python | Thin wrappers, low impact |
+| csv, json, jsonl, gz, http | **Zig** | Hot path, 10x speedup, tiny binaries |
+| yaml, toml | **Zig** | Common formats, simple parsing |
+| jq | **Rust** | Use jaq library (30x faster than jq) |
+| gmail, mcp, duckdb | Python | Complex APIs, OAuth, not hot path |
+| xlsx, markdown, table, xml | Python | Library dependencies, lower priority |
 
 ### Discovery Priority
 
@@ -82,26 +87,19 @@ Manifests are **auto-generated** by running `plugin --jn-meta` when:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                        jn CLI                                │
-│                     (Python/Click)                           │
-└─────────────────────────┬───────────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────────────┐
-│                     Discovery                                │
-│  1. Find binaries → auto-generate manifest via --jn-meta    │
-│  2. Find *.py → parse PEP 723                               │
-│  3. Binary takes precedence over Python                      │
+│                     jn (Zig binary)                         │
+│  CLI parsing │ Address parsing │ Discovery │ Pipeline exec  │
 └─────────────────────────┬───────────────────────────────────┘
                           │
           ┌───────────────┼───────────────┐
           ▼               ▼               ▼
 ┌─────────────┐   ┌─────────────┐   ┌─────────────┐
-│ Rust Plugin │   │ Python Plug │   │  Go Plugin  │
-│   (csv_)    │   │  (http_.py) │   │  (future)   │
+│ Zig Plugins │   │ Rust Plugin │   │Python Plugs │
+│ csv, json   │   │    jq       │   │ gmail, mcp  │
+│ http, gz    │   │   (jaq)     │   │ duckdb,xlsx │
 ├─────────────┤   ├─────────────┤   ├─────────────┤
-│ jn-plugin   │   │ jn_plugin   │   │ jn-plugin   │
-│   crate     │   │   module    │   │   module    │
+│ jn-plugin   │   │ jn-plugin   │   │ jn_plugin   │
+│    (zig)    │   │   (rust)    │   │  (python)   │
 └─────────────┘   └─────────────┘   └─────────────┘
       │                 │                 │
       └────────────────┬┴─────────────────┘
@@ -125,36 +123,56 @@ Manifests are **auto-generated** by running `plugin --jn-meta` when:
 
 ## Implementation Phases
 
-### Phase 1: Foundation
-- [ ] Create `jn-plugins-rs` repository with workspace
-- [ ] Implement `jn-plugin` core crate
-- [ ] Update discovery for binary plugins
+### Phase 1: Foundation (Week 1-2)
+- [ ] Core libraries: Python (`jn_plugin`), Zig (`jn-plugin`), Rust (`jn-plugin-rs`)
+- [ ] First Zig plugin: CSV (proof of concept)
+- [ ] Update discovery for binary plugins + manifests
 
-### Phase 2: Core Plugins
-- [ ] Port `csv_` to Rust
-- [ ] Port `json_` to Rust
-- [ ] Port `gz_` to Rust
-- [ ] Benchmark against Python versions
+### Phase 2: Zig Core Binary (Week 3-4)
+- [ ] CLI parser, address parser in Zig
+- [ ] Pipeline executor (fork/exec, pipe management)
+- [ ] Plugin discovery from manifests
+- [ ] Partial replacement: keep Python for complex resolution
 
-### Phase 3: Distribution
-- [ ] GitHub Actions for cross-platform builds
-- [ ] Auto-download on `pip install jn`
+### Phase 3: Zig Plugins (Week 5-6)
+- [ ] json, jsonl, gz plugins
+- [ ] http plugin (using zig-curl)
+- [ ] yaml, toml plugins
+
+### Phase 4: Rust jq Plugin (Week 7-8)
+- [ ] jq replacement using jaq library
+- [ ] 30x faster startup than jq
+- [ ] Full jq compatibility for JN use cases
+
+### Phase 5: Integration (Week 9-10)
+- [ ] Discovery priority: binary > Python
+- [ ] Cross-platform builds (GitHub Actions)
+- [ ] Performance benchmarks
 - [ ] Remove Python versions of ported plugins
-
-### Phase 4: Extended Plugins
-- [ ] Port `yaml_`, `toml_`, `xlsx_`, `xml_`
-- [ ] Performance optimization (SIMD, mmap)
-- [ ] Documentation and examples
 
 ## Related Files
 
-- `experiments/plugin-core/jn_plugin.py` - Python core library PoC
-- `experiments/plugin-core/csv_plugin.py` - CSV plugin using core library
-- `jn_home/plugins/` - Current Python plugins (to be replaced)
+- `spec/polyglot/experiments/plugin-core/jn_plugin.py` - Python core library PoC
+- `spec/polyglot/experiments/plugin-core/csv_plugin.py` - CSV plugin using core library
+- `jn_home/plugins/` - Current Python plugins (some to be replaced)
 
 ## References
 
+### Zig
+- [zig_csv](https://github.com/matthewtolman/zig_csv) - SIMD-accelerated CSV parser
+- [zig-curl](https://github.com/jiacai2050/zig-curl) - libcurl bindings for HTTP
+- [zimdjson](https://github.com/EzequielRamis/zimdjson) - simdjson port (3+ GB/s JSON)
+- [std.json](https://zig.guide/standard-library/json/) - Zig standard library JSON
+
+### Rust
+- [jaq](https://github.com/01mf02/jaq) - jq clone (30x faster startup, security audited)
+- [jaq-core](https://crates.io/crates/jaq-core) - jaq as library
+- [serde](https://serde.rs/) - Serialization framework
+
+### C Libraries (via @cImport)
+- [simdjson](https://github.com/simdjson/simdjson) - 3+ GB/s JSON parsing
+- [PCRE2](https://github.com/PCRE2Project/pcre2) - Regex library
+- [libcurl](https://curl.se/libcurl/) - HTTP client
+
+### Python
 - [PEP 723](https://peps.python.org/pep-0723/) - Inline script metadata
-- [serde](https://serde.rs/) - Rust serialization framework
-- [clap](https://docs.rs/clap/) - Rust CLI argument parsing
-- [cross](https://github.com/cross-rs/cross) - Cross-compilation for Rust
