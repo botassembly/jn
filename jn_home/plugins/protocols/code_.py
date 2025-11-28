@@ -28,11 +28,12 @@ Usage:
     jn cat @code/methods
 
 Components:
-    functions   - All functions, methods, classes
+    functions   - All functions, methods, classes (with caller_count if calls analyzed)
     classes     - Only classes
     methods     - Only methods
     files       - List of files found
     calls       - Call graph (caller -> callee relationships)
+    dead        - Dead code (functions never called, with false positive filtering)
 
 Parameters:
     root        - Source root directory (default: ".")
@@ -889,10 +890,84 @@ def reads(config: Optional[dict] = None) -> Iterator[dict]:
                 yield record
         return
 
+    elif component == 'dead':
+        # Find dead code with false positive filtering
+        # Collect all functions
+        functions = []
+        for file_path in sorted(find_files(root, globs)):
+            for record in extract_from_file(file_path):
+                record['module'] = str(Path(record['file']).parent)
+                functions.append(record)
+
+        # Collect all callees
+        callees = set()
+        for file_path in sorted(find_files(root, globs)):
+            for call in extract_calls_from_file(file_path):
+                callees.add(call['callee'])
+                # Also add simple name for method calls (obj.method -> method)
+                if '.' in call['callee']:
+                    callees.add(call['callee'].split('.')[-1])
+
+        # Filter for dead code
+        for func in functions:
+            func_name = func['function']
+            simple_name = func_name.split('.')[-1] if '.' in func_name else func_name
+
+            # Check if called
+            is_called = func_name in callees or simple_name in callees
+
+            if is_called:
+                continue
+
+            # Filter out false positives
+            # 1. Skip AST visitor methods (visit_*)
+            if simple_name.startswith('visit_'):
+                continue
+
+            # 2. Skip dunder methods (__str__, __init__, etc.)
+            if simple_name.startswith('__') and simple_name.endswith('__'):
+                continue
+
+            # 3. Skip CLI entry points (simple lowercase functions are likely Click commands)
+            # But keep internal functions (start with _)
+            if func['type'] == 'function' and not simple_name.startswith('_'):
+                # Check if it looks like a CLI command (no dots, all lowercase)
+                if simple_name.islower() and '_' not in simple_name[1:]:
+                    continue
+
+            # 4. Skip classes (often instantiated dynamically)
+            if func['type'] == 'class':
+                continue
+
+            # 5. Skip property-like methods (very short, no underscore prefix)
+            if func['type'] == 'method':
+                lines = func['end_line'] - func['start_line']
+                if lines <= 2 and not simple_name.startswith('_'):
+                    continue
+
+            # Add reason for being flagged
+            func['reason'] = 'never_called'
+            if simple_name.startswith('_') and not simple_name.startswith('__'):
+                func['reason'] = 'internal_never_called'
+
+            yield func
+        return
+
     # Load LCOV if specified
     lcov_data = None
     if lcov_path and Path(lcov_path).exists():
         lcov_data = parse_lcov(lcov_path)
+
+    # Build caller count map for enrichment
+    caller_counts: dict[str, int] = {}
+    for file_path in sorted(find_files(root, globs)):
+        for call in extract_calls_from_file(file_path):
+            callee = call['callee']
+            caller_counts[callee] = caller_counts.get(callee, 0) + 1
+            # Also count simple name
+            if '.' in callee:
+                simple = callee.split('.')[-1]
+                caller_counts[simple] = caller_counts.get(simple, 0) + 1
 
     # Extract and yield
     for file_path in sorted(find_files(root, globs)):
@@ -903,6 +978,14 @@ def reads(config: Optional[dict] = None) -> Iterator[dict]:
 
             # Add module (directory path)
             record['module'] = str(Path(record['file']).parent)
+
+            # Add caller count
+            func_name = record['function']
+            simple_name = func_name.split('.')[-1] if '.' in func_name else func_name
+            record['caller_count'] = max(
+                caller_counts.get(func_name, 0),
+                caller_counts.get(simple_name, 0)
+            )
 
             # Enrich with coverage if available
             if lcov_data:
