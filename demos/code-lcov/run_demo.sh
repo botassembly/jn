@@ -18,7 +18,7 @@ PROJECT_ROOT="$(cd "$DEMO_DIR/../.." && pwd)"
 cd "$PROJECT_ROOT"
 
 # Use uv run with project
-JN="uv run python -m jn.cli.main"
+JN="uv run jn"
 CODE_PLUGIN="uv run --script jn_home/plugins/protocols/code_.py"
 
 # Output file (in demo directory)
