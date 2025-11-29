@@ -375,14 +375,64 @@ def inject_path_metadata(record: dict, filepath: Path, root: Path, file_idx: int
     }
 
 
+def pattern_explicitly_names_hidden(pattern: str) -> bool:
+    """Check if glob pattern explicitly names a hidden directory or file.
+
+    Returns True if pattern starts with '.' (but not './' or '..') or contains
+    '/.' followed by a non-special character, indicating the user explicitly
+    wants to access hidden paths.
+
+    Examples:
+        '.botassembly/**/*.jsonl' -> True (starts with hidden dir)
+        'data/.cache/*.json' -> True (contains hidden subdir)
+        '**/*.jsonl' -> False (no explicit hidden reference)
+        './*.json' -> False (current dir notation, not hidden intent)
+        '../foo/*.json' -> False (parent dir notation, not hidden intent)
+        '.hidden/*.json' -> True (hidden directory)
+    """
+    # Pattern starts with a dot (hidden file/dir at root)
+    # Exclude './' (current dir) and '..' (parent dir)
+    if pattern.startswith('.') and not pattern.startswith('./') and not pattern.startswith('..'):
+        return True
+
+    # Pattern contains /. followed by something other than / or .
+    # This catches data/.cache but not ./ or ../
+    idx = 0
+    while True:
+        idx = pattern.find('/.', idx)
+        if idx == -1:
+            break
+        # Check what follows /.
+        next_idx = idx + 2
+        if next_idx < len(pattern):
+            next_char = pattern[next_idx]
+            # If next char is not / or ., it's a hidden path
+            if next_char not in ('/', '.'):
+                return True
+        idx += 1
+
+    return False
+
+
 def expand_glob(pattern: str, root: Path, include_hidden: bool = False) -> Iterator[Path]:
     """Expand glob pattern to file paths.
 
     Handles both simple globs (*.json) and recursive globs (**/*.jsonl).
+
+    Hidden directory handling:
+    - If include_hidden=True, includes all hidden files/dirs
+    - If pattern explicitly names a hidden path (starts with . or contains /.),
+      hidden support is auto-enabled for that pattern
+    - Otherwise, hidden files/dirs are skipped
     """
     # Handle glob:// prefix
     if pattern.startswith("glob://"):
         pattern = pattern[7:]
+
+    # Auto-detect hidden directory intent from pattern
+    # If user explicitly names a hidden path, enable hidden support
+    if pattern_explicitly_names_hidden(pattern):
+        include_hidden = True
 
     # Handle relative vs absolute patterns
     if pattern.startswith("/"):
