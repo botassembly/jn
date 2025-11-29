@@ -124,6 +124,8 @@ def format_jq_condition(field: str, operator: str, value: any) -> str:
         "(.revenue | tonumber) > 1000"
         >>> format_jq_condition("category", "==", "Electronics")
         '.category == "Electronics"'
+        >>> format_jq_condition("count", "==", "5")
+        '(.count == 5 or .count == "5")'
     """
     # Numeric comparisons: compare as numbers, but allow the
     # underlying data to be strings via `tonumber`.
@@ -131,8 +133,29 @@ def format_jq_condition(field: str, operator: str, value: any) -> str:
         value_str = json.dumps(value)
         return f"(.{field} | tonumber) {operator} {value_str}"
 
-    # For equality/inequality, compare values directly
-    # JSON types are preserved, so strings compare as strings, numbers as numbers
+    # For equality/inequality with numeric-looking strings, generate type-tolerant
+    # comparison that matches both numeric and string representations.
+    # This handles both NDJSON (numeric fields) and CSV (string fields).
+    if operator in ("==", "!=") and isinstance(value, str):
+        # Check if value looks numeric
+        try:
+            numeric_val = int(value)
+            # Value is numeric-looking - match both types
+            if operator == "==":
+                return f"(.{field} == {numeric_val} or .{field} == {json.dumps(value)})"
+            else:  # !=
+                return f"(.{field} != {numeric_val} and .{field} != {json.dumps(value)})"
+        except ValueError:
+            try:
+                numeric_val = float(value)
+                if operator == "==":
+                    return f"(.{field} == {numeric_val} or .{field} == {json.dumps(value)})"
+                else:  # !=
+                    return f"(.{field} != {numeric_val} and .{field} != {json.dumps(value)})"
+            except ValueError:
+                pass  # Not numeric, use simple comparison
+
+    # Simple comparison for non-numeric strings
     value_str = json.dumps(value)
     return f".{field} {operator} {value_str}"
 
