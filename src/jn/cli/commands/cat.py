@@ -46,15 +46,17 @@ def _build_command(
 
     # Add configuration parameters
     for key, value in stage.config.items():
+        # Convert underscores to dashes for CLI arguments (e.g., file_limit -> file-limit)
+        cli_key = key.replace("_", "-")
         if isinstance(value, bool):
             if value:
                 # True: pass --flag (works for action="store_true")
-                cmd.append(f"--{key}")
+                cmd.append(f"--{cli_key}")
             else:
                 # False: pass --flag false (for regular bool params like --header)
-                cmd.extend([f"--{key}", "false"])
+                cmd.extend([f"--{cli_key}", "false"])
         else:
-            cmd.extend([f"--{key}", str(value)])
+            cmd.extend([f"--{cli_key}", str(value)])
 
     # Add URL or command string if present
     if command_str:
@@ -132,14 +134,26 @@ def _execute_with_filter(stages, addr, filters, home_dir=None):
         elif len(stages) == 1:
             stage = stages[0]
             is_shell_plugin = "/shell/" in stage.plugin_path
+            is_glob_plugin = addr.type == "glob"
 
-            cmd = (
-                _build_command(stage, command_str=addr.base)
-                if is_shell_plugin
-                else _build_command(stage)
-            )
+            # Shell plugins and glob plugins receive the pattern/command as argument
+            if is_shell_plugin:
+                cmd = _build_command(stage, command_str=addr.base)
+            elif is_glob_plugin:
+                # For glob, include compression extension if present (e.g., *.jsonl.gz)
+                glob_pattern = addr.base
+                if addr.compression:
+                    glob_pattern = f"{addr.base}.{addr.compression}"
+                cmd = _build_command(stage, command_str=glob_pattern)
+            else:
+                cmd = _build_command(stage)
 
-            if is_shell_plugin or stage.url or addr.type == "profile":
+            if (
+                is_shell_plugin
+                or is_glob_plugin
+                or stage.url
+                or addr.type == "profile"
+            ):
                 stdin_source = subprocess.DEVNULL
             elif addr.type == "stdio":
                 stdin_source = sys.stdin
@@ -328,9 +342,9 @@ def cat(ctx, input_file):
 
         final_stage = stages[-1]
 
-        # For protocol plugins handling profiles, skip config/filter separation
+        # For protocol plugins handling profiles or globs, skip config/filter separation
         # These plugins manage their own parameter handling internally
-        if addr.type == "profile" and final_stage.plugin_path:
+        if addr.type in ("profile", "glob") and final_stage.plugin_path:
             # Check plugin metadata to see if it manages its own parameters
             from ...plugins.service import get_cached_plugins_with_fallback
 

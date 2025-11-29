@@ -113,7 +113,8 @@ class AddressResolver:
         # Build configuration from parameters
         # For protocol plugins, parameters stay in URL (not extracted to config)
         # This allows self-contained plugins to handle their own parameter parsing
-        if is_protocol_plugin:
+        # Exception: glob addresses - parameters are passed via config since there's no URL
+        if is_protocol_plugin and address.type != "glob":
             config = {}
         else:
             config = self._build_config(address.parameters, plugin_name)
@@ -279,7 +280,8 @@ class AddressResolver:
             stages = [stage]
 
         # Insert decompression stage if compression detected (only in read mode)
-        if mode == "read" and address.compression:
+        # Skip for glob addresses - glob plugin handles compression internally
+        if mode == "read" and address.compression and address.type != "glob":
             # Find decompression plugin
             try:
                 decomp_name = f"{address.compression}_"
@@ -410,7 +412,11 @@ class AddressResolver:
                 # Stdin defaults to NDJSON
                 return self._find_plugin_by_format("ndjson")
 
-        # Case 6: File - auto-detect from extension
+        # Case 6: Glob pattern - use glob plugin
+        if address.type == "glob":
+            return self._find_plugin_by_name("glob_")
+
+        # Case 7: File - auto-detect from extension
         if address.type == "file":
             return self._find_plugin_by_pattern(address.base)
 
