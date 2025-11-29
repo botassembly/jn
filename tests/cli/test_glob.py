@@ -310,10 +310,10 @@ class TestHiddenDirectorySupport:
 
             yield root
 
-    def test_hidden_dir_skipped_by_default(self, hidden_data_dir):
+    def test_hidden_dir_skipped_by_default(self, jn_cli, hidden_data_dir):
         """Test that hidden directories are skipped by default with **/*.jsonl."""
         result = subprocess.run(
-            ["jn", "cat", f"{hidden_data_dir}/**/*.jsonl"],
+            [*jn_cli, "cat", f"{hidden_data_dir}/**/*.jsonl"],
             capture_output=True,
             text=True,
         )
@@ -333,10 +333,10 @@ class TestHiddenDirectorySupport:
         assert "secret" not in sources
         assert "cache" not in sources
 
-    def test_explicit_hidden_dir_auto_detected(self, hidden_data_dir):
+    def test_explicit_hidden_dir_auto_detected(self, jn_cli, hidden_data_dir):
         """Test that explicitly naming hidden dir auto-enables hidden support."""
         result = subprocess.run(
-            ["jn", "cat", f"{hidden_data_dir}/.hidden/*.jsonl"],
+            [*jn_cli, "cat", f"{hidden_data_dir}/.hidden/*.jsonl"],
             capture_output=True,
             text=True,
         )
@@ -353,10 +353,10 @@ class TestHiddenDirectorySupport:
         sources = [r["source"] for r in lines]
         assert "hidden" in sources
 
-    def test_nested_hidden_dir_auto_detected(self, hidden_data_dir):
+    def test_nested_hidden_dir_auto_detected(self, jn_cli, hidden_data_dir):
         """Test that /. in pattern auto-enables hidden support."""
         result = subprocess.run(
-            ["jn", "cat", f"{hidden_data_dir}/data/.cache/*.jsonl"],
+            [*jn_cli, "cat", f"{hidden_data_dir}/data/.cache/*.jsonl"],
             capture_output=True,
             text=True,
         )
@@ -373,10 +373,10 @@ class TestHiddenDirectorySupport:
         sources = [r["source"] for r in lines]
         assert "cache" in sources
 
-    def test_hidden_parameter_includes_all(self, hidden_data_dir):
+    def test_hidden_parameter_includes_all(self, jn_cli, hidden_data_dir):
         """Test that ?hidden=true includes all hidden files."""
         result = subprocess.run(
-            ["jn", "cat", f"{hidden_data_dir}/**/*.jsonl?hidden=true"],
+            [*jn_cli, "cat", f"{hidden_data_dir}/**/*.jsonl?hidden=true"],
             capture_output=True,
             text=True,
         )

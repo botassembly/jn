@@ -160,6 +160,7 @@ const Config = struct {
     raw_strings: bool = false,
     exit_on_empty: bool = false,
     skip_invalid: bool = true,
+    slurp: bool = false,
 };
 
 // ============================================================================
@@ -1308,6 +1309,7 @@ fn printUsage() void {
         \\OPTIONS:
         \\  -c          Compact output (default, NDJSON compatible)
         \\  -r          Raw string output (no quotes around strings)
+        \\  -s          Slurp mode: read all input into array first
         \\  -e          Exit with error code if no output produced
         \\  --version   Print version and exit
         \\  --help      Print this help message
@@ -1320,6 +1322,8 @@ fn printUsage() void {
         \\  echo '{"x":"42"}' | zq '.x | tonumber'
         \\  echo '{"a":1,"b":2}' | zq '{sum: .a + .b}'
         \\  echo '{"x":null,"y":1}' | zq '.x // .y'
+        \\  cat data.ndjson | zq -s 'length'           # Count records
+        \\  cat data.ndjson | zq -s '.[] | .name'      # Iterate slurped array
         \\
     ;
     std.debug.print("{s}", .{usage});
@@ -1354,6 +1358,8 @@ pub fn main() !void {
             config.raw_strings = true;
         } else if (std.mem.eql(u8, arg, "-e")) {
             config.exit_on_empty = true;
+        } else if (std.mem.eql(u8, arg, "-s")) {
+            config.slurp = true;
         } else if (arg[0] != '-') {
             expr_arg = arg;
         } else {
@@ -1386,24 +1392,43 @@ pub fn main() !void {
 
     var output_count: usize = 0;
 
-    while (reader.readUntilDelimiterOrEof(&line_buf, '\n')) |maybe_line| {
-        const line = maybe_line orelse break;
-        if (line.len == 0) continue;
+    if (config.slurp) {
+        // Slurp mode: collect all JSON values into an array, then apply expression
+        var slurp_values = std.ArrayList(std.json.Value).init(arena.allocator());
 
-        _ = arena.reset(.retain_capacity);
+        while (reader.readUntilDelimiterOrEof(&line_buf, '\n')) |maybe_line| {
+            const line = maybe_line orelse break;
+            if (line.len == 0) continue;
 
-        const parsed = std.json.parseFromSlice(std.json.Value, arena.allocator(), line, .{}) catch {
-            if (!config.skip_invalid) {
-                std.debug.print("Error: malformed JSON\n", .{});
+            // Make a copy of the line since line_buf gets reused
+            const line_copy = try arena.allocator().dupe(u8, line);
+
+            const parsed = std.json.parseFromSlice(std.json.Value, arena.allocator(), line_copy, .{}) catch {
+                if (!config.skip_invalid) {
+                    std.debug.print("Error: malformed JSON\n", .{});
+                    std.process.exit(1);
+                }
+                continue;
+            };
+            try slurp_values.append(parsed.value);
+        } else |err| {
+            if (err != error.EndOfStream) {
+                std.debug.print("Read error: {}\n", .{err});
                 std.process.exit(1);
             }
-            continue;
-        };
-        const value = parsed.value;
+        }
 
-        const results = evalExpr(arena.allocator(), &expr, value) catch |err| {
+        // Create array from collected values
+        const array_value = std.json.Value{ .array = std.json.Array{
+            .items = slurp_values.items,
+            .capacity = slurp_values.capacity,
+            .allocator = arena.allocator(),
+        } };
+
+        // Apply expression to the array
+        const results = evalExpr(arena.allocator(), &expr, array_value) catch |err| {
             std.debug.print("Evaluation error: {}\n", .{err});
-            continue;
+            std.process.exit(1);
         };
 
         for (results.values) |result| {
@@ -1411,10 +1436,38 @@ pub fn main() !void {
             try writer.writeByte('\n');
             output_count += 1;
         }
-    } else |err| {
-        if (err != error.EndOfStream) {
-            std.debug.print("Read error: {}\n", .{err});
-            std.process.exit(1);
+    } else {
+        // Normal streaming mode
+        while (reader.readUntilDelimiterOrEof(&line_buf, '\n')) |maybe_line| {
+            const line = maybe_line orelse break;
+            if (line.len == 0) continue;
+
+            _ = arena.reset(.retain_capacity);
+
+            const parsed = std.json.parseFromSlice(std.json.Value, arena.allocator(), line, .{}) catch {
+                if (!config.skip_invalid) {
+                    std.debug.print("Error: malformed JSON\n", .{});
+                    std.process.exit(1);
+                }
+                continue;
+            };
+            const value = parsed.value;
+
+            const results = evalExpr(arena.allocator(), &expr, value) catch |err| {
+                std.debug.print("Evaluation error: {}\n", .{err});
+                continue;
+            };
+
+            for (results.values) |result| {
+                try writeJson(writer, result, config);
+                try writer.writeByte('\n');
+                output_count += 1;
+            }
+        } else |err| {
+            if (err != error.EndOfStream) {
+                std.debug.print("Read error: {}\n", .{err});
+                std.process.exit(1);
+            }
         }
     }
 

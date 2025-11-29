@@ -150,7 +150,8 @@ def filter(ctx, query, native_args, slurp):
 
     Slurp mode (-s/--slurp):
     - Collects all input into an array before filtering
-    - Enables aggregation: group_by, sort_by, unique, length
+    - Enables aggregation: length, .[] iteration on collected data
+    - Uses ZQ for basic slurp expressions, jq for complex aggregations
     - WARNING: Loads entire input into memory (not streaming)
 
     Examples:
@@ -184,7 +185,10 @@ def filter(ctx, query, native_args, slurp):
 
         if use_zq_filter:
             # Use ZQ (fast path)
-            cmd = [zq_binary, query]
+            cmd = [zq_binary]
+            if slurp:
+                cmd.append("-s")
+            cmd.append(query)
         else:
             # Use jq (fallback for profiles and unsupported expressions)
             check_jq_available()
@@ -255,8 +259,8 @@ def filter(ctx, query, native_args, slurp):
                 # Direct jq expression
                 cmd = ["uv", "run", "--quiet", "--script", plugin.path, query]
 
-        # Add slurp flag if requested
-        if slurp:
+        # Add slurp flag if requested (only for jq plugin, ZQ uses -s added above)
+        if slurp and not use_zq_filter:
             cmd.append("--jq-slurp")
 
         # Prepare stdin for subprocess
