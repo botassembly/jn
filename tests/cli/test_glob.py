@@ -2,11 +2,22 @@
 
 import json
 import os
+import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
 import pytest
+
+
+@pytest.fixture
+def jn_cli():
+    """Return path to jn CLI (installed in venv or via module)."""
+    jn_path = shutil.which("jn")
+    if jn_path:
+        return [jn_path]
+    return [sys.executable, "-m", "jn.cli.main"]
 
 
 @pytest.fixture
@@ -108,10 +119,10 @@ class TestGlobAddressParsing:
 class TestGlobIntegration:
     """Test glob file reading with jn cat."""
 
-    def test_read_jsonl_files(self, test_data_dir):
+    def test_read_jsonl_files(self, jn_cli, test_data_dir):
         """Test reading multiple JSONL files with glob."""
         result = subprocess.run(
-            ["jn", "cat", f"{test_data_dir}/**/*.jsonl"],
+            [*jn_cli, "cat", f"{test_data_dir}/**/*.jsonl"],
             capture_output=True,
             text=True,
         )
@@ -135,11 +146,11 @@ class TestGlobIntegration:
             assert "_file_index" in record
             assert "_line_index" in record
 
-    def test_filter_by_directory(self, test_data_dir):
+    def test_filter_by_directory(self, jn_cli, test_data_dir):
         """Test filtering by directory using injected _dir."""
         # First get all records
         result = subprocess.run(
-            ["jn", "cat", f"{test_data_dir}/**/*.jsonl"],
+            [*jn_cli, "cat", f"{test_data_dir}/**/*.jsonl"],
             capture_output=True,
             text=True,
         )
@@ -157,10 +168,10 @@ class TestGlobIntegration:
         active = [r for r in lines if "active" in r["_dir"]]
         assert len(active) == 2
 
-    def test_filter_by_filename(self, test_data_dir):
+    def test_filter_by_filename(self, jn_cli, test_data_dir):
         """Test filtering by filename using injected _filename."""
         result = subprocess.run(
-            ["jn", "cat", f"{test_data_dir}/**/*.jsonl"],
+            [*jn_cli, "cat", f"{test_data_dir}/**/*.jsonl"],
             capture_output=True,
             text=True,
         )
@@ -174,10 +185,10 @@ class TestGlobIntegration:
         process1 = [r for r in lines if r["_filename"] == "process1.jsonl"]
         assert len(process1) == 2
 
-    def test_limit_parameter(self, test_data_dir):
+    def test_limit_parameter(self, jn_cli, test_data_dir):
         """Test limit parameter stops after N records."""
         result = subprocess.run(
-            ["jn", "cat", f"{test_data_dir}/**/*.jsonl?limit=2"],
+            [*jn_cli, "cat", f"{test_data_dir}/**/*.jsonl?limit=2"],
             capture_output=True,
             text=True,
         )
@@ -189,10 +200,10 @@ class TestGlobIntegration:
         ]
         assert len(lines) == 2
 
-    def test_file_limit_parameter(self, test_data_dir):
+    def test_file_limit_parameter(self, jn_cli, test_data_dir):
         """Test file_limit parameter stops after N files."""
         result = subprocess.run(
-            ["jn", "cat", f"{test_data_dir}/**/*.jsonl?file_limit=1"],
+            [*jn_cli, "cat", f"{test_data_dir}/**/*.jsonl?file_limit=1"],
             capture_output=True,
             text=True,
         )
@@ -206,11 +217,11 @@ class TestGlobIntegration:
         # Should only have records from one file
         assert len(set(r["_filename"] for r in lines)) == 1
 
-    def test_mixed_file_types(self, test_data_dir):
+    def test_mixed_file_types(self, jn_cli, test_data_dir):
         """Test reading mixed JSONL and CSV files."""
         # Read CSV
         result = subprocess.run(
-            ["jn", "cat", f"{test_data_dir}/*.csv"],
+            [*jn_cli, "cat", f"{test_data_dir}/*.csv"],
             capture_output=True,
             text=True,
         )
@@ -232,16 +243,16 @@ class TestGlobIntegration:
         # Check metadata
         assert all(r["_ext"] == ".csv" for r in lines)
 
-    def test_piped_to_filter(self, test_data_dir):
+    def test_piped_to_filter(self, jn_cli, test_data_dir):
         """Test piping glob output to jn filter."""
         # Use subprocess pipes instead of shell=True
         cat_proc = subprocess.Popen(
-            ["jn", "cat", f"{test_data_dir}/**/*.jsonl"],
+            [*jn_cli, "cat", f"{test_data_dir}/**/*.jsonl"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
         filter_proc = subprocess.Popen(
-            ["jn", "filter", 'select(.event == "error")'],
+            [*jn_cli, "filter", 'select(.event == "error")'],
             stdin=cat_proc.stdout,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
