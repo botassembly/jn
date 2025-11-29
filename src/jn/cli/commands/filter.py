@@ -125,8 +125,17 @@ def zq_supports_expression(expr: str) -> bool:
     default=False,
     help="Use jq native --arg binding instead of string substitution.",
 )
+@click.option(
+    "-s",
+    "--slurp",
+    is_flag=True,
+    default=False,
+    help="Read entire input into array before filtering (jq -s mode). "
+    "Enables aggregations like group_by, sort_by, unique. "
+    "WARNING: Loads all data into memory.",
+)
 @pass_context
-def filter(ctx, query, native_args):
+def filter(ctx, query, native_args, slurp):
     """Filter NDJSON using jq expression or profile.
 
     QUERY can be either:
@@ -138,6 +147,11 @@ def filter(ctx, query, native_args):
     Two parameter modes for profiles:
     - Default: String substitution ($param -> "value")
     - --native-args: Uses jq's native --arg binding (type-safe)
+
+    Slurp mode (-s/--slurp):
+    - Collects all input into an array before filtering
+    - Enables aggregation: group_by, sort_by, unique, length
+    - WARNING: Loads entire input into memory (not streaming)
 
     Examples:
         # Direct jq expression
@@ -151,6 +165,12 @@ def filter(ctx, query, native_args):
 
         # Force jq instead of ZQ
         JN_USE_JQ=1 jn cat data.csv | jn filter '.age > 25'
+
+        # Aggregation with slurp mode
+        jn cat data.csv | jn filter -s 'group_by(.status) | map({status: .[0].status, count: length})'
+
+        # Count total records
+        jn cat data.csv | jn filter -s 'length'
     """
     try:
         # Check if we should use ZQ for this expression
@@ -234,6 +254,10 @@ def filter(ctx, query, native_args):
             else:
                 # Direct jq expression
                 cmd = ["uv", "run", "--quiet", "--script", plugin.path, query]
+
+        # Add slurp flag if requested
+        if slurp:
+            cmd.append("--jq-slurp")
 
         # Prepare stdin for subprocess
         try:

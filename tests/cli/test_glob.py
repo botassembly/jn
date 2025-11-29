@@ -271,6 +271,171 @@ class TestGlobIntegration:
         assert lines[0]["event"] == "error"
 
 
+class TestHiddenDirectorySupport:
+    """Test hidden directory auto-detection."""
+
+    @pytest.fixture
+    def hidden_data_dir(self):
+        """Create a temporary directory structure with hidden directories."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+
+            # Create directory structure:
+            # tmpdir/
+            #   .hidden/
+            #     data.jsonl
+            #   visible/
+            #     .secret.jsonl
+            #     normal.jsonl
+            #   data/
+            #     .cache/
+            #       cached.jsonl
+
+            hidden = root / ".hidden"
+            visible = root / "visible"
+            data_cache = root / "data" / ".cache"
+            hidden.mkdir()
+            visible.mkdir()
+            data_cache.mkdir(parents=True)
+
+            # Files in hidden directory
+            (hidden / "data.jsonl").write_text('{"source": "hidden"}\n')
+
+            # Files in visible directory (including hidden file)
+            (visible / ".secret.jsonl").write_text('{"source": "secret"}\n')
+            (visible / "normal.jsonl").write_text('{"source": "normal"}\n')
+
+            # Files in nested hidden directory
+            (data_cache / "cached.jsonl").write_text('{"source": "cache"}\n')
+
+            yield root
+
+    def test_hidden_dir_skipped_by_default(self, hidden_data_dir):
+        """Test that hidden directories are skipped by default with **/*.jsonl."""
+        result = subprocess.run(
+            ["jn", "cat", f"{hidden_data_dir}/**/*.jsonl"],
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0
+
+        lines = [
+            json.loads(line)
+            for line in result.stdout.strip().split("\n")
+            if line
+        ]
+
+        # Should only find the visible/normal.jsonl file
+        sources = [r["source"] for r in lines]
+        assert "normal" in sources
+        assert "hidden" not in sources
+        assert "secret" not in sources
+        assert "cache" not in sources
+
+    def test_explicit_hidden_dir_auto_detected(self, hidden_data_dir):
+        """Test that explicitly naming hidden dir auto-enables hidden support."""
+        result = subprocess.run(
+            ["jn", "cat", f"{hidden_data_dir}/.hidden/*.jsonl"],
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0
+
+        lines = [
+            json.loads(line)
+            for line in result.stdout.strip().split("\n")
+            if line
+        ]
+
+        # Should find the file in .hidden/
+        sources = [r["source"] for r in lines]
+        assert "hidden" in sources
+
+    def test_nested_hidden_dir_auto_detected(self, hidden_data_dir):
+        """Test that /. in pattern auto-enables hidden support."""
+        result = subprocess.run(
+            ["jn", "cat", f"{hidden_data_dir}/data/.cache/*.jsonl"],
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0
+
+        lines = [
+            json.loads(line)
+            for line in result.stdout.strip().split("\n")
+            if line
+        ]
+
+        # Should find the file in data/.cache/
+        sources = [r["source"] for r in lines]
+        assert "cache" in sources
+
+    def test_hidden_parameter_includes_all(self, hidden_data_dir):
+        """Test that ?hidden=true includes all hidden files."""
+        result = subprocess.run(
+            ["jn", "cat", f"{hidden_data_dir}/**/*.jsonl?hidden=true"],
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0
+
+        lines = [
+            json.loads(line)
+            for line in result.stdout.strip().split("\n")
+            if line
+        ]
+
+        # Should find all files including hidden ones
+        sources = [r["source"] for r in lines]
+        assert "normal" in sources
+        assert "hidden" in sources
+        assert "secret" in sources
+        assert "cache" in sources
+
+
+class TestHiddenPatternDetection:
+    """Test the pattern_explicitly_names_hidden function directly."""
+
+    def test_hidden_pattern_detection(self):
+        """Test various patterns for hidden detection."""
+        # Import the function
+        import sys
+
+        sys.path.insert(
+            0,
+            str(
+                Path(__file__).parent.parent.parent
+                / "jn_home"
+                / "plugins"
+                / "protocols"
+            ),
+        )
+        from glob_ import pattern_explicitly_names_hidden
+
+        # Should detect hidden
+        assert (
+            pattern_explicitly_names_hidden(".botassembly/**/*.jsonl") is True
+        )
+        assert pattern_explicitly_names_hidden(".hidden/*.json") is True
+        assert pattern_explicitly_names_hidden("data/.cache/*.json") is True
+        assert (
+            pattern_explicitly_names_hidden("foo/bar/.secret/file.json")
+            is True
+        )
+
+        # Should NOT detect hidden (current/parent dir notation)
+        assert pattern_explicitly_names_hidden("./*.json") is False
+        assert pattern_explicitly_names_hidden("./foo/*.json") is False
+        assert pattern_explicitly_names_hidden("../foo/*.json") is False
+        assert pattern_explicitly_names_hidden("foo/../bar/*.json") is False
+        assert pattern_explicitly_names_hidden("**/*.jsonl") is False
+        assert pattern_explicitly_names_hidden("data/*.json") is False
+
+
 class TestGlobPlugin:
     """Test glob plugin directly."""
 
