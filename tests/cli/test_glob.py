@@ -31,12 +31,10 @@ def test_data_dir():
 
         # JSONL files
         (active / "process1.jsonl").write_text(
-            '{"event": "start", "id": 1}\n'
-            '{"event": "finish", "id": 1}\n'
+            '{"event": "start", "id": 1}\n' '{"event": "finish", "id": 1}\n'
         )
         (completed / "process2.jsonl").write_text(
-            '{"event": "start", "id": 2}\n'
-            '{"event": "error", "id": 2}\n'
+            '{"event": "start", "id": 2}\n' '{"event": "error", "id": 2}\n'
         )
         (completed / "process3.jsonl").write_text(
             '{"event": "complete", "id": 3}\n'
@@ -120,7 +118,9 @@ class TestGlobIntegration:
 
         assert result.returncode == 0
 
-        lines = [json.loads(line) for line in result.stdout.strip().split("\n")]
+        lines = [
+            json.loads(line) for line in result.stdout.strip().split("\n")
+        ]
 
         # Should have 5 records total (2 + 2 + 1)
         assert len(lines) == 5
@@ -145,7 +145,9 @@ class TestGlobIntegration:
         )
         assert result.returncode == 0
 
-        lines = [json.loads(line) for line in result.stdout.strip().split("\n")]
+        lines = [
+            json.loads(line) for line in result.stdout.strip().split("\n")
+        ]
 
         # Filter to only completed directory
         completed = [r for r in lines if "completed" in r["_dir"]]
@@ -164,7 +166,9 @@ class TestGlobIntegration:
         )
         assert result.returncode == 0
 
-        lines = [json.loads(line) for line in result.stdout.strip().split("\n")]
+        lines = [
+            json.loads(line) for line in result.stdout.strip().split("\n")
+        ]
 
         # Filter to specific file
         process1 = [r for r in lines if r["_filename"] == "process1.jsonl"]
@@ -180,7 +184,9 @@ class TestGlobIntegration:
 
         assert result.returncode == 0
 
-        lines = [json.loads(line) for line in result.stdout.strip().split("\n")]
+        lines = [
+            json.loads(line) for line in result.stdout.strip().split("\n")
+        ]
         assert len(lines) == 2
 
     def test_file_limit_parameter(self, test_data_dir):
@@ -193,7 +199,9 @@ class TestGlobIntegration:
 
         assert result.returncode == 0
 
-        lines = [json.loads(line) for line in result.stdout.strip().split("\n")]
+        lines = [
+            json.loads(line) for line in result.stdout.strip().split("\n")
+        ]
 
         # Should only have records from one file
         assert len(set(r["_filename"] for r in lines)) == 1
@@ -209,7 +217,9 @@ class TestGlobIntegration:
 
         assert result.returncode == 0
 
-        lines = [json.loads(line) for line in result.stdout.strip().split("\n")]
+        lines = [
+            json.loads(line) for line in result.stdout.strip().split("\n")
+        ]
 
         # Should have 2 records from CSV
         assert len(lines) == 2
@@ -224,16 +234,28 @@ class TestGlobIntegration:
 
     def test_piped_to_filter(self, test_data_dir):
         """Test piping glob output to jn filter."""
-        result = subprocess.run(
-            f"jn cat '{test_data_dir}/**/*.jsonl' | jn filter 'select(.event == \"error\")'",
-            shell=True,
-            capture_output=True,
+        # Use subprocess pipes instead of shell=True
+        cat_proc = subprocess.Popen(
+            ["jn", "cat", f"{test_data_dir}/**/*.jsonl"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        filter_proc = subprocess.Popen(
+            ["jn", "filter", 'select(.event == "error")'],
+            stdin=cat_proc.stdout,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
         )
+        cat_proc.stdout.close()  # Allow cat_proc to receive SIGPIPE
+        stdout, _stderr = filter_proc.communicate()
+        cat_proc.wait()
 
-        assert result.returncode == 0
+        assert filter_proc.returncode == 0
 
-        lines = [json.loads(line) for line in result.stdout.strip().split("\n") if line]
+        lines = [
+            json.loads(line) for line in stdout.strip().split("\n") if line
+        ]
         assert len(lines) == 1
         assert lines[0]["event"] == "error"
 
@@ -243,31 +265,63 @@ class TestGlobPlugin:
 
     def test_plugin_with_limit(self, test_data_dir):
         """Test glob plugin --limit parameter."""
-        plugin_path = Path(__file__).parent.parent.parent / "jn_home" / "plugins" / "protocols" / "glob_.py"
+        plugin_path = (
+            Path(__file__).parent.parent.parent
+            / "jn_home"
+            / "plugins"
+            / "protocols"
+            / "glob_.py"
+        )
 
         result = subprocess.run(
-            ["python", str(plugin_path), "--mode", "read", "--limit", "2", f"{test_data_dir}/**/*.jsonl"],
+            [
+                "python",
+                str(plugin_path),
+                "--mode",
+                "read",
+                "--limit",
+                "2",
+                f"{test_data_dir}/**/*.jsonl",
+            ],
             capture_output=True,
             text=True,
         )
 
         assert result.returncode == 0
 
-        lines = [json.loads(line) for line in result.stdout.strip().split("\n")]
+        lines = [
+            json.loads(line) for line in result.stdout.strip().split("\n")
+        ]
         assert len(lines) == 2
 
     def test_plugin_with_file_limit(self, test_data_dir):
         """Test glob plugin --file-limit parameter."""
-        plugin_path = Path(__file__).parent.parent.parent / "jn_home" / "plugins" / "protocols" / "glob_.py"
+        plugin_path = (
+            Path(__file__).parent.parent.parent
+            / "jn_home"
+            / "plugins"
+            / "protocols"
+            / "glob_.py"
+        )
 
         result = subprocess.run(
-            ["python", str(plugin_path), "--mode", "read", "--file-limit", "1", f"{test_data_dir}/**/*.jsonl"],
+            [
+                "python",
+                str(plugin_path),
+                "--mode",
+                "read",
+                "--file-limit",
+                "1",
+                f"{test_data_dir}/**/*.jsonl",
+            ],
             capture_output=True,
             text=True,
         )
 
         assert result.returncode == 0
 
-        lines = [json.loads(line) for line in result.stdout.strip().split("\n")]
+        lines = [
+            json.loads(line) for line in result.stdout.strip().split("\n")
+        ]
         filenames = set(r["_filename"] for r in lines)
         assert len(filenames) == 1

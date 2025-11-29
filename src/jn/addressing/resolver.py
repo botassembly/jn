@@ -280,7 +280,8 @@ class AddressResolver:
             stages = [stage]
 
         # Insert decompression stage if compression detected (only in read mode)
-        if mode == "read" and address.compression:
+        # Skip for glob addresses - glob plugin handles compression internally
+        if mode == "read" and address.compression and address.type != "glob":
             # Find decompression plugin
             try:
                 decomp_name = f"{address.compression}_"

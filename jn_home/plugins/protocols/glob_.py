@@ -55,21 +55,45 @@ Output Metadata (injected into each record):
 # ///
 
 import argparse
+import gzip
 import json
 import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Iterator, Optional
+from typing import Iterator, Optional, Tuple
+
+# Supported compression extensions
+COMPRESSION_EXTENSIONS = {'.gz', '.gzip'}
 
 
-def find_format_plugin(filepath: str, plugin_dir: Path) -> Optional[Path]:
+def detect_compression(filepath: Path) -> Tuple[bool, str]:
+    """Detect if file is compressed and return (is_compressed, format_extension).
+
+    For 'data.jsonl.gz' returns (True, '.jsonl')
+    For 'data.csv' returns (False, '.csv')
+    """
+    ext = filepath.suffix.lower()
+    if ext in COMPRESSION_EXTENSIONS:
+        # Get the underlying format extension (e.g., .jsonl from data.jsonl.gz)
+        stem = filepath.stem
+        format_ext = Path(stem).suffix.lower()
+        return (True, format_ext if format_ext else '.json')  # Default to json if no inner ext
+    return (False, ext)
+
+
+def find_format_plugin(filepath: str, plugin_dir: Path, format_ext: str = None) -> Optional[Path]:
     """Find plugin for file based on extension.
 
     Searches custom plugins first, then falls back to bundled plugins.
+
+    Args:
+        filepath: Path to the file
+        plugin_dir: Directory containing custom plugins
+        format_ext: Override extension to use for plugin lookup (e.g., '.jsonl' for compressed files)
     """
-    # Get file extension
-    ext = Path(filepath).suffix.lower()
+    # Use provided format extension or detect from filepath
+    ext = format_ext if format_ext else Path(filepath).suffix.lower()
     if not ext:
         return None
 
@@ -128,13 +152,21 @@ def parse_file_with_plugin(
     filepath: Path,
     plugin_path: Path,
     config: dict,
+    is_compressed: bool = False,
 ) -> Iterator[dict]:
     """Parse a file using the specified plugin.
 
-    Runs plugin as subprocess to maintain streaming and isolation.
+    Runs plugin as subprocess using uv to maintain streaming, isolation,
+    and proper dependency management (PEP 723).
+
+    Args:
+        filepath: Path to the file to parse
+        plugin_path: Path to the format plugin script
+        config: Configuration parameters
+        is_compressed: Whether the file is gzip-compressed
     """
     cmd = [
-        sys.executable,
+        "uv", "run", "--quiet", "--script",
         str(plugin_path),
         "--mode", "read",
     ]
@@ -155,34 +187,75 @@ def parse_file_with_plugin(
         cmd.extend([f"--{key}", str(value)])
 
     try:
-        with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
-            proc = subprocess.Popen(
-                cmd,
-                stdin=f,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
+        # Open file with appropriate decompression
+        if is_compressed:
+            # Decompress gzip to feed to plugin via stdin
+            with gzip.open(filepath, 'rt', encoding='utf-8', errors='replace') as f:
+                proc = subprocess.Popen(
+                    cmd,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
 
-            for line in proc.stdout:
-                line = line.strip()
-                if line:
-                    try:
-                        yield json.loads(line)
-                    except json.JSONDecodeError:
-                        # If plugin outputs non-JSON, wrap it
-                        yield {"_raw": line}
+                # Feed decompressed content to plugin stdin
+                try:
+                    stdout, stderr = proc.communicate(input=f.read())
+                except Exception as e:
+                    proc.kill()
+                    yield {
+                        "_error": True,
+                        "type": "decompress_error",
+                        "message": str(e),
+                        "file": str(filepath),
+                    }
+                    return
 
-            proc.wait()
+                for line in stdout.splitlines():
+                    line = line.strip()
+                    if line:
+                        try:
+                            yield json.loads(line)
+                        except json.JSONDecodeError:
+                            yield {"_raw": line}
 
-            if proc.returncode != 0:
-                stderr = proc.stderr.read()
-                yield {
-                    "_error": True,
-                    "type": "plugin_error",
-                    "message": stderr.strip() if stderr else f"Plugin exited with code {proc.returncode}",
-                    "file": str(filepath),
-                }
+                if proc.returncode != 0:
+                    yield {
+                        "_error": True,
+                        "type": "plugin_error",
+                        "message": stderr.strip() if stderr else f"Plugin exited with code {proc.returncode}",
+                        "file": str(filepath),
+                    }
+        else:
+            with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
+                proc = subprocess.Popen(
+                    cmd,
+                    stdin=f,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+
+                for line in proc.stdout:
+                    line = line.strip()
+                    if line:
+                        try:
+                            yield json.loads(line)
+                        except json.JSONDecodeError:
+                            # If plugin outputs non-JSON, wrap it
+                            yield {"_raw": line}
+
+                proc.wait()
+
+                if proc.returncode != 0:
+                    stderr = proc.stderr.read()
+                    yield {
+                        "_error": True,
+                        "type": "plugin_error",
+                        "message": stderr.strip() if stderr else f"Plugin exited with code {proc.returncode}",
+                        "file": str(filepath),
+                    }
     except Exception as e:
         yield {
             "_error": True,
@@ -192,15 +265,26 @@ def parse_file_with_plugin(
         }
 
 
-def parse_file_direct(filepath: Path) -> Iterator[dict]:
+def parse_file_direct(filepath: Path, is_compressed: bool = False, format_ext: str = None) -> Iterator[dict]:
     """Parse file directly without subprocess (for simple JSONL/JSON).
 
     This is an optimization for the common case of JSONL files.
+
+    Args:
+        filepath: Path to the file
+        is_compressed: Whether the file is gzip-compressed
+        format_ext: Format extension to use for parsing (e.g., '.jsonl' for compressed files)
     """
-    ext = filepath.suffix.lower()
+    ext = format_ext if format_ext else filepath.suffix.lower()
 
     try:
-        with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
+        # Open with appropriate decompression
+        if is_compressed:
+            f = gzip.open(filepath, 'rt', encoding='utf-8', errors='replace')
+        else:
+            f = open(filepath, 'r', encoding='utf-8', errors='replace')
+
+        with f:
             if ext in ('.jsonl', '.ndjson'):
                 # JSONL: one JSON object per line
                 for line in f:
@@ -361,19 +445,20 @@ def reads(config: Optional[dict] = None) -> Iterator[dict]:
         if file_limit and file_count >= file_limit:
             break
 
-        ext = filepath.suffix.lower()
+        # Detect compression and get format extension
+        is_compressed, format_ext = detect_compression(filepath)
 
         # For JSONL/JSON, use direct parsing (faster)
         # For other formats, use plugin subprocess
-        if ext in ('.jsonl', '.ndjson', '.json'):
-            records = parse_file_direct(filepath)
+        if format_ext in ('.jsonl', '.ndjson', '.json'):
+            records = parse_file_direct(filepath, is_compressed=is_compressed, format_ext=format_ext)
         else:
-            plugin_path = find_format_plugin(str(filepath), plugin_dir)
+            plugin_path = find_format_plugin(str(filepath), plugin_dir, format_ext=format_ext)
             if plugin_path:
-                records = parse_file_with_plugin(filepath, plugin_path, config)
+                records = parse_file_with_plugin(filepath, plugin_path, config, is_compressed=is_compressed)
             else:
                 # Fall back to direct parsing
-                records = parse_file_direct(filepath)
+                records = parse_file_direct(filepath, is_compressed=is_compressed, format_ext=format_ext)
 
         line_idx = 0
         for record in records:

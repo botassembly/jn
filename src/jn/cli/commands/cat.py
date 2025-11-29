@@ -136,14 +136,24 @@ def _execute_with_filter(stages, addr, filters, home_dir=None):
             is_shell_plugin = "/shell/" in stage.plugin_path
             is_glob_plugin = addr.type == "glob"
 
-            # Shell plugins and glob plugins receive addr.base as command/pattern argument
-            cmd = (
-                _build_command(stage, command_str=addr.base)
-                if (is_shell_plugin or is_glob_plugin)
-                else _build_command(stage)
-            )
+            # Shell plugins and glob plugins receive the pattern/command as argument
+            if is_shell_plugin:
+                cmd = _build_command(stage, command_str=addr.base)
+            elif is_glob_plugin:
+                # For glob, include compression extension if present (e.g., *.jsonl.gz)
+                glob_pattern = addr.base
+                if addr.compression:
+                    glob_pattern = f"{addr.base}.{addr.compression}"
+                cmd = _build_command(stage, command_str=glob_pattern)
+            else:
+                cmd = _build_command(stage)
 
-            if is_shell_plugin or is_glob_plugin or stage.url or addr.type == "profile":
+            if (
+                is_shell_plugin
+                or is_glob_plugin
+                or stage.url
+                or addr.type == "profile"
+            ):
                 stdin_source = subprocess.DEVNULL
             elif addr.type == "stdio":
                 stdin_source = sys.stdin
