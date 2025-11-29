@@ -81,28 +81,7 @@ def zq_supports_expression(expr: str) -> bool:
         True if ZQ can handle this expression
     """
     expr = expr.strip()
-
-    # Check against supported patterns
-    for pattern in ZQ_SUPPORTED_PATTERNS:
-        if re.match(pattern, expr):
-            return True
-
-    return False
-
-
-def use_zq() -> bool:
-    """Determine if ZQ should be used instead of jq.
-
-    ZQ is used unless:
-    - JN_USE_JQ=1 environment variable is set
-    - ZQ binary is not found
-
-    Returns:
-        True if ZQ should be used
-    """
-    if os.environ.get("JN_USE_JQ") == "1":
-        return False
-    return find_zq_binary() is not None
+    return any(re.match(pattern, expr) for pattern in ZQ_SUPPORTED_PATTERNS)
 
 
 @click.command()
@@ -177,7 +156,9 @@ def filter(ctx, query, native_args):
 
                 if native_args and addr.parameters:
                     # Native argument mode: pass file path and --jq-arg flags
-                    profile_path = find_profile_path(addr.base, plugin_name="jq_")
+                    profile_path = find_profile_path(
+                        addr.base, plugin_name="jq_"
+                    )
                     if profile_path is None:
                         click.echo(
                             f"Error: Profile not found: {addr.base}", err=True
@@ -200,7 +181,9 @@ def filter(ctx, query, native_args):
                     # String substitution mode (default, backward compatible)
                     try:
                         resolved_query = resolve_profile(
-                            addr.base, plugin_name="jq_", params=addr.parameters
+                            addr.base,
+                            plugin_name="jq_",
+                            params=addr.parameters,
                         )
                     except ProfileError as e:
                         click.echo(f"Error: {e}", err=True)
