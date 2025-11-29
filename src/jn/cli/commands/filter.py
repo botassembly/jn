@@ -56,6 +56,7 @@ def find_zq_binary() -> str | None:
 
 
 # Patterns that ZQ supports (Sprint 01 features)
+# Note: ZQ requires spaces around comparison operators (e.g., ".x > 10" not ".x>10")
 ZQ_SUPPORTED_PATTERNS = [
     r"^\.$",  # Identity
     r"^\.[a-zA-Z_][a-zA-Z0-9_]*$",  # Simple field
@@ -63,7 +64,11 @@ ZQ_SUPPORTED_PATTERNS = [
     r"^\.[a-zA-Z_][a-zA-Z0-9_]*\[\-?\d+\]$",  # Array index
     r"^\.\[\]$",  # Root iteration
     r"^\.[a-zA-Z_][a-zA-Z0-9_.]*\[\]$",  # Nested iteration
-    r"^select\(.+\)$",  # Select expression
+    # Select with spaced operators only (ZQ requires spaces around operators)
+    r"^select\(\.[a-zA-Z_][a-zA-Z0-9_.]*\)$",  # select(.field) - truthy
+    r"^select\(\.[a-zA-Z_][a-zA-Z0-9_.]* (>|<|>=|<=|==|!=) .+\)$",  # select(.x > N)
+    r"^select\(.+ (and|or) .+\)$",  # select(.a and .b)
+    r"^select\(not \..+\)$",  # select(not .field)
 ]
 
 
