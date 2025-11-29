@@ -131,17 +131,8 @@ def format_jq_condition(field: str, operator: str, value: any) -> str:
         value_str = json.dumps(value)
         return f"(.{field} | tonumber) {operator} {value_str}"
 
-    # Equality/inequality: compare on string representation so that
-    # numeric-looking CSV fields (stored as strings) still match.
-    if operator in ("==", "!="):
-        if isinstance(value, bool):
-            target = "true" if value else "false"
-        else:
-            target = str(value)
-        value_str = json.dumps(target)
-        return f"(.{field} | tostring) {operator} {value_str}"
-
-    # Fallback for other operators
+    # For equality/inequality, compare values directly
+    # JSON types are preserved, so strings compare as strings, numbers as numbers
     value_str = json.dumps(value)
     return f".{field} {operator} {value_str}"
 
@@ -174,8 +165,12 @@ def build_jq_filter(filters: List[Tuple[str, str, str]]) -> str:
     # Group by field
     by_field: Dict[str, List[Tuple[str, any]]] = {}
     for field, operator, value in filters:
-        # Convert value to appropriate type
-        typed_value = infer_value_type(value)
+        # For equality/inequality, keep values as strings to match CSV/NDJSON string fields
+        # For numeric comparisons (>, <, >=, <=), infer types for tonumber conversion
+        if operator in ("==", "!="):
+            typed_value = value  # Keep as string
+        else:
+            typed_value = infer_value_type(value)
         by_field.setdefault(field, []).append((operator, typed_value))
 
     # Build clauses

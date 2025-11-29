@@ -55,7 +55,7 @@ def find_zq_binary() -> str | None:
     return None
 
 
-# Patterns that ZQ supports (Sprint 01 features)
+# Patterns that ZQ supports (Sprint 01 + Sprint 02 features)
 # Note: ZQ requires spaces around comparison operators (e.g., ".x > 10" not ".x>10")
 ZQ_SUPPORTED_PATTERNS = [
     r"^\.$",  # Identity
@@ -82,11 +82,40 @@ def zq_supports_expression(expr: str) -> bool:
     - Array iteration (.[], .items[])
     - Select with comparisons and boolean logic
 
+    ZQ does NOT support:
+    - Pipes inside select conditions (e.g., select(.x | tonumber > 5))
+    - Nested parentheses in conditions (e.g., select((.x > 1) and (.y < 2)))
+
     Returns:
         True if ZQ can handle this expression
     """
     expr = expr.strip()
-    return any(re.match(pattern, expr) for pattern in ZQ_SUPPORTED_PATTERNS)
+
+    # First check if basic pattern matches
+    if not any(re.match(pattern, expr) for pattern in ZQ_SUPPORTED_PATTERNS):
+        return False
+
+    # For select expressions, check for unsupported features
+    if expr.startswith("select("):
+        inner = expr[7:-1]  # Extract content inside select()
+        # ZQ doesn't support pipes inside select conditions
+        if "|" in inner:
+            return False
+        # ZQ doesn't support nested parentheses (except for grouping with and/or)
+        # Count parens - if more than one level deep, fall back to jq
+        depth = 0
+        max_depth = 0
+        for c in inner:
+            if c == "(":
+                depth += 1
+                max_depth = max(max_depth, depth)
+            elif c == ")":
+                depth -= 1
+        # Allow one level of parens for OR grouping like (.x == 1 or .x == 2)
+        if max_depth > 1:
+            return False
+
+    return True
 
 
 @click.command()
