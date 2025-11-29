@@ -161,6 +161,7 @@ STDLIB_MODULES = frozenset(
         "binascii",
         "bisect",
         "builtins",
+        "bz2",
         # C-Z
         "calendar",
         "cgi",

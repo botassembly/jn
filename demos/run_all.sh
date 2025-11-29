@@ -7,6 +7,7 @@
 # Don't use set -e as ((PASSED++)) can return non-zero
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$SCRIPT_DIR"
 
 # Colors for output
@@ -81,11 +82,20 @@ echo ""
 echo "--- Advanced Demos ---"
 run_demo "adapter-merge" "run_examples.sh" "Adapter Merge"
 
-# Code Coverage demo requires coverage.lcov file
-if [ -f "../coverage.lcov" ] || [ -f "../../coverage.lcov" ]; then
+# Code Coverage demo requires coverage.lcov file - generate if missing
+if [ ! -f "$PROJECT_ROOT/coverage.lcov" ]; then
+    echo -n "Generating coverage.lcov... "
+    if (cd "$PROJECT_ROOT" && make coverage > /dev/null 2>&1); then
+        echo -e "${GREEN}done${NC}"
+    else
+        echo -e "${RED}failed${NC}"
+    fi
+fi
+
+if [ -f "$PROJECT_ROOT/coverage.lcov" ]; then
     run_demo "code-lcov" "run_demo.sh" "Code Coverage (LCOV)"
 else
-    echo -e "${YELLOW}SKIP${NC} Code Coverage (LCOV) (requires: make coverage)"
+    echo -e "${YELLOW}SKIP${NC} Code Coverage (LCOV) (make coverage failed)"
     SKIPPED=$((SKIPPED + 1))
 fi
 

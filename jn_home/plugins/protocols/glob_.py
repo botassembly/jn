@@ -55,31 +55,40 @@ Output Metadata (injected into each record):
 # ///
 
 import argparse
+import bz2
 import gzip
 import json
+import lzma
 import os
 import subprocess
 import sys
 from pathlib import Path
 from typing import Iterator, Optional, Tuple
 
-# Supported compression extensions
-COMPRESSION_EXTENSIONS = {'.gz', '.gzip'}
+# Supported compression extensions mapped to their module openers
+COMPRESSION_OPENERS = {
+    '.gz': gzip.open,
+    '.gzip': gzip.open,
+    '.bz2': bz2.open,
+    '.xz': lzma.open,
+    '.lzma': lzma.open,
+}
 
 
-def detect_compression(filepath: Path) -> Tuple[bool, str]:
-    """Detect if file is compressed and return (is_compressed, format_extension).
+def detect_compression(filepath: Path) -> Tuple[bool, str, Optional[str]]:
+    """Detect if file is compressed and return (is_compressed, format_extension, compression_type).
 
-    For 'data.jsonl.gz' returns (True, '.jsonl')
-    For 'data.csv' returns (False, '.csv')
+    For 'data.jsonl.gz' returns (True, '.jsonl', '.gz')
+    For 'data.csv.bz2' returns (True, '.csv', '.bz2')
+    For 'data.csv' returns (False, '.csv', None)
     """
     ext = filepath.suffix.lower()
-    if ext in COMPRESSION_EXTENSIONS:
+    if ext in COMPRESSION_OPENERS:
         # Get the underlying format extension (e.g., .jsonl from data.jsonl.gz)
         stem = filepath.stem
         format_ext = Path(stem).suffix.lower()
-        return (True, format_ext if format_ext else '.json')  # Default to json if no inner ext
-    return (False, ext)
+        return (True, format_ext if format_ext else '.json', ext)  # Default to json if no inner ext
+    return (False, ext, None)
 
 
 def find_format_plugin(filepath: str, plugin_dir: Path, format_ext: str = None) -> Optional[Path]:
@@ -152,7 +161,7 @@ def parse_file_with_plugin(
     filepath: Path,
     plugin_path: Path,
     config: dict,
-    is_compressed: bool = False,
+    compression_type: Optional[str] = None,
 ) -> Iterator[dict]:
     """Parse a file using the specified plugin.
 
@@ -163,7 +172,7 @@ def parse_file_with_plugin(
         filepath: Path to the file to parse
         plugin_path: Path to the format plugin script
         config: Configuration parameters
-        is_compressed: Whether the file is gzip-compressed
+        compression_type: Compression extension (e.g., '.gz', '.bz2', '.xz') or None
     """
     cmd = [
         "uv", "run", "--quiet", "--script",
@@ -188,9 +197,10 @@ def parse_file_with_plugin(
 
     try:
         # Open file with appropriate decompression
-        if is_compressed:
-            # Decompress gzip to feed to plugin via stdin
-            with gzip.open(filepath, 'rt', encoding='utf-8', errors='replace') as f:
+        if compression_type:
+            # Get the appropriate opener for this compression type
+            opener = COMPRESSION_OPENERS.get(compression_type, gzip.open)
+            with opener(filepath, 'rt', encoding='utf-8', errors='replace') as f:
                 proc = subprocess.Popen(
                     cmd,
                     stdin=subprocess.PIPE,
@@ -265,22 +275,23 @@ def parse_file_with_plugin(
         }
 
 
-def parse_file_direct(filepath: Path, is_compressed: bool = False, format_ext: str = None) -> Iterator[dict]:
+def parse_file_direct(filepath: Path, compression_type: Optional[str] = None, format_ext: str = None) -> Iterator[dict]:
     """Parse file directly without subprocess (for simple JSONL/JSON).
 
     This is an optimization for the common case of JSONL files.
 
     Args:
         filepath: Path to the file
-        is_compressed: Whether the file is gzip-compressed
+        compression_type: Compression extension (e.g., '.gz', '.bz2', '.xz') or None
         format_ext: Format extension to use for parsing (e.g., '.jsonl' for compressed files)
     """
     ext = format_ext if format_ext else filepath.suffix.lower()
 
     try:
         # Open with appropriate decompression
-        if is_compressed:
-            f = gzip.open(filepath, 'rt', encoding='utf-8', errors='replace')
+        if compression_type:
+            opener = COMPRESSION_OPENERS.get(compression_type, gzip.open)
+            f = opener(filepath, 'rt', encoding='utf-8', errors='replace')
         else:
             f = open(filepath, 'r', encoding='utf-8', errors='replace')
 
@@ -446,19 +457,19 @@ def reads(config: Optional[dict] = None) -> Iterator[dict]:
             break
 
         # Detect compression and get format extension
-        is_compressed, format_ext = detect_compression(filepath)
+        is_compressed, format_ext, compression_type = detect_compression(filepath)
 
         # For JSONL/JSON, use direct parsing (faster)
         # For other formats, use plugin subprocess
         if format_ext in ('.jsonl', '.ndjson', '.json'):
-            records = parse_file_direct(filepath, is_compressed=is_compressed, format_ext=format_ext)
+            records = parse_file_direct(filepath, compression_type=compression_type, format_ext=format_ext)
         else:
             plugin_path = find_format_plugin(str(filepath), plugin_dir, format_ext=format_ext)
             if plugin_path:
-                records = parse_file_with_plugin(filepath, plugin_path, config, is_compressed=is_compressed)
+                records = parse_file_with_plugin(filepath, plugin_path, config, compression_type=compression_type)
             else:
                 # Fall back to direct parsing
-                records = parse_file_direct(filepath, is_compressed=is_compressed, format_ext=format_ext)
+                records = parse_file_direct(filepath, compression_type=compression_type, format_ext=format_ext)
 
         line_idx = 0
         for record in records:
