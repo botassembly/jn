@@ -79,9 +79,10 @@ install-zig:
 zq: install-zig
 	cd zq && $(ZIG) build -Doptimize=ReleaseFast
 
-# Run ZQ unit tests
-zq-test: install-zig
+# Run ZQ tests (unit + integration)
+zq-test: zq
 	cd zq && $(ZIG) build test
+	cd zq && $(ZIG) build test-integration
 
 # Run ZQ benchmarks (requires jq installed)
 zq-bench: zq
