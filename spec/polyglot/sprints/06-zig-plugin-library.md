@@ -1,10 +1,10 @@
-# Sprint 05: Zig Plugin Library
+# Sprint 06: Zig Plugin Library
 
 **Status:** 🔲 PLANNED
 
 **Goal:** Create reusable jn-plugin library for building Zig plugins
 
-**Prerequisite:** Sprint 04 complete (jq removed, ZQ is sole filter)
+**Prerequisite:** Sprint 05 complete (jq removed, ZQ is sole filter)
 
 ---
 

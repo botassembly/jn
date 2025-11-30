@@ -19,15 +19,16 @@ This plan outlines the migration of JN to a polyglot architecture with:
 | 01 | ✅ Complete | ZQ foundation: identity, field access, select, pipes |
 | 02 | ✅ Complete | Extended: array iteration, slurp mode, arithmetic |
 | 03 | ✅ Complete | Aggregation: group_by, sort_by, map, string functions |
-| 04 | 🔲 Next | **jq removed:** `jn filter` uses ZQ, delete jq_.py |
-| 05 | 🔲 Planned | Zig plugin library (jn-plugin) |
-| 06 | 🔲 Planned | CSV & JSON Zig plugins |
-| 07 | 🔲 Planned | Integration, CI/CD, production release |
-| 08 | 🔲 Future | HTTP/compression Zig plugins |
-| 09 | 🔲 Future | **Zig core binary** (replace Python CLI) |
+| 04 | 🔲 Next | **ZQ jq-compat:** slicing, optional access, has, del, entries |
+| 05 | 🔲 Planned | **Error handling + jq removal:** improve errors, then remove jq |
+| 06 | 🔲 Planned | Zig plugin library (jn-plugin) |
+| 07 | 🔲 Planned | CSV & JSON Zig plugins |
+| 08 | 🔲 Planned | Integration, CI/CD, production release |
+| 09 | 🔲 Future | HTTP & compression Zig plugins |
+| 10 | 🔲 Future | **Zig core binary** (replace Python CLI) |
 
-**jq removal:** Sprint 04 - rip and replace, no deprecation
-**Zig CLI:** Sprint 09 - full Zig binary for <5ms startup
+**jq removal:** Sprint 05 - error handling first, then rip and replace
+**Zig CLI:** Sprint 10 - full Zig binary for <5ms startup
 
 ## Architecture Overview
 
@@ -423,14 +424,18 @@ Location: `zq/src/main.zig`
 
 **Coverage:** ~95% of JN filter usage patterns
 
-### 4.4 Next Step (Sprint 04)
+### 4.4 Next Steps
 
-**Rip and replace:** No deprecation period.
+**Sprint 04:** Implement high-impact jq features for ~99% JN compatibility:
+- P0: `.[n:m]` slicing, `.foo?` optional access
+- P1: `has(key)`, `del(.key)`, `to_entries`, `from_entries`
 
-1. Update `jn filter` to invoke ZQ binary instead of jq_.py
-2. Delete `jn_home/plugins/filters/jq_.py`
-3. Remove jq from dependencies
-4. Update tests to use ZQ
+**Sprint 05:** Improve error handling, then remove jq (rip and replace):
+1. Add clear error messages with context and suggestions
+2. Detect unsupported features and suggest workarounds
+3. Update `jn filter` to invoke ZQ binary instead of jq_.py
+4. Delete `jn_home/plugins/filters/jq_.py`
+5. Remove jq from dependencies
 
 ---
 
