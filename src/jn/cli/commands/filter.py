@@ -263,10 +263,6 @@ def filter(ctx, query, native_args, slurp):
             if slurp:
                 cmd.append("--jq-slurp")
 
-        # Add slurp flag if requested
-        if slurp:
-            cmd.append("--jq-slurp")
-
         # Prepare stdin for subprocess
         try:
             sys.stdin.fileno()

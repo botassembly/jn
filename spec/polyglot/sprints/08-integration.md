@@ -1,8 +1,10 @@
-# Sprint 06: Integration & Production
+# Sprint 08: Integration & Production
+
+**Status:** 🔲 PLANNED
 
 **Goal:** Full integration, testing, and production readiness
 
-**Prerequisite:** Sprint 05 complete (CSV/JSON plugins working)
+**Prerequisite:** Sprint 07 complete (CSV/JSON plugins working)
 
 ---
 
@@ -213,11 +215,9 @@ jn-v1.0.0-linux-x86_64.tar.gz
 
 ## Post-Sprint Roadmap
 
-### Future Sprints (Optional)
-- **Sprint 07:** GZ compression plugin
-- **Sprint 08:** HTTP protocol plugin
-- **Sprint 09:** Zig core binary (replace Python CLI)
-- **Sprint 10:** YAML/TOML plugins
+### Future Sprints
+- **Sprint 09:** HTTP protocol & compression plugins (Zig)
+- **Sprint 10:** Zig core binary (replace Python CLI)
 
 ### Long-term Vision
 - Single binary distribution

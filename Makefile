@@ -1,4 +1,11 @@
-.PHONY: all check test coverage clean install
+.PHONY: all check test coverage clean install install-zig zq zq-test zq-bench
+
+# Zig configuration
+ZIG_VERSION := 0.11.0
+ZIG_ARCHIVE := zig-linux-x86_64-$(ZIG_VERSION).tar.xz
+ZIG_URL := https://ziglang.org/download/$(ZIG_VERSION)/$(ZIG_ARCHIVE)
+ZIG_LOCAL := $(HOME)/.local/zig-linux-x86_64-$(ZIG_VERSION)
+ZIG := $(ZIG_LOCAL)/zig
 
 all: check test
 
@@ -48,8 +55,45 @@ clean:
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	find . -type f -name "*.pyc" -delete
 
-install:
+install: install-zig
 	uv sync --all-extras
+	@echo "Building ZQ..."
+	$(MAKE) zq
+
+# Install Zig compiler
+install-zig:
+	@if [ ! -f "$(ZIG)" ]; then \
+		echo "Downloading Zig $(ZIG_VERSION)..."; \
+		mkdir -p $(HOME)/.local/bin; \
+		curl -L $(ZIG_URL) -o /tmp/$(ZIG_ARCHIVE); \
+		tar -xf /tmp/$(ZIG_ARCHIVE) -C $(HOME)/.local; \
+		ln -sf $(ZIG) $(HOME)/.local/bin/zig; \
+		rm -f /tmp/$(ZIG_ARCHIVE); \
+		echo "Zig installed to $(ZIG_LOCAL)"; \
+	else \
+		echo "Zig $(ZIG_VERSION) already installed"; \
+	fi
+	@$(ZIG) version
+
+# Build ZQ (Zig-based jq replacement)
+zq: install-zig
+	cd zq && $(ZIG) build -Doptimize=ReleaseFast
+
+# Run ZQ tests (unit + integration)
+zq-test: zq
+	cd zq && $(ZIG) build test
+	cd zq && $(ZIG) build test-integration
+
+# Run ZQ benchmarks (requires jq installed)
+zq-bench: zq
+	@echo "Running ZQ benchmarks..."
+	@if command -v jq >/dev/null 2>&1; then \
+		cd zq && ./benchmark.sh "." 100000; \
+		cd zq && ./benchmark.sh ".field" 100000; \
+		cd zq && ./benchmark.sh "select(.x > 50000)" 100000; \
+	else \
+		echo "jq not found - skipping comparative benchmarks"; \
+	fi
 
 publish:
 	@uv build
