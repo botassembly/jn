@@ -1845,6 +1845,7 @@ fn evalByFunc(allocator: std.mem.Allocator, bf: ByFuncExpr, value: std.json.Valu
                         switch (key_val) {
                             .string => |s| key_str = s,
                             .integer => |i| key_str = try std.fmt.allocPrint(allocator, "{d}", .{i}),
+                            .float => |f| key_str = try std.fmt.allocPrint(allocator, "{d}", .{f}),
                             .bool => |b| key_str = if (b) "true" else "false",
                             .null => key_str = "null",
                             else => continue,
@@ -1894,6 +1895,7 @@ fn evalByFunc(allocator: std.mem.Allocator, bf: ByFuncExpr, value: std.json.Valu
                         switch (key_val) {
                             .string => |s| key_str = s,
                             .integer => |i| key_str = try std.fmt.allocPrint(allocator, "{d}", .{i}),
+                            .float => |f| key_str = try std.fmt.allocPrint(allocator, "{d}", .{f}),
                             .bool => |b| key_str = if (b) "true" else "false",
                             .null => key_str = "null",
                             else => continue,
