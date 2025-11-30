@@ -1,6 +1,6 @@
 const std = @import("std");
 
-pub const version = "0.2.0";
+pub const version = "0.3.0";
 
 // ============================================================================
 // Types
@@ -67,6 +67,11 @@ const Expr = union(enum) {
     conditional: ConditionalExpr, // if .x then .a else .b end
     arithmetic: ArithmeticExpr, // .x + .y
     literal: LiteralExpr, // "string", 123, true, false, null
+    // Sprint 03 additions
+    str_func: StrFuncExpr, // split(sep), join(sep), etc.
+    map: MapExpr, // map(expr)
+    by_func: ByFuncExpr, // group_by(.field), sort_by(.field), etc.
+    array: ArrayExpr, // [.x, .y, .z]
 };
 
 const LiteralExpr = union(enum) {
@@ -110,6 +115,20 @@ const BuiltinKind = enum {
     isnull,
     isarray,
     isobject,
+    // Array functions (Sprint 03)
+    first,
+    last,
+    reverse,
+    sort,
+    unique,
+    flatten,
+    // Aggregation functions (Sprint 03)
+    add,
+    min,
+    max,
+    // String functions (Sprint 03)
+    ascii_downcase,
+    ascii_upcase,
 };
 
 const BuiltinExpr = struct {
@@ -153,6 +172,46 @@ const PathExpr = struct {
 
 const IterateExpr = struct {
     path: [][]const u8, // empty means root
+};
+
+// Sprint 03: String functions with string argument
+const StrFuncKind = enum {
+    split, // split(",")
+    join, // join(",")
+    startswith, // startswith("http")
+    endswith, // endswith(".json")
+    contains, // contains("foo")
+    ltrimstr, // ltrimstr("prefix")
+    rtrimstr, // rtrimstr("suffix")
+};
+
+const StrFuncExpr = struct {
+    kind: StrFuncKind,
+    arg: []const u8,
+};
+
+// Sprint 03: map(expr)
+const MapExpr = struct {
+    inner: *Expr,
+};
+
+// Sprint 03: group_by, sort_by, unique_by, min_by, max_by
+const ByFuncKind = enum {
+    group_by,
+    sort_by,
+    unique_by,
+    min_by,
+    max_by,
+};
+
+const ByFuncExpr = struct {
+    kind: ByFuncKind,
+    path: [][]const u8,
+};
+
+// Sprint 03: Array literal [.x, .y, .z]
+const ArrayExpr = struct {
+    elements: []*Expr,
 };
 
 const Config = struct {
@@ -333,6 +392,41 @@ fn parseExpr(allocator: std.mem.Allocator, expr: []const u8) ParseError!Expr {
     if (std.mem.eql(u8, trimmed, "isnull")) return .{ .builtin = .{ .kind = .isnull } };
     if (std.mem.eql(u8, trimmed, "isarray")) return .{ .builtin = .{ .kind = .isarray } };
     if (std.mem.eql(u8, trimmed, "isobject")) return .{ .builtin = .{ .kind = .isobject } };
+    // Sprint 03: Array/Aggregation functions (no arguments)
+    if (std.mem.eql(u8, trimmed, "first")) return .{ .builtin = .{ .kind = .first } };
+    if (std.mem.eql(u8, trimmed, "last")) return .{ .builtin = .{ .kind = .last } };
+    if (std.mem.eql(u8, trimmed, "reverse")) return .{ .builtin = .{ .kind = .reverse } };
+    if (std.mem.eql(u8, trimmed, "sort")) return .{ .builtin = .{ .kind = .sort } };
+    if (std.mem.eql(u8, trimmed, "unique")) return .{ .builtin = .{ .kind = .unique } };
+    if (std.mem.eql(u8, trimmed, "flatten")) return .{ .builtin = .{ .kind = .flatten } };
+    if (std.mem.eql(u8, trimmed, "add")) return .{ .builtin = .{ .kind = .add } };
+    if (std.mem.eql(u8, trimmed, "min")) return .{ .builtin = .{ .kind = .min } };
+    if (std.mem.eql(u8, trimmed, "max")) return .{ .builtin = .{ .kind = .max } };
+    if (std.mem.eql(u8, trimmed, "ascii_downcase")) return .{ .builtin = .{ .kind = .ascii_downcase } };
+    if (std.mem.eql(u8, trimmed, "ascii_upcase")) return .{ .builtin = .{ .kind = .ascii_upcase } };
+
+    // Sprint 03: String functions with argument - split("sep"), join("sep"), etc.
+    if (try parseStrFunc(allocator, trimmed)) |str_func| {
+        return str_func;
+    }
+
+    // Sprint 03: map(expr)
+    if (std.mem.startsWith(u8, trimmed, "map(") and std.mem.endsWith(u8, trimmed, ")")) {
+        const inner_str = trimmed[4 .. trimmed.len - 1];
+        const inner = try allocator.create(Expr);
+        inner.* = try parseExpr(allocator, inner_str);
+        return .{ .map = .{ .inner = inner } };
+    }
+
+    // Sprint 03: group_by(.field), sort_by(.field), etc.
+    if (try parseByFunc(allocator, trimmed)) |by_func| {
+        return by_func;
+    }
+
+    // Sprint 03: Array literal [.x, .y, .z]
+    if (trimmed[0] == '[' and trimmed[trimmed.len - 1] == ']') {
+        return try parseArrayLiteral(allocator, trimmed);
+    }
 
     // If-then-else conditional
     if (std.mem.startsWith(u8, trimmed, "if ")) {
@@ -716,6 +810,104 @@ fn parseValue(str: []const u8) ParseError!CompareValue {
 }
 
 // ============================================================================
+// Sprint 03: Additional Parsers
+// ============================================================================
+
+fn parseStrFunc(allocator: std.mem.Allocator, expr: []const u8) ParseError!?Expr {
+    _ = allocator;
+    const funcs = [_]struct { name: []const u8, kind: StrFuncKind }{
+        .{ .name = "split", .kind = .split },
+        .{ .name = "join", .kind = .join },
+        .{ .name = "startswith", .kind = .startswith },
+        .{ .name = "endswith", .kind = .endswith },
+        .{ .name = "contains", .kind = .contains },
+        .{ .name = "ltrimstr", .kind = .ltrimstr },
+        .{ .name = "rtrimstr", .kind = .rtrimstr },
+    };
+
+    for (funcs) |func| {
+        if (std.mem.startsWith(u8, expr, func.name)) {
+            const after_name = expr[func.name.len..];
+            if (after_name.len >= 4 and after_name[0] == '(' and
+                after_name[1] == '"' and
+                after_name[after_name.len - 1] == ')' and
+                after_name[after_name.len - 2] == '"')
+            {
+                const arg = after_name[2 .. after_name.len - 2];
+                return .{ .str_func = .{ .kind = func.kind, .arg = arg } };
+            }
+        }
+    }
+    return null;
+}
+
+fn parseByFunc(allocator: std.mem.Allocator, expr: []const u8) ParseError!?Expr {
+    const funcs = [_]struct { name: []const u8, kind: ByFuncKind }{
+        .{ .name = "group_by", .kind = .group_by },
+        .{ .name = "sort_by", .kind = .sort_by },
+        .{ .name = "unique_by", .kind = .unique_by },
+        .{ .name = "min_by", .kind = .min_by },
+        .{ .name = "max_by", .kind = .max_by },
+    };
+
+    for (funcs) |func| {
+        if (std.mem.startsWith(u8, expr, func.name)) {
+            const after_name = expr[func.name.len..];
+            if (after_name.len >= 3 and after_name[0] == '(' and
+                after_name[1] == '.' and
+                after_name[after_name.len - 1] == ')')
+            {
+                const path_str = after_name[1 .. after_name.len - 1];
+                const path = try parsePath(allocator, path_str);
+                return .{ .by_func = .{ .kind = func.kind, .path = path } };
+            }
+        }
+    }
+    return null;
+}
+
+fn parseArrayLiteral(allocator: std.mem.Allocator, expr: []const u8) ParseError!Expr {
+    const inner = std.mem.trim(u8, expr[1 .. expr.len - 1], " \t");
+
+    if (inner.len == 0) {
+        return .{ .array = .{ .elements = &[_]*Expr{} } };
+    }
+
+    var elements = std.ArrayList(*Expr).init(allocator);
+
+    // Split by comma (respecting nesting)
+    var start: usize = 0;
+    var paren_depth: i32 = 0;
+    var brace_depth: i32 = 0;
+    var bracket_depth: i32 = 0;
+    var i: usize = 0;
+
+    while (i <= inner.len) : (i += 1) {
+        const at_end = i == inner.len;
+        const c = if (at_end) ',' else inner[i];
+
+        if (c == '(') paren_depth += 1;
+        if (c == ')') paren_depth -= 1;
+        if (c == '{') brace_depth += 1;
+        if (c == '}') brace_depth -= 1;
+        if (c == '[') bracket_depth += 1;
+        if (c == ']') bracket_depth -= 1;
+
+        if ((c == ',' or at_end) and paren_depth == 0 and brace_depth == 0 and bracket_depth == 0) {
+            const elem_str = std.mem.trim(u8, inner[start..i], " \t");
+            if (elem_str.len > 0) {
+                const elem = try allocator.create(Expr);
+                elem.* = try parseExpr(allocator, elem_str);
+                try elements.append(elem);
+            }
+            start = i + 1;
+        }
+    }
+
+    return .{ .array = .{ .elements = try elements.toOwnedSlice() } };
+}
+
+// ============================================================================
 // Evaluator
 // ============================================================================
 
@@ -1015,6 +1207,26 @@ fn evalExpr(allocator: std.mem.Allocator, expr: *const Expr, value: std.json.Val
             };
             return try EvalResult.single(allocator, json_val);
         },
+
+        // Sprint 03: String functions with argument
+        .str_func => |sf| {
+            return evalStrFunc(allocator, sf, value);
+        },
+
+        // Sprint 03: map(expr)
+        .map => |m| {
+            return evalMap(allocator, m, value);
+        },
+
+        // Sprint 03: group_by, sort_by, etc.
+        .by_func => |bf| {
+            return evalByFunc(allocator, bf, value);
+        },
+
+        // Sprint 03: Array literal [.x, .y]
+        .array => |arr_expr| {
+            return evalArrayLiteral(allocator, arr_expr, value);
+        },
     }
 }
 
@@ -1145,7 +1357,282 @@ fn evalBuiltin(allocator: std.mem.Allocator, kind: BuiltinKind, value: std.json.
             const result = value == .object;
             return try EvalResult.single(allocator, .{ .bool = result });
         },
+        // Sprint 03: Array functions
+        .first => {
+            switch (value) {
+                .array => |arr| {
+                    if (arr.items.len > 0) {
+                        return try EvalResult.single(allocator, arr.items[0]);
+                    }
+                    return EvalResult.empty(allocator);
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .last => {
+            switch (value) {
+                .array => |arr| {
+                    if (arr.items.len > 0) {
+                        return try EvalResult.single(allocator, arr.items[arr.items.len - 1]);
+                    }
+                    return EvalResult.empty(allocator);
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .reverse => {
+            switch (value) {
+                .array => |arr| {
+                    var reversed = try allocator.alloc(std.json.Value, arr.items.len);
+                    for (arr.items, 0..) |item, i| {
+                        reversed[arr.items.len - 1 - i] = item;
+                    }
+                    return try EvalResult.single(allocator, .{ .array = .{ .items = reversed, .capacity = reversed.len, .allocator = allocator } });
+                },
+                .string => |s| {
+                    var reversed = try allocator.alloc(u8, s.len);
+                    for (s, 0..) |c, i| {
+                        reversed[s.len - 1 - i] = c;
+                    }
+                    return try EvalResult.single(allocator, .{ .string = reversed });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .sort => {
+            switch (value) {
+                .array => |arr| {
+                    var sorted = try allocator.alloc(std.json.Value, arr.items.len);
+                    @memcpy(sorted, arr.items);
+                    std.mem.sort(std.json.Value, sorted, {}, jsonLessThan);
+                    return try EvalResult.single(allocator, .{ .array = .{ .items = sorted, .capacity = sorted.len, .allocator = allocator } });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .unique => {
+            switch (value) {
+                .array => |arr| {
+                    var result_list = std.ArrayList(std.json.Value).init(allocator);
+                    outer: for (arr.items) |item| {
+                        for (result_list.items) |existing| {
+                            if (jsonEqual(item, existing)) continue :outer;
+                        }
+                        try result_list.append(item);
+                    }
+                    const result_slice = try result_list.toOwnedSlice();
+                    return try EvalResult.single(allocator, .{ .array = .{ .items = result_slice, .capacity = result_slice.len, .allocator = allocator } });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .flatten => {
+            switch (value) {
+                .array => |arr| {
+                    var result_list = std.ArrayList(std.json.Value).init(allocator);
+                    for (arr.items) |item| {
+                        switch (item) {
+                            .array => |inner| {
+                                try result_list.appendSlice(inner.items);
+                            },
+                            else => try result_list.append(item),
+                        }
+                    }
+                    const result_slice = try result_list.toOwnedSlice();
+                    return try EvalResult.single(allocator, .{ .array = .{ .items = result_slice, .capacity = result_slice.len, .allocator = allocator } });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        // Sprint 03: Aggregation functions
+        .add => {
+            switch (value) {
+                .array => |arr| {
+                    // Sum numbers or concatenate strings
+                    if (arr.items.len == 0) return try EvalResult.single(allocator, .null);
+
+                    // Check first element type
+                    switch (arr.items[0]) {
+                        .integer, .float => {
+                            var sum: f64 = 0;
+                            var all_int = true;
+                            for (arr.items) |item| {
+                                switch (item) {
+                                    .integer => |i| sum += @as(f64, @floatFromInt(i)),
+                                    .float => |f| {
+                                        sum += f;
+                                        all_int = false;
+                                    },
+                                    else => {},
+                                }
+                            }
+                            if (all_int) {
+                                return try EvalResult.single(allocator, .{ .integer = @as(i64, @intFromFloat(sum)) });
+                            }
+                            return try EvalResult.single(allocator, .{ .float = sum });
+                        },
+                        .string => {
+                            var total_len: usize = 0;
+                            for (arr.items) |item| {
+                                switch (item) {
+                                    .string => |s| total_len += s.len,
+                                    else => {},
+                                }
+                            }
+                            var result_str = try allocator.alloc(u8, total_len);
+                            var pos: usize = 0;
+                            for (arr.items) |item| {
+                                switch (item) {
+                                    .string => |s| {
+                                        @memcpy(result_str[pos..][0..s.len], s);
+                                        pos += s.len;
+                                    },
+                                    else => {},
+                                }
+                            }
+                            return try EvalResult.single(allocator, .{ .string = result_str });
+                        },
+                        .array => {
+                            // Flatten arrays
+                            var result_list = std.ArrayList(std.json.Value).init(allocator);
+                            for (arr.items) |item| {
+                                switch (item) {
+                                    .array => |inner| try result_list.appendSlice(inner.items),
+                                    else => {},
+                                }
+                            }
+                            const result_slice = try result_list.toOwnedSlice();
+                            return try EvalResult.single(allocator, .{ .array = .{ .items = result_slice, .capacity = result_slice.len, .allocator = allocator } });
+                        },
+                        else => return EvalResult.empty(allocator),
+                    }
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .min => {
+            switch (value) {
+                .array => |arr| {
+                    if (arr.items.len == 0) return try EvalResult.single(allocator, .null);
+                    var min_val = arr.items[0];
+                    for (arr.items[1..]) |item| {
+                        if (jsonLessThan({}, item, min_val)) {
+                            min_val = item;
+                        }
+                    }
+                    return try EvalResult.single(allocator, min_val);
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .max => {
+            switch (value) {
+                .array => |arr| {
+                    if (arr.items.len == 0) return try EvalResult.single(allocator, .null);
+                    var max_val = arr.items[0];
+                    for (arr.items[1..]) |item| {
+                        if (jsonLessThan({}, max_val, item)) {
+                            max_val = item;
+                        }
+                    }
+                    return try EvalResult.single(allocator, max_val);
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        // Sprint 03: String functions (no args)
+        .ascii_downcase => {
+            switch (value) {
+                .string => |s| {
+                    var lower = try allocator.alloc(u8, s.len);
+                    for (s, 0..) |c, i| {
+                        lower[i] = std.ascii.toLower(c);
+                    }
+                    return try EvalResult.single(allocator, .{ .string = lower });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .ascii_upcase => {
+            switch (value) {
+                .string => |s| {
+                    var upper = try allocator.alloc(u8, s.len);
+                    for (s, 0..) |c, i| {
+                        upper[i] = std.ascii.toUpper(c);
+                    }
+                    return try EvalResult.single(allocator, .{ .string = upper });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
     }
+}
+
+// Sprint 03: Helper functions for sorting/comparing JSON values
+fn jsonLessThan(_: void, a: std.json.Value, b: std.json.Value) bool {
+    // Compare by type first, then value
+    const type_order = struct {
+        fn order(v: std.json.Value) u8 {
+            return switch (v) {
+                .null => 0,
+                .bool => 1,
+                .integer, .float => 2,
+                .string => 3,
+                .array => 4,
+                .object => 5,
+                else => 6,
+            };
+        }
+    };
+
+    const a_type = type_order.order(a);
+    const b_type = type_order.order(b);
+
+    if (a_type != b_type) return a_type < b_type;
+
+    return switch (a) {
+        .null => false, // null == null
+        .bool => |ab| !ab and b.bool,
+        .integer => |ai| blk: {
+            const af: f64 = @floatFromInt(ai);
+            const bf: f64 = switch (b) {
+                .integer => |bi| @floatFromInt(bi),
+                .float => |bf| bf,
+                else => unreachable,
+            };
+            break :blk af < bf;
+        },
+        .float => |af| blk: {
+            const bf: f64 = switch (b) {
+                .integer => |bi| @floatFromInt(bi),
+                .float => |bf| bf,
+                else => unreachable,
+            };
+            break :blk af < bf;
+        },
+        .string => |as| std.mem.order(u8, as, b.string) == .lt,
+        else => false,
+    };
+}
+
+fn jsonEqual(a: std.json.Value, b: std.json.Value) bool {
+    if (@intFromEnum(a) != @intFromEnum(b)) return false;
+    return switch (a) {
+        .null => true,
+        .bool => |ab| ab == b.bool,
+        .integer => |ai| ai == b.integer,
+        .float => |af| af == b.float,
+        .string => |as| std.mem.eql(u8, as, b.string),
+        .array => |aa| blk: {
+            const ba = b.array;
+            if (aa.items.len != ba.items.len) break :blk false;
+            for (aa.items, ba.items) |av, bv| {
+                if (!jsonEqual(av, bv)) break :blk false;
+            }
+            break :blk true;
+        },
+        else => false,
+    };
 }
 
 fn evalObject(allocator: std.mem.Allocator, obj: ObjectExpr, value: std.json.Value) EvalError!EvalResult {
@@ -1219,6 +1706,255 @@ fn getNumeric(value: std.json.Value) ?f64 {
         .float => |f| f,
         else => null,
     };
+}
+
+// ============================================================================
+// Sprint 03: Additional Evaluators
+// ============================================================================
+
+fn evalStrFunc(allocator: std.mem.Allocator, sf: StrFuncExpr, value: std.json.Value) EvalError!EvalResult {
+    switch (sf.kind) {
+        .split => {
+            switch (value) {
+                .string => |s| {
+                    var result_list = std.ArrayList(std.json.Value).init(allocator);
+                    var iter = std.mem.splitSequence(u8, s, sf.arg);
+                    while (iter.next()) |part| {
+                        try result_list.append(.{ .string = part });
+                    }
+                    const result_slice = try result_list.toOwnedSlice();
+                    return try EvalResult.single(allocator, .{ .array = .{ .items = result_slice, .capacity = result_slice.len, .allocator = allocator } });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .join => {
+            switch (value) {
+                .array => |arr| {
+                    var total_len: usize = 0;
+                    var str_count: usize = 0;
+                    for (arr.items) |item| {
+                        switch (item) {
+                            .string => |s| {
+                                total_len += s.len;
+                                str_count += 1;
+                            },
+                            else => {},
+                        }
+                    }
+                    if (str_count == 0) return try EvalResult.single(allocator, .{ .string = "" });
+
+                    const sep_len = sf.arg.len * (str_count - 1);
+                    var result_str = try allocator.alloc(u8, total_len + sep_len);
+                    var pos: usize = 0;
+                    var first = true;
+                    for (arr.items) |item| {
+                        switch (item) {
+                            .string => |s| {
+                                if (!first) {
+                                    @memcpy(result_str[pos..][0..sf.arg.len], sf.arg);
+                                    pos += sf.arg.len;
+                                }
+                                @memcpy(result_str[pos..][0..s.len], s);
+                                pos += s.len;
+                                first = false;
+                            },
+                            else => {},
+                        }
+                    }
+                    return try EvalResult.single(allocator, .{ .string = result_str[0..pos] });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .startswith => {
+            switch (value) {
+                .string => |s| {
+                    return try EvalResult.single(allocator, .{ .bool = std.mem.startsWith(u8, s, sf.arg) });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .endswith => {
+            switch (value) {
+                .string => |s| {
+                    return try EvalResult.single(allocator, .{ .bool = std.mem.endsWith(u8, s, sf.arg) });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .contains => {
+            switch (value) {
+                .string => |s| {
+                    return try EvalResult.single(allocator, .{ .bool = std.mem.indexOf(u8, s, sf.arg) != null });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .ltrimstr => {
+            switch (value) {
+                .string => |s| {
+                    if (std.mem.startsWith(u8, s, sf.arg)) {
+                        return try EvalResult.single(allocator, .{ .string = s[sf.arg.len..] });
+                    }
+                    return try EvalResult.single(allocator, value);
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .rtrimstr => {
+            switch (value) {
+                .string => |s| {
+                    if (std.mem.endsWith(u8, s, sf.arg)) {
+                        return try EvalResult.single(allocator, .{ .string = s[0 .. s.len - sf.arg.len] });
+                    }
+                    return try EvalResult.single(allocator, value);
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+    }
+}
+
+fn evalMap(allocator: std.mem.Allocator, m: MapExpr, value: std.json.Value) EvalError!EvalResult {
+    switch (value) {
+        .array => |arr| {
+            var result_list = std.ArrayList(std.json.Value).init(allocator);
+            for (arr.items) |item| {
+                const item_result = try evalExpr(allocator, m.inner, item);
+                try result_list.appendSlice(item_result.values);
+            }
+            const result_slice = try result_list.toOwnedSlice();
+            return try EvalResult.single(allocator, .{ .array = .{ .items = result_slice, .capacity = result_slice.len, .allocator = allocator } });
+        },
+        else => return EvalResult.empty(allocator),
+    }
+}
+
+fn evalByFunc(allocator: std.mem.Allocator, bf: ByFuncExpr, value: std.json.Value) EvalError!EvalResult {
+    switch (value) {
+        .array => |arr| {
+            switch (bf.kind) {
+                .group_by => {
+                    // Group by the path value
+                    var groups = std.StringHashMap(std.ArrayList(std.json.Value)).init(allocator);
+
+                    for (arr.items) |item| {
+                        const key_val = getPath(item, bf.path) orelse continue;
+                        var key_str: []const u8 = undefined;
+                        switch (key_val) {
+                            .string => |s| key_str = s,
+                            .integer => |i| key_str = try std.fmt.allocPrint(allocator, "{d}", .{i}),
+                            .bool => |b| key_str = if (b) "true" else "false",
+                            .null => key_str = "null",
+                            else => continue,
+                        }
+
+                        const entry = try groups.getOrPut(key_str);
+                        if (!entry.found_existing) {
+                            entry.value_ptr.* = std.ArrayList(std.json.Value).init(allocator);
+                        }
+                        try entry.value_ptr.*.append(item);
+                    }
+
+                    // Convert to array of arrays
+                    var result_list = std.ArrayList(std.json.Value).init(allocator);
+                    var iter = groups.valueIterator();
+                    while (iter.next()) |group| {
+                        const items = try group.toOwnedSlice();
+                        try result_list.append(.{ .array = .{ .items = items, .capacity = items.len, .allocator = allocator } });
+                    }
+                    const result_slice = try result_list.toOwnedSlice();
+                    return try EvalResult.single(allocator, .{ .array = .{ .items = result_slice, .capacity = result_slice.len, .allocator = allocator } });
+                },
+                .sort_by => {
+                    var sorted = try allocator.alloc(std.json.Value, arr.items.len);
+                    @memcpy(sorted, arr.items);
+
+                    const SortCtx = struct {
+                        path: [][]const u8,
+
+                        fn lessThan(ctx: @This(), a: std.json.Value, b: std.json.Value) bool {
+                            const a_key = getPath(a, ctx.path) orelse return false;
+                            const b_key = getPath(b, ctx.path) orelse return true;
+                            return jsonLessThan({}, a_key, b_key);
+                        }
+                    };
+
+                    std.mem.sort(std.json.Value, sorted, SortCtx{ .path = bf.path }, SortCtx.lessThan);
+                    return try EvalResult.single(allocator, .{ .array = .{ .items = sorted, .capacity = sorted.len, .allocator = allocator } });
+                },
+                .unique_by => {
+                    var result_list = std.ArrayList(std.json.Value).init(allocator);
+                    var seen = std.StringHashMap(void).init(allocator);
+
+                    for (arr.items) |item| {
+                        const key_val = getPath(item, bf.path) orelse continue;
+                        var key_str: []const u8 = undefined;
+                        switch (key_val) {
+                            .string => |s| key_str = s,
+                            .integer => |i| key_str = try std.fmt.allocPrint(allocator, "{d}", .{i}),
+                            .bool => |b| key_str = if (b) "true" else "false",
+                            .null => key_str = "null",
+                            else => continue,
+                        }
+
+                        const entry = try seen.getOrPut(key_str);
+                        if (!entry.found_existing) {
+                            try result_list.append(item);
+                        }
+                    }
+                    const result_slice = try result_list.toOwnedSlice();
+                    return try EvalResult.single(allocator, .{ .array = .{ .items = result_slice, .capacity = result_slice.len, .allocator = allocator } });
+                },
+                .min_by => {
+                    if (arr.items.len == 0) return try EvalResult.single(allocator, .null);
+
+                    var min_item = arr.items[0];
+                    var min_key = getPath(min_item, bf.path) orelse return EvalResult.empty(allocator);
+
+                    for (arr.items[1..]) |item| {
+                        const key = getPath(item, bf.path) orelse continue;
+                        if (jsonLessThan({}, key, min_key)) {
+                            min_key = key;
+                            min_item = item;
+                        }
+                    }
+                    return try EvalResult.single(allocator, min_item);
+                },
+                .max_by => {
+                    if (arr.items.len == 0) return try EvalResult.single(allocator, .null);
+
+                    var max_item = arr.items[0];
+                    var max_key = getPath(max_item, bf.path) orelse return EvalResult.empty(allocator);
+
+                    for (arr.items[1..]) |item| {
+                        const key = getPath(item, bf.path) orelse continue;
+                        if (jsonLessThan({}, max_key, key)) {
+                            max_key = key;
+                            max_item = item;
+                        }
+                    }
+                    return try EvalResult.single(allocator, max_item);
+                },
+            }
+        },
+        else => return EvalResult.empty(allocator),
+    }
+}
+
+fn evalArrayLiteral(allocator: std.mem.Allocator, arr_expr: ArrayExpr, value: std.json.Value) EvalError!EvalResult {
+    var result_list = std.ArrayList(std.json.Value).init(allocator);
+
+    for (arr_expr.elements) |elem| {
+        const elem_result = try evalExpr(allocator, elem, value);
+        for (elem_result.values) |v| {
+            try result_list.append(v);
+        }
+    }
+
+    const result_slice = try result_list.toOwnedSlice();
+    return try EvalResult.single(allocator, .{ .array = .{ .items = result_slice, .capacity = result_slice.len, .allocator = allocator } });
 }
 
 // ============================================================================
@@ -1306,6 +2042,37 @@ fn printUsage() void {
         \\  .x / .y            Division
         \\  .x % .y            Modulo
         \\
+        \\ARRAY FUNCTIONS:
+        \\  first              First element of array
+        \\  last               Last element of array
+        \\  reverse            Reverse array or string
+        \\  sort               Sort array
+        \\  unique             Remove duplicates
+        \\  flatten            Flatten nested arrays
+        \\  [.x, .y]           Construct array from expressions
+        \\
+        \\AGGREGATION (use with -s):
+        \\  add                Sum numbers / concat strings
+        \\  min                Minimum value
+        \\  max                Maximum value
+        \\  group_by(.field)   Group by field value
+        \\  sort_by(.field)    Sort by field value
+        \\  unique_by(.field)  Unique by field value
+        \\  min_by(.field)     Item with min field
+        \\  max_by(.field)     Item with max field
+        \\  map(expr)          Apply expr to each element
+        \\
+        \\STRING FUNCTIONS:
+        \\  ascii_downcase     Lowercase string
+        \\  ascii_upcase       Uppercase string
+        \\  split("sep")       Split string to array
+        \\  join("sep")        Join array to string
+        \\  startswith("s")    Test string prefix
+        \\  endswith("s")      Test string suffix
+        \\  contains("s")      Test substring
+        \\  ltrimstr("s")      Remove prefix
+        \\  rtrimstr("s")      Remove suffix
+        \\
         \\OPTIONS:
         \\  -c          Compact output (default, NDJSON compatible)
         \\  -r          Raw string output (no quotes around strings)
@@ -1324,6 +2091,17 @@ fn printUsage() void {
         \\  echo '{"x":null,"y":1}' | zq '.x // .y'
         \\  cat data.ndjson | zq -s 'length'           # Count records
         \\  cat data.ndjson | zq -s '.[] | .name'      # Iterate slurped array
+        \\
+        \\  # Sprint 03 features:
+        \\  echo '[1,3,2]' | zq 'sort'                 # Sort array
+        \\  echo '[1,1,2]' | zq 'unique'               # Remove duplicates
+        \\  cat data.ndjson | zq -s 'add'              # Sum all values
+        \\  cat data.ndjson | zq -s 'sort_by(.age)'    # Sort by field
+        \\  cat data.ndjson | zq -s 'group_by(.type)'  # Group by field
+        \\  cat data.ndjson | zq -s 'map(.name)'       # Extract all names
+        \\  echo '"HELLO"' | zq 'ascii_downcase'       # Lowercase
+        \\  echo '"a,b,c"' | zq 'split(",")'           # Split string
+        \\  echo '["a","b"]' | zq 'join("-")'          # Join array
         \\
     ;
     std.debug.print("{s}", .{usage});
@@ -1898,4 +2676,370 @@ test "eval length function" {
 
     try std.testing.expectEqual(@as(usize, 1), result.values.len);
     try std.testing.expectEqual(@as(i64, 5), result.values[0].integer);
+}
+
+// ============================================================================
+// Sprint 03 Tests
+// ============================================================================
+
+test "eval first" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "[1,2,3]";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    const expr = try parseExpr(arena.allocator(), "first");
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    try std.testing.expectEqual(@as(i64, 1), result.values[0].integer);
+}
+
+test "eval last" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "[1,2,3]";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    const expr = try parseExpr(arena.allocator(), "last");
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    try std.testing.expectEqual(@as(i64, 3), result.values[0].integer);
+}
+
+test "eval reverse array" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "[1,2,3]";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    const expr = try parseExpr(arena.allocator(), "reverse");
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    const arr = result.values[0].array;
+    try std.testing.expectEqual(@as(usize, 3), arr.items.len);
+    try std.testing.expectEqual(@as(i64, 3), arr.items[0].integer);
+    try std.testing.expectEqual(@as(i64, 2), arr.items[1].integer);
+    try std.testing.expectEqual(@as(i64, 1), arr.items[2].integer);
+}
+
+test "eval sort" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "[3,1,2]";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    const expr = try parseExpr(arena.allocator(), "sort");
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    const arr = result.values[0].array;
+    try std.testing.expectEqual(@as(i64, 1), arr.items[0].integer);
+    try std.testing.expectEqual(@as(i64, 2), arr.items[1].integer);
+    try std.testing.expectEqual(@as(i64, 3), arr.items[2].integer);
+}
+
+test "eval unique" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "[1,2,1,3,2]";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    const expr = try parseExpr(arena.allocator(), "unique");
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    const arr = result.values[0].array;
+    try std.testing.expectEqual(@as(usize, 3), arr.items.len);
+}
+
+test "eval add numbers" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "[1,2,3,4]";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    const expr = try parseExpr(arena.allocator(), "add");
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    try std.testing.expectEqual(@as(i64, 10), result.values[0].integer);
+}
+
+test "eval add strings" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "[\"a\",\"b\",\"c\"]";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    const expr = try parseExpr(arena.allocator(), "add");
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    try std.testing.expectEqualStrings("abc", result.values[0].string);
+}
+
+test "eval min" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "[3,1,4,1,5]";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    const expr = try parseExpr(arena.allocator(), "min");
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    try std.testing.expectEqual(@as(i64, 1), result.values[0].integer);
+}
+
+test "eval max" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "[3,1,4,1,5]";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    const expr = try parseExpr(arena.allocator(), "max");
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    try std.testing.expectEqual(@as(i64, 5), result.values[0].integer);
+}
+
+test "eval ascii_downcase" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "\"HELLO\"";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    const expr = try parseExpr(arena.allocator(), "ascii_downcase");
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    try std.testing.expectEqualStrings("hello", result.values[0].string);
+}
+
+test "eval ascii_upcase" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "\"hello\"";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    const expr = try parseExpr(arena.allocator(), "ascii_upcase");
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    try std.testing.expectEqualStrings("HELLO", result.values[0].string);
+}
+
+test "parse split" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const expr = try parseExpr(arena.allocator(), "split(\",\")");
+    try std.testing.expect(expr == .str_func);
+    try std.testing.expect(expr.str_func.kind == .split);
+    try std.testing.expectEqualStrings(",", expr.str_func.arg);
+}
+
+test "eval split" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "\"a,b,c\"";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    const expr = try parseExpr(arena.allocator(), "split(\",\")");
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    const arr = result.values[0].array;
+    try std.testing.expectEqual(@as(usize, 3), arr.items.len);
+    try std.testing.expectEqualStrings("a", arr.items[0].string);
+    try std.testing.expectEqualStrings("b", arr.items[1].string);
+    try std.testing.expectEqualStrings("c", arr.items[2].string);
+}
+
+test "eval join" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "[\"a\",\"b\",\"c\"]";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    const expr = try parseExpr(arena.allocator(), "join(\"-\")");
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    try std.testing.expectEqualStrings("a-b-c", result.values[0].string);
+}
+
+test "eval startswith" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "\"hello world\"";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    const expr = try parseExpr(arena.allocator(), "startswith(\"hello\")");
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    try std.testing.expect(result.values[0].bool);
+}
+
+test "eval endswith" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "\"hello.json\"";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    const expr = try parseExpr(arena.allocator(), "endswith(\".json\")");
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    try std.testing.expect(result.values[0].bool);
+}
+
+test "eval contains string" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "\"hello world\"";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    const expr = try parseExpr(arena.allocator(), "contains(\"wor\")");
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    try std.testing.expect(result.values[0].bool);
+}
+
+test "eval ltrimstr" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "\"hello world\"";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    const expr = try parseExpr(arena.allocator(), "ltrimstr(\"hello \")");
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    try std.testing.expectEqualStrings("world", result.values[0].string);
+}
+
+test "eval rtrimstr" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "\"hello world\"";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    const expr = try parseExpr(arena.allocator(), "rtrimstr(\" world\")");
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    try std.testing.expectEqualStrings("hello", result.values[0].string);
+}
+
+test "parse map" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const expr = try parseExpr(arena.allocator(), "map(.name)");
+    try std.testing.expect(expr == .map);
+}
+
+test "eval map" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "[{\"name\":\"alice\"},{\"name\":\"bob\"}]";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    const expr = try parseExpr(arena.allocator(), "map(.name)");
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    const arr = result.values[0].array;
+    try std.testing.expectEqual(@as(usize, 2), arr.items.len);
+    try std.testing.expectEqualStrings("alice", arr.items[0].string);
+    try std.testing.expectEqualStrings("bob", arr.items[1].string);
+}
+
+test "parse sort_by" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const expr = try parseExpr(arena.allocator(), "sort_by(.age)");
+    try std.testing.expect(expr == .by_func);
+    try std.testing.expect(expr.by_func.kind == .sort_by);
+}
+
+test "eval sort_by" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "[{\"name\":\"bob\",\"age\":30},{\"name\":\"alice\",\"age\":25}]";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    const expr = try parseExpr(arena.allocator(), "sort_by(.age)");
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    const arr = result.values[0].array;
+    try std.testing.expectEqual(@as(usize, 2), arr.items.len);
+    // Alice (age 25) should come first
+    try std.testing.expectEqualStrings("alice", arr.items[0].object.get("name").?.string);
+}
+
+test "parse array literal" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const expr = try parseExpr(arena.allocator(), "[.x, .y]");
+    try std.testing.expect(expr == .array);
+    try std.testing.expectEqual(@as(usize, 2), expr.array.elements.len);
+}
+
+test "eval array literal" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "{\"x\":1,\"y\":2}";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    const expr = try parseExpr(arena.allocator(), "[.x, .y]");
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    const arr = result.values[0].array;
+    try std.testing.expectEqual(@as(usize, 2), arr.items.len);
+    try std.testing.expectEqual(@as(i64, 1), arr.items[0].integer);
+    try std.testing.expectEqual(@as(i64, 2), arr.items[1].integer);
+}
+
+test "eval flatten" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "[[1,2],[3,4]]";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    const expr = try parseExpr(arena.allocator(), "flatten");
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    const arr = result.values[0].array;
+    try std.testing.expectEqual(@as(usize, 4), arr.items.len);
 }
