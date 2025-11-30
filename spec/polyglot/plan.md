@@ -19,11 +19,9 @@ This plan outlines the migration of JN to a polyglot architecture with:
 | Sprint 01 | ✅ Complete | ZQ foundation: identity, field access, select, pipes |
 | Sprint 02 | ✅ Complete | Extended: array iteration, slurp mode, arithmetic |
 | Sprint 03 | ✅ Complete | Aggregation: group_by, sort_by, map, string functions |
-| Sprint 04 | 🔲 Planned | JN integration: `jn filter` uses ZQ by default |
-| Sprint 05 | 🔲 Planned | jq deprecation: warn when falling back to jq |
-| Sprint 06 | 🔲 Planned | jq removal: delete jq_.py plugin |
+| Sprint 04 | 🔲 Next | **jq removed:** `jn filter` uses ZQ, delete jq_.py |
 
-**Target:** jq fully removed by Sprint 06 (ZQ covers 95%+ of jn filter usage)
+**Target:** jq fully removed in Sprint 04 (rip and replace, no deprecation)
 
 ## Architecture Overview
 
@@ -415,11 +413,14 @@ Location: `zq/src/main.zig`
 
 **Coverage:** ~95% of JN filter usage patterns
 
-### 4.4 Next Steps (Sprint 04+)
+### 4.4 Next Step (Sprint 04)
 
-1. **Sprint 04:** Integrate ZQ into `jn filter` as default
-2. **Sprint 05:** Add deprecation warning when falling back to jq
-3. **Sprint 06:** Remove jq_.py plugin entirely
+**Rip and replace:** No deprecation period.
+
+1. Update `jn filter` to invoke ZQ binary instead of jq_.py
+2. Delete `jn_home/plugins/filters/jq_.py`
+3. Remove jq from dependencies
+4. Update tests to use ZQ
 
 ---
 
