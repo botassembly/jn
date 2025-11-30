@@ -1,6 +1,6 @@
 const std = @import("std");
 
-pub const version = "0.3.0";
+pub const version = "0.4.0";
 
 // ============================================================================
 // Types
@@ -52,6 +52,14 @@ const CompoundCondition = struct {
 const IndexExpr = union(enum) {
     single: i64, // .[0] or .[-1]
     iterate, // .[]
+    // Sprint 04: slice syntax .[n:m]
+    slice: SliceExpr,
+};
+
+// Sprint 04: Slice expression .[n:m]
+const SliceExpr = struct {
+    start: ?i64, // null means from beginning
+    end: ?i64, // null means to end
 };
 
 const Expr = union(enum) {
@@ -72,6 +80,8 @@ const Expr = union(enum) {
     map: MapExpr, // map(expr)
     by_func: ByFuncExpr, // group_by(.field), sort_by(.field), etc.
     array: ArrayExpr, // [.x, .y, .z]
+    // Sprint 04 additions
+    del: DelExpr, // del(.key)
 };
 
 const LiteralExpr = union(enum) {
@@ -129,6 +139,9 @@ const BuiltinKind = enum {
     // String functions (Sprint 03)
     ascii_downcase,
     ascii_upcase,
+    // Sprint 04: Entry conversion
+    to_entries,
+    from_entries,
 };
 
 const BuiltinExpr = struct {
@@ -163,11 +176,13 @@ const ArithmeticExpr = struct {
 const FieldExpr = struct {
     name: []const u8,
     index: ?IndexExpr = null,
+    optional: bool = false, // Sprint 04: .foo? syntax
 };
 
 const PathExpr = struct {
     parts: [][]const u8,
     index: ?IndexExpr = null,
+    optional: bool = false, // Sprint 04: .foo.bar? syntax
 };
 
 const IterateExpr = struct {
@@ -183,6 +198,8 @@ const StrFuncKind = enum {
     contains, // contains("foo")
     ltrimstr, // ltrimstr("prefix")
     rtrimstr, // rtrimstr("suffix")
+    // Sprint 04: has(key)
+    has, // has("key")
 };
 
 const StrFuncExpr = struct {
@@ -212,6 +229,11 @@ const ByFuncExpr = struct {
 // Sprint 03: Array literal [.x, .y, .z]
 const ArrayExpr = struct {
     elements: []*Expr,
+};
+
+// Sprint 04: del(.key) expression
+const DelExpr = struct {
+    paths: [][]const u8, // paths to delete (e.g., ["x"] or ["a", "b"] for .a.b)
 };
 
 const Config = struct {
@@ -404,6 +426,19 @@ fn parseExpr(allocator: std.mem.Allocator, expr: []const u8) ParseError!Expr {
     if (std.mem.eql(u8, trimmed, "max")) return .{ .builtin = .{ .kind = .max } };
     if (std.mem.eql(u8, trimmed, "ascii_downcase")) return .{ .builtin = .{ .kind = .ascii_downcase } };
     if (std.mem.eql(u8, trimmed, "ascii_upcase")) return .{ .builtin = .{ .kind = .ascii_upcase } };
+    // Sprint 04: Entry conversion functions
+    if (std.mem.eql(u8, trimmed, "to_entries")) return .{ .builtin = .{ .kind = .to_entries } };
+    if (std.mem.eql(u8, trimmed, "from_entries")) return .{ .builtin = .{ .kind = .from_entries } };
+
+    // Sprint 04: del(.key)
+    if (std.mem.startsWith(u8, trimmed, "del(") and std.mem.endsWith(u8, trimmed, ")")) {
+        const inner_str = trimmed[4 .. trimmed.len - 1];
+        // Parse the path expression inside del()
+        if (std.mem.startsWith(u8, inner_str, ".")) {
+            const path = try parsePath(allocator, inner_str);
+            return .{ .del = .{ .paths = path } };
+        }
+    }
 
     // Sprint 03: String functions with argument - split("sep"), join("sep"), etc.
     if (try parseStrFunc(allocator, trimmed)) |str_func| {
@@ -447,31 +482,58 @@ fn parseExpr(allocator: std.mem.Allocator, expr: []const u8) ParseError!Expr {
 
     // Field path with optional iteration: .foo or .foo.bar or .items[]
     if (trimmed[0] == '.') {
+        // Sprint 04: Check for optional suffix
+        var optional = false;
+        var expr_str = trimmed;
+        if (std.mem.endsWith(u8, trimmed, "?")) {
+            optional = true;
+            expr_str = trimmed[0 .. trimmed.len - 1];
+        }
+
         // Check for iteration at end
-        if (std.mem.endsWith(u8, trimmed, "[]")) {
-            const path_part = trimmed[0 .. trimmed.len - 2];
+        if (std.mem.endsWith(u8, expr_str, "[]")) {
+            const path_part = expr_str[0 .. expr_str.len - 2];
             const path = try parsePath(allocator, path_part);
             return .{ .iterate = .{ .path = path } };
         }
 
-        // Check for array index at end
-        var path_end = trimmed.len;
+        // Check for array index or slice at end
+        var path_end = expr_str.len;
         var index: ?IndexExpr = null;
-        if (std.mem.lastIndexOf(u8, trimmed, "[")) |bracket_pos| {
-            if (std.mem.endsWith(u8, trimmed, "]") and bracket_pos > 0) {
-                const idx_str = trimmed[bracket_pos + 1 .. trimmed.len - 1];
-                if (std.fmt.parseInt(i64, idx_str, 10)) |idx| {
+        if (std.mem.lastIndexOf(u8, expr_str, "[")) |bracket_pos| {
+            if (std.mem.endsWith(u8, expr_str, "]") and bracket_pos > 0) {
+                const idx_str = expr_str[bracket_pos + 1 .. expr_str.len - 1];
+
+                // Sprint 04: Check for slice syntax (contains colon)
+                if (std.mem.indexOf(u8, idx_str, ":")) |colon_pos| {
+                    // Parse slice: [n:m], [:m], [n:], [:]
+                    const start_str = idx_str[0..colon_pos];
+                    const end_str = idx_str[colon_pos + 1 ..];
+
+                    const start: ?i64 = if (start_str.len > 0)
+                        std.fmt.parseInt(i64, start_str, 10) catch null
+                    else
+                        null;
+
+                    const end: ?i64 = if (end_str.len > 0)
+                        std.fmt.parseInt(i64, end_str, 10) catch null
+                    else
+                        null;
+
+                    index = .{ .slice = .{ .start = start, .end = end } };
+                    path_end = bracket_pos;
+                } else if (std.fmt.parseInt(i64, idx_str, 10)) |idx| {
                     index = .{ .single = idx };
                     path_end = bracket_pos;
                 } else |_| {}
             }
         }
 
-        const path = try parsePath(allocator, trimmed[0..path_end]);
+        const path = try parsePath(allocator, expr_str[0..path_end]);
         if (path.len == 1) {
-            return .{ .field = .{ .name = path[0], .index = index } };
+            return .{ .field = .{ .name = path[0], .index = index, .optional = optional } };
         }
-        return .{ .path = .{ .parts = path, .index = index } };
+        return .{ .path = .{ .parts = path, .index = index, .optional = optional } };
     }
 
     // String literal: "..."
@@ -823,6 +885,8 @@ fn parseStrFunc(allocator: std.mem.Allocator, expr: []const u8) ParseError!?Expr
         .{ .name = "contains", .kind = .contains },
         .{ .name = "ltrimstr", .kind = .ltrimstr },
         .{ .name = "rtrimstr", .kind = .rtrimstr },
+        // Sprint 04: has(key)
+        .{ .name = "has", .kind = .has },
     };
 
     for (funcs) |func| {
@@ -928,6 +992,16 @@ fn getPath(value: std.json.Value, path: [][]const u8) ?std.json.Value {
     return current;
 }
 
+// Sprint 04: Helper to get field value without index handling
+fn getFieldValueBase(value: std.json.Value, name: []const u8) ?std.json.Value {
+    switch (value) {
+        .object => |obj| {
+            return obj.get(name);
+        },
+        else => return null,
+    }
+}
+
 fn getIndex(value: std.json.Value, index: i64) ?std.json.Value {
     switch (value) {
         .array => |arr| {
@@ -945,6 +1019,54 @@ fn getIndex(value: std.json.Value, index: i64) ?std.json.Value {
                 return null;
 
             return arr.items[actual_idx];
+        },
+        else => return null,
+    }
+}
+
+// Sprint 04: Array slicing .[n:m]
+fn getSlice(allocator: std.mem.Allocator, value: std.json.Value, slice: SliceExpr) !?std.json.Value {
+    switch (value) {
+        .array => |arr| {
+            const len = arr.items.len;
+            if (len == 0) {
+                // Return empty array
+                var new_arr = std.json.Array.init(allocator);
+                return .{ .array = new_arr };
+            }
+
+            // Resolve start index (handle negative)
+            var start_idx: usize = 0;
+            if (slice.start) |s| {
+                if (s < 0) {
+                    const neg: usize = @intCast(-s);
+                    start_idx = if (neg <= len) len - neg else 0;
+                } else {
+                    start_idx = @min(@as(usize, @intCast(s)), len);
+                }
+            }
+
+            // Resolve end index (handle negative)
+            var end_idx: usize = len;
+            if (slice.end) |e| {
+                if (e < 0) {
+                    const neg: usize = @intCast(-e);
+                    end_idx = if (neg <= len) len - neg else 0;
+                } else {
+                    end_idx = @min(@as(usize, @intCast(e)), len);
+                }
+            }
+
+            // Ensure start <= end
+            if (start_idx > end_idx) {
+                var new_arr = std.json.Array.init(allocator);
+                return .{ .array = new_arr };
+            }
+
+            // Create slice
+            var new_arr = std.json.Array.init(allocator);
+            try new_arr.appendSlice(arr.items[start_idx..end_idx]);
+            return .{ .array = new_arr };
         },
         else => return null,
     }
@@ -1113,15 +1235,55 @@ fn evalExpr(allocator: std.mem.Allocator, expr: *const Expr, value: std.json.Val
         .identity => return try EvalResult.single(allocator, value),
 
         .field => |field| {
-            if (getFieldValue(value, field)) |v| {
-                return try EvalResult.single(allocator, v);
+            const base_result = getFieldValueBase(value, field.name);
+            if (base_result) |base_val| {
+                // Handle index if present
+                if (field.index) |idx| {
+                    switch (idx) {
+                        .single => |ind| {
+                            if (getIndex(base_val, ind)) |v| {
+                                return try EvalResult.single(allocator, v);
+                            }
+                            return EvalResult.empty(allocator);
+                        },
+                        .iterate => return EvalResult.empty(allocator),
+                        // Sprint 04: Handle slice
+                        .slice => |slice| {
+                            if (try getSlice(allocator, base_val, slice)) |v| {
+                                return try EvalResult.single(allocator, v);
+                            }
+                            return EvalResult.empty(allocator);
+                        },
+                    }
+                }
+                return try EvalResult.single(allocator, base_val);
             }
             return EvalResult.empty(allocator);
         },
 
         .path => |path_expr| {
-            if (getPathValue(value, path_expr)) |v| {
-                return try EvalResult.single(allocator, v);
+            const base_result = getPath(value, path_expr.parts);
+            if (base_result) |base_val| {
+                // Handle index if present
+                if (path_expr.index) |idx| {
+                    switch (idx) {
+                        .single => |ind| {
+                            if (getIndex(base_val, ind)) |v| {
+                                return try EvalResult.single(allocator, v);
+                            }
+                            return EvalResult.empty(allocator);
+                        },
+                        .iterate => return EvalResult.empty(allocator),
+                        // Sprint 04: Handle slice
+                        .slice => |slice| {
+                            if (try getSlice(allocator, base_val, slice)) |v| {
+                                return try EvalResult.single(allocator, v);
+                            }
+                            return EvalResult.empty(allocator);
+                        },
+                    }
+                }
+                return try EvalResult.single(allocator, base_val);
             }
             return EvalResult.empty(allocator);
         },
@@ -1227,6 +1389,51 @@ fn evalExpr(allocator: std.mem.Allocator, expr: *const Expr, value: std.json.Val
         .array => |arr_expr| {
             return evalArrayLiteral(allocator, arr_expr, value);
         },
+
+        // Sprint 04: del(.key)
+        .del => |del_expr| {
+            return evalDel(allocator, del_expr, value);
+        },
+    }
+}
+
+// Sprint 04: Evaluate del(.key) expression
+fn evalDel(allocator: std.mem.Allocator, del_expr: DelExpr, value: std.json.Value) EvalError!EvalResult {
+    switch (value) {
+        .object => |obj| {
+            // Delete single key (first part of path)
+            if (del_expr.paths.len == 1) {
+                // Simple delete: del(.key)
+                var new_obj = std.json.ObjectMap.init(allocator);
+                var it = obj.iterator();
+                while (it.next()) |entry| {
+                    if (!std.mem.eql(u8, entry.key_ptr.*, del_expr.paths[0])) {
+                        try new_obj.put(entry.key_ptr.*, entry.value_ptr.*);
+                    }
+                }
+                return try EvalResult.single(allocator, .{ .object = new_obj });
+            } else if (del_expr.paths.len > 1) {
+                // Nested delete: del(.a.b)
+                // Clone object, navigate to parent, delete from parent
+                var new_obj = std.json.ObjectMap.init(allocator);
+                var it = obj.iterator();
+                while (it.next()) |entry| {
+                    if (std.mem.eql(u8, entry.key_ptr.*, del_expr.paths[0])) {
+                        // This is the key containing the nested path - recurse
+                        const nested_del = DelExpr{ .paths = del_expr.paths[1..] };
+                        const inner_result = try evalDel(allocator, nested_del, entry.value_ptr.*);
+                        if (inner_result.values.len > 0) {
+                            try new_obj.put(entry.key_ptr.*, inner_result.values[0]);
+                        }
+                    } else {
+                        try new_obj.put(entry.key_ptr.*, entry.value_ptr.*);
+                    }
+                }
+                return try EvalResult.single(allocator, .{ .object = new_obj });
+            }
+            return try EvalResult.single(allocator, value);
+        },
+        else => return try EvalResult.single(allocator, value), // Pass through non-objects
     }
 }
 
@@ -1565,6 +1772,54 @@ fn evalBuiltin(allocator: std.mem.Allocator, kind: BuiltinKind, value: std.json.
                 else => return EvalResult.empty(allocator),
             }
         },
+
+        // Sprint 04: to_entries - convert object to array of {key, value}
+        .to_entries => {
+            switch (value) {
+                .object => |obj| {
+                    var entries = std.json.Array.init(allocator);
+                    var it = obj.iterator();
+                    while (it.next()) |entry| {
+                        var entry_obj = std.json.ObjectMap.init(allocator);
+                        try entry_obj.put("key", .{ .string = entry.key_ptr.* });
+                        try entry_obj.put("value", entry.value_ptr.*);
+                        try entries.append(.{ .object = entry_obj });
+                    }
+                    return try EvalResult.single(allocator, .{ .array = entries });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+
+        // Sprint 04: from_entries - convert array of {key, value} to object
+        .from_entries => {
+            switch (value) {
+                .array => |arr| {
+                    var result_obj = std.json.ObjectMap.init(allocator);
+                    for (arr.items) |item| {
+                        switch (item) {
+                            .object => |entry_obj| {
+                                // Support {key, value}, {k, v}, and {name, value} forms
+                                const key_val = entry_obj.get("key") orelse
+                                    entry_obj.get("k") orelse
+                                    entry_obj.get("name") orelse continue;
+                                const val = entry_obj.get("value") orelse
+                                    entry_obj.get("v") orelse continue;
+                                switch (key_val) {
+                                    .string => |key| {
+                                        try result_obj.put(key, val);
+                                    },
+                                    else => {},
+                                }
+                            },
+                            else => {},
+                        }
+                    }
+                    return try EvalResult.single(allocator, .{ .object = result_obj });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
     }
 }
 
@@ -1811,6 +2066,25 @@ fn evalStrFunc(allocator: std.mem.Allocator, sf: StrFuncExpr, value: std.json.Va
                     return try EvalResult.single(allocator, value);
                 },
                 else => return EvalResult.empty(allocator),
+            }
+        },
+        // Sprint 04: has(key) - check if object has key
+        .has => {
+            switch (value) {
+                .object => |obj| {
+                    const exists = obj.get(sf.arg) != null;
+                    return try EvalResult.single(allocator, .{ .bool = exists });
+                },
+                .array => |arr| {
+                    // jq: has("0") on arrays checks for index 0 as string
+                    if (std.fmt.parseInt(usize, sf.arg, 10)) |idx| {
+                        const exists = idx < arr.items.len;
+                        return try EvalResult.single(allocator, .{ .bool = exists });
+                    } else |_| {
+                        return try EvalResult.single(allocator, .{ .bool = false });
+                    }
+                },
+                else => return try EvalResult.single(allocator, .{ .bool = false }),
             }
         },
     }
@@ -2074,6 +2348,14 @@ fn printUsage() void {
         \\  contains("s")      Test substring
         \\  ltrimstr("s")      Remove prefix
         \\  rtrimstr("s")      Remove suffix
+        \\
+        \\OBJECT FUNCTIONS (Sprint 04):
+        \\  has("key")         Test if object has key
+        \\  del(.key)          Delete key from object
+        \\  to_entries         Object → [{key,value},...]
+        \\  from_entries       [{key,value},...] → object
+        \\  .foo?              Optional access (no error if missing)
+        \\  .[n:m]             Array slice (e.g., .[2:5], .[-3:])
         \\
         \\OPTIONS:
         \\  -c          Compact output (default, NDJSON compatible)
@@ -3044,4 +3326,235 @@ test "eval flatten" {
     try std.testing.expectEqual(@as(usize, 1), result.values.len);
     const arr = result.values[0].array;
     try std.testing.expectEqual(@as(usize, 4), arr.items.len);
+}
+
+// ============================================================================
+// Sprint 04 Tests
+// ============================================================================
+
+test "parse slice" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const expr = try parseExpr(arena.allocator(), ".[2:5]");
+    try std.testing.expect(expr == .field);
+    try std.testing.expect(expr.field.index != null);
+    try std.testing.expect(expr.field.index.? == .slice);
+    try std.testing.expectEqual(@as(?i64, 2), expr.field.index.?.slice.start);
+    try std.testing.expectEqual(@as(?i64, 5), expr.field.index.?.slice.end);
+}
+
+test "parse slice unbounded start" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const expr = try parseExpr(arena.allocator(), ".[:5]");
+    try std.testing.expect(expr.field.index.?.slice.start == null);
+    try std.testing.expectEqual(@as(?i64, 5), expr.field.index.?.slice.end);
+}
+
+test "parse slice unbounded end" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const expr = try parseExpr(arena.allocator(), ".[3:]");
+    try std.testing.expectEqual(@as(?i64, 3), expr.field.index.?.slice.start);
+    try std.testing.expect(expr.field.index.?.slice.end == null);
+}
+
+test "eval slice" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "{\"items\":[0,1,2,3,4,5,6]}";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    const expr = try parseExpr(arena.allocator(), ".items[2:5]");
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    const arr = result.values[0].array;
+    try std.testing.expectEqual(@as(usize, 3), arr.items.len);
+    try std.testing.expectEqual(@as(i64, 2), arr.items[0].integer);
+    try std.testing.expectEqual(@as(i64, 3), arr.items[1].integer);
+    try std.testing.expectEqual(@as(i64, 4), arr.items[2].integer);
+}
+
+test "eval slice negative" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "{\"items\":[0,1,2,3]}";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    const expr = try parseExpr(arena.allocator(), ".items[-2:]");
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    const arr = result.values[0].array;
+    try std.testing.expectEqual(@as(usize, 2), arr.items.len);
+    try std.testing.expectEqual(@as(i64, 2), arr.items[0].integer);
+    try std.testing.expectEqual(@as(i64, 3), arr.items[1].integer);
+}
+
+test "parse optional" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const expr = try parseExpr(arena.allocator(), ".foo?");
+    try std.testing.expect(expr == .field);
+    try std.testing.expect(expr.field.optional);
+    try std.testing.expectEqualStrings("foo", expr.field.name);
+}
+
+test "parse has" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const expr = try parseExpr(arena.allocator(), "has(\"x\")");
+    try std.testing.expect(expr == .str_func);
+    try std.testing.expect(expr.str_func.kind == .has);
+    try std.testing.expectEqualStrings("x", expr.str_func.arg);
+}
+
+test "eval has true" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "{\"x\":1}";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    const expr = try parseExpr(arena.allocator(), "has(\"x\")");
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    try std.testing.expect(result.values[0].bool);
+}
+
+test "eval has false" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "{\"x\":1}";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    const expr = try parseExpr(arena.allocator(), "has(\"y\")");
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    try std.testing.expect(!result.values[0].bool);
+}
+
+test "eval has null value" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "{\"x\":null}";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    const expr = try parseExpr(arena.allocator(), "has(\"x\")");
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    try std.testing.expect(result.values[0].bool); // key exists even if null
+}
+
+test "parse del" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const expr = try parseExpr(arena.allocator(), "del(.x)");
+    try std.testing.expect(expr == .del);
+    try std.testing.expectEqual(@as(usize, 1), expr.del.paths.len);
+    try std.testing.expectEqualStrings("x", expr.del.paths[0]);
+}
+
+test "eval del" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "{\"x\":1,\"y\":2}";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    const expr = try parseExpr(arena.allocator(), "del(.x)");
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    const obj = result.values[0].object;
+    try std.testing.expect(obj.get("x") == null);
+    try std.testing.expect(obj.get("y") != null);
+}
+
+test "eval del missing key" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "{\"x\":1}";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    const expr = try parseExpr(arena.allocator(), "del(.z)");
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    const obj = result.values[0].object;
+    try std.testing.expect(obj.get("x") != null); // x still there
+}
+
+test "parse to_entries" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const expr = try parseExpr(arena.allocator(), "to_entries");
+    try std.testing.expect(expr == .builtin);
+    try std.testing.expect(expr.builtin.kind == .to_entries);
+}
+
+test "eval to_entries" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "{\"a\":1,\"b\":2}";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    const expr = try parseExpr(arena.allocator(), "to_entries");
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    const arr = result.values[0].array;
+    try std.testing.expectEqual(@as(usize, 2), arr.items.len);
+    // Each item should have key and value
+    try std.testing.expect(arr.items[0].object.get("key") != null);
+    try std.testing.expect(arr.items[0].object.get("value") != null);
+}
+
+test "parse from_entries" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const expr = try parseExpr(arena.allocator(), "from_entries");
+    try std.testing.expect(expr == .builtin);
+    try std.testing.expect(expr.builtin.kind == .from_entries);
+}
+
+test "eval from_entries" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "[{\"key\":\"x\",\"value\":1},{\"key\":\"y\",\"value\":2}]";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    const expr = try parseExpr(arena.allocator(), "from_entries");
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    const obj = result.values[0].object;
+    try std.testing.expectEqual(@as(i64, 1), obj.get("x").?.integer);
+    try std.testing.expectEqual(@as(i64, 2), obj.get("y").?.integer);
+}
+
+test "eval from_entries k_v form" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "[{\"k\":\"x\",\"v\":1}]";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    const expr = try parseExpr(arena.allocator(), "from_entries");
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    const obj = result.values[0].object;
+    try std.testing.expectEqual(@as(i64, 1), obj.get("x").?.integer);
 }
