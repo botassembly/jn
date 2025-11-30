@@ -1096,6 +1096,7 @@ fn evalSimpleCondition(cond: *const SimpleCondition, value: std.json.Value) bool
                 field_val = getIndex(field_val, i) orelse return false;
             },
             .iterate => return false, // Can't iterate in condition
+            .slice => return false, // Slices not supported in conditions
         }
     }
 
@@ -2538,38 +2539,6 @@ pub fn main() !void {
     if (config.exit_on_empty and output_count == 0) {
         std.process.exit(1);
     }
-}
-
-fn getFieldValue(value: std.json.Value, field: FieldExpr) ?std.json.Value {
-    var result: std.json.Value = undefined;
-    switch (value) {
-        .object => |obj| {
-            result = obj.get(field.name) orelse return null;
-        },
-        else => return null,
-    }
-
-    if (field.index) |idx| {
-        switch (idx) {
-            .single => |ind| return getIndex(result, ind),
-            .iterate => return null, // Use iterate expression instead
-        }
-    }
-
-    return result;
-}
-
-fn getPathValue(value: std.json.Value, path_expr: PathExpr) ?std.json.Value {
-    var result = getPath(value, path_expr.parts) orelse return null;
-
-    if (path_expr.index) |idx| {
-        switch (idx) {
-            .single => |ind| return getIndex(result, ind),
-            .iterate => return null,
-        }
-    }
-
-    return result;
 }
 
 // ============================================================================
