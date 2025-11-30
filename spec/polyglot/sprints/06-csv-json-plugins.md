@@ -1,8 +1,10 @@
-# Sprint 05: CSV & JSON Plugins
+# Sprint 06: CSV & JSON Plugins
+
+**Status:** 🔲 PLANNED
 
 **Goal:** Build production CSV and JSON plugins using jn-plugin library
 
-**Prerequisite:** Sprint 04 complete (jn-plugin library)
+**Prerequisite:** Sprint 05 complete (jn-plugin library)
 
 ---
 

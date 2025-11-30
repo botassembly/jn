@@ -1,8 +1,10 @@
-# Sprint 06: Integration & Production
+# Sprint 07: Integration & Production
+
+**Status:** 🔲 PLANNED
 
 **Goal:** Full integration, testing, and production readiness
 
-**Prerequisite:** Sprint 05 complete (CSV/JSON plugins working)
+**Prerequisite:** Sprint 06 complete (CSV/JSON plugins working)
 
 ---
 

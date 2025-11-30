@@ -12,16 +12,19 @@ This plan outlines the migration of JN to a polyglot architecture with:
 - **Python plugins** - gmail, mcp, duckdb, and others (complex APIs)
 - **Core libraries** - Python, Zig for plugin development
 
-## jq Removal Timeline
+## Sprint Roadmap
 
-| Phase | Status | Description |
-|-------|--------|-------------|
-| Sprint 01 | ✅ Complete | ZQ foundation: identity, field access, select, pipes |
-| Sprint 02 | ✅ Complete | Extended: array iteration, slurp mode, arithmetic |
-| Sprint 03 | ✅ Complete | Aggregation: group_by, sort_by, map, string functions |
-| Sprint 04 | 🔲 Next | **jq removed:** `jn filter` uses ZQ, delete jq_.py |
+| Sprint | Status | Description |
+|--------|--------|-------------|
+| 01 | ✅ Complete | ZQ foundation: identity, field access, select, pipes |
+| 02 | ✅ Complete | Extended: array iteration, slurp mode, arithmetic |
+| 03 | ✅ Complete | Aggregation: group_by, sort_by, map, string functions |
+| 04 | 🔲 Next | **jq removed:** `jn filter` uses ZQ, delete jq_.py |
+| 05 | 🔲 Planned | Zig plugin library (jn-plugin) |
+| 06 | 🔲 Planned | CSV & JSON Zig plugins |
+| 07 | 🔲 Planned | Integration, CI/CD, production release |
 
-**Target:** jq fully removed in Sprint 04 (rip and replace, no deprecation)
+**jq removal:** Sprint 04 - rip and replace, no deprecation
 
 ## Architecture Overview
 
