@@ -55,7 +55,7 @@ def find_zq_binary() -> str | None:
     return None
 
 
-# Patterns that ZQ supports (Sprint 01 features)
+# Patterns that ZQ supports (Sprint 01 + Sprint 02 features)
 # Note: ZQ requires spaces around comparison operators (e.g., ".x > 10" not ".x>10")
 ZQ_SUPPORTED_PATTERNS = [
     r"^\.$",  # Identity
@@ -82,11 +82,40 @@ def zq_supports_expression(expr: str) -> bool:
     - Array iteration (.[], .items[])
     - Select with comparisons and boolean logic
 
+    ZQ does NOT support:
+    - Pipes inside select conditions (e.g., select(.x | tonumber > 5))
+    - Nested parentheses in conditions (e.g., select((.x > 1) and (.y < 2)))
+
     Returns:
         True if ZQ can handle this expression
     """
     expr = expr.strip()
-    return any(re.match(pattern, expr) for pattern in ZQ_SUPPORTED_PATTERNS)
+
+    # First check if basic pattern matches
+    if not any(re.match(pattern, expr) for pattern in ZQ_SUPPORTED_PATTERNS):
+        return False
+
+    # For select expressions, check for unsupported features
+    if expr.startswith("select("):
+        inner = expr[7:-1]  # Extract content inside select()
+        # ZQ doesn't support pipes inside select conditions
+        if "|" in inner:
+            return False
+        # ZQ doesn't support nested parentheses (except for grouping with and/or)
+        # Count parens - if more than one level deep, fall back to jq
+        depth = 0
+        max_depth = 0
+        for c in inner:
+            if c == "(":
+                depth += 1
+                max_depth = max(max_depth, depth)
+            elif c == ")":
+                depth -= 1
+        # Allow one level of parens for OR grouping like (.x == 1 or .x == 2)
+        if max_depth > 1:
+            return False
+
+    return True
 
 
 @click.command()
@@ -96,8 +125,17 @@ def zq_supports_expression(expr: str) -> bool:
     default=False,
     help="Use jq native --arg binding instead of string substitution.",
 )
+@click.option(
+    "-s",
+    "--slurp",
+    is_flag=True,
+    default=False,
+    help="Read entire input into array before filtering (jq -s mode). "
+    "Enables aggregations like group_by, sort_by, unique. "
+    "WARNING: Loads all data into memory.",
+)
 @pass_context
-def filter(ctx, query, native_args):
+def filter(ctx, query, native_args, slurp):
     """Filter NDJSON using jq expression or profile.
 
     QUERY can be either:
@@ -109,6 +147,12 @@ def filter(ctx, query, native_args):
     Two parameter modes for profiles:
     - Default: String substitution ($param -> "value")
     - --native-args: Uses jq's native --arg binding (type-safe)
+
+    Slurp mode (-s/--slurp):
+    - Collects all input into an array before filtering
+    - Enables aggregation: length, .[] iteration on collected data
+    - Uses ZQ for basic slurp expressions, jq for complex aggregations
+    - WARNING: Loads entire input into memory (not streaming)
 
     Examples:
         # Direct jq expression
@@ -122,6 +166,12 @@ def filter(ctx, query, native_args):
 
         # Force jq instead of ZQ
         JN_USE_JQ=1 jn cat data.csv | jn filter '.age > 25'
+
+        # Aggregation with slurp mode
+        jn cat data.csv | jn filter -s 'group_by(.status) | map({status: .[0].status, count: length})'
+
+        # Count total records
+        jn cat data.csv | jn filter -s 'length'
     """
     try:
         # Check if we should use ZQ for this expression
@@ -135,7 +185,10 @@ def filter(ctx, query, native_args):
 
         if use_zq_filter:
             # Use ZQ (fast path)
-            cmd = [zq_binary, query]
+            cmd = [zq_binary]
+            if slurp:
+                cmd.append("-s")
+            cmd.append(query)
         else:
             # Use jq (fallback for profiles and unsupported expressions)
             check_jq_available()
@@ -205,6 +258,10 @@ def filter(ctx, query, native_args):
             else:
                 # Direct jq expression
                 cmd = ["uv", "run", "--quiet", "--script", plugin.path, query]
+
+        # Add slurp flag if requested (only for jq plugin, ZQ uses -s added above)
+        if slurp and not use_zq_filter:
+            cmd.append("--jq-slurp")
 
         # Prepare stdin for subprocess
         try:
