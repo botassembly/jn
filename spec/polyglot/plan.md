@@ -23,14 +23,19 @@ This plan outlines the migration of JN to a polyglot architecture with:
 | 05 | 🔲 Planned | Zig plugin library (jn-plugin) |
 | 06 | 🔲 Planned | CSV & JSON Zig plugins |
 | 07 | 🔲 Planned | Integration, CI/CD, production release |
+| 08 | 🔲 Future | HTTP/compression Zig plugins |
+| 09 | 🔲 Future | **Zig core binary** (replace Python CLI) |
 
 **jq removal:** Sprint 04 - rip and replace, no deprecation
+**Zig CLI:** Sprint 09 - full Zig binary for <5ms startup
 
 ## Architecture Overview
 
+**Target architecture** (Python CLI replaced by Zig in later sprints):
+
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                     jn (Python CLI)                             │
+│                     jn (Zig binary)                             │
 │  ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌─────────────┐  │
 │  │    CLI    │  │  Address  │  │  Plugin   │  │  Pipeline   │  │
 │  │  Parser   │  │  Parser   │  │ Discovery │  │  Executor   │  │
@@ -41,7 +46,7 @@ This plan outlines the migration of JN to a polyglot architecture with:
         ▼                     ▼                     ▼
 ┌──────────────┐      ┌──────────────┐      ┌──────────────┐
 │   ZQ (Zig)   │      │ Zig Plugins  │      │Python Plugins│
-│              │      │   (Future)   │      │              │
+│              │      │              │      │              │
 │ • jq filter  │      │ • csv        │      │ • gmail      │
 │   replacement│      │ • json       │      │ • mcp        │
 │ • 2x faster  │      │ • http       │      │ • duckdb     │
@@ -49,6 +54,8 @@ This plan outlines the migration of JN to a polyglot architecture with:
 │              │      │              │      │ • table      │
 └──────────────┘      └──────────────┘      └──────────────┘
 ```
+
+**Current state:** Python CLI + ZQ (Sprints 01-03 complete)
 
 ---
 
