@@ -155,7 +155,7 @@ def discover_binary_plugins(binary_dir: Path) -> Dict[str, PluginMetadata]:
 
                 # Run --jn-meta to get plugin metadata
                 try:
-                    result = subprocess.run(
+                    result = subprocess.run(  # noqa: S603 - trusted binary from plugins dir
                         [str(binary), "--jn-meta"],
                         capture_output=True,
                         text=True,

@@ -22,8 +22,8 @@ This plan outlines the migration of JN to a polyglot architecture with:
 | 04 | ✅ Complete | **ZQ jq-compat:** slicing, optional access, has, del, entries |
 | 04a | ✅ Complete | **Zig 0.15.2 upgrade:** I/O refactor, build system updates |
 | 05 | ✅ Complete | **Error handling + jq removal:** ZQ enhanced, jq_.py deleted |
-| 06 | 🔲 Next | Zig plugin library (jn-plugin) |
-| 07 | 🔲 Planned | CSV & JSON Zig plugins |
+| 06 | ✅ Complete | **Zig plugin system:** JSONL plugin, binary discovery, 96x perf |
+| 07 | 🔲 Next | CSV & JSON Zig plugins |
 | 08 | 🔲 Planned | Integration, CI/CD, production release |
 | 09 | 🔲 Future | HTTP & compression Zig plugins |
 | 10 | 🔲 Future | **Zig core binary** (replace Python CLI) |
@@ -57,7 +57,7 @@ This plan outlines the migration of JN to a polyglot architecture with:
 └──────────────┘      └──────────────┘      └──────────────┘
 ```
 
-**Current state:** Python CLI + ZQ v0.5.0 (Sprints 01-05 complete, jq removed, Zig 0.15.2)
+**Current state:** Python CLI + ZQ v0.5.0 + JSONL Zig plugin (Sprints 01-06 complete, Zig 0.15.2)
 
 ---
 
@@ -555,34 +555,26 @@ def reads(url: str, config=None):
 
 ```
 jn/
-├── src/jn/                    # Python framework (partial, for complex resolution)
-├── core/                      # Zig core binary
-│   ├── src/
-│   │   ├── main.zig          # CLI entry
-│   │   ├── address.zig       # Address parser
-│   │   ├── discovery.zig     # Plugin discovery
-│   │   ├── pipeline.zig      # Pipeline executor
-│   │   └── pattern.zig       # Regex matching
-│   └── build.zig
-├── libs/
-│   ├── python/jn_plugin/     # Python core library
-│   ├── zig/jn-plugin/        # Zig core library
-│   └── rust/jn-plugin/       # Rust core library
-├── plugins/
-│   ├── zig/
-│   │   ├── csv/
-│   │   ├── json/
-│   │   ├── jsonl/
-│   │   ├── gz/
-│   │   ├── http/
-│   │   ├── yaml/
-│   │   └── toml/
-│   ├── rust/
-│   │   └── jq/
-│   └── python/               # Symlink to jn_home/plugins
+├── src/jn/                    # Python framework
+│   └── plugins/
+│       └── discovery.py      # Plugin discovery (Python + binary)
+├── zq/                        # ZQ filter binary
+│   ├── src/main.zig
+│   └── zig-out/bin/zq
+├── plugins/                   # Zig plugins (self-contained)
+│   └── zig/
+│       └── jsonl/            # JSONL plugin (Sprint 06)
+│           ├── main.zig
+│           └── bin/jsonl
 ├── jn_home/plugins/          # Python plugins (existing)
+│   ├── formats/              # csv, json, yaml, toml, etc.
+│   ├── protocols/            # http, gmail, mcp
+│   ├── filters/              # (empty - ZQ is binary)
+│   └── compression/          # gz
 └── spec/polyglot/            # Design docs
 ```
+
+**Note:** Self-contained Zig plugins (no shared library) - each plugin is a single executable.
 
 ---
 
