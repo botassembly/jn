@@ -5,11 +5,13 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     // Main ZQ executable
+    // Use LLVM backend for stable builds (x86 backend has some TODO panics in 0.15.x)
     const exe = b.addExecutable(.{
         .name = "zq",
-        .root_source_file = .{ .path = "src/main.zig" },
+        .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
+        .use_llvm = true,
     });
     b.installArtifact(exe);
 
@@ -24,9 +26,10 @@ pub fn build(b: *std.Build) void {
 
     // Unit tests
     const unit_tests = b.addTest(.{
-        .root_source_file = .{ .path = "src/main.zig" },
+        .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
+        .use_llvm = true,
     });
     const run_unit_tests = b.addRunArtifact(unit_tests);
     const test_step = b.step("test", "Run unit tests");
@@ -34,9 +37,10 @@ pub fn build(b: *std.Build) void {
 
     // Integration tests
     const integration_tests = b.addTest(.{
-        .root_source_file = .{ .path = "tests/integration.zig" },
+        .root_source_file = b.path("tests/integration.zig"),
         .target = target,
         .optimize = optimize,
+        .use_llvm = true,
     });
     const run_integration_tests = b.addRunArtifact(integration_tests);
     const integration_test_step = b.step("test-integration", "Run integration tests");

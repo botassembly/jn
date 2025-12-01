@@ -640,7 +640,7 @@ fn parseObject(allocator: std.mem.Allocator, expr: []const u8) ParseError!Expr {
         return .{ .object = .{ .fields = &[_]ObjectField{} } };
     }
 
-    var fields = std.ArrayList(ObjectField).init(allocator);
+    var fields: std.ArrayListUnmanaged(ObjectField) = .empty;
 
     // Split by comma (respecting nesting)
     var start: usize = 0;
@@ -661,13 +661,13 @@ fn parseObject(allocator: std.mem.Allocator, expr: []const u8) ParseError!Expr {
             const field_str = std.mem.trim(u8, inner[start..i], " \t");
             if (field_str.len > 0) {
                 const field = try parseObjectField(allocator, field_str);
-                try fields.append(field);
+                try fields.append(allocator, field);
             }
             start = i + 1;
         }
     }
 
-    return .{ .object = .{ .fields = try fields.toOwnedSlice() } };
+    return .{ .object = .{ .fields = try fields.toOwnedSlice(allocator) } };
 }
 
 fn parseObjectField(allocator: std.mem.Allocator, field_str: []const u8) ParseError!ObjectField {
@@ -829,7 +829,7 @@ fn parseSimpleCondition(allocator: std.mem.Allocator, expr: []const u8) ParseErr
 }
 
 fn parsePath(allocator: std.mem.Allocator, expr: []const u8) ParseError![][]const u8 {
-    var parts = std.ArrayList([]const u8).init(allocator);
+    var parts: std.ArrayListUnmanaged([]const u8) = .empty;
     const rest = if (expr.len > 0 and expr[0] == '.') expr[1..] else expr;
 
     var iter = std.mem.splitScalar(u8, rest, '.');
@@ -838,12 +838,12 @@ fn parsePath(allocator: std.mem.Allocator, expr: []const u8) ParseError![][]cons
             // Strip any array index notation for now
             const clean = if (std.mem.indexOf(u8, part, "[")) |idx| part[0..idx] else part;
             if (clean.len > 0) {
-                try parts.append(clean);
+                try parts.append(allocator, clean);
             }
         }
     }
 
-    return parts.toOwnedSlice();
+    return parts.toOwnedSlice(allocator);
 }
 
 fn parseValue(str: []const u8) ParseError!CompareValue {
@@ -939,7 +939,7 @@ fn parseArrayLiteral(allocator: std.mem.Allocator, expr: []const u8) ParseError!
         return .{ .array = .{ .elements = &[_]*Expr{} } };
     }
 
-    var elements = std.ArrayList(*Expr).init(allocator);
+    var elements: std.ArrayListUnmanaged(*Expr) = .empty;
 
     // Split by comma (respecting nesting)
     var start: usize = 0;
@@ -964,13 +964,13 @@ fn parseArrayLiteral(allocator: std.mem.Allocator, expr: []const u8) ParseError!
             if (elem_str.len > 0) {
                 const elem = try allocator.create(Expr);
                 elem.* = try parseExpr(allocator, elem_str);
-                try elements.append(elem);
+                try elements.append(allocator, elem);
             }
             start = i + 1;
         }
     }
 
-    return .{ .array = .{ .elements = try elements.toOwnedSlice() } };
+    return .{ .array = .{ .elements = try elements.toOwnedSlice(allocator) } };
 }
 
 // ============================================================================
@@ -1031,8 +1031,7 @@ fn getSlice(allocator: std.mem.Allocator, value: std.json.Value, slice: SliceExp
             const len = arr.items.len;
             if (len == 0) {
                 // Return empty array
-                var new_arr = std.json.Array.init(allocator);
-                return .{ .array = new_arr };
+                return .{ .array = .{ .items = &.{}, .capacity = 0, .allocator = allocator } };
             }
 
             // Resolve start index (handle negative)
@@ -1059,14 +1058,13 @@ fn getSlice(allocator: std.mem.Allocator, value: std.json.Value, slice: SliceExp
 
             // Ensure start <= end
             if (start_idx > end_idx) {
-                var new_arr = std.json.Array.init(allocator);
-                return .{ .array = new_arr };
+                return .{ .array = .{ .items = &.{}, .capacity = 0, .allocator = allocator } };
             }
 
-            // Create slice
-            var new_arr = std.json.Array.init(allocator);
-            try new_arr.appendSlice(arr.items[start_idx..end_idx]);
-            return .{ .array = new_arr };
+            // Create slice - copy the items to a new array
+            const slice_items = arr.items[start_idx..end_idx];
+            const new_items = try allocator.dupe(std.json.Value, slice_items);
+            return .{ .array = .{ .items = new_items, .capacity = new_items.len, .allocator = allocator } };
         },
         else => return null,
     }
@@ -1314,14 +1312,14 @@ fn evalExpr(allocator: std.mem.Allocator, expr: *const Expr, value: std.json.Val
         .pipe => |pipe| {
             // Evaluate left side, then for each result evaluate right side
             const left_results = try evalExpr(allocator, pipe.left, value);
-            var all_results = std.ArrayList(std.json.Value).init(allocator);
+            var all_results: std.ArrayListUnmanaged(std.json.Value) = .empty;
 
             for (left_results.values) |left_val| {
                 const right_results = try evalExpr(allocator, pipe.right, left_val);
-                try all_results.appendSlice(right_results.values);
+                try all_results.appendSlice(allocator, right_results.values);
             }
 
-            return EvalResult.multi(allocator, try all_results.toOwnedSlice());
+            return EvalResult.multi(allocator, try all_results.toOwnedSlice(allocator));
         },
 
         .builtin => |builtin| {
@@ -1664,7 +1662,7 @@ fn evalBuiltin(allocator: std.mem.Allocator, kind: BuiltinKind, value: std.json.
         .sort => {
             switch (value) {
                 .array => |arr| {
-                    var sorted = try allocator.alloc(std.json.Value, arr.items.len);
+                    const sorted = try allocator.alloc(std.json.Value, arr.items.len);
                     @memcpy(sorted, arr.items);
                     std.mem.sort(std.json.Value, sorted, {}, jsonLessThan);
                     return try EvalResult.single(allocator, .{ .array = .{ .items = sorted, .capacity = sorted.len, .allocator = allocator } });
@@ -1675,14 +1673,14 @@ fn evalBuiltin(allocator: std.mem.Allocator, kind: BuiltinKind, value: std.json.
         .unique => {
             switch (value) {
                 .array => |arr| {
-                    var result_list = std.ArrayList(std.json.Value).init(allocator);
+                    var result_list: std.ArrayListUnmanaged(std.json.Value) = .empty;
                     outer: for (arr.items) |item| {
                         for (result_list.items) |existing| {
                             if (jsonEqual(item, existing)) continue :outer;
                         }
-                        try result_list.append(item);
+                        try result_list.append(allocator, item);
                     }
-                    const result_slice = try result_list.toOwnedSlice();
+                    const result_slice = try result_list.toOwnedSlice(allocator);
                     return try EvalResult.single(allocator, .{ .array = .{ .items = result_slice, .capacity = result_slice.len, .allocator = allocator } });
                 },
                 else => return EvalResult.empty(allocator),
@@ -1691,16 +1689,16 @@ fn evalBuiltin(allocator: std.mem.Allocator, kind: BuiltinKind, value: std.json.
         .flatten => {
             switch (value) {
                 .array => |arr| {
-                    var result_list = std.ArrayList(std.json.Value).init(allocator);
+                    var result_list: std.ArrayListUnmanaged(std.json.Value) = .empty;
                     for (arr.items) |item| {
                         switch (item) {
                             .array => |inner| {
-                                try result_list.appendSlice(inner.items);
+                                try result_list.appendSlice(allocator, inner.items);
                             },
-                            else => try result_list.append(item),
+                            else => try result_list.append(allocator, item),
                         }
                     }
-                    const result_slice = try result_list.toOwnedSlice();
+                    const result_slice = try result_list.toOwnedSlice(allocator);
                     return try EvalResult.single(allocator, .{ .array = .{ .items = result_slice, .capacity = result_slice.len, .allocator = allocator } });
                 },
                 else => return EvalResult.empty(allocator),
@@ -1756,14 +1754,14 @@ fn evalBuiltin(allocator: std.mem.Allocator, kind: BuiltinKind, value: std.json.
                         },
                         .array => {
                             // Flatten arrays
-                            var result_list = std.ArrayList(std.json.Value).init(allocator);
+                            var result_list: std.ArrayListUnmanaged(std.json.Value) = .empty;
                             for (arr.items) |item| {
                                 switch (item) {
-                                    .array => |inner| try result_list.appendSlice(inner.items),
+                                    .array => |inner| try result_list.appendSlice(allocator, inner.items),
                                     else => {},
                                 }
                             }
-                            const result_slice = try result_list.toOwnedSlice();
+                            const result_slice = try result_list.toOwnedSlice(allocator);
                             return try EvalResult.single(allocator, .{ .array = .{ .items = result_slice, .capacity = result_slice.len, .allocator = allocator } });
                         },
                         else => return EvalResult.empty(allocator),
@@ -2025,12 +2023,12 @@ fn evalStrFunc(allocator: std.mem.Allocator, sf: StrFuncExpr, value: std.json.Va
         .split => {
             switch (value) {
                 .string => |s| {
-                    var result_list = std.ArrayList(std.json.Value).init(allocator);
+                    var result_list: std.ArrayListUnmanaged(std.json.Value) = .empty;
                     var iter = std.mem.splitSequence(u8, s, sf.arg);
                     while (iter.next()) |part| {
-                        try result_list.append(.{ .string = part });
+                        try result_list.append(allocator, .{ .string = part });
                     }
-                    const result_slice = try result_list.toOwnedSlice();
+                    const result_slice = try result_list.toOwnedSlice(allocator);
                     return try EvalResult.single(allocator, .{ .array = .{ .items = result_slice, .capacity = result_slice.len, .allocator = allocator } });
                 },
                 else => return EvalResult.empty(allocator),
@@ -2145,12 +2143,12 @@ fn evalStrFunc(allocator: std.mem.Allocator, sf: StrFuncExpr, value: std.json.Va
 fn evalMap(allocator: std.mem.Allocator, m: MapExpr, value: std.json.Value) EvalError!EvalResult {
     switch (value) {
         .array => |arr| {
-            var result_list = std.ArrayList(std.json.Value).init(allocator);
+            var result_list: std.ArrayListUnmanaged(std.json.Value) = .empty;
             for (arr.items) |item| {
                 const item_result = try evalExpr(allocator, m.inner, item);
-                try result_list.appendSlice(item_result.values);
+                try result_list.appendSlice(allocator, item_result.values);
             }
-            const result_slice = try result_list.toOwnedSlice();
+            const result_slice = try result_list.toOwnedSlice(allocator);
             return try EvalResult.single(allocator, .{ .array = .{ .items = result_slice, .capacity = result_slice.len, .allocator = allocator } });
         },
         else => return EvalResult.empty(allocator),
@@ -2163,7 +2161,7 @@ fn evalByFunc(allocator: std.mem.Allocator, bf: ByFuncExpr, value: std.json.Valu
             switch (bf.kind) {
                 .group_by => {
                     // Group by the path value
-                    var groups = std.StringHashMap(std.ArrayList(std.json.Value)).init(allocator);
+                    var groups = std.StringHashMap(std.ArrayListUnmanaged(std.json.Value)).init(allocator);
 
                     for (arr.items) |item| {
                         const key_val = getPath(item, bf.path) orelse continue;
@@ -2179,23 +2177,23 @@ fn evalByFunc(allocator: std.mem.Allocator, bf: ByFuncExpr, value: std.json.Valu
 
                         const entry = try groups.getOrPut(key_str);
                         if (!entry.found_existing) {
-                            entry.value_ptr.* = std.ArrayList(std.json.Value).init(allocator);
+                            entry.value_ptr.* = .empty;
                         }
-                        try entry.value_ptr.*.append(item);
+                        try entry.value_ptr.*.append(allocator, item);
                     }
 
                     // Convert to array of arrays
-                    var result_list = std.ArrayList(std.json.Value).init(allocator);
+                    var result_list: std.ArrayListUnmanaged(std.json.Value) = .empty;
                     var iter = groups.valueIterator();
                     while (iter.next()) |group| {
-                        const items = try group.toOwnedSlice();
-                        try result_list.append(.{ .array = .{ .items = items, .capacity = items.len, .allocator = allocator } });
+                        const items = try group.toOwnedSlice(allocator);
+                        try result_list.append(allocator, .{ .array = .{ .items = items, .capacity = items.len, .allocator = allocator } });
                     }
-                    const result_slice = try result_list.toOwnedSlice();
+                    const result_slice = try result_list.toOwnedSlice(allocator);
                     return try EvalResult.single(allocator, .{ .array = .{ .items = result_slice, .capacity = result_slice.len, .allocator = allocator } });
                 },
                 .sort_by => {
-                    var sorted = try allocator.alloc(std.json.Value, arr.items.len);
+                    const sorted = try allocator.alloc(std.json.Value, arr.items.len);
                     @memcpy(sorted, arr.items);
 
                     const SortCtx = struct {
@@ -2212,7 +2210,7 @@ fn evalByFunc(allocator: std.mem.Allocator, bf: ByFuncExpr, value: std.json.Valu
                     return try EvalResult.single(allocator, .{ .array = .{ .items = sorted, .capacity = sorted.len, .allocator = allocator } });
                 },
                 .unique_by => {
-                    var result_list = std.ArrayList(std.json.Value).init(allocator);
+                    var result_list: std.ArrayListUnmanaged(std.json.Value) = .empty;
                     var seen = std.StringHashMap(void).init(allocator);
 
                     for (arr.items) |item| {
@@ -2229,10 +2227,10 @@ fn evalByFunc(allocator: std.mem.Allocator, bf: ByFuncExpr, value: std.json.Valu
 
                         const entry = try seen.getOrPut(key_str);
                         if (!entry.found_existing) {
-                            try result_list.append(item);
+                            try result_list.append(allocator, item);
                         }
                     }
-                    const result_slice = try result_list.toOwnedSlice();
+                    const result_slice = try result_list.toOwnedSlice(allocator);
                     return try EvalResult.single(allocator, .{ .array = .{ .items = result_slice, .capacity = result_slice.len, .allocator = allocator } });
                 },
                 .min_by => {
@@ -2272,16 +2270,16 @@ fn evalByFunc(allocator: std.mem.Allocator, bf: ByFuncExpr, value: std.json.Valu
 }
 
 fn evalArrayLiteral(allocator: std.mem.Allocator, arr_expr: ArrayExpr, value: std.json.Value) EvalError!EvalResult {
-    var result_list = std.ArrayList(std.json.Value).init(allocator);
+    var result_list: std.ArrayListUnmanaged(std.json.Value) = .empty;
 
     for (arr_expr.elements) |elem| {
         const elem_result = try evalExpr(allocator, elem, value);
         for (elem_result.values) |v| {
-            try result_list.append(v);
+            try result_list.append(allocator, v);
         }
     }
 
-    const result_slice = try result_list.toOwnedSlice();
+    const result_slice = try result_list.toOwnedSlice(allocator);
     return try EvalResult.single(allocator, .{ .array = .{ .items = result_slice, .capacity = result_slice.len, .allocator = allocator } });
 }
 
@@ -2289,7 +2287,8 @@ fn evalArrayLiteral(allocator: std.mem.Allocator, arr_expr: ArrayExpr, value: st
 // Output
 // ============================================================================
 
-fn writeJson(writer: anytype, value: std.json.Value, config: Config) !void {
+fn writeJson(allocator: std.mem.Allocator, writer: anytype, value: std.json.Value, config: Config) !void {
+    _ = allocator; // Arena allocator available if needed
     if (config.raw_strings) {
         switch (value) {
             .string => |s| {
@@ -2299,7 +2298,66 @@ fn writeJson(writer: anytype, value: std.json.Value, config: Config) !void {
             else => {},
         }
     }
-    try std.json.stringify(value, .{}, writer);
+    try writeJsonValue(writer, value);
+}
+
+fn writeJsonValue(writer: anytype, value: std.json.Value) !void {
+    switch (value) {
+        .null => try writer.writeAll("null"),
+        .bool => |b| try writer.writeAll(if (b) "true" else "false"),
+        .integer => |i| try writer.print("{d}", .{i}),
+        .float => |f| {
+            // Handle special cases for JSON compatibility
+            if (std.math.isNan(f) or std.math.isInf(f)) {
+                try writer.writeAll("null");
+            } else {
+                try writer.print("{d}", .{f});
+            }
+        },
+        .number_string => |s| try writer.writeAll(s),
+        .string => |s| {
+            try writer.writeByte('"');
+            for (s) |c| {
+                switch (c) {
+                    '"' => try writer.writeAll("\\\""),
+                    '\\' => try writer.writeAll("\\\\"),
+                    '\n' => try writer.writeAll("\\n"),
+                    '\r' => try writer.writeAll("\\r"),
+                    '\t' => try writer.writeAll("\\t"),
+                    else => {
+                        if (c < 0x20) {
+                            try writer.print("\\u{x:0>4}", .{c});
+                        } else {
+                            try writer.writeByte(c);
+                        }
+                    },
+                }
+            }
+            try writer.writeByte('"');
+        },
+        .array => |arr| {
+            try writer.writeByte('[');
+            for (arr.items, 0..) |item, i| {
+                if (i > 0) try writer.writeByte(',');
+                try writeJsonValue(writer, item);
+            }
+            try writer.writeByte(']');
+        },
+        .object => |obj| {
+            try writer.writeByte('{');
+            var first = true;
+            var iter = obj.iterator();
+            while (iter.next()) |entry| {
+                if (!first) try writer.writeByte(',');
+                first = false;
+                try writer.writeByte('"');
+                try writer.writeAll(entry.key_ptr.*);
+                try writer.writeAll("\":");
+                try writeJsonValue(writer, entry.value_ptr.*);
+            }
+            try writer.writeByte('}');
+        },
+    }
 }
 
 // ============================================================================
@@ -2493,14 +2551,16 @@ pub fn main() !void {
         std.process.exit(1);
     };
 
-    const stdin = std.io.getStdIn();
-    const stdout = std.io.getStdOut();
-    var buf_reader = std.io.bufferedReader(stdin.reader());
-    var buf_writer = std.io.bufferedWriter(stdout.writer());
-    const reader = buf_reader.reader();
-    const writer = buf_writer.writer();
+    // Zig 0.15.2 I/O with buffered reader/writer
+    // Buffer for reading JSON lines (64KB max line)
+    var stdin_buffer: [64 * 1024]u8 = undefined;
+    var stdin_reader_wrapper = std.fs.File.stdin().reader(&stdin_buffer);
+    const reader = &stdin_reader_wrapper.interface;
 
-    var line_buf: [1024 * 1024]u8 = undefined; // 1MB line buffer
+    var stdout_buffer: [8192]u8 = undefined;
+    var stdout_writer_wrapper = std.fs.File.stdout().writer(&stdout_buffer);
+    const writer = &stdout_writer_wrapper.interface;
+
     var arena = std.heap.ArenaAllocator.init(page_alloc);
     defer arena.deinit();
 
@@ -2508,27 +2568,32 @@ pub fn main() !void {
 
     if (config.slurp) {
         // Slurp mode: collect all JSON values into an array, then apply expression
-        var slurp_values = std.ArrayList(std.json.Value).init(arena.allocator());
+        var slurp_values: std.ArrayListUnmanaged(std.json.Value) = .empty;
 
-        while (reader.readUntilDelimiterOrEof(&line_buf, '\n')) |maybe_line| {
-            const line = maybe_line orelse break;
-            if (line.len == 0) continue;
-
-            // Make a copy of the line since line_buf gets reused
-            const line_copy = try arena.allocator().dupe(u8, line);
-
-            const parsed = std.json.parseFromSlice(std.json.Value, arena.allocator(), line_copy, .{}) catch {
-                if (!config.skip_invalid) {
-                    std.debug.print("Error: malformed JSON\n", .{});
-                    std.process.exit(1);
-                }
-                continue;
-            };
-            try slurp_values.append(parsed.value);
-        } else |err| {
-            if (err != error.EndOfStream) {
+        // Use takeDelimiter which returns null at EOF
+        while (true) {
+            const maybe_line = reader.takeDelimiter('\n') catch |err| {
                 std.debug.print("Read error: {}\n", .{err});
                 std.process.exit(1);
+            };
+
+            if (maybe_line) |line| {
+                if (line.len == 0) continue;
+
+                // Make a copy of the line since the reader buffer gets reused
+                const line_copy = try arena.allocator().dupe(u8, line);
+
+                const parsed = std.json.parseFromSlice(std.json.Value, arena.allocator(), line_copy, .{}) catch {
+                    if (!config.skip_invalid) {
+                        std.debug.print("Error: malformed JSON\n", .{});
+                        std.process.exit(1);
+                    }
+                    continue;
+                };
+                try slurp_values.append(arena.allocator(), parsed.value);
+            } else {
+                // EOF reached
+                break;
             }
         }
 
@@ -2546,46 +2611,51 @@ pub fn main() !void {
         };
 
         for (results.values) |result| {
-            try writeJson(writer, result, config);
+            try writeJson(arena.allocator(), writer, result, config);
             try writer.writeByte('\n');
             output_count += 1;
         }
     } else {
         // Normal streaming mode
-        while (reader.readUntilDelimiterOrEof(&line_buf, '\n')) |maybe_line| {
-            const line = maybe_line orelse break;
-            if (line.len == 0) continue;
-
-            _ = arena.reset(.retain_capacity);
-
-            const parsed = std.json.parseFromSlice(std.json.Value, arena.allocator(), line, .{}) catch {
-                if (!config.skip_invalid) {
-                    std.debug.print("Error: malformed JSON\n", .{});
-                    std.process.exit(1);
-                }
-                continue;
-            };
-            const value = parsed.value;
-
-            const results = evalExpr(arena.allocator(), &expr, value) catch |err| {
-                std.debug.print("Evaluation error: {}\n", .{err});
-                continue;
-            };
-
-            for (results.values) |result| {
-                try writeJson(writer, result, config);
-                try writer.writeByte('\n');
-                output_count += 1;
-            }
-        } else |err| {
-            if (err != error.EndOfStream) {
+        // Use takeDelimiter which returns null at EOF instead of spinning on empty slices
+        while (true) {
+            const maybe_line = reader.takeDelimiter('\n') catch |err| {
                 std.debug.print("Read error: {}\n", .{err});
                 std.process.exit(1);
+            };
+
+            if (maybe_line) |line| {
+                if (line.len == 0) continue;
+
+                _ = arena.reset(.retain_capacity);
+
+                const parsed = std.json.parseFromSlice(std.json.Value, arena.allocator(), line, .{}) catch {
+                    if (!config.skip_invalid) {
+                        std.debug.print("Error: malformed JSON\n", .{});
+                        std.process.exit(1);
+                    }
+                    continue;
+                };
+                const value = parsed.value;
+
+                const results = evalExpr(arena.allocator(), &expr, value) catch |err| {
+                    std.debug.print("Evaluation error: {}\n", .{err});
+                    continue;
+                };
+
+                for (results.values) |result| {
+                    try writeJson(arena.allocator(), writer, result, config);
+                    try writer.writeByte('\n');
+                    output_count += 1;
+                }
+            } else {
+                // EOF reached
+                break;
             }
         }
     }
 
-    try buf_writer.flush();
+    try writer.flush();
 
     if (config.exit_on_empty and output_count == 0) {
         std.process.exit(1);
