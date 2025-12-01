@@ -52,11 +52,9 @@ const CompoundCondition = struct {
 const IndexExpr = union(enum) {
     single: i64, // .[0] or .[-1]
     iterate, // .[]
-    // Sprint 04: slice syntax .[n:m]
-    slice: SliceExpr,
+    slice: SliceExpr, // .[n:m]
 };
 
-// Sprint 04: Slice expression .[n:m]
 const SliceExpr = struct {
     start: ?i64, // null means from beginning
     end: ?i64, // null means to end
@@ -80,7 +78,6 @@ const Expr = union(enum) {
     map: MapExpr, // map(expr)
     by_func: ByFuncExpr, // group_by(.field), sort_by(.field), etc.
     array: ArrayExpr, // [.x, .y, .z]
-    // Sprint 04 additions
     del: DelExpr, // del(.key)
 };
 
@@ -139,7 +136,6 @@ const BuiltinKind = enum {
     // String functions (Sprint 03)
     ascii_downcase,
     ascii_upcase,
-    // Sprint 04: Entry conversion
     to_entries,
     from_entries,
 };
@@ -176,13 +172,13 @@ const ArithmeticExpr = struct {
 const FieldExpr = struct {
     name: []const u8,
     index: ?IndexExpr = null,
-    optional: bool = false, // Sprint 04: .foo? syntax
+    optional: bool = false, // .foo? syntax
 };
 
 const PathExpr = struct {
     parts: [][]const u8,
     index: ?IndexExpr = null,
-    optional: bool = false, // Sprint 04: .foo.bar? syntax
+    optional: bool = false, // .foo.bar? syntax
 };
 
 const IterateExpr = struct {
@@ -198,7 +194,6 @@ const StrFuncKind = enum {
     contains, // contains("foo")
     ltrimstr, // ltrimstr("prefix")
     rtrimstr, // rtrimstr("suffix")
-    // Sprint 04: has(key)
     has, // has("key")
 };
 
@@ -231,7 +226,6 @@ const ArrayExpr = struct {
     elements: []*Expr,
 };
 
-// Sprint 04: del(.key) expression
 const DelExpr = struct {
     paths: [][]const u8, // paths to delete (e.g., ["x"] or ["a", "b"] for .a.b)
 };
@@ -426,11 +420,9 @@ fn parseExpr(allocator: std.mem.Allocator, expr: []const u8) ParseError!Expr {
     if (std.mem.eql(u8, trimmed, "max")) return .{ .builtin = .{ .kind = .max } };
     if (std.mem.eql(u8, trimmed, "ascii_downcase")) return .{ .builtin = .{ .kind = .ascii_downcase } };
     if (std.mem.eql(u8, trimmed, "ascii_upcase")) return .{ .builtin = .{ .kind = .ascii_upcase } };
-    // Sprint 04: Entry conversion functions
     if (std.mem.eql(u8, trimmed, "to_entries")) return .{ .builtin = .{ .kind = .to_entries } };
     if (std.mem.eql(u8, trimmed, "from_entries")) return .{ .builtin = .{ .kind = .from_entries } };
 
-    // Sprint 04: del(.key)
     if (std.mem.startsWith(u8, trimmed, "del(") and std.mem.endsWith(u8, trimmed, ")")) {
         const inner_str = trimmed[4 .. trimmed.len - 1];
         // Parse the path expression inside del()
@@ -482,7 +474,6 @@ fn parseExpr(allocator: std.mem.Allocator, expr: []const u8) ParseError!Expr {
 
     // Field path with optional iteration: .foo or .foo.bar or .items[]
     if (trimmed[0] == '.') {
-        // Sprint 04: Check for optional suffix
         var optional = false;
         var expr_str = trimmed;
         if (std.mem.endsWith(u8, trimmed, "?")) {
@@ -504,7 +495,6 @@ fn parseExpr(allocator: std.mem.Allocator, expr: []const u8) ParseError!Expr {
             if (std.mem.endsWith(u8, expr_str, "]") and bracket_pos > 0) {
                 const idx_str = expr_str[bracket_pos + 1 .. expr_str.len - 1];
 
-                // Sprint 04: Check for slice syntax (contains colon)
                 if (std.mem.indexOf(u8, idx_str, ":")) |colon_pos| {
                     // Parse slice: [n:m], [:m], [n:], [:]
                     const start_str = idx_str[0..colon_pos];
@@ -885,7 +875,6 @@ fn parseStrFunc(allocator: std.mem.Allocator, expr: []const u8) ParseError!?Expr
         .{ .name = "contains", .kind = .contains },
         .{ .name = "ltrimstr", .kind = .ltrimstr },
         .{ .name = "rtrimstr", .kind = .rtrimstr },
-        // Sprint 04: has(key)
         .{ .name = "has", .kind = .has },
     };
 
@@ -992,7 +981,6 @@ fn getPath(value: std.json.Value, path: [][]const u8) ?std.json.Value {
     return current;
 }
 
-// Sprint 04: Helper to get field value without index handling
 fn getFieldValueBase(value: std.json.Value, name: []const u8) ?std.json.Value {
     switch (value) {
         .object => |obj| {
@@ -1024,7 +1012,6 @@ fn getIndex(value: std.json.Value, index: i64) ?std.json.Value {
     }
 }
 
-// Sprint 04: Array slicing .[n:m]
 fn getSlice(allocator: std.mem.Allocator, value: std.json.Value, slice: SliceExpr) !?std.json.Value {
     switch (value) {
         .array => |arr| {
@@ -1248,7 +1235,6 @@ fn evalExpr(allocator: std.mem.Allocator, expr: *const Expr, value: std.json.Val
                             return EvalResult.empty(allocator);
                         },
                         .iterate => return EvalResult.empty(allocator),
-                        // Sprint 04: Handle slice
                         .slice => |slice| {
                             if (try getSlice(allocator, base_val, slice)) |v| {
                                 return try EvalResult.single(allocator, v);
@@ -1275,7 +1261,6 @@ fn evalExpr(allocator: std.mem.Allocator, expr: *const Expr, value: std.json.Val
                             return EvalResult.empty(allocator);
                         },
                         .iterate => return EvalResult.empty(allocator),
-                        // Sprint 04: Handle slice
                         .slice => |slice| {
                             if (try getSlice(allocator, base_val, slice)) |v| {
                                 return try EvalResult.single(allocator, v);
@@ -1391,14 +1376,12 @@ fn evalExpr(allocator: std.mem.Allocator, expr: *const Expr, value: std.json.Val
             return evalArrayLiteral(allocator, arr_expr, value);
         },
 
-        // Sprint 04: del(.key)
         .del => |del_expr| {
             return evalDel(allocator, del_expr, value);
         },
     }
 }
 
-// Sprint 04: Evaluate del(.key) expression
 fn evalDel(allocator: std.mem.Allocator, del_expr: DelExpr, value: std.json.Value) EvalError!EvalResult {
     switch (value) {
         .object => |obj| {
@@ -1774,7 +1757,6 @@ fn evalBuiltin(allocator: std.mem.Allocator, kind: BuiltinKind, value: std.json.
             }
         },
 
-        // Sprint 04: to_entries - convert object to array of {key, value}
         .to_entries => {
             switch (value) {
                 .object => |obj| {
@@ -1792,7 +1774,6 @@ fn evalBuiltin(allocator: std.mem.Allocator, kind: BuiltinKind, value: std.json.
             }
         },
 
-        // Sprint 04: from_entries - convert array of {key, value} to object
         .from_entries => {
             switch (value) {
                 .array => |arr| {
@@ -2069,7 +2050,6 @@ fn evalStrFunc(allocator: std.mem.Allocator, sf: StrFuncExpr, value: std.json.Va
                 else => return EvalResult.empty(allocator),
             }
         },
-        // Sprint 04: has(key) - check if object has key
         .has => {
             switch (value) {
                 .object => |obj| {
@@ -2350,7 +2330,7 @@ fn printUsage() void {
         \\  ltrimstr("s")      Remove prefix
         \\  rtrimstr("s")      Remove suffix
         \\
-        \\OBJECT FUNCTIONS (Sprint 04):
+        \\OBJECT FUNCTIONS:
         \\  has("key")         Test if object has key
         \\  del(.key)          Delete key from object
         \\  to_entries         Object → [{key,value},...]
@@ -3296,10 +3276,6 @@ test "eval flatten" {
     const arr = result.values[0].array;
     try std.testing.expectEqual(@as(usize, 4), arr.items.len);
 }
-
-// ============================================================================
-// Sprint 04 Tests
-// ============================================================================
 
 test "parse slice" {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
