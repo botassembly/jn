@@ -94,9 +94,6 @@ class AddressResolver:
     def _plugin_supports_mode(self, plugin: PluginMetadata, mode: str) -> bool:
         """Check if a plugin supports the requested mode.
 
-        Binary plugins have explicit modes in metadata.
-        Python plugins without explicit modes are assumed to support all modes.
-
         Args:
             plugin: Plugin metadata
             mode: Mode to check ("read" or "write")
@@ -104,36 +101,11 @@ class AddressResolver:
         Returns:
             True if plugin supports the mode
         """
-        # Binary plugins have explicit modes - check them
-        if plugin.is_binary:
-            # Binary plugins must declare supported modes via --jn-meta
-            # modes are stored as part of the metadata during discovery
-            # Check if plugin has modes attribute (from --jn-meta output)
-            # Note: discover_binary_plugins stores modes in the metadata
-            # but PluginMetadata doesn't have a modes field, so we need to
-            # check by re-running --jn-meta or storing modes during discovery
-            # For now, we'll check the binary directly
-            import json
-            import subprocess
-
-            try:
-                result = subprocess.run(
-                    [plugin.path, "--jn-meta"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                )
-                if result.returncode == 0:
-                    meta = json.loads(result.stdout.strip())
-                    modes = meta.get("modes", [])
-                    return mode in modes
-            except Exception:
-                pass
-            # If we can't check, assume binary supports the mode
+        # If modes is None, plugin supports all modes (Python plugins, legacy)
+        if plugin.modes is None:
             return True
-
-        # Python plugins without explicit modes support all modes
-        return True
+        # Otherwise check if mode is in the declared modes list
+        return mode in plugin.modes
 
     def resolve(self, address: Address, mode: str = "read") -> ResolvedAddress:
         """Resolve address to plugin and configuration.
@@ -508,13 +480,13 @@ class AddressResolver:
         # Check if it's a common format plugin in bundled plugins
         # Look for plugins in formats/ subdirectory
         for name, meta in self._plugins.items():
-            if (
+            matches_format = (
                 name == format_name
                 or name == f"{format_name}_"
                 or f"/formats/{format_name}" in meta.path
-            ):
-                if self._plugin_supports_mode(meta, mode):
-                    return meta.name, meta.path
+            )
+            if matches_format and self._plugin_supports_mode(meta, mode):
+                return meta.name, meta.path
 
         # Build list of available format plugins (exclude protocols, filters, etc.)
         format_plugins = sorted(

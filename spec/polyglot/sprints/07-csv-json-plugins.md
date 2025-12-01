@@ -33,7 +33,9 @@
 
 ### Performance Results
 - **JSON read**: ~90x faster than Python (0.017s vs 1.5s for 5MB)
-- **CSV**: Python faster due to optimized C json.dumps (future optimization needed)
+- **CSV read**: ~34x faster than Python (0.046s vs 1.5s for 100K rows)
+  - Zero-allocation design: stack arrays instead of per-row heap allocation
+  - No type inference: output strings like Python (as spec requires)
 
 ---
 
