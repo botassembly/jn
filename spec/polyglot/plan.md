@@ -21,14 +21,14 @@ This plan outlines the migration of JN to a polyglot architecture with:
 | 03 | ✅ Complete | Aggregation: group_by, sort_by, map, string functions |
 | 04 | ✅ Complete | **ZQ jq-compat:** slicing, optional access, has, del, entries |
 | 04a | ✅ Complete | **Zig 0.15.2 upgrade:** I/O refactor, build system updates |
-| 05 | 🔲 Next | **Error handling + jq removal:** improve errors, then remove jq |
-| 06 | 🔲 Planned | Zig plugin library (jn-plugin) |
+| 05 | ✅ Complete | **Error handling + jq removal:** ZQ enhanced, jq_.py deleted |
+| 06 | 🔲 Next | Zig plugin library (jn-plugin) |
 | 07 | 🔲 Planned | CSV & JSON Zig plugins |
 | 08 | 🔲 Planned | Integration, CI/CD, production release |
 | 09 | 🔲 Future | HTTP & compression Zig plugins |
 | 10 | 🔲 Future | **Zig core binary** (replace Python CLI) |
 
-**jq removal:** Sprint 05 - error handling first, then rip and replace
+**jq removal:** ✅ Sprint 05 complete - ZQ is now the only filter engine
 **Zig CLI:** Sprint 10 - full Zig binary for <5ms startup
 
 ## Architecture Overview
@@ -57,7 +57,7 @@ This plan outlines the migration of JN to a polyglot architecture with:
 └──────────────┘      └──────────────┘      └──────────────┘
 ```
 
-**Current state:** Python CLI + ZQ v0.4.0 (Sprints 01-04a complete, Zig 0.15.2)
+**Current state:** Python CLI + ZQ v0.5.0 (Sprints 01-05 complete, jq removed, Zig 0.15.2)
 
 ---
 
