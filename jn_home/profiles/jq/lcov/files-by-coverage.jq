@@ -15,11 +15,11 @@
   coverage: (.coverage | floor),
   range: (
     if .coverage < 20 then "0-20%"
-    elif .coverage < 40 then "20-40%"
-    elif .coverage < 60 then "40-60%"
-    elif .coverage < 80 then "60-80%"
+    else (if .coverage < 40 then "20-40%"
+    else (if .coverage < 60 then "40-60%"
+    else (if .coverage < 80 then "60-80%"
     else "80-100%"
-    end
+    end) end) end) end
   )
 }
 # Note: This outputs one record per function. To get per-file stats,

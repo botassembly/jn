@@ -3,6 +3,16 @@
 import json
 from pathlib import Path
 
+import pytest
+
+
+# Note: These tests use LCOV profiles with jq expressions.
+# ZQ now supports all required features:
+# - // (alternative operator)
+# - floor, ceil (math functions)
+# - if-then-else conditionals
+# - Object construction and merge
+
 
 def test_lcov_uncovered_functions(invoke, test_data):
     """Test @lcov/uncovered-functions profile finds 0% coverage functions."""

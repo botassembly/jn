@@ -23,24 +23,6 @@ def check_uv_available() -> None:
         sys.exit(1)
 
 
-def check_jq_available() -> None:
-    """Check if jq is available and exit with error if not.
-
-    Raises:
-        SystemExit: If jq is not found
-    """
-    if not shutil.which("jq"):
-        click.echo(
-            "Error: jq command not found\n"
-            "Install from: https://jqlang.github.io/jq/\n"
-            "  macOS: brew install jq\n"
-            "  Ubuntu/Debian: apt-get install jq\n"
-            "  Fedora: dnf install jq",
-            err=True,
-        )
-        sys.exit(1)
-
-
 def build_subprocess_env_for_coverage(home_dir=None) -> dict:
     """Shim to keep CLI code stable; implementation lives in process_utils."""
     from ..process_utils import build_subprocess_env_for_coverage as _impl

@@ -1,3 +1,3 @@
 # Filter sales above threshold
-# Parameters: threshold
-select((.amount | tonumber) > ($threshold | tonumber))
+# Parameters: threshold (numeric)
+select((.amount | tonumber) > $threshold)
