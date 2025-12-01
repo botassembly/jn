@@ -1,4 +1,4 @@
-.PHONY: all check test coverage clean install install-zig zq zq-test zq-bench zig-plugins zig-plugins-test jsonl-bench
+.PHONY: all check test coverage clean install install-zig zq zq-test zq-bench zig-plugins zig-plugins-test
 
 # Zig configuration
 ZIG_VERSION := 0.15.2
@@ -126,21 +126,6 @@ zig-plugins-test: zig-plugins
 	@echo "Testing JSONL plugin read mode..."
 	echo '{"name":"Alice","age":30}' | plugins/zig/jsonl/bin/jsonl --mode=read | python3 -c "import sys,json; json.load(sys.stdin); print('  read mode: OK')"
 	@echo "All Zig plugin tests passed"
-
-# Benchmark JSONL: Python vs Zig
-jsonl-bench: zig-plugins
-	@echo "=== JSONL Performance Comparison ==="
-	@echo "Generating 100k test records..."
-	@python3 -c "import json; [print(json.dumps({'id':i,'name':f'user_{i}','value':i*1.5})) for i in range(100000)]" > /tmp/jsonl_bench.jsonl
-	@echo ""
-	@echo "Python json_.py (read mode):"
-	@bash -c "time cat /tmp/jsonl_bench.jsonl | uv run python jn_home/plugins/formats/json_.py --mode=read > /dev/null" 2>&1 | grep -E "^real"
-	@echo ""
-	@echo "Zig jsonl (read mode):"
-	@bash -c "time cat /tmp/jsonl_bench.jsonl | plugins/zig/jsonl/bin/jsonl --mode=read > /dev/null" 2>&1 | grep -E "^real"
-	@echo ""
-	@echo "=== Benchmark complete ==="
-	@rm -f /tmp/jsonl_bench.jsonl
 
 publish:
 	@uv build
