@@ -7,7 +7,7 @@
 #   Output: {"file":"types.py","function":"ResolvedAddress.__str__","lines":6,"missing_lines":6}
 
 select(.coverage == 0)
-| select(.function != "")
+| select(.function | length > 0)
 | {
     file: .filename,
     function: .function,

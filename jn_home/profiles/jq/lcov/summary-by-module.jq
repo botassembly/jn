@@ -12,7 +12,7 @@
 
 # Extract module from file path and include key stats
 {
-  module: (.file | split("/")[:-1] | join("/")),
+  module: ((.file | split("/")) | .[:-1] | join("/")),
   file: .filename,
   function: .function,
   total_lines: .total_lines,

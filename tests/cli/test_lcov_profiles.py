@@ -6,12 +6,12 @@ from pathlib import Path
 import pytest
 
 
-# Note: Some LCOV profiles use advanced jq features not supported by ZQ:
+# Note: These tests use LCOV profiles with jq expressions.
+# ZQ now supports all required features:
 # - // (alternative operator)
 # - floor, ceil (math functions)
 # - if-then-else conditionals
-# - Complex object construction with expressions
-# These tests are skipped until ZQ supports these features.
+# - Object construction and merge
 
 
 def test_lcov_uncovered_functions(invoke, test_data):
@@ -41,7 +41,6 @@ def test_lcov_uncovered_functions(invoke, test_data):
     assert any(r.get("function") == "function_two" for r in records)
 
 
-@pytest.mark.skip(reason="Uses jq features not supported by ZQ (// operator, floor)")
 def test_lcov_functions_below_threshold(invoke, test_data):
     """Test @lcov/functions-below-threshold profile with parameter."""
     lcov_file = test_data / "sample.lcov"
@@ -70,7 +69,6 @@ def test_lcov_functions_below_threshold(invoke, test_data):
         assert r.get("coverage", 100) < 90
 
 
-@pytest.mark.skip(reason="Uses jq features not supported by ZQ (if-then-else, floor)")
 def test_lcov_files_by_coverage(invoke, test_data):
     """Test @lcov/files-by-coverage profile tags files with coverage ranges."""
     lcov_file = test_data / "sample.lcov"
@@ -100,7 +98,6 @@ def test_lcov_files_by_coverage(invoke, test_data):
         assert r["range"] in ["0-20%", "20-40%", "40-60%", "60-80%", "80-100%"]
 
 
-@pytest.mark.skip(reason="Uses jq features not supported by ZQ (split, join, array slice, floor)")
 def test_lcov_summary_by_module(invoke, test_data):
     """Test @lcov/summary-by-module profile extracts module paths."""
     lcov_file = test_data / "sample.lcov"
@@ -129,7 +126,6 @@ def test_lcov_summary_by_module(invoke, test_data):
     assert "src/module" in modules or "src/other" in modules
 
 
-@pytest.mark.skip(reason="Uses jq features not supported by ZQ (// operator, tonumber, floor)")
 def test_lcov_largest_gaps(invoke, test_data):
     """Test @lcov/largest-gaps profile finds functions with missing lines."""
     lcov_file = test_data / "sample.lcov"
@@ -157,7 +153,6 @@ def test_lcov_largest_gaps(invoke, test_data):
         assert r.get("missing", 0) >= 3
 
 
-@pytest.mark.skip(reason="Uses jq features not supported by ZQ (// operator, if-then-else, floor, object merge)")
 def test_lcov_hotspots(invoke, test_data):
     """Test @lcov/hotspots profile identifies large under-tested functions."""
     lcov_file = test_data / "sample.lcov"
@@ -187,7 +182,6 @@ def test_lcov_hotspots(invoke, test_data):
         assert "complexity_score" in r
 
 
-@pytest.mark.skip(reason="Uses jq features not supported by ZQ (// operator, tonumber, floor)")
 def test_lcov_poor_branch_coverage(invoke, test_data):
     """Test @lcov/poor-branch-coverage profile."""
     lcov_file = test_data / "sample.lcov"

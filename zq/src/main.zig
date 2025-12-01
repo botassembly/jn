@@ -140,6 +140,11 @@ const BuiltinKind = enum {
     ascii_upcase,
     to_entries,
     from_entries,
+    // Math functions (Sprint 05)
+    floor,
+    ceil,
+    round,
+    fabs,
 };
 
 const BuiltinExpr = struct {
@@ -618,6 +623,11 @@ fn parseExpr(allocator: std.mem.Allocator, expr: []const u8) ParseError!Expr {
     if (std.mem.eql(u8, trimmed, "ascii_upcase")) return .{ .builtin = .{ .kind = .ascii_upcase } };
     if (std.mem.eql(u8, trimmed, "to_entries")) return .{ .builtin = .{ .kind = .to_entries } };
     if (std.mem.eql(u8, trimmed, "from_entries")) return .{ .builtin = .{ .kind = .from_entries } };
+    // Sprint 05: Math functions
+    if (std.mem.eql(u8, trimmed, "floor")) return .{ .builtin = .{ .kind = .floor } };
+    if (std.mem.eql(u8, trimmed, "ceil")) return .{ .builtin = .{ .kind = .ceil } };
+    if (std.mem.eql(u8, trimmed, "round")) return .{ .builtin = .{ .kind = .round } };
+    if (std.mem.eql(u8, trimmed, "fabs")) return .{ .builtin = .{ .kind = .fabs } };
 
     if (std.mem.startsWith(u8, trimmed, "del(") and std.mem.endsWith(u8, trimmed, ")")) {
         const inner_str = trimmed[4 .. trimmed.len - 1];
@@ -892,8 +902,11 @@ fn parseObjectField(allocator: std.mem.Allocator, field_str: []const u8) ParseEr
             const key_expr = try allocator.create(Expr);
             key_expr.* = try parseExpr(allocator, key_part[1 .. key_part.len - 1]);
             key = .{ .dynamic = key_expr };
+        } else if (key_part.len >= 2 and key_part[0] == '"' and key_part[key_part.len - 1] == '"') {
+            // Quoted literal key: "foo" -> foo
+            key = .{ .literal = key_part[1 .. key_part.len - 1] };
         } else {
-            // Literal key
+            // Unquoted literal key: foo
             key = .{ .literal = key_part };
         }
 
@@ -2119,6 +2132,65 @@ fn evalBuiltin(allocator: std.mem.Allocator, kind: BuiltinKind, value: std.json.
                 else => return EvalResult.empty(allocator),
             }
         },
+        // Sprint 05: Math functions
+        .floor => {
+            switch (value) {
+                .integer => return try EvalResult.single(allocator, value),
+                .float => |f| {
+                    const floored = @floor(f);
+                    // Return as integer if it fits
+                    if (floored >= @as(f64, @floatFromInt(std.math.minInt(i64))) and
+                        floored <= @as(f64, @floatFromInt(std.math.maxInt(i64))))
+                    {
+                        return try EvalResult.single(allocator, .{ .integer = @as(i64, @intFromFloat(floored)) });
+                    }
+                    return try EvalResult.single(allocator, .{ .float = floored });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .ceil => {
+            switch (value) {
+                .integer => return try EvalResult.single(allocator, value),
+                .float => |f| {
+                    const ceiled = @ceil(f);
+                    if (ceiled >= @as(f64, @floatFromInt(std.math.minInt(i64))) and
+                        ceiled <= @as(f64, @floatFromInt(std.math.maxInt(i64))))
+                    {
+                        return try EvalResult.single(allocator, .{ .integer = @as(i64, @intFromFloat(ceiled)) });
+                    }
+                    return try EvalResult.single(allocator, .{ .float = ceiled });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .round => {
+            switch (value) {
+                .integer => return try EvalResult.single(allocator, value),
+                .float => |f| {
+                    const rounded = @round(f);
+                    if (rounded >= @as(f64, @floatFromInt(std.math.minInt(i64))) and
+                        rounded <= @as(f64, @floatFromInt(std.math.maxInt(i64))))
+                    {
+                        return try EvalResult.single(allocator, .{ .integer = @as(i64, @intFromFloat(rounded)) });
+                    }
+                    return try EvalResult.single(allocator, .{ .float = rounded });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .fabs => {
+            switch (value) {
+                .integer => |i| {
+                    const abs_val = if (i < 0) -i else i;
+                    return try EvalResult.single(allocator, .{ .integer = abs_val });
+                },
+                .float => |f| {
+                    return try EvalResult.single(allocator, .{ .float = @abs(f) });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
     }
 }
 
@@ -2232,6 +2304,29 @@ fn evalArithmetic(allocator: std.mem.Allocator, arith: ArithmeticExpr, value: st
         if (left_val == .string and right_val == .string) {
             const result = try std.fmt.allocPrint(allocator, "{s}{s}", .{ left_val.string, right_val.string });
             return try EvalResult.single(allocator, .{ .string = result });
+        }
+        // Object merge with + (jq semantics: right overrides left)
+        if (left_val == .object and right_val == .object) {
+            var merged = std.json.ObjectMap.init(allocator);
+            // Copy all from left
+            var left_iter = left_val.object.iterator();
+            while (left_iter.next()) |entry| {
+                try merged.put(entry.key_ptr.*, entry.value_ptr.*);
+            }
+            // Copy all from right (overrides left)
+            var right_iter = right_val.object.iterator();
+            while (right_iter.next()) |entry| {
+                try merged.put(entry.key_ptr.*, entry.value_ptr.*);
+            }
+            return try EvalResult.single(allocator, .{ .object = merged });
+        }
+        // Array concatenation with +
+        if (left_val == .array and right_val == .array) {
+            var result_list: std.ArrayListUnmanaged(std.json.Value) = .empty;
+            try result_list.appendSlice(allocator, left_val.array.items);
+            try result_list.appendSlice(allocator, right_val.array.items);
+            const result_slice = try result_list.toOwnedSlice(allocator);
+            return try EvalResult.single(allocator, .{ .array = .{ .items = result_slice, .capacity = result_slice.len, .allocator = allocator } });
         }
     }
 
