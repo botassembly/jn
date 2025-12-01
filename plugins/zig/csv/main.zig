@@ -129,6 +129,10 @@ fn readMode(allocator: std.mem.Allocator, config: Config) !void {
     var stdout_wrapper = std.fs.File.stdout().writer(&stdout_buf);
     const writer = &stdout_wrapper.interface;
 
+    // Pre-allocate reusable field indices (no per-row allocation)
+    var field_starts: [1024]usize = undefined;
+    var field_ends: [1024]usize = undefined;
+
     // Read and parse header row (unless --no-header)
     var headers = std.ArrayListUnmanaged([]const u8){};
     defer {
@@ -147,14 +151,12 @@ fn readMode(allocator: std.mem.Allocator, config: Config) !void {
             // Strip \r if present
             const clean_line = stripCR(header_line);
 
-            // Parse header fields
-            var field_list = std.ArrayListUnmanaged([]const u8){};
-            defer field_list.deinit(allocator);
+            // Parse header fields (store indices, not slices)
+            const field_count = parseCSVRowFast(clean_line, config.delimiter, &field_starts, &field_ends);
 
-            try parseCSVRow(allocator, clean_line, config.delimiter, &field_list);
-
-            // Store headers (need to dupe since parseCSVRow returns slices into line)
-            for (field_list.items) |field| {
+            // Store headers (only headers need allocation - they're reused)
+            for (0..field_count) |i| {
+                const field = unquoteField(clean_line[field_starts[i]..field_ends[i]]);
                 const duped = try allocator.dupe(u8, field);
                 try headers.append(allocator, duped);
             }
@@ -165,7 +167,7 @@ fn readMode(allocator: std.mem.Allocator, config: Config) !void {
         }
     }
 
-    // Read data rows
+    // Read data rows (zero allocation per row)
     while (true) {
         const maybe_line = reader.takeDelimiter('\n') catch |err| {
             std.debug.print("csv: read error: {}\n", .{err});
@@ -179,37 +181,37 @@ fn readMode(allocator: std.mem.Allocator, config: Config) !void {
             // Skip empty lines
             if (clean_line.len == 0) continue;
 
-            // Parse fields
-            var fields = std.ArrayListUnmanaged([]const u8){};
-            defer fields.deinit(allocator);
-
-            try parseCSVRow(allocator, clean_line, config.delimiter, &fields);
+            // Parse fields into pre-allocated arrays (no allocation!)
+            const field_count = parseCSVRowFast(clean_line, config.delimiter, &field_starts, &field_ends);
 
             // Output as JSON object
             try writer.writeByte('{');
 
             if (config.no_header) {
                 // Use column indices as keys
-                for (fields.items, 0..) |field, i| {
+                for (0..field_count) |i| {
                     if (i > 0) try writer.writeByte(',');
                     try writer.print("\"col{d}\":", .{i});
+                    const field = unquoteField(clean_line[field_starts[i]..field_ends[i]]);
                     try writeJsonValue(writer, field);
                 }
             } else {
                 // Use header names as keys
-                const num_fields = @min(fields.items.len, headers.items.len);
+                const num_fields = @min(field_count, headers.items.len);
                 for (0..num_fields) |i| {
                     if (i > 0) try writer.writeByte(',');
                     try writeJsonString(writer, headers.items[i]);
                     try writer.writeByte(':');
-                    try writeJsonValue(writer, fields.items[i]);
+                    const field = unquoteField(clean_line[field_starts[i]..field_ends[i]]);
+                    try writeJsonValue(writer, field);
                 }
                 // Handle extra fields (more than headers)
-                if (fields.items.len > headers.items.len) {
-                    for (headers.items.len..fields.items.len) |i| {
+                if (field_count > headers.items.len) {
+                    for (headers.items.len..field_count) |i| {
                         try writer.writeByte(',');
                         try writer.print("\"_extra{d}\":", .{i - headers.items.len});
-                        try writeJsonValue(writer, fields.items[i]);
+                        const field = unquoteField(clean_line[field_starts[i]..field_ends[i]]);
+                        try writeJsonValue(writer, field);
                     }
                 }
             }
@@ -222,6 +224,45 @@ fn readMode(allocator: std.mem.Allocator, config: Config) !void {
     }
 
     try writer.flush();
+}
+
+fn parseCSVRowFast(line: []const u8, delimiter: u8, starts: *[1024]usize, ends: *[1024]usize) usize {
+    var field_count: usize = 0;
+    var i: usize = 0;
+    var field_start: usize = 0;
+    var in_quotes = false;
+
+    while (i < line.len) : (i += 1) {
+        const c = line[i];
+
+        if (c == '"') {
+            if (in_quotes) {
+                // Check for escaped quote ("")
+                if (i + 1 < line.len and line[i + 1] == '"') {
+                    i += 1;
+                    continue;
+                }
+            }
+            in_quotes = !in_quotes;
+        } else if (c == delimiter and !in_quotes) {
+            // End of field
+            if (field_count < 1024) {
+                starts[field_count] = field_start;
+                ends[field_count] = i;
+                field_count += 1;
+            }
+            field_start = i + 1;
+        }
+    }
+
+    // Don't forget the last field
+    if (field_count < 1024) {
+        starts[field_count] = field_start;
+        ends[field_count] = line.len;
+        field_count += 1;
+    }
+
+    return field_count;
 }
 
 fn stripCR(line: []const u8) []const u8 {
@@ -294,42 +335,7 @@ fn writeJsonString(writer: anytype, s: []const u8) !void {
 }
 
 fn writeJsonValue(writer: anytype, value: []const u8) !void {
-    // Try to parse as number or boolean
-    if (value.len == 0) {
-        // Empty field -> null
-        try writer.writeAll("null");
-        return;
-    }
-
-    // Check for boolean
-    if (std.mem.eql(u8, value, "true") or std.mem.eql(u8, value, "TRUE") or std.mem.eql(u8, value, "True")) {
-        try writer.writeAll("true");
-        return;
-    }
-    if (std.mem.eql(u8, value, "false") or std.mem.eql(u8, value, "FALSE") or std.mem.eql(u8, value, "False")) {
-        try writer.writeAll("false");
-        return;
-    }
-
-    // Check for null
-    if (std.mem.eql(u8, value, "null") or std.mem.eql(u8, value, "NULL") or std.mem.eql(u8, value, "Null")) {
-        try writer.writeAll("null");
-        return;
-    }
-
-    // Try to parse as integer
-    if (std.fmt.parseInt(i64, value, 10)) |_| {
-        try writer.writeAll(value);
-        return;
-    } else |_| {}
-
-    // Try to parse as float
-    if (std.fmt.parseFloat(f64, value)) |_| {
-        try writer.writeAll(value);
-        return;
-    } else |_| {}
-
-    // Fall back to string
+    // Output as JSON string (no type inference - CSV values are text)
     try writeJsonString(writer, value);
 }
 
