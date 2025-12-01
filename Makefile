@@ -22,6 +22,15 @@ check:
 	@echo "Validating plugins and core with 'jn check'"
 	@uv run python -m jn.cli.main check plugins --format summary
 	@uv run python -m jn.cli.main check core --format summary
+	# Zig formatting check (if Zig is installed)
+	@if command -v $(ZIG) >/dev/null 2>&1; then \
+		echo "Checking Zig formatting..."; \
+		$(ZIG) fmt --check zq/src/ zq/tests/ || (echo "Run 'make zq-fmt' to fix"; exit 1); \
+	fi
+
+# Format Zig code
+zq-fmt: install-zig
+	$(ZIG) fmt zq/src/ zq/tests/
 
 test:
 	uv run pytest -q

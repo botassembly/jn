@@ -111,7 +111,7 @@ const ObjectExpr = struct {
 const BuiltinKind = enum {
     tonumber,
     tostring,
-    @"type",
+    type,
     length,
     keys,
     values,
@@ -399,7 +399,7 @@ fn parseExpr(allocator: std.mem.Allocator, expr: []const u8) ParseError!Expr {
     // Builtin functions (no arguments)
     if (std.mem.eql(u8, trimmed, "tonumber")) return .{ .builtin = .{ .kind = .tonumber } };
     if (std.mem.eql(u8, trimmed, "tostring")) return .{ .builtin = .{ .kind = .tostring } };
-    if (std.mem.eql(u8, trimmed, "type")) return .{ .builtin = .{ .kind = .@"type" } };
+    if (std.mem.eql(u8, trimmed, "type")) return .{ .builtin = .{ .kind = .type } };
     if (std.mem.eql(u8, trimmed, "length")) return .{ .builtin = .{ .kind = .length } };
     if (std.mem.eql(u8, trimmed, "keys")) return .{ .builtin = .{ .kind = .keys } };
     if (std.mem.eql(u8, trimmed, "values")) return .{ .builtin = .{ .kind = .values } };
@@ -1531,7 +1531,7 @@ fn evalBuiltin(allocator: std.mem.Allocator, kind: BuiltinKind, value: std.json.
                 else => return EvalResult.empty(allocator),
             }
         },
-        .@"type" => {
+        .type => {
             const type_str: []const u8 = switch (value) {
                 .null => "null",
                 .bool => "boolean",
