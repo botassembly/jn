@@ -228,6 +228,7 @@ const ArrayExpr = struct {
 
 const DelExpr = struct {
     paths: [][]const u8, // paths to delete (e.g., ["x"] or ["a", "b"] for .a.b)
+    index: ?i64 = null, // optional array index (e.g., 0 for del(.arr[0]))
 };
 
 const Config = struct {
@@ -427,8 +428,20 @@ fn parseExpr(allocator: std.mem.Allocator, expr: []const u8) ParseError!Expr {
         const inner_str = trimmed[4 .. trimmed.len - 1];
         // Parse the path expression inside del()
         if (std.mem.startsWith(u8, inner_str, ".")) {
-            const path = try parsePath(allocator, inner_str);
-            return .{ .del = .{ .paths = path } };
+            // Check for array index at end: del(.arr[0])
+            var path_str = inner_str;
+            var del_index: ?i64 = null;
+            if (std.mem.lastIndexOf(u8, inner_str, "[")) |bracket_pos| {
+                if (std.mem.endsWith(u8, inner_str, "]")) {
+                    const idx_str = inner_str[bracket_pos + 1 .. inner_str.len - 1];
+                    if (std.fmt.parseInt(i64, idx_str, 10)) |idx| {
+                        del_index = idx;
+                        path_str = inner_str[0..bracket_pos];
+                    } else |_| {}
+                }
+            }
+            const path = try parsePath(allocator, path_str);
+            return .{ .del = .{ .paths = path, .index = del_index } };
         }
     }
 
@@ -1385,26 +1398,60 @@ fn evalExpr(allocator: std.mem.Allocator, expr: *const Expr, value: std.json.Val
 fn evalDel(allocator: std.mem.Allocator, del_expr: DelExpr, value: std.json.Value) EvalError!EvalResult {
     switch (value) {
         .object => |obj| {
-            // Delete single key (first part of path)
             if (del_expr.paths.len == 1) {
+                const key = del_expr.paths[0];
+                // Check if we need to delete an array element: del(.arr[0])
+                if (del_expr.index) |idx| {
+                    var new_obj = std.json.ObjectMap.init(allocator);
+                    var it = obj.iterator();
+                    while (it.next()) |entry| {
+                        if (std.mem.eql(u8, entry.key_ptr.*, key)) {
+                            // Delete element from array
+                            switch (entry.value_ptr.*) {
+                                .array => |arr| {
+                                    var new_arr = std.json.Array.init(allocator);
+                                    const len = arr.items.len;
+                                    const actual_idx: ?usize = if (idx < 0)
+                                        if (@as(usize, @intCast(-idx)) <= len)
+                                            len - @as(usize, @intCast(-idx))
+                                        else
+                                            null
+                                    else if (@as(usize, @intCast(idx)) < len)
+                                        @as(usize, @intCast(idx))
+                                    else
+                                        null;
+                                    for (arr.items, 0..) |item, i| {
+                                        if (actual_idx == null or i != actual_idx.?) {
+                                            try new_arr.append(item);
+                                        }
+                                    }
+                                    try new_obj.put(entry.key_ptr.*, .{ .array = new_arr });
+                                },
+                                else => try new_obj.put(entry.key_ptr.*, entry.value_ptr.*),
+                            }
+                        } else {
+                            try new_obj.put(entry.key_ptr.*, entry.value_ptr.*);
+                        }
+                    }
+                    return try EvalResult.single(allocator, .{ .object = new_obj });
+                }
                 // Simple delete: del(.key)
                 var new_obj = std.json.ObjectMap.init(allocator);
                 var it = obj.iterator();
                 while (it.next()) |entry| {
-                    if (!std.mem.eql(u8, entry.key_ptr.*, del_expr.paths[0])) {
+                    if (!std.mem.eql(u8, entry.key_ptr.*, key)) {
                         try new_obj.put(entry.key_ptr.*, entry.value_ptr.*);
                     }
                 }
                 return try EvalResult.single(allocator, .{ .object = new_obj });
             } else if (del_expr.paths.len > 1) {
-                // Nested delete: del(.a.b)
-                // Clone object, navigate to parent, delete from parent
+                // Nested delete: del(.a.b) or del(.a.arr[0])
                 var new_obj = std.json.ObjectMap.init(allocator);
                 var it = obj.iterator();
                 while (it.next()) |entry| {
                     if (std.mem.eql(u8, entry.key_ptr.*, del_expr.paths[0])) {
-                        // This is the key containing the nested path - recurse
-                        const nested_del = DelExpr{ .paths = del_expr.paths[1..] };
+                        // Recurse with remaining path
+                        const nested_del = DelExpr{ .paths = del_expr.paths[1..], .index = del_expr.index };
                         const inner_result = try evalDel(allocator, nested_del, entry.value_ptr.*);
                         if (inner_result.values.len > 0) {
                             try new_obj.put(entry.key_ptr.*, inner_result.values[0]);
@@ -1417,7 +1464,31 @@ fn evalDel(allocator: std.mem.Allocator, del_expr: DelExpr, value: std.json.Valu
             }
             return try EvalResult.single(allocator, value);
         },
-        else => return try EvalResult.single(allocator, value), // Pass through non-objects
+        .array => |arr| {
+            // Direct array deletion: del(.[0]) on an array value
+            if (del_expr.paths.len == 0 and del_expr.index != null) {
+                const idx = del_expr.index.?;
+                var new_arr = std.json.Array.init(allocator);
+                const len = arr.items.len;
+                const actual_idx: ?usize = if (idx < 0)
+                    if (@as(usize, @intCast(-idx)) <= len)
+                        len - @as(usize, @intCast(-idx))
+                    else
+                        null
+                else if (@as(usize, @intCast(idx)) < len)
+                    @as(usize, @intCast(idx))
+                else
+                    null;
+                for (arr.items, 0..) |item, i| {
+                    if (actual_idx == null or i != actual_idx.?) {
+                        try new_arr.append(item);
+                    }
+                }
+                return try EvalResult.single(allocator, .{ .array = new_arr });
+            }
+            return try EvalResult.single(allocator, value);
+        },
+        else => return try EvalResult.single(allocator, value),
     }
 }
 
@@ -3440,6 +3511,52 @@ test "eval del missing key" {
     try std.testing.expectEqual(@as(usize, 1), result.values.len);
     const obj = result.values[0].object;
     try std.testing.expect(obj.get("x") != null); // x still there
+}
+
+test "parse del array index" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const expr = try parseExpr(arena.allocator(), "del(.arr[0])");
+    try std.testing.expect(expr == .del);
+    try std.testing.expectEqual(@as(usize, 1), expr.del.paths.len);
+    try std.testing.expectEqualStrings("arr", expr.del.paths[0]);
+    try std.testing.expectEqual(@as(?i64, 0), expr.del.index);
+}
+
+test "eval del array index" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "{\"arr\":[1,2,3]}";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    const expr = try parseExpr(arena.allocator(), "del(.arr[0])");
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    const obj = result.values[0].object;
+    const arr = obj.get("arr").?.array;
+    try std.testing.expectEqual(@as(usize, 2), arr.items.len);
+    try std.testing.expectEqual(@as(i64, 2), arr.items[0].integer);
+    try std.testing.expectEqual(@as(i64, 3), arr.items[1].integer);
+}
+
+test "eval del array negative index" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "{\"arr\":[1,2,3]}";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    const expr = try parseExpr(arena.allocator(), "del(.arr[-1])");
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    const obj = result.values[0].object;
+    const arr = obj.get("arr").?.array;
+    try std.testing.expectEqual(@as(usize, 2), arr.items.len);
+    try std.testing.expectEqual(@as(i64, 1), arr.items[0].integer);
+    try std.testing.expectEqual(@as(i64, 2), arr.items[1].integer);
 }
 
 test "parse to_entries" {
