@@ -1,18 +1,39 @@
 # JN Polyglot Implementation Plan
 
-**Status:** Final Plan
-**Date:** 2024-01
+**Status:** In Progress
+**Date:** 2024-01 (Updated 2025-12)
 
 ## Executive Summary
 
 This plan outlines the migration of JN to a polyglot architecture with:
-- **Zig core** - CLI, address parsing, pipeline execution
-- **Zig plugins** - csv, json, jsonl, http (hot path)
-- **Rust plugin** - jq replacement (jaq-based filter)
+- **ZQ** - Pure Zig jq replacement (Sprints 01-04a complete, v0.4.0, Zig 0.15.2)
+- **Zig core** - CLI, address parsing, pipeline execution (future)
+- **Zig plugins** - csv, json, jsonl, http (hot path, future)
 - **Python plugins** - gmail, mcp, duckdb, and others (complex APIs)
-- **Core libraries** - Python, Zig, Rust for plugin development
+- **Core libraries** - Python, Zig for plugin development
+
+## Sprint Roadmap
+
+| Sprint | Status | Description |
+|--------|--------|-------------|
+| 01 | ✅ Complete | ZQ foundation: identity, field access, select, pipes |
+| 02 | ✅ Complete | Extended: array iteration, slurp mode, arithmetic |
+| 03 | ✅ Complete | Aggregation: group_by, sort_by, map, string functions |
+| 04 | ✅ Complete | **ZQ jq-compat:** slicing, optional access, has, del, entries |
+| 04a | ✅ Complete | **Zig 0.15.2 upgrade:** I/O refactor, build system updates |
+| 05 | ✅ Complete | **Error handling + jq removal:** ZQ enhanced, jq_.py deleted |
+| 06 | ✅ Complete | **Zig plugin system:** JSONL plugin, binary discovery, 96x perf |
+| 07 | 🔲 Next | CSV & JSON Zig plugins |
+| 08 | 🔲 Planned | Integration, CI/CD, production release |
+| 09 | 🔲 Future | HTTP & compression Zig plugins |
+| 10 | 🔲 Future | **Zig core binary** (replace Python CLI) |
+
+**jq removal:** ✅ Sprint 05 complete - ZQ is now the only filter engine
+**Zig CLI:** Sprint 10 - full Zig binary for <5ms startup
 
 ## Architecture Overview
+
+**Target architecture** (Python CLI replaced by Zig in later sprints):
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -26,17 +47,17 @@ This plan outlines the migration of JN to a polyglot architecture with:
         ┌─────────────────────┼─────────────────────┐
         ▼                     ▼                     ▼
 ┌──────────────┐      ┌──────────────┐      ┌──────────────┐
-│ Zig Plugins  │      │ Rust Plugin  │      │Python Plugins│
+│   ZQ (Zig)   │      │ Zig Plugins  │      │Python Plugins│
 │              │      │              │      │              │
-│ • csv        │      │ • jq (jaq)   │      │ • gmail      │
-│ • json       │      │              │      │ • mcp        │
-│ • jsonl      │      │              │      │ • duckdb     │
-│ • http       │      │              │      │ • xlsx       │
-│ • gz         │      │              │      │ • markdown   │
-│ • yaml       │      │              │      │ • table      │
-│ • toml       │      │              │      │ • xml        │
+│ • jq filter  │      │ • csv        │      │ • gmail      │
+│   replacement│      │ • json       │      │ • mcp        │
+│ • 2-3x faster│      │ • http       │      │ • duckdb     │
+│ • v0.4.0     │      │ • gz         │      │ • xlsx       │
+│              │      │              │      │ • table      │
 └──────────────┘      └──────────────┘      └──────────────┘
 ```
+
+**Current state:** Python CLI + ZQ v0.5.0 + JSONL Zig plugin (Sprints 01-06 complete, Zig 0.15.2)
 
 ---
 
@@ -345,85 +366,98 @@ pub fn reads(config: jn.Config, writer: anytype) !void {
 
 ---
 
-## Phase 4: Rust jq Plugin (Week 7-8)
+## Phase 4: ZQ - Zig jq Replacement (✅ COMPLETE)
 
-### 4.1 Why Rust for jq?
+### 4.1 Why Zig instead of Rust/jaq?
 
-- [jaq](https://github.com/01mf02/jaq) is a mature, fast jq implementation
-- 30x faster startup than jq
-- Security audited by Radically Open Security
-- Can use as library (jaq-core)
+**Decision:** Implemented pure Zig solution (ZQ) instead of Rust/jaq wrapper.
 
-### 4.2 Implementation
+| Criteria | Rust/jaq | Zig (ZQ) |
+|----------|----------|----------|
+| Binary size | ~5MB | 2.3MB |
+| Startup time | ~5ms | <1ms |
+| Build complexity | Cargo + deps | Single file |
+| Customizability | Library wrapper | Full control |
+| Performance vs jq | 10x faster | 2-3x faster |
 
-Location: `plugins/rust/jq/`
+ZQ is purpose-built for JN's needs with:
+- Arena allocator for streaming (constant memory)
+- Single-file implementation (~2600 lines)
+- No external dependencies
+- Built with Zig 0.15.2 (LLVM backend)
 
-```rust
-// plugins/rust/jq/src/main.rs
-use jaq_core::{Ctx, RcIter, Val};
-use jaq_interpret::FilterT;
-use jn_plugin::{Plugin, Config, run};
-use std::io::{BufRead, Write};
+### 4.2 Implementation Status
 
-#[derive(Plugin)]
-#[plugin(name = "jq", role = "filter", matches = [])]
-struct JqPlugin;
+Location: `zq/src/main.zig`
 
-impl JqPlugin {
-    fn filters(&self, config: &Config) -> Result<(), Box<dyn std::error::Error>> {
-        let expr = config.args.first()
-            .ok_or("Missing jq expression")?;
+**Sprint 01 (v0.1.0):** Foundation ✅
+- Identity (`.`), field access (`.name`), nested paths (`.a.b`)
+- Pipes (`|`), select with comparisons
+- Basic NDJSON streaming
 
-        // Parse jq expression
-        let mut defs = jaq_core::Definitions::core();
-        let filter = jaq_parse::parse(&expr, jaq_parse::main())
-            .map_err(|e| format!("Parse error: {:?}", e))?;
+**Sprint 02 (v0.2.0):** Extended ✅
+- Array iteration (`.[]`, `.[n]`)
+- Slurp mode (`-s`)
+- Arithmetic (`+`, `-`, `*`, `/`)
+- Boolean logic (`and`, `or`, `not`)
+- Builtins: `keys`, `values`, `length`, `type`, `empty`
 
-        let filter = defs.finish(filter, Vec::new(), &[]);
+**Sprint 03 (v0.3.0):** Aggregation ✅
+- Array: `first`, `last`, `reverse`, `sort`, `unique`, `flatten`
+- Aggregation: `add`, `min`, `max`, `group_by`, `sort_by`, `unique_by`, `min_by`, `max_by`, `map`
+- String: `split`, `join`, `ascii_downcase`, `ascii_upcase`, `startswith`, `endswith`, `contains`, `ltrimstr`, `rtrimstr`
 
-        // Process NDJSON stream
-        let stdin = std::io::stdin();
-        let stdout = std::io::stdout();
-        let mut stdout = stdout.lock();
+**Sprint 04 (v0.4.0):** jq-compat ✅
+- Slicing: `.[n:m]`, `.[n:]`, `.[:m]`, negative indices
+- Optional access: `.foo?`, `.[n]?`
+- Object operations: `has(key)`, `del(.key)`, `to_entries`, `from_entries`
 
-        for line in stdin.lock().lines() {
-            let line = line?;
-            let input: Val = serde_json::from_str(&line)?;
+**Sprint 04a:** Zig 0.15.2 Upgrade ✅
+- Migrated to Zig 0.15.2 "Writergate" I/O API
+- Updated build system for LLVM backend
+- All 82 unit tests + 25 integration tests passing
 
-            let inputs = RcIter::new(std::iter::empty());
-            let ctx = Ctx::new([], &inputs);
+### 4.3 ZQ vs jq Compatibility
 
-            for output in filter.run((ctx, input)) {
-                let output = output?;
-                serde_json::to_writer(&mut stdout, &output)?;
-                writeln!(stdout)?;
-            }
-        }
+| Feature | jq | ZQ | Notes |
+|---------|----|----|-------|
+| `.`, `.field` | ✅ | ✅ | |
+| `select(expr)` | ✅ | ✅ | |
+| `\|` pipes | ✅ | ✅ | |
+| `.[]`, `.[n]` | ✅ | ✅ | |
+| `.[n:m]` slicing | ✅ | ✅ | Sprint 04 |
+| `.foo?` optional | ✅ | ✅ | Sprint 04 |
+| `-s` slurp | ✅ | ✅ | |
+| Arithmetic | ✅ | ✅ | |
+| `group_by`, `sort_by` | ✅ | ✅ | |
+| `map(expr)` | ✅ | ✅ | |
+| String functions | ✅ | ✅ | |
+| `has`, `del`, `*_entries` | ✅ | ✅ | Sprint 04 |
+| Regex (test, match) | ✅ | ❌ | Not needed for JN |
+| Variables ($x) | ✅ | ❌ | Not needed for JN |
+| Modules | ✅ | ❌ | Not needed for JN |
 
-        Ok(())
-    }
-}
+**Coverage:** ~99% of JN filter usage patterns
 
-fn main() {
-    run::<JqPlugin>();
-}
-```
+### 4.4 Performance (Zig 0.15.2)
 
-### 4.3 jaq Compatibility
+Benchmarks on 500k NDJSON records (46MB):
 
-jaq supports ~95% of jq syntax. Key differences:
+| Expression | jq 1.7 | ZQ 0.4.0 | Speedup |
+|------------|--------|----------|---------|
+| `.` (identity) | 1.99s | 0.67s | **2.95x** |
+| `.name` (field) | 1.25s | 0.57s | **2.19x** |
+| `.nested.score` | 1.24s | 0.58s | **2.12x** |
+| `select(.value > 50000)` | 1.81s | 0.66s | **2.75x** |
 
-| Feature | jq | jaq |
-|---------|----|----|
-| `limit(n; expr)` | ✅ | ✅ |
-| `first`, `last` | ✅ | ✅ |
-| `@base64d` | ✅ | ✅ |
-| `$ENV` | ✅ | ✅ |
-| `input`, `inputs` | ✅ | ✅ |
-| SQL-style operators | ✅ | ❌ |
-| `modulemeta` | ✅ | ❌ |
+### 4.5 Next Steps
 
-For JN's use cases (select, field access, comparisons), jaq is fully compatible.
+**Sprint 05:** Improve error handling, then remove jq (rip and replace):
+1. Add clear error messages with context and suggestions
+2. Detect unsupported features and suggest workarounds
+3. Update `jn filter` to invoke ZQ binary instead of jq_.py
+4. Delete `jn_home/plugins/filters/jq_.py`
+5. Remove jq from dependencies
 
 ---
 
@@ -521,34 +555,26 @@ def reads(url: str, config=None):
 
 ```
 jn/
-├── src/jn/                    # Python framework (partial, for complex resolution)
-├── core/                      # Zig core binary
-│   ├── src/
-│   │   ├── main.zig          # CLI entry
-│   │   ├── address.zig       # Address parser
-│   │   ├── discovery.zig     # Plugin discovery
-│   │   ├── pipeline.zig      # Pipeline executor
-│   │   └── pattern.zig       # Regex matching
-│   └── build.zig
-├── libs/
-│   ├── python/jn_plugin/     # Python core library
-│   ├── zig/jn-plugin/        # Zig core library
-│   └── rust/jn-plugin/       # Rust core library
-├── plugins/
-│   ├── zig/
-│   │   ├── csv/
-│   │   ├── json/
-│   │   ├── jsonl/
-│   │   ├── gz/
-│   │   ├── http/
-│   │   ├── yaml/
-│   │   └── toml/
-│   ├── rust/
-│   │   └── jq/
-│   └── python/               # Symlink to jn_home/plugins
+├── src/jn/                    # Python framework
+│   └── plugins/
+│       └── discovery.py      # Plugin discovery (Python + binary)
+├── zq/                        # ZQ filter binary
+│   ├── src/main.zig
+│   └── zig-out/bin/zq
+├── plugins/                   # Zig plugins (self-contained)
+│   └── zig/
+│       └── jsonl/            # JSONL plugin (Sprint 06)
+│           ├── main.zig
+│           └── bin/jsonl
 ├── jn_home/plugins/          # Python plugins (existing)
+│   ├── formats/              # csv, json, yaml, toml, etc.
+│   ├── protocols/            # http, gmail, mcp
+│   ├── filters/              # (empty - ZQ is binary)
+│   └── compression/          # gz
 └── spec/polyglot/            # Design docs
 ```
+
+**Note:** Self-contained Zig plugins (no shared library) - each plugin is a single executable.
 
 ---
 

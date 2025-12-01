@@ -1,51 +1,95 @@
-"""Filter command - apply jq expressions."""
+"""Filter command - apply ZQ filter expressions."""
 
 import io
+import os
+import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 import click
 
 from ...addressing import parse_address
-from ...context import pass_context
+from ...context import get_jn_home, pass_context
 from ...process_utils import popen_with_validation
-from ...profiles.resolver import (
-    ProfileError,
-    find_profile_path,
-    resolve_profile,
-)
-from ..helpers import check_jq_available, check_uv_available
+from ...profiles.resolver import ProfileError, resolve_profile
+
+
+def find_zq_binary() -> str | None:
+    """Find the ZQ binary.
+
+    Resolution order:
+    1. $JN_HOME/bin/zq (bundled with jn)
+    2. zq/zig-out/bin/zq (development build in repo)
+    3. zq in PATH (system install)
+
+    Returns:
+        Path to zq binary or None if not found
+    """
+    # 1. Check JN_HOME/bin/zq
+    jn_home = get_jn_home()
+    bundled = jn_home / "bin" / "zq"
+    if bundled.exists() and os.access(bundled, os.X_OK):
+        return str(bundled)
+
+    # 2. Check development build in repo root
+    # Walk up from jn module to find repo root
+    current = Path(__file__).parent
+    for _ in range(5):  # Max 5 levels up
+        dev_build = current / "zq" / "zig-out" / "bin" / "zq"
+        if dev_build.exists() and os.access(dev_build, os.X_OK):
+            return str(dev_build)
+        current = current.parent
+
+    # 3. Check PATH
+    path_zq = shutil.which("zq")
+    if path_zq:
+        return path_zq
+
+    return None
 
 
 @click.command()
 @click.argument("query")
 @click.option(
-    "--native-args/--no-native-args",
-    default=False,
-    help="Use jq native --arg binding instead of string substitution.",
-)
-@click.option(
     "-s",
     "--slurp",
     is_flag=True,
     default=False,
-    help="Read entire input into array before filtering (jq -s mode). "
+    help="Read entire input into array before filtering (zq -s mode). "
     "Enables aggregations like group_by, sort_by, unique. "
     "WARNING: Loads all data into memory.",
 )
 @pass_context
-def filter(ctx, query, native_args, slurp):
-    """Filter NDJSON using jq expression or profile.
+def filter(ctx, query, slurp):
+    """Filter NDJSON using ZQ expressions or profiles.
 
     QUERY can be either:
-    - A jq expression: '.age > 25'
-    - A profile reference: '@analytics/pivot?row=product&col=month'
+    - A ZQ expression: 'select(.age > 25)'
+    - A profile reference: '@sales/by_region?region=East'
 
-    Supports addressability syntax for profiles: @profile/component[?parameters]
+    Profile Support:
+    - Profiles are stored in profiles/jq/{namespace}/{name}.jq
+    - Parameters are substituted: $param → "value"
+    - Example: '@sales/by_region?region=East' resolves the profile
+      and replaces $region with "East"
 
-    Two parameter modes for profiles:
-    - Default: String substitution ($param -> "value")
-    - --native-args: Uses jq's native --arg binding (type-safe)
+    Supported features:
+    - Identity: .
+    - Field access: .name, .a.b.c
+    - Array indexing: .[0], .[-1], .[2:5]
+    - Array iteration: .[], .items[]
+    - Select: select(.x > 10), select(.a and .b)
+    - Pipes: .x | .y, (.field | tonumber) > 10
+    - Object construction: {a: .x, b: .y}
+    - Arithmetic: .x + .y, .a * .b
+    - Builtins: length, keys, values, type, tonumber, tostring
+    - Array functions: first, last, sort, unique, reverse, flatten
+    - Aggregations: add, min, max, group_by, sort_by, map
+    - String functions: split, join, contains, startswith, endswith
+    - Object functions: has, del, to_entries, from_entries
+    - Optional access: .field?, .[0]?
+    - Alternative: .x // .y
 
     Slurp mode (-s/--slurp):
     - Collects all input into an array before filtering
@@ -53,14 +97,17 @@ def filter(ctx, query, native_args, slurp):
     - WARNING: Loads entire input into memory (not streaming)
 
     Examples:
-        # Direct jq expression
-        jn cat data.csv | jn filter '.age > 25'
+        # Extract field
+        jn cat data.csv | jn filter '.name'
 
-        # Profile with string substitution (default)
-        jn cat data.csv | jn filter '@analytics/pivot?row=product&col=month'
+        # Filter records
+        jn cat data.csv | jn filter 'select(.age > 25)'
 
-        # Profile with native jq arguments
-        jn cat data.csv | jn filter '@sales/by_region?region=East' --native-args
+        # Complex filter with pipes
+        jn cat data.csv | jn filter '.items[] | select(.active) | .name'
+
+        # Using a profile
+        jn cat sales.csv | jn filter '@sales/by_region?region=East'
 
         # Aggregation with slurp mode
         jn cat data.csv | jn filter -s 'group_by(.status) | map({status: .[0].status, count: length})'
@@ -68,111 +115,76 @@ def filter(ctx, query, native_args, slurp):
         # Count total records
         jn cat data.csv | jn filter -s 'length'
     """
-    try:
-        check_jq_available()
-        check_uv_available()
-
-        # Find jq plugin
-        from ...plugins.discovery import get_cached_plugins_with_fallback
-
-        plugins = get_cached_plugins_with_fallback(
-            ctx.plugin_dir, ctx.cache_path
+    # Find ZQ binary
+    zq_binary = find_zq_binary()
+    if zq_binary is None:
+        click.echo("Error: ZQ binary not found.", err=True)
+        click.echo("  Install with: make zq", err=True)
+        click.echo(
+            "  Or build manually: cd zq && zig build-exe src/main.zig -fllvm",
+            err=True,
         )
+        sys.exit(1)
 
-        if "jq_" not in plugins:
-            click.echo("Error: jq filter plugin not found", err=True)
-            sys.exit(1)
-
-        plugin = plugins["jq_"]
-
-        # Build command based on mode
-        if query.startswith("@"):
+    # Resolve profile references
+    resolved_query = query
+    if query.startswith("@"):
+        try:
             # Parse as address to extract parameters
             addr = parse_address(query)
-
-            if native_args and addr.parameters:
-                # Native argument mode: pass file path and --jq-arg flags
-                profile_path = find_profile_path(addr.base, plugin_name="jq_")
-                if profile_path is None:
-                    click.echo(
-                        f"Error: Profile not found: {addr.base}", err=True
-                    )
-                    sys.exit(1)
-
-                cmd = [
-                    "uv",
-                    "run",
-                    "--quiet",
-                    "--script",
-                    plugin.path,
-                    str(profile_path),
-                ]
-
-                # Add --jq-arg flags for each parameter
-                for key, value in addr.parameters.items():
-                    cmd.extend(["--jq-arg", key, str(value)])
-            else:
-                # String substitution mode (default, backward compatible)
-                try:
-                    resolved_query = resolve_profile(
-                        addr.base, plugin_name="jq_", params=addr.parameters
-                    )
-                except ProfileError as e:
-                    click.echo(f"Error: {e}", err=True)
-                    sys.exit(1)
-
-                cmd = [
-                    "uv",
-                    "run",
-                    "--quiet",
-                    "--script",
-                    plugin.path,
-                    resolved_query,
-                ]
-        else:
-            # Direct jq expression
-            cmd = ["uv", "run", "--quiet", "--script", plugin.path, query]
-
-        # Add slurp flag if requested
-        if slurp:
-            cmd.append("--jq-slurp")
-
-        # Prepare stdin for subprocess
-        try:
-            sys.stdin.fileno()
-            stdin_source = sys.stdin
-            input_data = None
-            text_mode = True
-        except (AttributeError, OSError, io.UnsupportedOperation):
-            # Not a real file handle (e.g., Click test runner)
-            input_data = sys.stdin.read()
-            stdin_source = subprocess.PIPE
-            text_mode = isinstance(input_data, str)
-
-        # Execute filter
-        proc = popen_with_validation(
-            cmd,
-            stdin=stdin_source,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=text_mode,
-        )
-
-        if input_data is not None:
-            proc.stdin.write(input_data)
-            proc.stdin.close()
-
-        # Stream output
-        for line in proc.stdout:
-            sys.stdout.write(line)
-
-        proc.wait()
-
-        if proc.returncode != 0:
-            err = proc.stderr.read()
-            click.echo(f"Error: Filter error: {err}", err=True)
+            # Resolve profile with string substitution
+            resolved_query = resolve_profile(
+                addr.base,
+                plugin_name="jq_",
+                params=addr.parameters,
+            )
+        except ProfileError as e:
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(1)
+        except ValueError as e:
+            click.echo(f"Error: Invalid profile syntax: {e}", err=True)
             sys.exit(1)
 
-    except ValueError as e:
-        click.echo(f"Error: Invalid address syntax: {e}", err=True)
-        sys.exit(1)
+    # Build ZQ command
+    cmd = [zq_binary]
+    if slurp:
+        cmd.append("-s")
+    cmd.append(resolved_query)
+
+    # Prepare stdin for subprocess
+    try:
+        sys.stdin.fileno()
+        stdin_source = sys.stdin
+        input_data = None
+        text_mode = True
+    except (AttributeError, OSError, io.UnsupportedOperation):
+        # Not a real file handle (e.g., Click test runner)
+        input_data = sys.stdin.read()
+        stdin_source = subprocess.PIPE
+        text_mode = isinstance(input_data, str)
+
+    # Execute filter
+    proc = popen_with_validation(
+        cmd,
+        stdin=stdin_source,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=text_mode,
+    )
+
+    if input_data is not None:
+        proc.stdin.write(input_data)
+        proc.stdin.close()
+
+    # Stream output
+    for line in proc.stdout:
+        sys.stdout.write(line)
+
+    proc.wait()
+
+    if proc.returncode != 0:
+        err = proc.stderr.read()
+        # ZQ already prints nice error messages, just forward them
+        if err:
+            click.echo(err.strip(), err=True)
+        sys.exit(proc.returncode)

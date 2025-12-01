@@ -29,3 +29,10 @@ vendor
 *.db
 *.sqlite
 *.sqlite3
+zig-linux-x86_64-0.11.0.tar.xz
+
+# Zig build artifacts
+plugins/zig/*/bin/
+zq/zig-out/
+zq/.zig-cache/
+.zig-cache/
