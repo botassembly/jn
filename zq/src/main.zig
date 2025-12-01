@@ -1311,17 +1311,23 @@ fn evalCondition(allocator: std.mem.Allocator, cond: *const Condition, value: st
 }
 
 fn evalSimpleCondition(allocator: std.mem.Allocator, cond: *const SimpleCondition, value: std.json.Value) bool {
-    var field_val: std.json.Value = undefined;
-
-    // Get the left side value - either from expression or path
+    // Get the left side value(s) - either from expression or path
     if (cond.left_expr) |expr| {
-        // Evaluate the expression
+        // Evaluate the expression - may produce multiple values
         const results = evalExpr(allocator, expr, value) catch return false;
         if (results.values.len == 0) return false;
-        field_val = results.values[0];
+
+        // For select conditions, return true if ANY result satisfies the condition
+        // This matches jq semantics: select(.items[] > 5) is true if any item > 5
+        for (results.values) |field_val| {
+            if (evalConditionForValue(field_val, cond.op, cond.value)) {
+                return true;
+            }
+        }
+        return false;
     } else {
-        // Use path-based lookup
-        field_val = getPath(value, cond.path) orelse return false;
+        // Use path-based lookup (single value)
+        var field_val = getPath(value, cond.path) orelse return false;
 
         // Apply index if present
         if (cond.index) |idx| {
@@ -1333,9 +1339,14 @@ fn evalSimpleCondition(allocator: std.mem.Allocator, cond: *const SimpleConditio
                 .slice => return false, // Slices not supported in conditions
             }
         }
-    }
 
-    switch (cond.op) {
+        return evalConditionForValue(field_val, cond.op, cond.value);
+    }
+}
+
+/// Evaluate a condition for a single value
+fn evalConditionForValue(field_val: std.json.Value, op: CompareOp, cmp_value: CompareValue) bool {
+    switch (op) {
         .exists => {
             return switch (field_val) {
                 .null => false,
@@ -1343,12 +1354,12 @@ fn evalSimpleCondition(allocator: std.mem.Allocator, cond: *const SimpleConditio
                 else => true,
             };
         },
-        .gt => return compareGt(field_val, cond.value),
-        .lt => return compareLt(field_val, cond.value),
-        .gte => return compareGt(field_val, cond.value) or compareEq(field_val, cond.value),
-        .lte => return compareLt(field_val, cond.value) or compareEq(field_val, cond.value),
-        .eq => return compareEq(field_val, cond.value),
-        .ne => return !compareEq(field_val, cond.value),
+        .gt => return compareGt(field_val, cmp_value),
+        .lt => return compareLt(field_val, cmp_value),
+        .gte => return compareGt(field_val, cmp_value) or compareEq(field_val, cmp_value),
+        .lte => return compareLt(field_val, cmp_value) or compareEq(field_val, cmp_value),
+        .eq => return compareEq(field_val, cmp_value),
+        .ne => return !compareEq(field_val, cmp_value),
     }
 }
 
