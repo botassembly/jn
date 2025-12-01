@@ -3305,27 +3305,30 @@ test "parse slice" {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const expr = try parseExpr(arena.allocator(), ".[2:5]");
-    try std.testing.expect(expr == .field);
-    try std.testing.expect(expr.field.index != null);
-    try std.testing.expect(expr.field.index.? == .slice);
-    try std.testing.expectEqual(@as(?i64, 2), expr.field.index.?.slice.start);
-    try std.testing.expectEqual(@as(?i64, 5), expr.field.index.?.slice.end);
+    // .[2:5] parses as path with empty parts (root slice)
+    try std.testing.expect(expr == .path);
+    try std.testing.expect(expr.path.index != null);
+    try std.testing.expect(expr.path.index.? == .slice);
+    try std.testing.expectEqual(@as(?i64, 2), expr.path.index.?.slice.start);
+    try std.testing.expectEqual(@as(?i64, 5), expr.path.index.?.slice.end);
 }
 
 test "parse slice unbounded start" {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const expr = try parseExpr(arena.allocator(), ".[:5]");
-    try std.testing.expect(expr.field.index.?.slice.start == null);
-    try std.testing.expectEqual(@as(?i64, 5), expr.field.index.?.slice.end);
+    try std.testing.expect(expr == .path);
+    try std.testing.expect(expr.path.index.?.slice.start == null);
+    try std.testing.expectEqual(@as(?i64, 5), expr.path.index.?.slice.end);
 }
 
 test "parse slice unbounded end" {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const expr = try parseExpr(arena.allocator(), ".[3:]");
-    try std.testing.expectEqual(@as(?i64, 3), expr.field.index.?.slice.start);
-    try std.testing.expect(expr.field.index.?.slice.end == null);
+    try std.testing.expect(expr == .path);
+    try std.testing.expectEqual(@as(?i64, 3), expr.path.index.?.slice.start);
+    try std.testing.expect(expr.path.index.?.slice.end == null);
 }
 
 test "eval slice" {
