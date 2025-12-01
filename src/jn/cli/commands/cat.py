@@ -31,18 +31,24 @@ def _build_command(
         stage: Execution stage with plugin info
         command_str: Optional command string for shell plugins (overrides stage.url)
     """
-    cmd = [
-        "uv",
-        "run",
-        "--quiet",
-        "--script",
-        stage.plugin_path,
-        "--mode",
-        stage.mode,
-    ]
+    # Detect binary plugins (non-.py files) and run directly
+    is_binary = not stage.plugin_path.endswith(".py")
 
-    # DEBUG
-    sys.stderr.flush()
+    if is_binary:
+        cmd = [
+            stage.plugin_path,
+            f"--mode={stage.mode}",
+        ]
+    else:
+        cmd = [
+            "uv",
+            "run",
+            "--quiet",
+            "--script",
+            stage.plugin_path,
+            "--mode",
+            stage.mode,
+        ]
 
     # Add configuration parameters
     for key, value in stage.config.items():

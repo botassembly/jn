@@ -58,15 +58,23 @@ def put(ctx, output_file):
         resolver = AddressResolver(ctx.plugin_dir, ctx.cache_path, ctx.home)
         resolved = resolver.resolve(addr, mode="write")
 
-        # Build command
-        cmd = [
-            "uv",
-            "run",
-            "--script",
-            resolved.plugin_path,
-            "--mode",
-            "write",
-        ]
+        # Build command - detect binary plugins and run directly
+        is_binary = not resolved.plugin_path.endswith(".py")
+
+        if is_binary:
+            cmd = [
+                resolved.plugin_path,
+                "--mode=write",
+            ]
+        else:
+            cmd = [
+                "uv",
+                "run",
+                "--script",
+                resolved.plugin_path,
+                "--mode",
+                "write",
+            ]
 
         # Add configuration parameters
         for key, value in resolved.config.items():

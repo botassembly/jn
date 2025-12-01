@@ -23,7 +23,7 @@ const plugin = Plugin{
     .version = "0.1.0",
     .matches = &[_][]const u8{".*\\.json$"},
     .role = "format",
-    .modes = &[_][]const u8{ "read", "write" },
+    .modes = &[_][]const u8{"read"},  // Write mode uses Python json_ for indent support
 };
 
 pub fn main() !void {

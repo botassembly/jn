@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+from ..context import get_binary_plugins_dir
 from ..plugins.discovery import (
     PluginMetadata,
     get_cached_plugins_with_fallback,
@@ -84,9 +85,55 @@ class AddressResolver:
         """Lazily load plugins and registry on first use."""
         if self._plugins is None:
             self._plugins = get_cached_plugins_with_fallback(
-                self.plugin_dir, self.cache_path
+                self.plugin_dir,
+                self.cache_path,
+                binary_plugins_dir=get_binary_plugins_dir(),
             )
             self._registry = build_registry(self._plugins)
+
+    def _plugin_supports_mode(self, plugin: PluginMetadata, mode: str) -> bool:
+        """Check if a plugin supports the requested mode.
+
+        Binary plugins have explicit modes in metadata.
+        Python plugins without explicit modes are assumed to support all modes.
+
+        Args:
+            plugin: Plugin metadata
+            mode: Mode to check ("read" or "write")
+
+        Returns:
+            True if plugin supports the mode
+        """
+        # Binary plugins have explicit modes - check them
+        if plugin.is_binary:
+            # Binary plugins must declare supported modes via --jn-meta
+            # modes are stored as part of the metadata during discovery
+            # Check if plugin has modes attribute (from --jn-meta output)
+            # Note: discover_binary_plugins stores modes in the metadata
+            # but PluginMetadata doesn't have a modes field, so we need to
+            # check by re-running --jn-meta or storing modes during discovery
+            # For now, we'll check the binary directly
+            import json
+            import subprocess
+
+            try:
+                result = subprocess.run(
+                    [plugin.path, "--jn-meta"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                if result.returncode == 0:
+                    meta = json.loads(result.stdout.strip())
+                    modes = meta.get("modes", [])
+                    return mode in modes
+            except Exception:
+                pass
+            # If we can't check, assume binary supports the mode
+            return True
+
+        # Python plugins without explicit modes support all modes
+        return True
 
     def resolve(self, address: Address, mode: str = "read") -> ResolvedAddress:
         """Resolve address to plugin and configuration.
@@ -330,7 +377,7 @@ class AddressResolver:
         """
         # Case 1: Explicit format override
         if address.format_override:
-            return self._find_plugin_by_format(address.format_override)
+            return self._find_plugin_by_format(address.format_override, mode)
 
         # Case 2: Protocol URL
         if address.type == "protocol":
@@ -407,10 +454,10 @@ class AddressResolver:
         if address.type == "stdio":
             if mode == "write":
                 # Stdout defaults to NDJSON
-                return self._find_plugin_by_format("ndjson")
+                return self._find_plugin_by_format("ndjson", mode)
             else:
                 # Stdin defaults to NDJSON
-                return self._find_plugin_by_format("ndjson")
+                return self._find_plugin_by_format("ndjson", mode)
 
         # Case 6: Glob pattern - use glob plugin
         if address.type == "glob":
@@ -424,11 +471,14 @@ class AddressResolver:
             f"Cannot determine plugin for address: {address.raw}"
         )
 
-    def _find_plugin_by_format(self, format_name: str) -> Tuple[str, str]:
+    def _find_plugin_by_format(
+        self, format_name: str, mode: str = "read"
+    ) -> Tuple[str, str]:
         """Find plugin by format name.
 
         Args:
             format_name: Format name (csv, json, table, etc.)
+            mode: Plugin mode ("read" or "write") - used to filter binary plugins
 
         Returns:
             Tuple of (plugin_name, plugin_path)
@@ -436,15 +486,24 @@ class AddressResolver:
         Raises:
             AddressResolutionError: If plugin not found
         """
-        # Try exact match first
+        # Try exact match first (prefer binary plugin name without underscore)
         plugin = get_plugin_by_name(format_name, self._plugins)
-        if plugin:
+        if plugin and self._plugin_supports_mode(plugin, mode):
             return plugin.name, plugin.path
 
-        # Try with underscore suffix
+        # Try with underscore suffix (Python plugin convention)
         plugin = get_plugin_by_name(f"{format_name}_", self._plugins)
-        if plugin:
+        if plugin and self._plugin_supports_mode(plugin, mode):
             return plugin.name, plugin.path
+
+        # If exact match doesn't support mode, try fallback to Python plugin
+        # This handles case where binary plugin only supports read but we need write
+        plugin = get_plugin_by_name(format_name, self._plugins)
+        if plugin and not self._plugin_supports_mode(plugin, mode):
+            # Binary plugin doesn't support mode, try Python fallback
+            fallback = get_plugin_by_name(f"{format_name}_", self._plugins)
+            if fallback and self._plugin_supports_mode(fallback, mode):
+                return fallback.name, fallback.path
 
         # Check if it's a common format plugin in bundled plugins
         # Look for plugins in formats/ subdirectory
@@ -454,7 +513,8 @@ class AddressResolver:
                 or name == f"{format_name}_"
                 or f"/formats/{format_name}" in meta.path
             ):
-                return meta.name, meta.path
+                if self._plugin_supports_mode(meta, mode):
+                    return meta.name, meta.path
 
         # Build list of available format plugins (exclude protocols, filters, etc.)
         format_plugins = sorted(
