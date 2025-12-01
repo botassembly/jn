@@ -1,6 +1,6 @@
 ---
 name: visidata
-description: Expert in VisiData terminal spreadsheet tool for exploring, cleaning, and transforming tabular data. Covers installation via uv, interactive data exploration, conversion between formats (CSV/JSON/Excel/SQLite), filtering, aggregations, and integration with JN pipelines. Use when working with data exploration, analysis, format conversion, or visual data inspection.
+description: Expert in VisiData terminal spreadsheet tool for exploring, cleaning, and transforming tabular data. Covers installation via uv, interactive data exploration via tmux, conversion between formats (CSV/JSON/Excel/SQLite), filtering, aggregations, and integration with JN pipelines. Use when working with data exploration, analysis, format conversion, or visual data inspection.
 allowed-tools: Bash, Read, Write
 ---
 
@@ -23,6 +23,170 @@ vd --version
 uv tool list | grep visidata
 ```
 
+## Running VisiData Interactively
+
+**CRITICAL: VisiData is an interactive TUI (Text User Interface) program. ALWAYS use tmux to run it programmatically.**
+
+### Standard tmux Launch Pattern
+
+```bash
+# Setup tmux session for VisiData
+SOCKET_DIR=${TMPDIR:-/tmp}/claude-tmux-sockets
+mkdir -p "$SOCKET_DIR"
+SOCKET="$SOCKET_DIR/claude.sock"
+SESSION=claude-visidata
+
+# Start VisiData in tmux
+tmux -S "$SOCKET" new -d -s "$SESSION"
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "vd data.csv" Enter
+
+# ALWAYS tell user how to monitor
+echo "VisiData is running in tmux. Monitor with:"
+echo "  tmux -S \"$SOCKET\" attach -t $SESSION"
+echo ""
+echo "Or capture current view:"
+echo "  tmux -S \"$SOCKET\" capture-pane -p -J -t $SESSION:0.0 -S -200"
+
+# Wait for VisiData to load
+sleep 2
+
+# Capture initial view
+tmux -S "$SOCKET" capture-pane -p -J -t "$SESSION":0.0 -S -50
+
+# Send commands to VisiData
+# Example: Go to column 3, sort descending
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "zc 3" Enter
+sleep 0.5
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "]" Enter
+
+# Capture result
+sleep 1
+tmux -S "$SOCKET" capture-pane -p -J -t "$SESSION":0.0 -S -50
+
+# Clean up when done
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "gq" Enter
+tmux -S "$SOCKET" kill-session -t "$SESSION"
+```
+
+### Why tmux is Required
+
+VisiData requires a TTY (terminal) to run. When running programmatically:
+- ❌ Direct `vd file.csv` hangs waiting for user input
+- ❌ `vd file.csv < /dev/null` fails with no TTY
+- ✅ tmux provides a virtual terminal for VisiData to run in
+- ✅ tmux allows programmatic control via send-keys
+- ✅ tmux allows capturing output via capture-pane
+
+### Interactive Exploration Pattern
+
+```bash
+SOCKET_DIR=${TMPDIR:-/tmp}/claude-tmux-sockets
+mkdir -p "$SOCKET_DIR"
+SOCKET="$SOCKET_DIR/claude.sock"
+SESSION=claude-vd-explore
+
+# Launch VisiData
+tmux -S "$SOCKET" new -d -s "$SESSION"
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "vd large_data.csv" Enter
+
+echo "VisiData launched. Attach to explore interactively:"
+echo "  tmux -S \"$SOCKET\" attach -t $SESSION"
+echo ""
+echo "Detach with: Ctrl+b d"
+echo "Quit VisiData with: gq"
+```
+
+### Automated Analysis Pattern
+
+```bash
+SOCKET_DIR=${TMPDIR:-/tmp}/claude-tmux-sockets
+mkdir -p "$SOCKET_DIR"
+SOCKET="$SOCKET_DIR/claude.sock"
+SESSION=claude-vd-auto
+
+# Start VisiData
+tmux -S "$SOCKET" new -d -s "$SESSION"
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "vd sales.csv" Enter
+sleep 2
+
+# Navigate to 'amount' column (example: column 5)
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "zc 5" Enter
+sleep 0.5
+
+# Set column type to currency
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "$" Enter
+sleep 0.5
+
+# Sort descending
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "]" Enter
+sleep 1
+
+# Open Describe sheet for statistics
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "I" Enter
+sleep 1
+
+# Capture the statistics view
+tmux -S "$SOCKET" capture-pane -p -J -t "$SESSION":0.0 -S -50
+
+# Save results
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "^S" Enter
+sleep 0.5
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -l -- "/tmp/analysis.csv"
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- Enter
+
+# Quit
+sleep 1
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "gq" Enter
+
+# Cleanup
+tmux -S "$SOCKET" kill-session -t "$SESSION"
+
+# Show results
+cat /tmp/analysis.csv
+```
+
+### Sending VisiData Commands via tmux
+
+**Common VisiData keystrokes to send:**
+
+```bash
+# Navigation
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "gg"        # Top of sheet
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "G"         # Bottom
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "gh"        # Leftmost column
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "gl"        # Rightmost column
+
+# Column operations
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "!"         # Set as key column
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "#"         # Set type to int
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "%"         # Set type to float
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "-"         # Hide column
+
+# Sorting
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "["         # Sort ascending
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "]"         # Sort descending
+
+# Analysis
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "I"         # Describe (Shift+I)
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "F"         # Frequency (Shift+F)
+
+# Save
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "^S"        # Save (Ctrl+S)
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -l -- "filename.csv"
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- Enter
+
+# Quit
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "gq"        # Quit all
+```
+
+**Use `-l` flag for literal text (filenames, search terms):**
+```bash
+# Search for pattern
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "/"
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -l -- "search pattern"
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- Enter
+```
+
 **Alternative installations (use only if uv not available):**
 ```bash
 # pip (not recommended for this project)
@@ -40,20 +204,26 @@ uv tool upgrade visidata
 
 ## Quick Start
 
-**Launch VisiData:**
+**Batch mode (non-interactive, safe to run directly):**
 ```bash
-vd                          # Browse current directory
-vd data.csv                 # Open CSV file
-vd data.json data.xlsx      # Open multiple files
-vd -f sqlite db.sqlite      # Force specific format
-```
-
-**One-liner conversions (batch mode):**
-```bash
+# One-liner conversions - NO tmux needed for batch mode
 vd -b input.csv -o output.json           # CSV → JSON
 vd -b input.xlsx -o output.tsv           # Excel → TSV
 vd -b data.fixed -o data.csv             # Fixed-width → CSV
 vd --play script.vdj -b -o output.tsv    # Replay saved workflow
+```
+
+**Interactive mode (REQUIRES tmux):**
+```bash
+# ALWAYS use tmux for interactive VisiData
+SOCKET_DIR=${TMPDIR:-/tmp}/claude-tmux-sockets
+mkdir -p "$SOCKET_DIR"
+SOCKET="$SOCKET_DIR/claude.sock"
+
+tmux -S "$SOCKET" new -d -s claude-vd
+tmux -S "$SOCKET" send-keys -t claude-vd:0.0 -- "vd data.csv" Enter
+
+echo "Monitor with: tmux -S \"$SOCKET\" attach -t claude-vd"
 ```
 
 ## Core Navigation
@@ -82,7 +252,19 @@ n / N         next / previous match
 ```
 zr N          go to row N (0-indexed)
 zc N          go to column N (0-indexed)
-c regex       go to column matching regex
+c regex       go to column matching regex (searches column names)
+```
+
+**Navigate to specific columns (via tmux):**
+```bash
+# Search for column by name
+tmux send-keys -t $PANE -- "c"
+tmux send-keys -t $PANE -l -- "column_name"
+tmux send-keys -t $PANE -- Enter
+
+# Or jump to column number directly
+tmux send-keys -t $PANE -l -- "zc 5"  # Column 5
+tmux send-keys -t $PANE -- Enter
 ```
 
 ## Column Operations
@@ -108,20 +290,43 @@ H / L         move column left / right
 gH / gL       move column to far left / right
 ```
 
+**Via tmux (to see full column content):**
+```bash
+# Navigate to column, then toggle width to see full content
+tmux send-keys -t $PANE -- "c"           # Start column search
+tmux send-keys -t $PANE -l -- "payload"  # Find "payload" column
+tmux send-keys -t $PANE -- Enter
+tmux send-keys -t $PANE -- "_"           # Toggle to full width
+```
+
 **Key Columns:**
 ```
 !             toggle current column as key column
 z!            unset current column as key
 ```
 
-**Editing:**
+**Viewing & Editing:**
 ```
+Enter         open/expand current row (vertical view)
+q             go back to previous sheet
 ^             rename current column
 e text        edit current cell
 ge text       set current column for selected rows
 = expr        create new column from Python expression
 g= expr       set current column for selected rows
 i             add column with incremental values
+```
+
+**Via tmux (open last row for inspection):**
+```bash
+# Go to bottom and open last row
+tmux send-keys -t $PANE -- "G"      # Go to bottom
+tmux send-keys -t $PANE -- Enter    # Open row details
+sleep 1
+tmux capture-pane -p -J -t $PANE -S -30  # View details
+
+# Go back to main sheet
+tmux send-keys -t $PANE -- "q"
 ```
 
 **Transform:**
@@ -299,76 +504,109 @@ vd /tmp/explore.csv
 jn cat /tmp/cleaned.csv | jn put final.json
 ```
 
-### Create VisiData Plugin for JN
+### Interactive Workflow: tmux + VisiData + JN
 
-**Use VisiData from JN plugin:**
-```python
-#!/usr/bin/env -S uv run --script
-# /// script
-# requires-python = ">=3.11"
-# dependencies = []
-# [tool.jn]
-# matches = [".*\\.vd$"]
-# ///
+**Pattern: Explore with VisiData, process with JN**
 
-import subprocess
-import json
-import sys
+```bash
+# 1. Export JN data for exploration
+jn cat api_data.json | jn put /tmp/explore.csv
 
-def reads(config=None):
-    """Launch VisiData, save selection as JSONL, yield records."""
-    # This would require interactive VisiData session
-    # Better to use VisiData separately, then process with JN
-    pass
+# 2. Launch VisiData in tmux
+SOCKET_DIR=${TMPDIR:-/tmp}/claude-tmux-sockets
+mkdir -p "$SOCKET_DIR"
+SOCKET="$SOCKET_DIR/claude.sock"
+SESSION=claude-vd-jn
 
-def writes(config=None):
-    """Read NDJSON, write temp file, open in VisiData."""
-    import tempfile
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
-        for line in sys.stdin:
-            f.write(line)
-        temp_path = f.name
+tmux -S "$SOCKET" new -d -s "$SESSION"
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "vd /tmp/explore.csv" Enter
 
-    # Open in VisiData
-    subprocess.run(['vd', temp_path])
+echo "Explore data in VisiData:"
+echo "  tmux -S \"$SOCKET\" attach -t $SESSION"
+echo ""
+echo "When done exploring:"
+echo "  1. Select rows you want (s key)"
+echo "  2. Save with ^S → /tmp/selected.csv"
+echo "  3. Detach with Ctrl+b d"
+
+# 3. After user explores and saves, process with JN
+# (Run this after user detaches)
+jn cat /tmp/selected.csv | jn put final.json
+
+# 4. Cleanup
+tmux -S "$SOCKET" kill-session -t "$SESSION"
 ```
 
 ## Common Workflows
 
-### Data Exploration
+### Data Exploration (via tmux)
 ```bash
-# Quick exploration
-vd data.csv
+SOCKET_DIR=${TMPDIR:-/tmp}/claude-tmux-sockets
+mkdir -p "$SOCKET_DIR"
+SOCKET="$SOCKET_DIR/claude.sock"
+SESSION=claude-vd-explore
 
-# Navigate with hjkl
-# Press Shift+I for summary statistics
-# Press Shift+F to see frequency distribution
-# Press [ to sort by column
+# Launch VisiData
+tmux -S "$SOCKET" new -d -s "$SESSION"
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "vd data.csv" Enter
+sleep 2
+
+echo "VisiData running. Attach to explore:"
+echo "  tmux -S \"$SOCKET\" attach -t $SESSION"
+echo ""
+echo "Quick commands:"
+echo "  hjkl - navigate"
+echo "  I - statistics (Shift+I)"
+echo "  F - frequency (Shift+F)"
+echo "  [ ] - sort"
+echo "  gq - quit"
 ```
 
-### Data Cleaning
+### Data Cleaning (via tmux)
 ```bash
-# Open file
-vd messy_data.csv
+SOCKET_DIR=${TMPDIR:-/tmp}/claude-tmux-sockets
+mkdir -p "$SOCKET_DIR"
+SOCKET="$SOCKET_DIR/claude.sock"
+SESSION=claude-vd-clean
 
-# 1. Fix column types: # % $ @
-# 2. Filter bad rows: | regex, then gd to delete selected
-# 3. Fill nulls: position on column, press f
-# 4. Remove duplicates: set key columns with !, then Shift+F, then Enter
-# 5. Save: ^S cleaned.csv
+tmux -S "$SOCKET" new -d -s "$SESSION"
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "vd messy_data.csv" Enter
+sleep 2
+
+# Example: Set column 3 to float type, sort descending
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "zc 3" Enter
+sleep 0.5
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "%" Enter  # Float type
+sleep 0.5
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "]" Enter  # Sort desc
+
+echo "Data cleaning in progress. Monitor:"
+echo "  tmux -S \"$SOCKET\" attach -t $SESSION"
+echo ""
+echo "Or capture current state:"
+echo "  tmux -S \"$SOCKET\" capture-pane -p -J -t $SESSION:0.0 -S -50"
 ```
 
-### Data Transformation
+### Data Transformation (via tmux)
 ```bash
-# Open source
-vd input.csv
+SOCKET_DIR=${TMPDIR:-/tmp}/claude-tmux-sockets
+mkdir -p "$SOCKET_DIR"
+SOCKET="$SOCKET_DIR/claude.sock"
+SESSION=claude-vd-transform
 
-# 1. Create derived column: = expression
-#    Example: =price * quantity
-# 2. Rename columns: ^
-# 3. Hide unnecessary columns: -
-# 4. Reorder columns: H L
-# 5. Save: ^S output.csv
+tmux -S "$SOCKET" new -d -s "$SESSION"
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "vd input.csv" Enter
+sleep 2
+
+echo "VisiData loaded. Attach to transform:"
+echo "  tmux -S \"$SOCKET\" attach -t $SESSION"
+echo ""
+echo "Common transforms:"
+echo "  = expression - create derived column"
+echo "  ^ - rename column"
+echo "  - - hide column"
+echo "  H L - move column"
+echo "  ^S - save result"
 ```
 
 ### Format Conversion
@@ -479,41 +717,63 @@ vd --min-memory-mb 500 data.csv
 uv tool install visidata
 ```
 
-**2. Use batch mode for scripted conversions:**
+**2. ALWAYS use tmux for interactive VisiData:**
 ```bash
+# ✅ Correct - use tmux
+SOCKET_DIR=${TMPDIR:-/tmp}/claude-tmux-sockets
+mkdir -p "$SOCKET_DIR"
+SOCKET="$SOCKET_DIR/claude.sock"
+tmux -S "$SOCKET" new -d -s claude-vd
+tmux -S "$SOCKET" send-keys -t claude-vd:0.0 -- "vd data.csv" Enter
+
+# ❌ Wrong - direct call hangs
+vd data.csv  # This hangs when run programmatically!
+```
+
+**3. Use batch mode for non-interactive conversions:**
+```bash
+# Batch mode doesn't need tmux
 vd -b input.csv -o output.json
 ```
 
-**3. Save CommandLogs for reproducible workflows:**
+**4. Save CommandLogs for reproducible workflows:**
 ```bash
 # In VisiData: Shift+D, then ^S workflow.vdj
-# Replay: vd --play workflow.vdj -b -o output.tsv
+# Replay in batch mode (no tmux needed):
+vd --play workflow.vdj -b -o output.tsv
 ```
 
-**4. Set column types early:**
+**5. Set column types early:**
 - Improves sort accuracy
 - Enables numeric aggregations
 - Better visualizations
 
-**5. Use key columns for grouping:**
+**6. Use key columns for grouping:**
 ```
 ! to set key, then Shift+F for frequency table
 ```
 
-**6. Combine with JN for ETL pipelines:**
+**7. Combine with JN for ETL pipelines:**
 ```bash
-# Visual exploration
-vd data.csv
+# Visual exploration (with tmux)
+jn cat data.csv | jn put /tmp/explore.csv
+# Then launch VisiData in tmux (see patterns above)
 
-# Automated processing
+# Automated processing (no tmux)
 jn cat data.csv | jn filter '.verified' | jn put clean.json
 ```
 
-**7. Use NDJSON for large datasets:**
+**8. Use NDJSON for large datasets:**
 ```bash
 # Better memory usage than JSON arrays
 jn cat huge.csv | jn put huge.jsonl
-vd -f jsonl huge.jsonl
+vd -f jsonl huge.jsonl  # Remember: use tmux if interactive!
+```
+
+**9. Always tell user how to monitor:**
+```bash
+# After starting tmux session, ALWAYS print:
+echo "Monitor with: tmux -S \"$SOCKET\" attach -t $SESSION"
 ```
 
 ## Advanced Features
@@ -571,13 +831,43 @@ Alt+H          Activate help menu
 curl https://api.example.com/data | vd -f json
 ```
 
-**Example 2: Sales report**
+**Example 2: Sales report (via tmux)**
 ```bash
-vd sales.csv
-# Set 'region' as key: !
-# On 'amount' column: + sum, + avg
-# Frequency table: Shift+F
-# Save: ^S sales_report.csv
+SOCKET_DIR=${TMPDIR:-/tmp}/claude-tmux-sockets
+mkdir -p "$SOCKET_DIR"
+SOCKET="$SOCKET_DIR/claude.sock"
+SESSION=claude-vd-sales
+
+tmux -S "$SOCKET" new -d -s "$SESSION"
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "vd sales.csv" Enter
+sleep 2
+
+# Navigate to 'region' column (example: column 2)
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "zc 2" Enter
+sleep 0.5
+
+# Set as key column
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "!" Enter
+sleep 0.5
+
+# Navigate to 'amount' column (example: column 5)
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "zc 5" Enter
+sleep 0.5
+
+# Open Frequency table (Shift+F)
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "F" Enter
+sleep 1
+
+# Capture the report
+tmux -S "$SOCKET" capture-pane -p -J -t "$SESSION":0.0 -S -50
+
+# Save
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "^S" Enter
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -l -- "sales_report.csv"
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- Enter
+
+echo "Report saved. Attach to view:"
+echo "  tmux -S \"$SOCKET\" attach -t $SESSION"
 ```
 
 **Example 3: CSV to SQLite**
@@ -585,13 +875,29 @@ vd sales.csv
 vd -b data.csv -o data.sqlite
 ```
 
-**Example 4: Filter and export for JN**
+**Example 4: Filter and export for JN (via tmux)**
 ```bash
-vd large_dataset.csv
-# Select rows: | .*, s to select matches
-# Save selected: ^S filtered.csv
-# Process with JN:
-jn cat filtered.csv | jn put results.json
+SOCKET_DIR=${TMPDIR:-/tmp}/claude-tmux-sockets
+mkdir -p "$SOCKET_DIR"
+SOCKET="$SOCKET_DIR/claude.sock"
+SESSION=claude-vd-filter
+
+tmux -S "$SOCKET" new -d -s "$SESSION"
+tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- "vd large_dataset.csv" Enter
+sleep 2
+
+echo "VisiData launched. Attach to filter data:"
+echo "  tmux -S \"$SOCKET\" attach -t $SESSION"
+echo ""
+echo "Filter workflow:"
+echo "  1. Use | to select rows by regex"
+echo "  2. Press s to select matching rows"
+echo "  3. Press ^S to save selected rows"
+echo "  4. Enter filename: filtered.csv"
+echo "  5. Detach with Ctrl+b d"
+echo ""
+echo "After filtering, process with JN:"
+echo "  jn cat filtered.csv | jn put results.json"
 ```
 
 **Example 5: Combine multiple files**
