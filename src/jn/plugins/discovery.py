@@ -1,7 +1,9 @@
 """Plugin discovery with timestamp-based caching (logic module)."""
 
 import json
+import os
 import re
+import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -31,6 +33,7 @@ class PluginMetadata:
     manages_parameters: bool = False  # Plugin handles own parameter parsing
     supports_container: bool = False  # Plugin supports container inspection
     container_mode: Optional[str] = None  # e.g., "path_count", "query_param"
+    is_binary: bool = False  # True for native binary plugins (Zig, Rust, etc.)
 
     def __post_init__(self):
         if self.dependencies is None:
@@ -117,6 +120,71 @@ def discover_plugins(plugin_dir: Path) -> Dict[str, PluginMetadata]:
     return plugins
 
 
+def discover_binary_plugins(binary_dir: Path) -> Dict[str, PluginMetadata]:
+    """Discover native binary plugins (Zig, Rust, etc.) via --jn-meta.
+
+    Binary plugins must:
+    1. Be executable files
+    2. Respond to --jn-meta with JSON metadata containing:
+       - name: plugin name
+       - matches: list of regex patterns
+       - role: plugin role (format, filter, protocol)
+       - modes: list of supported modes
+       - version (optional): plugin version
+    """
+    plugins: Dict[str, PluginMetadata] = {}
+    if not binary_dir or not binary_dir.exists():
+        return plugins
+
+    # Look for Zig plugins in plugins/zig/*/bin/*
+    zig_dir = binary_dir / "zig"
+    if zig_dir.exists():
+        for plugin_dir in zig_dir.iterdir():
+            if not plugin_dir.is_dir():
+                continue
+            bin_dir = plugin_dir / "bin"
+            if not bin_dir.exists():
+                continue
+
+            for binary in bin_dir.iterdir():
+                if not binary.is_file():
+                    continue
+                # Skip non-executable files on Unix
+                if not os.access(binary, os.X_OK):
+                    continue
+
+                # Run --jn-meta to get plugin metadata
+                try:
+                    result = subprocess.run(
+                        [str(binary), "--jn-meta"],
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
+                    )
+                    if result.returncode != 0:
+                        continue
+
+                    meta = json.loads(result.stdout.strip())
+                    name = meta.get("name", binary.name)
+                    matches = meta.get("matches", [])
+                    role = meta.get("role", "format")
+                    mtime = binary.stat().st_mtime
+
+                    plugins[name] = PluginMetadata(
+                        name=name,
+                        path=str(binary),
+                        mtime=mtime,
+                        matches=matches,
+                        role=role,
+                        is_binary=True,
+                    )
+                except (subprocess.TimeoutExpired, json.JSONDecodeError, OSError):
+                    # Skip binaries that don't respond properly
+                    continue
+
+    return plugins
+
+
 def load_cache(cache_path: Optional[Path]) -> dict:
     if cache_path is None or not cache_path.exists():
         return {"version": "0.0.1", "plugins": {}}
@@ -185,7 +253,20 @@ def get_cached_plugins_with_fallback(
     plugin_dir: Path,
     cache_path: Optional[Path],
     fallback_to_builtin: bool = True,
+    binary_plugins_dir: Optional[Path] = None,
 ) -> Dict[str, PluginMetadata]:
+    """Discover all plugins with fallback to built-in plugins.
+
+    Args:
+        plugin_dir: Custom plugin directory
+        cache_path: Path to cache file
+        fallback_to_builtin: Include built-in Python plugins
+        binary_plugins_dir: Directory containing binary plugins (e.g., plugins/zig/)
+                           If None, binary plugins are not discovered.
+
+    Returns:
+        Dictionary of plugin name -> PluginMetadata
+    """
     result: Dict[str, PluginMetadata] = {}
 
     if fallback_to_builtin:
@@ -198,6 +279,13 @@ def get_cached_plugins_with_fallback(
 
     custom_plugins = get_cached_plugins(plugin_dir, cache_path)
     result.update(custom_plugins)
+
+    # Discover binary plugins (Zig, Rust, etc.) if directory provided
+    # Binary plugins take precedence over Python plugins with same name
+    if binary_plugins_dir:
+        binary_plugins = discover_binary_plugins(binary_plugins_dir)
+        result.update(binary_plugins)
+
     return result
 
 
