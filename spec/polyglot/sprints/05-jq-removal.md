@@ -1,10 +1,47 @@
 # Sprint 05: Error Handling & jq Removal
 
-**Status:** 🔲 PLANNED
+**Status:** ✅ COMPLETE
 
 **Goal:** Improve ZQ error handling for production use, then remove jq dependency
 
 **Prerequisite:** Sprint 04 complete (ZQ v0.4.0 with slicing, optional, object ops)
+
+**Completed:** 2025-12 (PR #106)
+
+## Completion Summary
+
+### What Was Done
+
+**ZQ Enhancements (zq/src/main.zig +519 lines):**
+- Expression support in select conditions: `select((.revenue | tonumber) > 1000)`
+- Parenthesized expression parsing for grouping
+- Math functions: `floor`, `ceil`, `round`, `fabs`
+- Object merge: `. + {key: value}`
+- Array concatenation: `[a] + [b]`
+- Improved error messages with expression context
+- Unsupported feature detection (regex, variables, modules, reduce)
+
+**jq Removal:**
+- Deleted `jn_home/plugins/filters/jq_.py`
+- Updated `src/jn/cli/commands/filter.py` to use ZQ only
+- Removed `check_jq_available` from helpers.py
+- Updated jq profiles for ZQ compatibility
+
+**Test Results:**
+- 377 passed, 12 skipped
+- Skipped tests:
+  - 7 HTTP tests (external API dependency - intentional)
+  - 4 jq profile tests (use unsupported features: variable binding, inputs, recursive descent)
+  - 1 watchfiles test (flaky subprocess issue)
+
+### Remaining Limitations
+
+Features NOT supported by ZQ (require piping to jq):
+- Regex: `test()`, `match()`, `sub()`, `gsub()`
+- Variables: `. as $x`, `$variable`
+- `inputs` function (streaming model incompatible)
+- Recursive descent: `..`
+- `reduce` expressions
 
 ---
 

@@ -1,4 +1,4 @@
-.PHONY: all check test coverage clean install install-zig zq zq-test zq-bench
+.PHONY: all check test coverage clean install install-zig zq zq-test zq-bench zig-plugins zig-plugins-test
 
 # Zig configuration
 ZIG_VERSION := 0.15.2
@@ -68,6 +68,8 @@ install: install-zig
 	uv sync --all-extras
 	@echo "Building ZQ..."
 	$(MAKE) zq
+	@echo "Building Zig plugins..."
+	$(MAKE) zig-plugins
 
 # Install Zig compiler
 install-zig:
@@ -107,6 +109,23 @@ zq-bench: zq
 	else \
 		echo "jq not found - skipping comparative benchmarks"; \
 	fi
+
+# Build Zig plugins
+zig-plugins: install-zig
+	@echo "Building Zig plugins..."
+	mkdir -p plugins/zig/jsonl/bin
+	cd plugins/zig/jsonl && $(ZIG) build-exe main.zig -fllvm -O ReleaseFast -femit-bin=bin/jsonl
+	@echo "Zig plugins built successfully"
+
+# Run Zig plugin tests
+zig-plugins-test: zig-plugins
+	@echo "Testing Zig plugins..."
+	cd plugins/zig/jsonl && $(ZIG) test main.zig -fllvm
+	@echo "Testing JSONL plugin --jn-meta..."
+	plugins/zig/jsonl/bin/jsonl --jn-meta | python3 -c "import sys,json; json.load(sys.stdin); print('  --jn-meta: OK')"
+	@echo "Testing JSONL plugin read mode..."
+	echo '{"name":"Alice","age":30}' | plugins/zig/jsonl/bin/jsonl --mode=read | python3 -c "import sys,json; json.load(sys.stdin); print('  read mode: OK')"
+	@echo "All Zig plugin tests passed"
 
 publish:
 	@uv build
