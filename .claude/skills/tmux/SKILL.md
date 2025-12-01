@@ -15,20 +15,25 @@ Use tmux with a private socket to create isolated sessions that can be controlle
 ## Critical Setup Pattern
 
 ```bash
-# Standard socket location for all agent sessions
-SOCKET_DIR=${TMPDIR:-/tmp}/claude-tmux-sockets
+# Standard socket location - use export to avoid parse errors
+export SOCKET_DIR="/tmp/claude-tmux-sockets"
+export SOCKET="$SOCKET_DIR/claude.sock"
+export SESSION="claude-python"
+
 mkdir -p "$SOCKET_DIR"
-SOCKET="$SOCKET_DIR/claude.sock"
 
 # Create session with descriptive name
-SESSION=claude-python
 tmux -S "$SOCKET" new -d -s "$SESSION" -n shell
+sleep 1
+
+# Discover actual pane
+export PANE=$(tmux -S "$SOCKET" list-panes -a -F '#{session_name}:#{window_index}.#{pane_index}' | grep "^$SESSION:" | head -n 1)
 
 # Start interactive tool
-tmux -S "$SOCKET" send-keys -t "$SESSION":0.0 -- 'python3 -q' Enter
+tmux -S "$SOCKET" send-keys -t "$PANE" -- 'python3 -q' Enter
 
 # Capture output
-tmux -S "$SOCKET" capture-pane -p -J -t "$SESSION":0.0 -S -200
+tmux -S "$SOCKET" capture-pane -p -J -t "$PANE" -S -200
 
 # Clean up when done
 tmux -S "$SOCKET" kill-session -t "$SESSION"
@@ -64,17 +69,39 @@ echo "  tmux -S \"$SOCKET\" capture-pane -p -J -t $SESSION:0.0 -S -200"
 tmux -S "$SOCKET" -f /dev/null new -d -s "$SESSION"
 ```
 
-## Finding Sessions
+## Finding Sessions and Panes
+
+**⚠️ CRITICAL: Window numbering can vary - always discover actual targets!**
 
 **List sessions on current socket:**
 ```bash
 tmux -S "$SOCKET" list-sessions
-tmux -S "$SOCKET" list-panes -a
+tmux -S "$SOCKET" list-panes -a     # Shows actual pane targets
 ```
 
 **List sessions with metadata:**
 ```bash
 tmux -S "$SOCKET" list-sessions -F '#{session_name} created:#{session_created} windows:#{session_windows}'
+```
+
+**Discover the correct pane target (RECOMMENDED):**
+```bash
+# CRITICAL: Always check actual window/pane numbers
+# Windows may be :0.0 or :1.1 depending on tmux configuration
+PANE=$(tmux -S "$SOCKET" list-panes -a -F '#{session_name}:#{window_index}.#{pane_index}' | grep "^$SESSION:" | head -n 1)
+echo "Using target: $PANE"
+
+# Now use $PANE for all operations
+tmux -S "$SOCKET" send-keys -t "$PANE" -- "command" Enter
+tmux -S "$SOCKET" capture-pane -p -J -t "$PANE" -S -50
+```
+
+**Manual check:**
+```bash
+# List panes to see actual targets
+tmux -S "$SOCKET" list-panes -a
+# Example output: claude-vd:1.1: [80x24] ...
+#                          ^^^^ use this target, NOT :0.0
 ```
 
 **Check if session exists:**
@@ -422,16 +449,86 @@ echo "  tmux -S \"$SOCKET\" attach -t $SESSION"
 
 ## Best Practices
 
-1. **Always use isolated sockets** - Keep agent sessions separate from personal tmux
-2. **Always print monitor commands** - Tell user how to watch after starting session
-3. **Wait after starting tools** - Give interactive tools time to initialize (sleep 1-2 seconds)
-4. **Use `-l` for literal sends** - Avoid shell expansion issues with complex commands
-5. **Capture with `-J`** - Join wrapped lines to avoid artifacts
-6. **Poll for completion** - Don't assume instant execution; wait for expected output
-7. **Clean up sessions** - Kill sessions when done to avoid clutter
-8. **Handle errors gracefully** - Check capture output for error patterns
+1. **Always discover pane targets** - Don't assume `:0.0`, use `list-panes -a` to find actual target
+2. **Always use isolated sockets** - Keep agent sessions separate from personal tmux
+3. **Always print monitor commands** - Tell user how to watch after starting session
+4. **Wait after starting tools** - Give interactive tools time to initialize (sleep 1-2 seconds)
+5. **Use `-l` for literal sends** - Avoid shell expansion issues with complex commands
+6. **Capture with `-J`** - Join wrapped lines to avoid artifacts
+7. **Poll for completion** - Don't assume instant execution; wait for expected output
+8. **Clean up sessions** - Kill sessions when done to avoid clutter
+9. **Handle errors gracefully** - Check capture output for error patterns
+
+### Recommended Pattern (Avoids All Common Errors)
+
+```bash
+# Use export to avoid parameter expansion issues
+export SOCKET_DIR="/tmp/claude-tmux-sockets"
+export SOCKET="$SOCKET_DIR/claude.sock"
+export SESSION="claude-myapp"
+
+mkdir -p "$SOCKET_DIR"
+
+# Create session
+tmux -S "$SOCKET" new -d -s "$SESSION" "your_command_here"
+sleep 1
+
+# Discover actual pane (CRITICAL)
+export PANE=$(tmux -S "$SOCKET" list-panes -a -F '#{session_name}:#{window_index}.#{pane_index}' | grep "^$SESSION:" | head -n 1)
+echo "Using pane: $PANE"
+
+# Tell user how to monitor
+echo "Monitor with: tmux -S \"$SOCKET\" attach -t $SESSION"
+
+# Use discovered pane for all operations
+tmux -S "$SOCKET" send-keys -t "$PANE" -- "command" Enter
+tmux -S "$SOCKET" capture-pane -p -J -t "$PANE" -S -50
+
+# Cleanup
+tmux -S "$SOCKET" kill-session -t "$SESSION"
+```
 
 ## Troubleshooting
+
+**⚠️ CRITICAL: Parse error near '(' - Variable expansion issue**
+
+If you see `(eval):1: parse error near '('`, the issue is with parameter expansion in the Bash tool.
+
+**Problem:**
+```bash
+# ❌ This fails in Bash tool
+SOCKET_DIR=${TMPDIR:-/tmp}/claude-tmux-sockets
+```
+
+**Solutions:**
+
+**Option 1: Use export (RECOMMENDED):**
+```bash
+export TMPDIR="${TMPDIR:-/tmp}"
+export SOCKET_DIR="$TMPDIR/claude-tmux-sockets"
+export SOCKET="$SOCKET_DIR/claude.sock"
+export SESSION="claude-mysession"
+export PANE="claude-mysession:1.1"
+
+# Now use these variables normally
+tmux -S "$SOCKET" send-keys -t "$PANE" -- "G"
+```
+
+**Option 2: Hardcode the path:**
+```bash
+SOCKET="/tmp/claude-tmux-sockets/claude.sock"
+SESSION="claude-mysession"
+PANE="claude-mysession:1.1"
+
+tmux -S "$SOCKET" send-keys -t "$PANE" -- "G"
+```
+
+**Option 3: Set TMPDIR first, then build path:**
+```bash
+TMPDIR="/tmp"
+SOCKET_DIR="$TMPDIR/claude-tmux-sockets"
+SOCKET="$SOCKET_DIR/claude.sock"
+```
 
 **Session not found:**
 ```bash
