@@ -120,7 +120,10 @@ def filter(ctx, query, slurp):
     if zq_binary is None:
         click.echo("Error: ZQ binary not found.", err=True)
         click.echo("  Install with: make zq", err=True)
-        click.echo("  Or build manually: cd zq && zig build-exe src/main.zig -fllvm", err=True)
+        click.echo(
+            "  Or build manually: cd zq && zig build-exe src/main.zig -fllvm",
+            err=True,
+        )
         sys.exit(1)
 
     # Resolve profile references

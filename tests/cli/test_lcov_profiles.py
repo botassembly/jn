@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-
 # Note: These tests use LCOV profiles with jq expressions.
 # ZQ now supports all required features:
 # - // (alternative operator)

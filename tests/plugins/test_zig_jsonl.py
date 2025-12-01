@@ -19,6 +19,7 @@ def require_binary():
 
 # --jn-meta tests
 
+
 def test_jn_meta_outputs_valid_json():
     """--jn-meta should output valid JSON."""
     result = subprocess.run(
@@ -59,6 +60,7 @@ def test_jn_meta_matches_jsonl_extensions():
 
 
 # --mode=read tests
+
 
 def test_read_single_record():
     """Should pass through a single JSON record."""
@@ -121,6 +123,7 @@ def test_read_skips_empty_lines():
 
 # --mode=write tests
 
+
 def test_write_passthrough():
     """Write mode should pass through NDJSON unchanged."""
     input_data = '{"name": "Bob"}\n{"name": "Carol"}\n'
@@ -138,6 +141,7 @@ def test_write_passthrough():
 
 
 # Discovery tests
+
 
 def test_binary_plugin_discoverable():
     """Binary plugin should be discoverable via discovery module."""

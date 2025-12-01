@@ -4,7 +4,6 @@ import json
 
 import pytest
 
-
 # These builtin profiles use jq features not supported by ZQ:
 # - variable binding (as $var)
 # - inputs function
@@ -12,7 +11,9 @@ import pytest
 # They are skipped until ZQ supports these features or profiles are rewritten.
 
 
-@pytest.mark.skip(reason="Uses jq features not supported by ZQ (variable binding, inputs)")
+@pytest.mark.skip(
+    reason="Uses jq features not supported by ZQ (variable binding, inputs)"
+)
 def test_jq_builtin_group_count(invoke):
     """Test builtin group_count profile."""
     ndjson = """{"status":"active"}
@@ -46,7 +47,9 @@ def test_jq_builtin_group_count(invoke):
     assert inactive["count"] == 1
 
 
-@pytest.mark.skip(reason="Uses jq features not supported by ZQ (variable binding, inputs)")
+@pytest.mark.skip(
+    reason="Uses jq features not supported by ZQ (variable binding, inputs)"
+)
 def test_jq_builtin_group_sum(invoke):
     """Test builtin group_sum profile."""
     ndjson = """{"customer":"Alice","total":100}
@@ -75,7 +78,9 @@ def test_jq_builtin_group_sum(invoke):
     assert bob["total"] == 50
 
 
-@pytest.mark.skip(reason="Uses jq features not supported by ZQ (variable binding, inputs)")
+@pytest.mark.skip(
+    reason="Uses jq features not supported by ZQ (variable binding, inputs)"
+)
 def test_jq_builtin_stats(invoke):
     """Test builtin stats profile."""
     ndjson = """{"revenue":100}
@@ -101,7 +106,9 @@ def test_jq_builtin_stats(invoke):
     assert stats["count"] == 3
 
 
-@pytest.mark.skip(reason="Uses jq features not supported by ZQ (recursive descent)")
+@pytest.mark.skip(
+    reason="Uses jq features not supported by ZQ (recursive descent)"
+)
 def test_jq_builtin_flatten_nested(invoke):
     """Test builtin flatten_nested profile."""
     ndjson = (

@@ -153,9 +153,9 @@ def discover_binary_plugins(binary_dir: Path) -> Dict[str, PluginMetadata]:
                 if not os.access(binary, os.X_OK):
                     continue
 
-                # Run --jn-meta to get plugin metadata
+                # Run --jn-meta to get plugin metadata (small JSON, not streaming)
                 try:
-                    result = subprocess.run(  # noqa: S603 - trusted binary from plugins dir
+                    result = subprocess.run(  # noqa: S603  # jn:ignore[subprocess_capture_output]
                         [str(binary), "--jn-meta"],
                         capture_output=True,
                         text=True,
@@ -178,7 +178,11 @@ def discover_binary_plugins(binary_dir: Path) -> Dict[str, PluginMetadata]:
                         role=role,
                         is_binary=True,
                     )
-                except (subprocess.TimeoutExpired, json.JSONDecodeError, OSError):
+                except (
+                    subprocess.TimeoutExpired,
+                    json.JSONDecodeError,
+                    OSError,
+                ):
                     # Skip binaries that don't respond properly
                     continue
 
