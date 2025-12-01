@@ -1,6 +1,6 @@
 # Sprint 04: ZQ High-Impact jq Features
 
-**Status:** 🔲 NEXT
+**Status:** ✅ COMPLETE
 
 **Goal:** Implement high/medium impact jq features missing from ZQ to reach ~99% compatibility for JN use cases
 
@@ -196,14 +196,14 @@ from_entries on [{"name":"x","value":1}] → {"x":1} # alternate form
 
 | Feature | Implemented | Tests | jq-compatible |
 |---------|-------------|-------|---------------|
-| `.[n:m]` slicing | ☐ | ☐ | ☐ |
-| `.foo?` optional | ☐ | ☐ | ☐ |
-| `has(key)` | ☐ | ☐ | ☐ |
-| `del(.key)` | ☐ | ☐ | ☐ |
-| `to_entries` | ☐ | ☐ | ☐ |
-| `from_entries` | ☐ | ☐ | ☐ |
+| `.[n:m]` slicing | ✅ | ✅ | ✅ |
+| `.foo?` optional | ✅ | ✅ | ✅ |
+| `has(key)` | ✅ | ✅ | ✅ |
+| `del(.key)` | ✅ | ✅ | ✅ |
+| `to_entries` | ✅ | ✅ | ✅ |
+| `from_entries` | ✅ | ✅ | ✅ |
 
-**Version:** Bump to v0.4.0 on completion
+**Version:** v0.4.0 ✅
 
 ---
 
