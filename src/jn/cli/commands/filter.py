@@ -9,8 +9,10 @@ from pathlib import Path
 
 import click
 
+from ...addressing import parse_address
 from ...context import get_jn_home, pass_context
 from ...process_utils import popen_with_validation
+from ...profiles.resolver import ProfileError, resolve_profile
 
 
 def find_zq_binary() -> str | None:
@@ -60,10 +62,17 @@ def find_zq_binary() -> str | None:
 )
 @pass_context
 def filter(ctx, query, slurp):
-    """Filter NDJSON using ZQ expressions.
+    """Filter NDJSON using ZQ expressions or profiles.
 
-    ZQ is a high-performance jq-compatible filter written in Zig.
-    It supports the most common jq operations with 2-3x better performance.
+    QUERY can be either:
+    - A ZQ expression: 'select(.age > 25)'
+    - A profile reference: '@sales/by_region?region=East'
+
+    Profile Support:
+    - Profiles are stored in profiles/jq/{namespace}/{name}.jq
+    - Parameters are substituted: $param → "value"
+    - Example: '@sales/by_region?region=East' resolves the profile
+      and replaces $region with "East"
 
     Supported features:
     - Identity: .
@@ -71,7 +80,7 @@ def filter(ctx, query, slurp):
     - Array indexing: .[0], .[-1], .[2:5]
     - Array iteration: .[], .items[]
     - Select: select(.x > 10), select(.a and .b)
-    - Pipes: .x | .y
+    - Pipes: .x | .y, (.field | tonumber) > 10
     - Object construction: {a: .x, b: .y}
     - Arithmetic: .x + .y, .a * .b
     - Builtins: length, keys, values, type, tonumber, tostring
@@ -97,6 +106,9 @@ def filter(ctx, query, slurp):
         # Complex filter with pipes
         jn cat data.csv | jn filter '.items[] | select(.active) | .name'
 
+        # Using a profile
+        jn cat sales.csv | jn filter '@sales/by_region?region=East'
+
         # Aggregation with slurp mode
         jn cat data.csv | jn filter -s 'group_by(.status) | map({status: .[0].status, count: length})'
 
@@ -111,19 +123,30 @@ def filter(ctx, query, slurp):
         click.echo("  Or build manually: cd zq && zig build-exe src/main.zig -fllvm", err=True)
         sys.exit(1)
 
-    # Check for deprecated profile syntax
+    # Resolve profile references
+    resolved_query = query
     if query.startswith("@"):
-        click.echo("Error: Profile syntax (@profile/...) is no longer supported.", err=True)
-        click.echo("  Filter profiles used jq-specific .jq files.", err=True)
-        click.echo("  Convert your profile to a ZQ-compatible expression.", err=True)
-        click.echo("  Example: jn filter '.items[] | select(.x > 10)'", err=True)
-        sys.exit(1)
+        try:
+            # Parse as address to extract parameters
+            addr = parse_address(query)
+            # Resolve profile with string substitution
+            resolved_query = resolve_profile(
+                addr.base,
+                plugin_name="jq_",
+                params=addr.parameters,
+            )
+        except ProfileError as e:
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(1)
+        except ValueError as e:
+            click.echo(f"Error: Invalid profile syntax: {e}", err=True)
+            sys.exit(1)
 
     # Build ZQ command
     cmd = [zq_binary]
     if slurp:
         cmd.append("-s")
-    cmd.append(query)
+    cmd.append(resolved_query)
 
     # Prepare stdin for subprocess
     try:

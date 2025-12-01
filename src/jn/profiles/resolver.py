@@ -206,13 +206,25 @@ def resolve_profile(
     ]
     content = "\n".join(content_lines).strip()
 
+    # For jq profiles, collapse to single line (ZQ doesn't handle multi-line)
+    if profile_file.suffix == ".jq":
+        # Replace newlines with spaces and collapse multiple spaces
+        content = " ".join(content.split())
+
     # Substitute parameters
-    # Simple string replacement: $param_name → "param_value"
+    # Smart replacement: numbers stay unquoted, strings get quoted
     # TODO: More sophisticated substitution could support ${param_name} syntax
     # TODO: Consider plugin-specific escaping (e.g., SQL injection prevention)
     for param_name, param_value in params.items():
-        # Replace $param_name with "param_value" (quoted)
-        # This works for jq and most query languages
-        content = content.replace(f"${param_name}", f'"{param_value}"')
+        # Check if value is numeric (int or float)
+        try:
+            # Try parsing as number
+            float(param_value)
+            # It's numeric, don't quote (allows direct numeric comparison)
+            replacement = param_value
+        except ValueError:
+            # It's a string, quote it
+            replacement = f'"{param_value}"'
+        content = content.replace(f"${param_name}", replacement)
 
     return content

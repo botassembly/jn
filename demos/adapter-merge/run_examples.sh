@@ -3,7 +3,7 @@
 #
 # Demonstrates:
 # - SQL optional parameters with DuckDB (pushdown adapters)
-# - JQ native argument binding (streaming adapters)
+# - JQ profile string substitution (streaming adapters)
 # - jn merge for comparative analysis (composability)
 
 set -e
@@ -57,24 +57,24 @@ jn cat "@genie/treatment?regimen=FOLFIRI&min_survival=15"
 echo ""
 
 # =============================================================================
-# PART 2: JQ Native Arguments (Streaming Adapters)
+# PART 2: JQ Profile Substitution (Streaming Adapters)
 # =============================================================================
 echo "═══════════════════════════════════════════════════════════════"
-echo "PART 2: JQ Native Arguments (Streaming Adapters)"
+echo "PART 2: JQ Profile Substitution (Streaming Adapters)"
 echo "═══════════════════════════════════════════════════════════════"
 echo ""
-echo "JQ profiles use native --arg binding for type-safe parameters."
-echo "Use --native-args flag to enable this mode."
+echo "JQ profiles use string substitution for parameters."
+echo "Parameters are replaced directly in the query: \$param → \"value\""
 echo ""
 
-echo "1. Filter sales by region using native args:"
-echo "   jn cat sales.csv | jn filter '@sales/by_region?region=East' --native-args"
-jn cat sales.csv | jn filter '@sales/by_region?region=East' --native-args
+echo "1. Filter sales by region using profile:"
+echo "   jn cat sales.csv | jn filter '@sales/by_region?region=East'"
+jn cat sales.csv | jn filter '@sales/by_region?region=East'
 echo ""
 
-echo "2. Filter by threshold using native args:"
-echo "   jn cat sales.csv | jn filter '@sales/above_threshold?threshold=1000' --native-args"
-jn cat sales.csv | jn filter '@sales/above_threshold?threshold=1000' --native-args
+echo "2. Filter by threshold using profile:"
+echo "   jn cat sales.csv | jn filter '@sales/above_threshold?threshold=1000'"
+jn cat sales.csv | jn filter '@sales/above_threshold?threshold=1000'
 echo ""
 
 # =============================================================================
@@ -122,6 +122,6 @@ echo "Demo Complete!"
 echo ""
 echo "Key Takeaways:"
 echo "  - SQL optional params: Use (\$param IS NULL OR col = \$param)"
-echo "  - JQ native args: Use --native-args for type-safe binding"
+echo "  - JQ profiles: Use @namespace/profile?param=value for string substitution"
 echo "  - Merge command: Combine sources with :label=X for analysis"
 echo "═══════════════════════════════════════════════════════════════"
