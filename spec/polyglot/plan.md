@@ -1,12 +1,12 @@
 # JN Polyglot Implementation Plan
 
 **Status:** In Progress
-**Date:** 2024-01 (Updated 2024-11)
+**Date:** 2024-01 (Updated 2025-12)
 
 ## Executive Summary
 
 This plan outlines the migration of JN to a polyglot architecture with:
-- **ZQ** - Pure Zig jq replacement (Sprints 01-03 complete, v0.3.0)
+- **ZQ** - Pure Zig jq replacement (Sprints 01-04a complete, v0.4.0, Zig 0.15.2)
 - **Zig core** - CLI, address parsing, pipeline execution (future)
 - **Zig plugins** - csv, json, jsonl, http (hot path, future)
 - **Python plugins** - gmail, mcp, duckdb, and others (complex APIs)
@@ -19,8 +19,9 @@ This plan outlines the migration of JN to a polyglot architecture with:
 | 01 | ✅ Complete | ZQ foundation: identity, field access, select, pipes |
 | 02 | ✅ Complete | Extended: array iteration, slurp mode, arithmetic |
 | 03 | ✅ Complete | Aggregation: group_by, sort_by, map, string functions |
-| 04 | 🔲 Next | **ZQ jq-compat:** slicing, optional access, has, del, entries |
-| 05 | 🔲 Planned | **Error handling + jq removal:** improve errors, then remove jq |
+| 04 | ✅ Complete | **ZQ jq-compat:** slicing, optional access, has, del, entries |
+| 04a | ✅ Complete | **Zig 0.15.2 upgrade:** I/O refactor, build system updates |
+| 05 | 🔲 Next | **Error handling + jq removal:** improve errors, then remove jq |
 | 06 | 🔲 Planned | Zig plugin library (jn-plugin) |
 | 07 | 🔲 Planned | CSV & JSON Zig plugins |
 | 08 | 🔲 Planned | Integration, CI/CD, production release |
@@ -50,13 +51,13 @@ This plan outlines the migration of JN to a polyglot architecture with:
 │              │      │              │      │              │
 │ • jq filter  │      │ • csv        │      │ • gmail      │
 │   replacement│      │ • json       │      │ • mcp        │
-│ • 2x faster  │      │ • http       │      │ • duckdb     │
-│ • v0.3.0     │      │ • gz         │      │ • xlsx       │
+│ • 2-3x faster│      │ • http       │      │ • duckdb     │
+│ • v0.4.0     │      │ • gz         │      │ • xlsx       │
 │              │      │              │      │ • table      │
 └──────────────┘      └──────────────┘      └──────────────┘
 ```
 
-**Current state:** Python CLI + ZQ (Sprints 01-03 complete)
+**Current state:** Python CLI + ZQ v0.4.0 (Sprints 01-04a complete, Zig 0.15.2)
 
 ---
 
@@ -373,16 +374,17 @@ pub fn reads(config: jn.Config, writer: anytype) !void {
 
 | Criteria | Rust/jaq | Zig (ZQ) |
 |----------|----------|----------|
-| Binary size | ~5MB | 3.1MB |
+| Binary size | ~5MB | 2.3MB |
 | Startup time | ~5ms | <1ms |
 | Build complexity | Cargo + deps | Single file |
 | Customizability | Library wrapper | Full control |
-| Performance vs jq | 10x faster | 2x faster |
+| Performance vs jq | 10x faster | 2-3x faster |
 
 ZQ is purpose-built for JN's needs with:
 - Arena allocator for streaming (constant memory)
-- Single-file implementation (~2000 lines)
+- Single-file implementation (~2600 lines)
 - No external dependencies
+- Built with Zig 0.15.2 (LLVM backend)
 
 ### 4.2 Implementation Status
 
@@ -405,6 +407,16 @@ Location: `zq/src/main.zig`
 - Aggregation: `add`, `min`, `max`, `group_by`, `sort_by`, `unique_by`, `min_by`, `max_by`, `map`
 - String: `split`, `join`, `ascii_downcase`, `ascii_upcase`, `startswith`, `endswith`, `contains`, `ltrimstr`, `rtrimstr`
 
+**Sprint 04 (v0.4.0):** jq-compat ✅
+- Slicing: `.[n:m]`, `.[n:]`, `.[:m]`, negative indices
+- Optional access: `.foo?`, `.[n]?`
+- Object operations: `has(key)`, `del(.key)`, `to_entries`, `from_entries`
+
+**Sprint 04a:** Zig 0.15.2 Upgrade ✅
+- Migrated to Zig 0.15.2 "Writergate" I/O API
+- Updated build system for LLVM backend
+- All 82 unit tests + 25 integration tests passing
+
 ### 4.3 ZQ vs jq Compatibility
 
 | Feature | jq | ZQ | Notes |
@@ -413,22 +425,32 @@ Location: `zq/src/main.zig`
 | `select(expr)` | ✅ | ✅ | |
 | `\|` pipes | ✅ | ✅ | |
 | `.[]`, `.[n]` | ✅ | ✅ | |
+| `.[n:m]` slicing | ✅ | ✅ | Sprint 04 |
+| `.foo?` optional | ✅ | ✅ | Sprint 04 |
 | `-s` slurp | ✅ | ✅ | |
 | Arithmetic | ✅ | ✅ | |
 | `group_by`, `sort_by` | ✅ | ✅ | |
 | `map(expr)` | ✅ | ✅ | |
 | String functions | ✅ | ✅ | |
+| `has`, `del`, `*_entries` | ✅ | ✅ | Sprint 04 |
 | Regex (test, match) | ✅ | ❌ | Not needed for JN |
 | Variables ($x) | ✅ | ❌ | Not needed for JN |
 | Modules | ✅ | ❌ | Not needed for JN |
 
-**Coverage:** ~95% of JN filter usage patterns
+**Coverage:** ~99% of JN filter usage patterns
 
-### 4.4 Next Steps
+### 4.4 Performance (Zig 0.15.2)
 
-**Sprint 04:** Implement high-impact jq features for ~99% JN compatibility:
-- P0: `.[n:m]` slicing, `.foo?` optional access
-- P1: `has(key)`, `del(.key)`, `to_entries`, `from_entries`
+Benchmarks on 500k NDJSON records (46MB):
+
+| Expression | jq 1.7 | ZQ 0.4.0 | Speedup |
+|------------|--------|----------|---------|
+| `.` (identity) | 1.99s | 0.67s | **2.95x** |
+| `.name` (field) | 1.25s | 0.57s | **2.19x** |
+| `.nested.score` | 1.24s | 0.58s | **2.12x** |
+| `select(.value > 50000)` | 1.81s | 0.66s | **2.75x** |
+
+### 4.5 Next Steps
 
 **Sprint 05:** Improve error handling, then remove jq (rip and replace):
 1. Add clear error messages with context and suggestions

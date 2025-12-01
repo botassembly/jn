@@ -1,10 +1,10 @@
 .PHONY: all check test coverage clean install install-zig zq zq-test zq-bench
 
 # Zig configuration
-ZIG_VERSION := 0.11.0
-ZIG_ARCHIVE := zig-linux-x86_64-$(ZIG_VERSION).tar.xz
+ZIG_VERSION := 0.15.2
+ZIG_ARCHIVE := zig-x86_64-linux-$(ZIG_VERSION).tar.xz
 ZIG_URL := https://ziglang.org/download/$(ZIG_VERSION)/$(ZIG_ARCHIVE)
-ZIG_LOCAL := $(HOME)/.local/zig-linux-x86_64-$(ZIG_VERSION)
+ZIG_LOCAL := $(HOME)/.local/zig-x86_64-linux-$(ZIG_VERSION)
 ZIG := $(ZIG_LOCAL)/zig
 
 all: check test
@@ -22,6 +22,15 @@ check:
 	@echo "Validating plugins and core with 'jn check'"
 	@uv run python -m jn.cli.main check plugins --format summary
 	@uv run python -m jn.cli.main check core --format summary
+	# Zig formatting check (if Zig is installed)
+	@if command -v $(ZIG) >/dev/null 2>&1; then \
+		echo "Checking Zig formatting..."; \
+		$(ZIG) fmt --check zq/src/ zq/tests/ || (echo "Run 'make zq-fmt' to fix"; exit 1); \
+	fi
+
+# Format Zig code
+zq-fmt: install-zig
+	$(ZIG) fmt zq/src/ zq/tests/
 
 test:
 	uv run pytest -q
@@ -76,13 +85,17 @@ install-zig:
 	@$(ZIG) version
 
 # Build ZQ (Zig-based jq replacement)
+# Use -fllvm to use the mature LLVM backend (x86 backend has TODO panics in 0.15.2)
+# Use build-exe directly to avoid build system issues
 zq: install-zig
-	cd zq && $(ZIG) build -Doptimize=ReleaseFast
+	mkdir -p zq/zig-out/bin
+	cd zq && $(ZIG) build-exe src/main.zig -fllvm -O ReleaseFast -femit-bin=zig-out/bin/zq
 
 # Run ZQ tests (unit + integration)
 zq-test: zq
-	cd zq && $(ZIG) build test
-	cd zq && $(ZIG) build test-integration
+	cd zq && $(ZIG) test src/main.zig -fllvm
+	@echo "Unit tests passed. Running integration tests..."
+	cd zq && $(ZIG) test tests/integration.zig -fllvm
 
 # Run ZQ benchmarks (requires jq installed)
 zq-bench: zq

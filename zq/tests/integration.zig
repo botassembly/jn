@@ -6,7 +6,8 @@ const std = @import("std");
 fn runZq(allocator: std.mem.Allocator, expr: []const u8, input: []const u8) ![]u8 {
     const exe_path = "zig-out/bin/zq";
 
-    var child = std.ChildProcess.init(&[_][]const u8{ exe_path, expr }, allocator);
+    // Zig 0.15.2 API: init takes (argv, allocator) as positional args
+    var child = std.process.Child.init(&[_][]const u8{ exe_path, expr }, allocator);
     child.stdin_behavior = .Pipe;
     child.stdout_behavior = .Pipe;
     child.stderr_behavior = .Pipe;
@@ -15,23 +16,50 @@ fn runZq(allocator: std.mem.Allocator, expr: []const u8, input: []const u8) ![]u
 
     // Write input and close stdin
     if (child.stdin) |stdin| {
-        stdin.writeAll(input) catch {};
+        try stdin.writeAll(input);
         stdin.close();
         child.stdin = null;
     }
 
-    // Read output
-    const stdout = try child.stdout.?.reader().readAllAlloc(allocator, 1024 * 1024);
-    const stderr = try child.stderr.?.reader().readAllAlloc(allocator, 1024 * 1024);
-    defer allocator.free(stderr);
+    // Read output using direct file reads (0.15.2 compatible)
+    var stdout_data: std.ArrayListUnmanaged(u8) = .empty;
+    errdefer stdout_data.deinit(allocator);
+    var stderr_data: std.ArrayListUnmanaged(u8) = .empty;
+    defer stderr_data.deinit(allocator);
 
-    const term = child.wait() catch |err| return err;
-    if (term.Exited != 0) {
-        std.debug.print("ZQ failed with: {s}\n", .{stderr});
-        return error.ProcessFailed;
+    // Read in chunks until EOF
+    var read_buf: [4096]u8 = undefined;
+    if (child.stdout) |stdout_file| {
+        while (true) {
+            const n = try stdout_file.read(&read_buf);
+            if (n == 0) break;
+            try stdout_data.appendSlice(allocator, read_buf[0..n]);
+        }
     }
 
-    return stdout;
+    if (child.stderr) |stderr_file| {
+        while (true) {
+            const n = try stderr_file.read(&read_buf);
+            if (n == 0) break;
+            try stderr_data.appendSlice(allocator, read_buf[0..n]);
+        }
+    }
+
+    const term = try child.wait();
+    switch (term) {
+        .Exited => |code| {
+            if (code != 0) {
+                std.debug.print("ZQ failed with exit code {d}: {s}\n", .{ code, stderr_data.items });
+                return error.ProcessFailed;
+            }
+        },
+        else => {
+            std.debug.print("ZQ terminated abnormally: {s}\n", .{stderr_data.items});
+            return error.ProcessFailed;
+        },
+    }
+
+    return stdout_data.toOwnedSlice(allocator);
 }
 
 test "integration: identity" {
