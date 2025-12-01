@@ -59,10 +59,13 @@ def _extract_declared_params(sql_content: str) -> list[str]:
     Returns:
         List of declared parameter names
     """
+    import re
     for line in sql_content.split("\n")[:20]:
         line = line.strip()
-        if "-- Parameters:" in line:
-            params_text = line.split("Parameters:", 1)[1].strip()
+        # Case-insensitive match for "-- Parameters:" or "-- parameters:"
+        match = re.search(r'--\s*parameters?:\s*(.+)', line, re.IGNORECASE)
+        if match:
+            params_text = match.group(1).strip()
             return [p.split("(")[0].strip() for p in params_text.split(",") if p.strip()]
     return []
 
