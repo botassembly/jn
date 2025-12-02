@@ -613,7 +613,9 @@ class AddressResolver:
             AddressResolutionError: If plugin not found
         """
         # Use mode-aware matching to skip plugins that don't support the mode
-        matched_name = self._registry.match_with_mode(source, mode, self._plugins)
+        matched_name = self._registry.match_with_mode(
+            source, mode, self._plugins
+        )
         if matched_name and matched_name in self._plugins:
             plugin = self._plugins[matched_name]
             return plugin.name, plugin.path

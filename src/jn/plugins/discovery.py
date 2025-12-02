@@ -217,7 +217,10 @@ def discover_zig_plugins_with_build() -> Dict[str, PluginMetadata]:
     plugins: Dict[str, PluginMetadata] = {}
 
     try:
-        from ..zig_builder import get_or_build_plugin, list_available_zig_plugins
+        from ..zig_builder import (
+            get_or_build_plugin,
+            list_available_zig_plugins,
+        )
 
         for plugin_name in list_available_zig_plugins():
             binary_path = get_or_build_plugin(plugin_name)

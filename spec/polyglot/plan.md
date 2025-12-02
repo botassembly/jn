@@ -187,8 +187,8 @@ jn/
 │
 ├── plugins/zig/               # Zig plugins (self-contained)
 │   ├── jsonl/main.zig        # JSONL plugin (188 lines) ✅
-│   ├── csv/main.zig          # CSV plugin (523 lines) 🔲
-│   └── json/main.zig         # JSON plugin (279 lines) 🔲
+│   ├── csv/main.zig          # CSV plugin (523 lines) ✅
+│   └── json/main.zig         # JSON plugin (279 lines) ✅
 │
 ├── jn_home/
 │   ├── plugins/              # Python plugins
@@ -293,3 +293,43 @@ jn/
 - `spec/polyglot/sprints/04a-zig-0.15.2-upgrade.md`
 - `spec/polyglot/sprints/05-jq-removal.md`
 - `spec/polyglot/sprints/06-zig-plugin-library.md`
+- `spec/polyglot/sprints/07-zig-csv-json-plugins.md`
+
+---
+
+## Packaging Verification (Sprint 07)
+
+Verified the full packaging and installation workflow:
+
+### Build Process
+```bash
+uv build
+# Creates dist/jn-0.1.0-py3-none-any.whl
+# Wheel includes bundled Zig sources in jn_home/zig_src/
+```
+
+### Installation via `uv tool install`
+```bash
+uv tool install --force dist/jn-0.1.0-py3-none-any.whl
+# Installs to ~/.local/share/uv/tools/jn/
+```
+
+### What's Verified
+1. **Wheel packaging** - Zig sources bundled correctly
+2. **Tool installation** - `jn` command available system-wide
+3. **Plugin discovery** - Both Python and Zig plugins discovered
+4. **On-demand Zig compilation** - Zig plugins compile from bundled sources
+5. **Mode-aware fallback** - JSON write falls back to Python plugin
+6. **Binary caching** - Compiled binaries cached in `~/.local/jn/bin/`
+
+### Test Commands
+```bash
+# CSV read (Zig) → JSON write (Python)
+echo 'name,value\ntest,123' | jn cat /dev/stdin~csv | jn put /dev/stdout~json
+
+# JSON read (Zig) → table display (Python)
+echo '[{"a":1},{"a":2}]' | jn cat /dev/stdin~json | jn put /dev/stdout~table
+
+# Full pipeline with filter
+jn cat data.csv | jn filter '.revenue > 100' | jn put output.json
+```

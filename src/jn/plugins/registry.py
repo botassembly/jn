@@ -11,7 +11,9 @@ class PatternRegistry:
 
     def __init__(self):
         # Store (regex, plugin_name, specificity, role, is_binary)
-        self.patterns: List[Tuple[re.Pattern, str, int, Optional[str], bool]] = []
+        self.patterns: List[
+            Tuple[re.Pattern, str, int, Optional[str], bool]
+        ] = []
 
     def register_plugin(self, plugin: PluginMetadata) -> None:
         # Binary plugins (Zig, Rust) get priority over Python plugins
@@ -50,10 +52,9 @@ class PatternRegistry:
         for regex, plugin_name, _, _, _ in self.patterns:
             if regex.search(source):
                 plugin = plugins.get(plugin_name)
-                if plugin:
-                    # If modes is None, plugin supports all modes (Python plugins)
-                    if plugin.modes is None or mode in plugin.modes:
-                        return plugin_name
+                # If modes is None, plugin supports all modes (Python plugins)
+                if plugin and (plugin.modes is None or mode in plugin.modes):
+                    return plugin_name
         return None
 
     def match_role(self, source: str, role: str) -> Optional[str]:

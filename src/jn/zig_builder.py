@@ -31,7 +31,7 @@ def _check_zig_version(cmd: list[str]) -> bool:
         True if version >= MIN_ZIG_VERSION, False otherwise
     """
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # noqa: S603  # jn:ignore[subprocess_capture_output]: version check, not data pipeline
             [*cmd, "version"],
             capture_output=True,
             text=True,
@@ -96,7 +96,7 @@ def get_zig_version() -> Optional[str]:
     """
     try:
         cmd = get_zig_command()
-        result = subprocess.run(
+        result = subprocess.run(  # noqa: S603  # jn:ignore[subprocess_capture_output]: version check, not data pipeline
             [*cmd, "version"],
             capture_output=True,
             text=True,
@@ -203,7 +203,7 @@ def is_zig_available() -> bool:
     """
     try:
         cmd = get_zig_command()
-        result = subprocess.run(
+        result = subprocess.run(  # noqa: S603  # jn:ignore[subprocess_capture_output]: version check, not data pipeline
             [*cmd, "version"],
             capture_output=True,
             text=True,
@@ -288,7 +288,7 @@ def build_zig_binary(
         cmd.append("-fllvm")
 
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # noqa: S603  # jn:ignore[subprocess_capture_output]: build output is small, not data pipeline
             cmd,
             capture_output=True,
             text=True,
@@ -358,10 +358,18 @@ def get_or_build_zq() -> Optional[Path]:
 
     # Development locations (repo root)
     module_dir = Path(__file__).parent
-    source_locations.extend([
-        module_dir.parent.parent / "zq" / "src" / "main.zig",  # from src/jn/
-        module_dir.parent.parent.parent / "zq" / "src" / "main.zig",  # deeper
-    ])
+    source_locations.extend(
+        [
+            module_dir.parent.parent
+            / "zq"
+            / "src"
+            / "main.zig",  # from src/jn/
+            module_dir.parent.parent.parent
+            / "zq"
+            / "src"
+            / "main.zig",  # deeper
+        ]
+    )
 
     for source_path in source_locations:
         if source_path.exists():
@@ -391,10 +399,20 @@ def get_or_build_plugin(plugin_name: str) -> Optional[Path]:
 
     # Development locations (repo root)
     module_dir = Path(__file__).parent
-    source_locations.extend([
-        module_dir.parent.parent / "plugins" / "zig" / plugin_name / "main.zig",
-        module_dir.parent.parent.parent / "plugins" / "zig" / plugin_name / "main.zig",
-    ])
+    source_locations.extend(
+        [
+            module_dir.parent.parent
+            / "plugins"
+            / "zig"
+            / plugin_name
+            / "main.zig",
+            module_dir.parent.parent.parent
+            / "plugins"
+            / "zig"
+            / plugin_name
+            / "main.zig",
+        ]
+    )
 
     for source_path in source_locations:
         if source_path.exists():

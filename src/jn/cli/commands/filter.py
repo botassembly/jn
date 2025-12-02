@@ -133,7 +133,9 @@ def filter(ctx, query, slurp):
         click.echo("Error: ZQ filter engine not available.", err=True)
         click.echo("", err=True)
         click.echo("Options:", err=True)
-        click.echo("  1. Install Zig 0.15.2+ to build ZQ automatically:", err=True)
+        click.echo(
+            "  1. Install Zig 0.15.2+ to build ZQ automatically:", err=True
+        )
         click.echo("     https://ziglang.org/download/", err=True)
         click.echo("  2. Build ZQ manually:", err=True)
         click.echo("     make zq", err=True)
