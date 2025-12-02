@@ -14,9 +14,9 @@ cd "$DEMO_DIR"
 echo "=== JN Adapter & Merge Demo ==="
 echo ""
 
-# Setup: Create test database
+# Setup: Create test database (PEP 723 script with uv shebang)
 echo "Setting up test data..."
-python setup_data.py
+./setup_data.py
 echo ""
 
 # Export JN_HOME to use demo profiles

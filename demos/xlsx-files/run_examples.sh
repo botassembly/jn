@@ -13,9 +13,9 @@ set -e
 echo "=== JN XLSX Demo ==="
 echo ""
 
-# Create sample Excel file using Python script
+# Create sample Excel file using Python script (PEP 723 with uv shebang)
 echo "Creating sample budget.xlsx file..."
-python3 create_sample.py
+./create_sample.py
 echo ""
 
 # Clean up previous output
