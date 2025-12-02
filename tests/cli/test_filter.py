@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 
 def test_filter_field_select(invoke, sample_ndjson):
     res = invoke(["filter", ".name"], input_data=sample_ndjson)
@@ -134,16 +136,29 @@ class TestSlurpMode:
 
 
 class TestUnsupportedFeatures:
-    """Test that unsupported jq features give helpful error messages."""
+    """Test that unsupported ZQ features give helpful error messages."""
 
-    def test_regex_error(self, invoke):
-        """Test that regex functions give helpful errors."""
+    @pytest.fixture
+    def zq_available(self):
+        """Check if ZQ binary is available."""
+        from src.jn.cli.commands.filter import find_zq_binary
+
+        return find_zq_binary() is not None
+
+    def test_regex_error(self, invoke, zq_available):
+        """Test that regex functions give helpful errors in ZQ."""
+        if not zq_available:
+            pytest.skip("ZQ not available")
+
         res = invoke(["filter", 'test("pattern")'], input_data='{"x": 1}\n')
         assert res.exit_code == 1
         assert "Unsupported" in res.output or "test" in res.output
 
-    def test_variable_error(self, invoke):
-        """Test that variable usage gives helpful errors."""
+    def test_variable_error(self, invoke, zq_available):
+        """Test that variable usage gives helpful errors in ZQ."""
+        if not zq_available:
+            pytest.skip("ZQ not available")
+
         res = invoke(["filter", ".x as $y | $y"], input_data='{"x": 1}\n')
         assert res.exit_code == 1
         assert "Unsupported" in res.output or "variable" in res.output

@@ -1,4 +1,23 @@
 const std = @import("std");
+const zig_builtin = @import("builtin");
+
+// Helper to read a line from reader, compatible with both Zig 0.15.1 and 0.15.2
+fn readLine(reader: anytype) ?[]u8 {
+    if (comptime zig_builtin.zig_version.order(.{ .major = 0, .minor = 15, .patch = 2 }) != .lt) {
+        return reader.takeDelimiter('\n') catch |err| {
+            std.debug.print("json: read error: {}\n", .{err});
+            std.process.exit(1);
+        };
+    } else {
+        return reader.takeDelimiterExclusive('\n') catch |err| switch (err) {
+            error.EndOfStream => return null,
+            else => {
+                std.debug.print("json: read error: {}\n", .{err});
+                std.process.exit(1);
+            },
+        };
+    }
+}
 
 // ============================================================================
 // JSON Plugin - Standalone Zig plugin for JN
@@ -112,16 +131,12 @@ fn readMode(allocator: std.mem.Allocator) !void {
     var stdout_wrapper = std.fs.File.stdout().writer(&stdout_buf);
     const writer = &stdout_wrapper.interface;
 
-    // Read all input into memory (JSON needs full parsing)
+    // Read all input into memory (JSON needs full parsing, compatible with Zig 0.15.1+)
     var input = std.ArrayListUnmanaged(u8){};
     defer input.deinit(allocator);
 
     while (true) {
-        const maybe_line = reader.takeDelimiter('\n') catch |err| {
-            std.debug.print("json: read error: {}\n", .{err});
-            std.process.exit(1);
-        };
-
+        const maybe_line = readLine(reader);
         if (maybe_line) |line| {
             try input.appendSlice(allocator, line);
             try input.append(allocator, '\n');
@@ -236,13 +251,9 @@ fn writeMode() !void {
     var stdout_wrapper = std.fs.File.stdout().writer(&stdout_buf);
     const writer = &stdout_wrapper.interface;
 
-    // Passthrough - NDJSON is already valid JSON lines
+    // Passthrough - NDJSON is already valid JSON lines (compatible with Zig 0.15.1+)
     while (true) {
-        const maybe_line = reader.takeDelimiter('\n') catch |err| {
-            std.debug.print("json: read error: {}\n", .{err});
-            std.process.exit(1);
-        };
-
+        const maybe_line = readLine(reader);
         if (maybe_line) |line| {
             try writer.writeAll(line);
             try writer.writeByte('\n');

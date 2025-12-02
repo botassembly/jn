@@ -1,6 +1,30 @@
 const std = @import("std");
+const zig_builtin = @import("builtin");
 
 pub const version = "0.4.0";
+
+// Helper to read a line from reader, compatible with both Zig 0.15.1 and 0.15.2
+// In 0.15.2+, use takeDelimiter which returns null at EOF
+// In 0.15.1, use takeDelimiterExclusive which throws EndOfStream at EOF
+fn readLine(reader: anytype) ?[]u8 {
+    // Use comptime version check to select the right API
+    if (comptime zig_builtin.zig_version.order(.{ .major = 0, .minor = 15, .patch = 2 }) != .lt) {
+        // Zig 0.15.2+ has takeDelimiter which returns null at EOF
+        return reader.takeDelimiter('\n') catch |err| {
+            std.debug.print("Read error: {}\n", .{err});
+            std.process.exit(1);
+        };
+    } else {
+        // Zig 0.15.1 uses takeDelimiterExclusive which throws EndOfStream
+        return reader.takeDelimiterExclusive('\n') catch |err| switch (err) {
+            error.EndOfStream => return null,
+            else => {
+                std.debug.print("Read error: {}\n", .{err});
+                std.process.exit(1);
+            },
+        };
+    }
+}
 
 // ============================================================================
 // Types
@@ -2933,13 +2957,9 @@ pub fn main() !void {
         // Slurp mode: collect all JSON values into an array, then apply expression
         var slurp_values: std.ArrayListUnmanaged(std.json.Value) = .empty;
 
-        // Use takeDelimiter which returns null at EOF
+        // Read lines until EOF (compatible with Zig 0.15.1+)
         while (true) {
-            const maybe_line = reader.takeDelimiter('\n') catch |err| {
-                std.debug.print("Read error: {}\n", .{err});
-                std.process.exit(1);
-            };
-
+            const maybe_line = readLine(reader);
             if (maybe_line) |line| {
                 if (line.len == 0) continue;
 
@@ -2980,13 +3000,9 @@ pub fn main() !void {
         }
     } else {
         // Normal streaming mode
-        // Use takeDelimiter which returns null at EOF instead of spinning on empty slices
+        // Read lines until EOF (compatible with Zig 0.15.1+)
         while (true) {
-            const maybe_line = reader.takeDelimiter('\n') catch |err| {
-                std.debug.print("Read error: {}\n", .{err});
-                std.process.exit(1);
-            };
-
+            const maybe_line = readLine(reader);
             if (maybe_line) |line| {
                 if (line.len == 0) continue;
 

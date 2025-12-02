@@ -121,6 +121,51 @@ def discover_plugins(plugin_dir: Path) -> Dict[str, PluginMetadata]:
     return plugins
 
 
+def _get_binary_metadata(binary: Path) -> Optional[PluginMetadata]:
+    """Get metadata from a binary plugin via --jn-meta.
+
+    Args:
+        binary: Path to executable binary
+
+    Returns:
+        PluginMetadata if binary responds properly, None otherwise
+    """
+    if not binary.is_file() or not os.access(binary, os.X_OK):
+        return None
+
+    try:
+        result = subprocess.run(  # noqa: S603  # jn:ignore[subprocess_capture_output]
+            [str(binary), "--jn-meta"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode != 0:
+            return None
+
+        meta = json.loads(result.stdout.strip())
+        name = meta.get("name", binary.name)
+        matches = meta.get("matches", [])
+        role = meta.get("role", "format")
+        mtime = binary.stat().st_mtime
+
+        return PluginMetadata(
+            name=name,
+            path=str(binary),
+            mtime=mtime,
+            matches=matches,
+            role=role,
+            is_binary=True,
+            modes=meta.get("modes"),
+        )
+    except (
+        subprocess.TimeoutExpired,
+        json.JSONDecodeError,
+        OSError,
+    ):
+        return None
+
+
 def discover_binary_plugins(binary_dir: Path) -> Dict[str, PluginMetadata]:
     """Discover native binary plugins (Zig, Rust, etc.) via --jn-meta.
 
@@ -148,45 +193,42 @@ def discover_binary_plugins(binary_dir: Path) -> Dict[str, PluginMetadata]:
                 continue
 
             for binary in bin_dir.iterdir():
-                if not binary.is_file():
-                    continue
-                # Skip non-executable files on Unix
-                if not os.access(binary, os.X_OK):
-                    continue
+                meta = _get_binary_metadata(binary)
+                if meta:
+                    plugins[meta.name] = meta
 
-                # Run --jn-meta to get plugin metadata (small JSON, not streaming)
-                try:
-                    result = subprocess.run(  # noqa: S603  # jn:ignore[subprocess_capture_output]
-                        [str(binary), "--jn-meta"],
-                        capture_output=True,
-                        text=True,
-                        timeout=5,
-                    )
-                    if result.returncode != 0:
-                        continue
+    return plugins
 
-                    meta = json.loads(result.stdout.strip())
-                    name = meta.get("name", binary.name)
-                    matches = meta.get("matches", [])
-                    role = meta.get("role", "format")
-                    mtime = binary.stat().st_mtime
 
-                    plugins[name] = PluginMetadata(
-                        name=name,
-                        path=str(binary),
-                        mtime=mtime,
-                        matches=matches,
-                        role=role,
-                        is_binary=True,
-                        modes=meta.get("modes"),
-                    )
-                except (
-                    subprocess.TimeoutExpired,
-                    json.JSONDecodeError,
-                    OSError,
-                ):
-                    # Skip binaries that don't respond properly
-                    continue
+def discover_zig_plugins_with_build() -> Dict[str, PluginMetadata]:
+    """Discover Zig plugins, building from source if needed.
+
+    This function:
+    1. Lists available Zig plugin sources
+    2. Builds binaries on-demand using zig_builder
+    3. Returns metadata for successfully built plugins
+
+    This enables cross-platform installation via `uv pip install` by
+    compiling native binaries from bundled Zig sources on first use.
+
+    Returns:
+        Dictionary of plugin name -> PluginMetadata
+    """
+    plugins: Dict[str, PluginMetadata] = {}
+
+    try:
+        from ..zig_builder import get_or_build_plugin, list_available_zig_plugins
+
+        for plugin_name in list_available_zig_plugins():
+            binary_path = get_or_build_plugin(plugin_name)
+            if binary_path:
+                meta = _get_binary_metadata(binary_path)
+                if meta:
+                    plugins[meta.name] = meta
+
+    except ImportError:
+        # zig_builder not available
+        pass
 
     return plugins
 
@@ -260,6 +302,7 @@ def get_cached_plugins_with_fallback(
     cache_path: Optional[Path],
     fallback_to_builtin: bool = True,
     binary_plugins_dir: Optional[Path] = None,
+    build_zig_plugins: bool = True,
 ) -> Dict[str, PluginMetadata]:
     """Discover all plugins with fallback to built-in plugins.
 
@@ -269,6 +312,8 @@ def get_cached_plugins_with_fallback(
         fallback_to_builtin: Include built-in Python plugins
         binary_plugins_dir: Directory containing binary plugins (e.g., plugins/zig/)
                            If None, binary plugins are not discovered.
+        build_zig_plugins: Build Zig plugins from source if not already compiled.
+                          This enables cross-platform installation via `uv pip install`.
 
     Returns:
         Dictionary of plugin name -> PluginMetadata
@@ -291,6 +336,12 @@ def get_cached_plugins_with_fallback(
     if binary_plugins_dir:
         binary_plugins = discover_binary_plugins(binary_plugins_dir)
         result.update(binary_plugins)
+
+    # Build Zig plugins from source if enabled (on-demand compilation)
+    # This enables `uv pip install jn-cli` to work on all platforms
+    if build_zig_plugins:
+        zig_plugins = discover_zig_plugins_with_build()
+        result.update(zig_plugins)
 
     return result
 

@@ -16,12 +16,13 @@ from ...profiles.resolver import ProfileError, resolve_profile
 
 
 def find_zq_binary() -> str | None:
-    """Find the ZQ binary.
+    """Find the ZQ binary, building from source if needed.
 
     Resolution order:
     1. $JN_HOME/bin/zq (bundled with jn)
     2. zq/zig-out/bin/zq (development build in repo)
     3. zq in PATH (system install)
+    4. Build from source using zig_builder (on-demand compilation)
 
     Returns:
         Path to zq binary or None if not found
@@ -45,6 +46,16 @@ def find_zq_binary() -> str | None:
     path_zq = shutil.which("zq")
     if path_zq:
         return path_zq
+
+    # 4. Build from source (on-demand compilation via ziglang)
+    try:
+        from ...zig_builder import get_or_build_zq
+
+        built_zq = get_or_build_zq()
+        if built_zq:
+            return str(built_zq)
+    except ImportError:
+        pass  # zig_builder not available
 
     return None
 
@@ -117,13 +128,15 @@ def filter(ctx, query, slurp):
     """
     # Find ZQ binary
     zq_binary = find_zq_binary()
+
     if zq_binary is None:
-        click.echo("Error: ZQ binary not found.", err=True)
-        click.echo("  Install with: make zq", err=True)
-        click.echo(
-            "  Or build manually: cd zq && zig build-exe src/main.zig -fllvm",
-            err=True,
-        )
+        click.echo("Error: ZQ filter engine not available.", err=True)
+        click.echo("", err=True)
+        click.echo("Options:", err=True)
+        click.echo("  1. Install Zig 0.15.2+ to build ZQ automatically:", err=True)
+        click.echo("     https://ziglang.org/download/", err=True)
+        click.echo("  2. Build ZQ manually:", err=True)
+        click.echo("     make zq", err=True)
         sys.exit(1)
 
     # Resolve profile references
