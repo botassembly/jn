@@ -17,12 +17,57 @@ from typing import Optional
 # Cache directory for compiled binaries
 _CACHE_DIR = Path.home() / ".local" / "jn" / "bin"
 
+# Minimum Zig version required for JN's Zig plugins
+MIN_ZIG_VERSION = "0.15.1"
+
+
+def _check_zig_version(cmd: list[str]) -> bool:
+    """Check if Zig command meets minimum version requirement.
+
+    Args:
+        cmd: Command list to invoke Zig (e.g., ['zig'])
+
+    Returns:
+        True if version >= MIN_ZIG_VERSION, False otherwise
+    """
+    try:
+        result = subprocess.run(
+            [*cmd, "version"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            return False
+
+        version = result.stdout.strip()
+        # Parse version (e.g., "0.15.2" or "0.15.2-dev.1234")
+        parts = version.split("-")[0].split(".")
+        major, minor, patch = int(parts[0]), int(parts[1]), int(parts[2])
+
+        min_parts = MIN_ZIG_VERSION.split(".")
+        min_major, min_minor, min_patch = (
+            int(min_parts[0]),
+            int(min_parts[1]),
+            int(min_parts[2]),
+        )
+
+        if major != min_major:
+            return major > min_major
+        if minor != min_minor:
+            return minor > min_minor
+        return patch >= min_patch
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return False
+    except (ValueError, IndexError):
+        return False
+
 
 def get_zig_command() -> list[str]:
     """Get the command to run Zig compiler.
 
-    Resolution order:
-    1. System 'zig' in PATH (preferred - may be 0.15.2+)
+    Resolution order (skips versions below MIN_ZIG_VERSION):
+    1. System 'zig' in PATH (preferred if version compatible)
     2. 'python-zig' from ziglang package
     3. 'python -m ziglang' fallback
 
@@ -31,15 +76,15 @@ def get_zig_command() -> list[str]:
     """
     import shutil
 
-    # 1. System zig (preferred - may have newer version)
-    if shutil.which("zig"):
+    # 1. System zig (preferred if version is compatible)
+    if shutil.which("zig") and _check_zig_version(["zig"]):
         return ["zig"]
 
-    # 2. python-zig from ziglang package
-    if shutil.which("python-zig"):
+    # 2. python-zig from ziglang package (if version compatible)
+    if shutil.which("python-zig") and _check_zig_version(["python-zig"]):
         return ["python-zig"]
 
-    # 3. python -m ziglang fallback
+    # 3. python -m ziglang fallback (always return - it's our dependency)
     return [sys.executable, "-m", "ziglang"]
 
 
@@ -62,10 +107,6 @@ def get_zig_version() -> Optional[str]:
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         pass
     return None
-
-
-# Minimum Zig version required for JN's Zig plugins
-MIN_ZIG_VERSION = "0.15.1"
 
 
 def is_zig_version_compatible() -> bool:
