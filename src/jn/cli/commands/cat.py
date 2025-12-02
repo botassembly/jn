@@ -31,18 +31,24 @@ def _build_command(
         stage: Execution stage with plugin info
         command_str: Optional command string for shell plugins (overrides stage.url)
     """
-    cmd = [
-        "uv",
-        "run",
-        "--quiet",
-        "--script",
-        stage.plugin_path,
-        "--mode",
-        stage.mode,
-    ]
+    # Detect binary plugins (non-.py files) and run directly
+    is_binary = not stage.plugin_path.endswith(".py")
 
-    # DEBUG
-    sys.stderr.flush()
+    if is_binary:
+        cmd = [
+            stage.plugin_path,
+            f"--mode={stage.mode}",
+        ]
+    else:
+        cmd = [
+            "uv",
+            "run",
+            "--quiet",
+            "--script",
+            stage.plugin_path,
+            "--mode",
+            stage.mode,
+        ]
 
     # Add configuration parameters
     for key, value in stage.config.items():
@@ -52,10 +58,17 @@ def _build_command(
             if value:
                 # True: pass --flag (works for action="store_true")
                 cmd.append(f"--{cli_key}")
+            elif is_binary:
+                # Binary plugins: --flag=false
+                cmd.append(f"--{cli_key}=false")
             else:
-                # False: pass --flag false (for regular bool params like --header)
+                # Python plugins: --flag false
                 cmd.extend([f"--{cli_key}", "false"])
+        elif is_binary:
+            # Binary plugins: --key=value format
+            cmd.append(f"--{cli_key}={value}")
         else:
+            # Python plugins: --key value format
             cmd.extend([f"--{cli_key}", str(value)])
 
     # Add URL or command string if present

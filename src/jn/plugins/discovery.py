@@ -34,6 +34,7 @@ class PluginMetadata:
     supports_container: bool = False  # Plugin supports container inspection
     container_mode: Optional[str] = None  # e.g., "path_count", "query_param"
     is_binary: bool = False  # True for native binary plugins (Zig, Rust, etc.)
+    modes: List[str] = None  # Supported modes (read, write) - None means all
 
     def __post_init__(self):
         if self.dependencies is None:
@@ -177,6 +178,7 @@ def discover_binary_plugins(binary_dir: Path) -> Dict[str, PluginMetadata]:
                         matches=matches,
                         role=role,
                         is_binary=True,
+                        modes=meta.get("modes"),
                     )
                 except (
                     subprocess.TimeoutExpired,

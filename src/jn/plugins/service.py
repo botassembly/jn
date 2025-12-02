@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from ..context import get_binary_plugins_dir
 from ..process_utils import (
     build_subprocess_env_for_coverage,
     popen_with_validation,
@@ -111,6 +112,30 @@ def get_plugin_info(
     plugin_name: str, plugin_meta: PluginMetadata
 ) -> "PluginInfo":
     """Get detailed plugin information."""
+    # Binary plugins use metadata from --jn-meta, not Python introspection
+    if plugin_meta.is_binary:
+        # Map role to methods (binary plugins use "modes" but we call them "methods")
+        methods: List[str] = []
+        if plugin_meta.role == "format":
+            methods = ["reads", "writes"]
+        elif plugin_meta.role == "filter":
+            methods = ["filters"]
+        elif plugin_meta.role == "protocol":
+            methods = ["reads"]
+
+        return PluginInfo(
+            name=plugin_name,
+            path=plugin_meta.path,
+            plugin_type=plugin_meta.role or "unknown",
+            description=f"Binary plugin ({plugin_meta.role or 'unknown'})",
+            methods=methods,
+            matches=plugin_meta.matches,
+            dependencies=[],
+            requires_python=None,
+            method_docs={},
+        )
+
+    # Python plugins use introspection
     description = extract_description(plugin_meta.path)
     methods = detect_plugin_methods(plugin_meta.path)
     plugin_type = infer_plugin_type(methods)
@@ -138,7 +163,9 @@ def list_plugins(
     plugin_dir: Path, cache_path: Optional[Path]
 ) -> Dict[str, PluginInfo]:
     """List all available plugins with their information."""
-    plugins = get_cached_plugins_with_fallback(plugin_dir, cache_path)
+    plugins = get_cached_plugins_with_fallback(
+        plugin_dir, cache_path, binary_plugins_dir=get_binary_plugins_dir()
+    )
     result: Dict[str, PluginInfo] = {}
     for name, meta in plugins.items():
         result[name] = get_plugin_info(name, meta)
@@ -149,7 +176,9 @@ def find_plugin(
     plugin_name: str, plugin_dir: Path, cache_path: Optional[Path]
 ) -> Optional[PluginInfo]:
     """Find a specific plugin by name."""
-    plugins = get_cached_plugins_with_fallback(plugin_dir, cache_path)
+    plugins = get_cached_plugins_with_fallback(
+        plugin_dir, cache_path, binary_plugins_dir=get_binary_plugins_dir()
+    )
     if plugin_name not in plugins:
         return None
     return get_plugin_info(plugin_name, plugins[plugin_name])

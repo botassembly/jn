@@ -190,3 +190,32 @@ def get_builtin_plugins_dir() -> Optional[Path]:
             return Path(p)
     except (ModuleNotFoundError, TypeError):
         return None
+
+
+def get_binary_plugins_dir() -> Optional[Path]:
+    """Locate the binary plugins directory (Zig, Rust, etc.).
+
+    Resolution order:
+    1. $JN_HOME/plugins/ if JN_HOME is set
+    2. plugins/ relative to repo root (development)
+    3. Installed alongside the package
+
+    Returns:
+        Path to the binary plugins directory, or None if not found.
+    """
+    # Check JN_HOME first
+    jn_home = os.environ.get("JN_HOME")
+    if jn_home:
+        plugins_dir = Path(jn_home) / "plugins"
+        if plugins_dir.exists():
+            return plugins_dir
+
+    # Check relative to this file (development mode)
+    # context.py is at src/jn/context.py, so repo root is 3 levels up
+    context_file = Path(__file__)
+    repo_root = context_file.parent.parent.parent
+    plugins_dir = repo_root / "plugins"
+    if plugins_dir.exists() and (plugins_dir / "zig").exists():
+        return plugins_dir
+
+    return None
