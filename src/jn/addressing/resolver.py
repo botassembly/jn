@@ -437,7 +437,7 @@ class AddressResolver:
 
         # Case 7: File - auto-detect from extension
         if address.type == "file":
-            return self._find_plugin_by_pattern(address.base)
+            return self._find_plugin_by_pattern(address.base, mode)
 
         raise AddressResolutionError(
             f"Cannot determine plugin for address: {address.raw}"
@@ -597,11 +597,14 @@ class AddressResolver:
             f"Available plugins: {', '.join(sorted(self._plugins.keys()))}"
         )
 
-    def _find_plugin_by_pattern(self, source: str) -> Tuple[str, str]:
+    def _find_plugin_by_pattern(
+        self, source: str, mode: str = "read"
+    ) -> Tuple[str, str]:
         """Find plugin by pattern matching (file extension).
 
         Args:
             source: Source path
+            mode: Plugin mode ("read" or "write")
 
         Returns:
             Tuple of (plugin_name, plugin_path)
@@ -609,7 +612,10 @@ class AddressResolver:
         Raises:
             AddressResolutionError: If plugin not found
         """
-        matched_name = self._registry.match(source)
+        # Use mode-aware matching to skip plugins that don't support the mode
+        matched_name = self._registry.match_with_mode(
+            source, mode, self._plugins
+        )
         if matched_name and matched_name in self._plugins:
             plugin = self._plugins[matched_name]
             return plugin.name, plugin.path

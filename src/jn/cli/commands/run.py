@@ -21,19 +21,40 @@ from ..helpers import build_subprocess_env_for_coverage, check_uv_available
 
 def _build_command(stage: ExecutionStage) -> list:
     """Build command from execution stage."""
-    cmd = [
-        "uv",
-        "run",
-        "--quiet",
-        "--script",
-        stage.plugin_path,
-        "--mode",
-        stage.mode,
-    ]
+    # Detect binary plugins (non-.py files) and run directly
+    is_binary = not stage.plugin_path.endswith(".py")
+
+    if is_binary:
+        cmd = [
+            stage.plugin_path,
+            f"--mode={stage.mode}",
+        ]
+    else:
+        cmd = [
+            "uv",
+            "run",
+            "--quiet",
+            "--script",
+            stage.plugin_path,
+            "--mode",
+            stage.mode,
+        ]
 
     # Add configuration parameters
     for key, value in stage.config.items():
-        cmd.extend([f"--{key}", str(value)])
+        # Convert underscores to dashes for CLI arguments
+        cli_key = key.replace("_", "-")
+        if isinstance(value, bool):
+            if value:
+                cmd.append(f"--{cli_key}")
+            elif is_binary:
+                cmd.append(f"--{cli_key}=false")
+            else:
+                cmd.extend([f"--{cli_key}", "false"])
+        elif is_binary:
+            cmd.append(f"--{cli_key}={value}")
+        else:
+            cmd.extend([f"--{cli_key}", str(value)])
 
     # Add URL if present
     if stage.url:

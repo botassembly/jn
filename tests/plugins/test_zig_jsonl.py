@@ -2,28 +2,28 @@
 
 import json
 import subprocess
-from pathlib import Path
 
 import pytest
 
-# Path to the Zig JSONL binary
-JSONL_BINARY = Path("plugins/zig/jsonl/bin/jsonl")
+from src.jn.zig_builder import get_or_build_plugin
 
 
-@pytest.fixture(autouse=True)
-def require_binary():
-    """Skip tests if binary not built."""
-    if not JSONL_BINARY.exists():
-        pytest.skip("Zig JSONL binary not built (run: make zig-plugins)")
+@pytest.fixture(scope="module")
+def jsonl_binary():
+    """Get or build the JSONL plugin binary."""
+    binary = get_or_build_plugin("jsonl")
+    if not binary:
+        pytest.skip("Zig JSONL binary not available (Zig compiler required)")
+    return str(binary)
 
 
 # --jn-meta tests
 
 
-def test_jn_meta_outputs_valid_json():
+def test_jn_meta_outputs_valid_json(jsonl_binary):
     """--jn-meta should output valid JSON."""
     result = subprocess.run(
-        [str(JSONL_BINARY), "--jn-meta"],
+        [jsonl_binary, "--jn-meta"],
         capture_output=True,
         text=True,
     )
@@ -32,10 +32,10 @@ def test_jn_meta_outputs_valid_json():
     assert isinstance(meta, dict)
 
 
-def test_jn_meta_contains_required_fields():
+def test_jn_meta_contains_required_fields(jsonl_binary):
     """Metadata should contain required fields."""
     result = subprocess.run(
-        [str(JSONL_BINARY), "--jn-meta"],
+        [jsonl_binary, "--jn-meta"],
         capture_output=True,
         text=True,
     )
@@ -44,12 +44,15 @@ def test_jn_meta_contains_required_fields():
     assert "matches" in meta
     assert "role" in meta
     assert meta["role"] == "format"
+    assert "modes" in meta
+    assert "read" in meta["modes"]
+    assert "write" in meta["modes"]
 
 
-def test_jn_meta_matches_jsonl_extensions():
+def test_jn_meta_matches_jsonl_extensions(jsonl_binary):
     """Should match .jsonl and .ndjson files."""
     result = subprocess.run(
-        [str(JSONL_BINARY), "--jn-meta"],
+        [jsonl_binary, "--jn-meta"],
         capture_output=True,
         text=True,
     )
@@ -62,11 +65,11 @@ def test_jn_meta_matches_jsonl_extensions():
 # --mode=read tests
 
 
-def test_read_single_record():
+def test_read_single_record(jsonl_binary):
     """Should pass through a single JSON record."""
     input_data = '{"name": "Alice", "age": 30}\n'
     result = subprocess.run(
-        [str(JSONL_BINARY), "--mode=read"],
+        [jsonl_binary, "--mode=read"],
         input=input_data,
         capture_output=True,
         text=True,
@@ -78,11 +81,11 @@ def test_read_single_record():
     assert record["age"] == 30
 
 
-def test_read_multiple_records():
+def test_read_multiple_records(jsonl_binary):
     """Should pass through multiple JSON records."""
     input_data = '{"id": 1}\n{"id": 2}\n{"id": 3}\n'
     result = subprocess.run(
-        [str(JSONL_BINARY), "--mode=read"],
+        [jsonl_binary, "--mode=read"],
         input=input_data,
         capture_output=True,
         text=True,
@@ -95,10 +98,10 @@ def test_read_multiple_records():
     assert json.loads(lines[2])["id"] == 3
 
 
-def test_read_empty_input():
+def test_read_empty_input(jsonl_binary):
     """Should handle empty input gracefully."""
     result = subprocess.run(
-        [str(JSONL_BINARY), "--mode=read"],
+        [jsonl_binary, "--mode=read"],
         input="",
         capture_output=True,
         text=True,
@@ -107,11 +110,11 @@ def test_read_empty_input():
     assert result.stdout == ""
 
 
-def test_read_skips_empty_lines():
+def test_read_skips_empty_lines(jsonl_binary):
     """Should skip empty lines in input."""
     input_data = '{"id": 1}\n\n{"id": 2}\n'
     result = subprocess.run(
-        [str(JSONL_BINARY), "--mode=read"],
+        [jsonl_binary, "--mode=read"],
         input=input_data,
         capture_output=True,
         text=True,
@@ -124,11 +127,11 @@ def test_read_skips_empty_lines():
 # --mode=write tests
 
 
-def test_write_passthrough():
+def test_write_passthrough(jsonl_binary):
     """Write mode should pass through NDJSON unchanged."""
     input_data = '{"name": "Bob"}\n{"name": "Carol"}\n'
     result = subprocess.run(
-        [str(JSONL_BINARY), "--mode=write"],
+        [jsonl_binary, "--mode=write"],
         input=input_data,
         capture_output=True,
         text=True,
@@ -143,11 +146,11 @@ def test_write_passthrough():
 # Discovery tests
 
 
-def test_binary_plugin_discoverable():
+def test_binary_plugin_discoverable(jsonl_binary):
     """Binary plugin should be discoverable via discovery module."""
-    from src.jn.plugins.discovery import discover_binary_plugins
+    from src.jn.plugins.discovery import discover_zig_plugins_with_build
 
-    plugins = discover_binary_plugins(Path("plugins"))
+    plugins = discover_zig_plugins_with_build()
     assert "jsonl" in plugins
     meta = plugins["jsonl"]
     assert meta.is_binary is True

@@ -1,4 +1,23 @@
 const std = @import("std");
+const zig_builtin = @import("builtin");
+
+// Helper to read a line from reader, compatible with both Zig 0.15.1 and 0.15.2
+fn readLine(reader: anytype) ?[]u8 {
+    if (comptime zig_builtin.zig_version.order(.{ .major = 0, .minor = 15, .patch = 2 }) != .lt) {
+        return reader.takeDelimiter('\n') catch |err| {
+            std.debug.print("jsonl: read error: {}\n", .{err});
+            std.process.exit(1);
+        };
+    } else {
+        return reader.takeDelimiterExclusive('\n') catch |err| switch (err) {
+            error.EndOfStream => return null,
+            else => {
+                std.debug.print("jsonl: read error: {}\n", .{err});
+                std.process.exit(1);
+            },
+        };
+    }
+}
 
 // ============================================================================
 // JSONL Plugin - Standalone Zig plugin for JN
@@ -109,13 +128,9 @@ fn readMode(_: std.mem.Allocator) !void {
     const writer = &stdout_wrapper.interface;
 
     // Stream NDJSON passthrough - no validation (trust input, downstream catches errors)
-    // This matches typical streaming behavior for format plugins
+    // This matches typical streaming behavior for format plugins (compatible with Zig 0.15.1+)
     while (true) {
-        const maybe_line = reader.takeDelimiter('\n') catch |err| {
-            std.debug.print("jsonl: read error: {}\n", .{err});
-            std.process.exit(1);
-        };
-
+        const maybe_line = readLine(reader);
         if (maybe_line) |line| {
             if (line.len == 0) continue;
 
@@ -132,7 +147,7 @@ fn readMode(_: std.mem.Allocator) !void {
 }
 
 fn writeMode() !void {
-    // Zig 0.15.2 I/O API
+    // Zig 0.15.1+ I/O API
     var stdin_buf: [64 * 1024]u8 = undefined;
     var stdin_wrapper = std.fs.File.stdin().reader(&stdin_buf);
     const reader = &stdin_wrapper.interface;
@@ -141,13 +156,9 @@ fn writeMode() !void {
     var stdout_wrapper = std.fs.File.stdout().writer(&stdout_buf);
     const writer = &stdout_wrapper.interface;
 
-    // Use takeDelimiter which returns null at EOF
+    // Compatible with Zig 0.15.1+
     while (true) {
-        const maybe_line = reader.takeDelimiter('\n') catch |err| {
-            std.debug.print("jsonl: read error: {}\n", .{err});
-            std.process.exit(1);
-        };
-
+        const maybe_line = readLine(reader);
         if (maybe_line) |line| {
             try writer.writeAll(line);
             try writer.writeByte('\n');

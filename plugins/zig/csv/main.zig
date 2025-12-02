@@ -1,4 +1,23 @@
 const std = @import("std");
+const zig_builtin = @import("builtin");
+
+// Helper to read a line from reader, compatible with both Zig 0.15.1 and 0.15.2
+fn readLine(reader: anytype) ?[]u8 {
+    if (comptime zig_builtin.zig_version.order(.{ .major = 0, .minor = 15, .patch = 2 }) != .lt) {
+        return reader.takeDelimiter('\n') catch |err| {
+            std.debug.print("csv: read error: {}\n", .{err});
+            std.process.exit(1);
+        };
+    } else {
+        return reader.takeDelimiterExclusive('\n') catch |err| switch (err) {
+            error.EndOfStream => return null,
+            else => {
+                std.debug.print("csv: read error: {}\n", .{err});
+                std.process.exit(1);
+            },
+        };
+    }
+}
 
 // ============================================================================
 // CSV Plugin - Standalone Zig plugin for JN
@@ -143,39 +162,31 @@ fn readMode(allocator: std.mem.Allocator, config: Config) !void {
     }
 
     if (!config.no_header) {
-        // Read header line
-        const maybe_header = reader.takeDelimiter('\n') catch |err| {
-            std.debug.print("csv: read error: {}\n", .{err});
-            std.process.exit(1);
-        };
-
-        if (maybe_header) |header_line| {
-            // Strip \r if present
-            const clean_line = stripCR(header_line);
-
-            // Parse header fields (store indices, not slices)
-            const field_count = parseCSVRowFast(clean_line, config.delimiter, &field_starts, &field_ends);
-
-            // Store headers (only headers need allocation - they're reused)
-            for (0..field_count) |i| {
-                const field = unquoteField(clean_line[field_starts[i]..field_ends[i]]);
-                const duped = try allocator.dupe(u8, field);
-                try headers.append(allocator, duped);
-            }
-        } else {
+        // Read header line (compatible with Zig 0.15.1+)
+        const maybe_header = readLine(reader);
+        if (maybe_header == null) {
             // Empty file - no output
             try writer.flush();
             return;
         }
+
+        // Strip \r if present
+        const clean_line = stripCR(maybe_header.?);
+
+        // Parse header fields (store indices, not slices)
+        const field_count = parseCSVRowFast(clean_line, config.delimiter, &field_starts, &field_ends);
+
+        // Store headers (only headers need allocation - they're reused)
+        for (0..field_count) |i| {
+            const field = unquoteField(clean_line[field_starts[i]..field_ends[i]]);
+            const duped = try allocator.dupe(u8, field);
+            try headers.append(allocator, duped);
+        }
     }
 
-    // Read data rows (zero allocation per row)
+    // Read data rows (zero allocation per row, compatible with Zig 0.15.1+)
     while (true) {
-        const maybe_line = reader.takeDelimiter('\n') catch |err| {
-            std.debug.print("csv: read error: {}\n", .{err});
-            std.process.exit(1);
-        };
-
+        const maybe_line = readLine(reader);
         if (maybe_line) |line| {
             // Strip \r if present
             const clean_line = stripCR(line);
@@ -221,7 +232,8 @@ fn readMode(allocator: std.mem.Allocator, config: Config) !void {
             try writer.writeByte('}');
             try writer.writeByte('\n');
         } else {
-            break; // EOF
+            // EOF
+            break;
         }
     }
 
@@ -370,13 +382,9 @@ fn writeMode(allocator: std.mem.Allocator, config: Config) !void {
     var headers_seen = std.StringHashMap(void).init(allocator);
     defer headers_seen.deinit();
 
-    // Read all NDJSON records
+    // Read all NDJSON records (compatible with Zig 0.15.1+)
     while (true) {
-        const maybe_line = reader.takeDelimiter('\n') catch |err| {
-            std.debug.print("csv: read error: {}\n", .{err});
-            std.process.exit(1);
-        };
-
+        const maybe_line = readLine(reader);
         if (maybe_line) |line| {
             // Skip empty lines
             if (line.len == 0) continue;
@@ -405,7 +413,8 @@ fn writeMode(allocator: std.mem.Allocator, config: Config) !void {
             const duped_line = try allocator.dupe(u8, line);
             try lines.append(allocator, duped_line);
         } else {
-            break; // EOF
+            // EOF
+            break;
         }
     }
 

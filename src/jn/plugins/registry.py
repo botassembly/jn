@@ -10,10 +10,14 @@ class PatternRegistry:
     """Registry that maps file patterns to plugins using regex."""
 
     def __init__(self):
-        # Store (regex, plugin_name, specificity, role)
-        self.patterns: List[Tuple[re.Pattern, str, int, Optional[str]]] = []
+        # Store (regex, plugin_name, specificity, role, is_binary)
+        self.patterns: List[
+            Tuple[re.Pattern, str, int, Optional[str], bool]
+        ] = []
 
     def register_plugin(self, plugin: PluginMetadata) -> None:
+        # Binary plugins (Zig, Rust) get priority over Python plugins
+        is_binary = not plugin.path.endswith(".py")
         for pattern_str in plugin.matches:
             try:
                 regex = re.compile(pattern_str)
@@ -21,18 +25,40 @@ class PatternRegistry:
                 continue
             specificity = len(pattern_str)
             self.patterns.append(
-                (regex, plugin.name, specificity, plugin.role)
+                (regex, plugin.name, specificity, plugin.role, is_binary)
             )
-        self.patterns.sort(key=lambda x: x[2], reverse=True)
+        # Sort by: specificity (descending), then is_binary (True before False)
+        self.patterns.sort(key=lambda x: (x[2], x[4]), reverse=True)
 
     def match(self, source: str) -> Optional[str]:
-        for regex, plugin_name, _, _ in self.patterns:
+        for regex, plugin_name, _, _, _ in self.patterns:
             if regex.search(source):
                 return plugin_name
         return None
 
+    def match_with_mode(
+        self, source: str, mode: str, plugins: Dict[str, PluginMetadata]
+    ) -> Optional[str]:
+        """Match source to plugin that supports the given mode.
+
+        Args:
+            source: Source path/URL to match
+            mode: Mode to check ("read" or "write")
+            plugins: Dictionary of plugin metadata
+
+        Returns:
+            Plugin name if found, None otherwise
+        """
+        for regex, plugin_name, _, _, _ in self.patterns:
+            if regex.search(source):
+                plugin = plugins.get(plugin_name)
+                # If modes is None, plugin supports all modes (Python plugins)
+                if plugin and (plugin.modes is None or mode in plugin.modes):
+                    return plugin_name
+        return None
+
     def match_role(self, source: str, role: str) -> Optional[str]:
-        for regex, plugin_name, _, plugin_role in self.patterns:
+        for regex, plugin_name, _, plugin_role, _ in self.patterns:
             if plugin_role != role:
                 continue
             if regex.search(source):

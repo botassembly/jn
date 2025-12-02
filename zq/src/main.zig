@@ -1,6 +1,33 @@
 const std = @import("std");
+const zig_builtin = @import("builtin");
 
 pub const version = "0.4.0";
+
+// Helper to read a line from reader, compatible with both Zig 0.15.1 and 0.15.2
+// In 0.15.2+, use takeDelimiter which returns null at EOF
+// In 0.15.1, use takeDelimiterExclusive which throws EndOfStream at EOF
+fn readLine(reader: anytype) ?[]u8 {
+    // Use comptime version check to select the right API
+    if (comptime zig_builtin.zig_version.order(.{ .major = 0, .minor = 15, .patch = 2 }) != .lt) {
+        // Zig 0.15.2+ has takeDelimiter which returns null at EOF
+        return reader.takeDelimiter('\n') catch |err| {
+            std.debug.print("Read error: {}\n", .{err});
+            std.process.exit(1);
+        };
+    } else {
+        // Zig 0.15.1 uses takeDelimiterExclusive which throws EndOfStream
+        return reader.takeDelimiterExclusive('\n') catch |err| switch (err) {
+            error.EndOfStream => return null,
+            else => {
+                std.debug.print("Read error: {}\n", .{err});
+                std.process.exit(1);
+            },
+        };
+    }
+}
+
+// Whitespace characters for trimming (includes newlines for multi-line expressions)
+const whitespace = " \t\n\r";
 
 // ============================================================================
 // Types
@@ -267,7 +294,7 @@ var error_context: struct {
 
 /// Check for jq features not supported by ZQ and provide helpful error messages
 fn checkUnsupportedFeatures(expr: []const u8) ParseError!void {
-    const trimmed = std.mem.trim(u8, expr, " \t");
+    const trimmed = std.mem.trim(u8, expr, whitespace);
 
     // Check for variable declarations ($var)
     if (std.mem.indexOf(u8, trimmed, " as $")) |_| {
@@ -433,7 +460,7 @@ fn checkUnsupportedFeatures(expr: []const u8) ParseError!void {
 }
 
 fn parseExpr(allocator: std.mem.Allocator, expr: []const u8) ParseError!Expr {
-    const trimmed = std.mem.trim(u8, expr, " \t");
+    const trimmed = std.mem.trim(u8, expr, whitespace);
 
     // Check for unsupported jq features first
     try checkUnsupportedFeatures(trimmed);
@@ -473,8 +500,8 @@ fn parseExpr(allocator: std.mem.Allocator, expr: []const u8) ParseError!Expr {
             if (i + 1 < trimmed.len and trimmed[i + 1] == '/') continue;
             if (i > 0 and trimmed[i - 1] == '/') continue;
 
-            const left_str = std.mem.trim(u8, trimmed[0..i], " \t");
-            const right_str = std.mem.trim(u8, trimmed[i + 1 ..], " \t");
+            const left_str = std.mem.trim(u8, trimmed[0..i], whitespace);
+            const right_str = std.mem.trim(u8, trimmed[i + 1 ..], whitespace);
 
             if (left_str.len > 0 and right_str.len > 0) {
                 const left = try allocator.create(Expr);
@@ -501,8 +528,8 @@ fn parseExpr(allocator: std.mem.Allocator, expr: []const u8) ParseError!Expr {
         } else if (c == '}') {
             brace_depth -= 1;
         } else if (c == '/' and trimmed[i + 1] == '/' and paren_depth == 0 and brace_depth == 0) {
-            const left_str = std.mem.trim(u8, trimmed[0..i], " \t");
-            const right_str = std.mem.trim(u8, trimmed[i + 2 ..], " \t");
+            const left_str = std.mem.trim(u8, trimmed[0..i], whitespace);
+            const right_str = std.mem.trim(u8, trimmed[i + 2 ..], whitespace);
 
             if (left_str.len > 0 and right_str.len > 0) {
                 const primary = try allocator.create(Expr);
@@ -533,8 +560,8 @@ fn parseExpr(allocator: std.mem.Allocator, expr: []const u8) ParseError!Expr {
             // Check for " + " or " - " (with spaces to avoid confusion with select comparisons)
             if (i > 0 and trimmed[i] == ' ' and (trimmed[i + 1] == '+' or trimmed[i + 1] == '-') and i + 2 < trimmed.len and trimmed[i + 2] == ' ') {
                 const op: ArithOp = if (trimmed[i + 1] == '+') .add else .sub;
-                const left_str = std.mem.trim(u8, trimmed[0..i], " \t");
-                const right_str = std.mem.trim(u8, trimmed[i + 3 ..], " \t");
+                const left_str = std.mem.trim(u8, trimmed[0..i], whitespace);
+                const right_str = std.mem.trim(u8, trimmed[i + 3 ..], whitespace);
 
                 if (left_str.len > 0 and right_str.len > 0) {
                     const left = try allocator.create(Expr);
@@ -572,8 +599,8 @@ fn parseExpr(allocator: std.mem.Allocator, expr: []const u8) ParseError!Expr {
                     '%' => .mod,
                     else => unreachable,
                 };
-                const left_str = std.mem.trim(u8, trimmed[0..i], " \t");
-                const right_str = std.mem.trim(u8, trimmed[i + 3 ..], " \t");
+                const left_str = std.mem.trim(u8, trimmed[0..i], whitespace);
+                const right_str = std.mem.trim(u8, trimmed[i + 3 ..], whitespace);
 
                 if (left_str.len > 0 and right_str.len > 0) {
                     const left = try allocator.create(Expr);
@@ -777,7 +804,7 @@ fn parseExpr(allocator: std.mem.Allocator, expr: []const u8) ParseError!Expr {
 
 fn parseConditional(allocator: std.mem.Allocator, expr: []const u8) ParseError!Expr {
     // Format: if <condition> then <expr> else <expr> end
-    const trimmed = std.mem.trim(u8, expr, " \t");
+    const trimmed = std.mem.trim(u8, expr, whitespace);
 
     // Find "then" keyword
     var then_pos: ?usize = null;
@@ -819,9 +846,9 @@ fn parseConditional(allocator: std.mem.Allocator, expr: []const u8) ParseError!E
     else
         trimmed.len - 3;
 
-    const cond_str = std.mem.trim(u8, trimmed[3..then_pos.?], " \t");
-    const then_str = std.mem.trim(u8, trimmed[then_pos.? + 5 .. else_pos.?], " \t");
-    const else_str = std.mem.trim(u8, trimmed[else_pos.? + 5 .. end_pos], " \t");
+    const cond_str = std.mem.trim(u8, trimmed[3..then_pos.?], whitespace);
+    const then_str = std.mem.trim(u8, trimmed[then_pos.? + 5 .. else_pos.?], whitespace);
+    const else_str = std.mem.trim(u8, trimmed[else_pos.? + 5 .. end_pos], whitespace);
 
     const condition = try parseCondition(allocator, cond_str);
     const then_branch = try allocator.create(Expr);
@@ -838,7 +865,7 @@ fn parseConditional(allocator: std.mem.Allocator, expr: []const u8) ParseError!E
 
 fn parseObject(allocator: std.mem.Allocator, expr: []const u8) ParseError!Expr {
     // Format: {key1: val1, key2: val2, ...}
-    const inner = std.mem.trim(u8, expr[1 .. expr.len - 1], " \t");
+    const inner = std.mem.trim(u8, expr[1 .. expr.len - 1], whitespace);
 
     if (inner.len == 0) {
         // Empty object
@@ -863,7 +890,7 @@ fn parseObject(allocator: std.mem.Allocator, expr: []const u8) ParseError!Expr {
         if (c == '}') brace_depth -= 1;
 
         if ((c == ',' or at_end) and paren_depth == 0 and brace_depth == 0) {
-            const field_str = std.mem.trim(u8, inner[start..i], " \t");
+            const field_str = std.mem.trim(u8, inner[start..i], whitespace);
             if (field_str.len > 0) {
                 const field = try parseObjectField(allocator, field_str);
                 try fields.append(allocator, field);
@@ -877,7 +904,7 @@ fn parseObject(allocator: std.mem.Allocator, expr: []const u8) ParseError!Expr {
 
 fn parseObjectField(allocator: std.mem.Allocator, field_str: []const u8) ParseError!ObjectField {
     // Format: key: value or (expr): value or shorthand key
-    const trimmed = std.mem.trim(u8, field_str, " \t");
+    const trimmed = std.mem.trim(u8, field_str, whitespace);
 
     // Find colon (respecting parentheses)
     var colon_pos: ?usize = null;
@@ -893,8 +920,8 @@ fn parseObjectField(allocator: std.mem.Allocator, field_str: []const u8) ParseEr
     }
 
     if (colon_pos) |pos| {
-        const key_part = std.mem.trim(u8, trimmed[0..pos], " \t");
-        const val_part = std.mem.trim(u8, trimmed[pos + 1 ..], " \t");
+        const key_part = std.mem.trim(u8, trimmed[0..pos], whitespace);
+        const val_part = std.mem.trim(u8, trimmed[pos + 1 ..], whitespace);
 
         var key: KeyType = undefined;
         if (key_part[0] == '(' and key_part[key_part.len - 1] == ')') {
@@ -924,7 +951,7 @@ fn parseObjectField(allocator: std.mem.Allocator, field_str: []const u8) ParseEr
 }
 
 fn parseCondition(allocator: std.mem.Allocator, expr: []const u8) ParseError!*Condition {
-    const trimmed = std.mem.trim(u8, expr, " \t");
+    const trimmed = std.mem.trim(u8, expr, whitespace);
 
     // Check for boolean operators (lowest precedence)
     // Find "and" or "or" not inside parentheses
@@ -1001,7 +1028,7 @@ fn findOperatorOutsideParens(str: []const u8, op: []const u8) ?usize {
 
 /// Check if expression is a simple path (no pipes, no parens)
 fn isSimplePath(expr: []const u8) bool {
-    const trimmed = std.mem.trim(u8, expr, " \t");
+    const trimmed = std.mem.trim(u8, expr, whitespace);
     if (trimmed.len == 0) return false;
     if (trimmed[0] != '.') return false;
     for (trimmed) |c| {
@@ -1024,7 +1051,7 @@ fn parseSimpleCondition(allocator: std.mem.Allocator, expr: []const u8) ParseErr
     // Find an operator outside parentheses
     for (operators) |op_info| {
         if (findOperatorOutsideParens(expr, op_info.str)) |pos| {
-            const left_str = std.mem.trim(u8, expr[0..pos], " \t");
+            const left_str = std.mem.trim(u8, expr[0..pos], whitespace);
             const right_str = expr[pos + op_info.len ..];
 
             // Check if left side is a simple path or a complex expression
@@ -1086,7 +1113,7 @@ fn parsePath(allocator: std.mem.Allocator, expr: []const u8) ParseError![][]cons
 }
 
 fn parseValue(str: []const u8) ParseError!CompareValue {
-    const trimmed = std.mem.trim(u8, str, " \t");
+    const trimmed = std.mem.trim(u8, str, whitespace);
 
     // Null
     if (std.mem.eql(u8, trimmed, "null")) return .null_val;
@@ -1172,7 +1199,7 @@ fn parseByFunc(allocator: std.mem.Allocator, expr: []const u8) ParseError!?Expr 
 }
 
 fn parseArrayLiteral(allocator: std.mem.Allocator, expr: []const u8) ParseError!Expr {
-    const inner = std.mem.trim(u8, expr[1 .. expr.len - 1], " \t");
+    const inner = std.mem.trim(u8, expr[1 .. expr.len - 1], whitespace);
 
     if (inner.len == 0) {
         return .{ .array = .{ .elements = &[_]*Expr{} } };
@@ -1199,7 +1226,7 @@ fn parseArrayLiteral(allocator: std.mem.Allocator, expr: []const u8) ParseError!
         if (c == ']') bracket_depth -= 1;
 
         if ((c == ',' or at_end) and paren_depth == 0 and brace_depth == 0 and bracket_depth == 0) {
-            const elem_str = std.mem.trim(u8, inner[start..i], " \t");
+            const elem_str = std.mem.trim(u8, inner[start..i], whitespace);
             if (elem_str.len > 0) {
                 const elem = try allocator.create(Expr);
                 elem.* = try parseExpr(allocator, elem_str);
@@ -2933,13 +2960,9 @@ pub fn main() !void {
         // Slurp mode: collect all JSON values into an array, then apply expression
         var slurp_values: std.ArrayListUnmanaged(std.json.Value) = .empty;
 
-        // Use takeDelimiter which returns null at EOF
+        // Read lines until EOF (compatible with Zig 0.15.1+)
         while (true) {
-            const maybe_line = reader.takeDelimiter('\n') catch |err| {
-                std.debug.print("Read error: {}\n", .{err});
-                std.process.exit(1);
-            };
-
+            const maybe_line = readLine(reader);
             if (maybe_line) |line| {
                 if (line.len == 0) continue;
 
@@ -2980,13 +3003,9 @@ pub fn main() !void {
         }
     } else {
         // Normal streaming mode
-        // Use takeDelimiter which returns null at EOF instead of spinning on empty slices
+        // Read lines until EOF (compatible with Zig 0.15.1+)
         while (true) {
-            const maybe_line = reader.takeDelimiter('\n') catch |err| {
-                std.debug.print("Read error: {}\n", .{err});
-                std.process.exit(1);
-            };
-
+            const maybe_line = readLine(reader);
             if (maybe_line) |line| {
                 if (line.len == 0) continue;
 

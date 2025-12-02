@@ -1,16 +1,17 @@
-"""Tests for HTTP protocol plugin."""
+"""Tests for HTTP protocol plugin.
+
+These tests use mocking to avoid external API dependencies.
+The HTTP plugin is still Python-based (using requests library).
+Zig HTTP plugin is planned for Sprint 09.
+"""
 
 import json
 import subprocess
-import sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from threading import Thread
 
 import pytest
-
-# Mark to skip network tests when external API is down
-pytestmark = pytest.mark.skip(
-    reason="External API dependency (jsonplaceholder.typicode.com) - skip to avoid flaky failures"
-)
 
 
 @pytest.fixture
@@ -25,10 +26,60 @@ def http_plugin():
     )
 
 
-def test_http_plugin_fetch_json(http_plugin):
-    """Test fetching JSON from a public URL."""
-    # Use JSONPlaceholder - a free fake API for testing
-    url = "https://jsonplaceholder.typicode.com/users/1"
+class MockHTTPHandler(BaseHTTPRequestHandler):
+    """Simple HTTP handler for testing."""
+
+    def log_message(self, format, *args):
+        """Suppress request logging."""
+        pass
+
+    def do_GET(self):
+        """Handle GET requests."""
+        if self.path == "/user/1":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"id": 1, "name": "Alice"}).encode())
+        elif self.path == "/users":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            data = [
+                {"id": 1, "name": "Alice"},
+                {"id": 2, "name": "Bob"},
+                {"id": 3, "name": "Charlie"},
+            ]
+            self.wfile.write(json.dumps(data).encode())
+        elif self.path == "/notfound":
+            self.send_response(404)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"error": "Not Found"}).encode())
+        elif self.path == "/text":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.end_headers()
+            self.wfile.write(b"Hello, World!")
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+
+@pytest.fixture
+def mock_server():
+    """Start a local HTTP server for testing."""
+    server = HTTPServer(("127.0.0.1", 0), MockHTTPHandler)
+    port = server.server_address[1]
+    thread = Thread(target=server.serve_forever)
+    thread.daemon = True
+    thread.start()
+    yield f"http://127.0.0.1:{port}"
+    server.shutdown()
+
+
+def test_http_plugin_fetch_json(http_plugin, mock_server):
+    """Test fetching JSON object from URL."""
+    url = f"{mock_server}/user/1"
 
     result = subprocess.run(
         ["uv", "run", "--script", str(http_plugin), "--mode", "read", url],
@@ -39,21 +90,18 @@ def test_http_plugin_fetch_json(http_plugin):
 
     assert result.returncode == 0, f"HTTP plugin failed: {result.stderr}"
 
-    # Parse output
     lines = [line for line in result.stdout.strip().split("\n") if line]
     assert len(lines) >= 1, "Expected at least one NDJSON record"
 
-    # First line should be valid JSON
     record = json.loads(lines[0])
     assert isinstance(record, dict)
-    assert "id" in record
     assert record["id"] == 1
+    assert record["name"] == "Alice"
 
 
-def test_http_plugin_fetch_json_array(http_plugin):
+def test_http_plugin_fetch_json_array(http_plugin, mock_server):
     """Test fetching JSON array - should yield multiple records."""
-    # JSONPlaceholder returns an array
-    url = "https://jsonplaceholder.typicode.com/users?_limit=3"
+    url = f"{mock_server}/users"
 
     result = subprocess.run(
         ["uv", "run", "--script", str(http_plugin), "--mode", "read", url],
@@ -64,20 +112,18 @@ def test_http_plugin_fetch_json_array(http_plugin):
 
     assert result.returncode == 0, f"HTTP plugin failed: {result.stderr}"
 
-    # Parse output - should have 3 records
     lines = [line for line in result.stdout.strip().split("\n") if line]
     assert len(lines) == 3, f"Expected 3 records, got {len(lines)}"
 
-    # Each line should be valid JSON
-    for line in lines:
-        record = json.loads(line)
-        assert isinstance(record, dict)
-        assert "id" in record
+    records = [json.loads(line) for line in lines]
+    assert records[0]["name"] == "Alice"
+    assert records[1]["name"] == "Bob"
+    assert records[2]["name"] == "Charlie"
 
 
-def test_http_plugin_with_headers(http_plugin):
+def test_http_plugin_with_headers(http_plugin, mock_server):
     """Test HTTP plugin with custom headers."""
-    url = "https://jsonplaceholder.typicode.com/users/1"
+    url = f"{mock_server}/user/1"
 
     result = subprocess.run(
         [
@@ -98,52 +144,14 @@ def test_http_plugin_with_headers(http_plugin):
 
     assert result.returncode == 0, f"HTTP plugin failed: {result.stderr}"
 
-    # Should still get valid JSON
     lines = [line for line in result.stdout.strip().split("\n") if line]
     record = json.loads(lines[0])
-    assert "id" in record
+    assert record["id"] == 1
 
 
-def test_http_plugin_timeout(http_plugin):
-    """Test HTTP plugin with very short timeout - yields error record."""
-    url = "https://httpbin.org/delay/10"  # Delays response by 10 seconds
-
-    result = subprocess.run(
-        [
-            "uv",
-            "run",
-            "--script",
-            str(http_plugin),
-            "--mode",
-            "read",
-            "--timeout",
-            "1",  # 1 second timeout
-            url,
-        ],
-        capture_output=True,
-        text=True,
-        timeout=5,  # Overall test timeout
-    )
-
-    # Should exit successfully (errors are data, not exceptions)
-    assert result.returncode == 0
-    # Should yield error record
-    lines = [line for line in result.stdout.strip().split("\n") if line]
-    assert len(lines) >= 1
-    record = json.loads(lines[0])
-    assert record.get("_error") is True
-    # Could be timeout or 503 (httpbin.org sometimes returns 503 instead of delaying)
-    assert (
-        "timeout" in result.stdout.lower()
-        or "timed out" in result.stdout.lower()
-        or "503" in result.stdout
-        or "unavailable" in result.stdout.lower()
-    )
-
-
-def test_http_plugin_404_error(http_plugin):
+def test_http_plugin_404_error(http_plugin, mock_server):
     """Test HTTP plugin with 404 error - yields error record."""
-    url = "https://jsonplaceholder.typicode.com/users/999999999"
+    url = f"{mock_server}/notfound"
 
     result = subprocess.run(
         ["uv", "run", "--script", str(http_plugin), "--mode", "read", url],
@@ -152,34 +160,34 @@ def test_http_plugin_404_error(http_plugin):
         timeout=10,
     )
 
-    # Should exit successfully (errors are data now, not exceptions)
+    # Should exit successfully (errors are data, not exceptions)
     assert result.returncode == 0
-    # Should yield error record
+
     lines = [line for line in result.stdout.strip().split("\n") if line]
-    assert len(lines) == 1
+    assert len(lines) >= 1
+
     record = json.loads(lines[0])
     assert record.get("_error") is True
     assert "404" in str(record) or "Not Found" in str(record)
 
 
-def test_jn_cat_http_url(invoke):
+def test_jn_cat_http_url(invoke, mock_server):
     """Test jn cat with HTTP URL."""
-    url = "https://jsonplaceholder.typicode.com/users/1"
+    url = f"{mock_server}/user/1"
 
     result = invoke(["cat", url])
 
     assert result.exit_code == 0, f"jn cat failed: {result.output}"
 
-    # Parse output
     lines = [line for line in result.output.strip().split("\n") if line]
     record = json.loads(lines[0])
-    assert "id" in record
     assert record["id"] == 1
+    assert record["name"] == "Alice"
 
 
-def test_jn_run_http_to_csv(invoke, tmp_path):
+def test_jn_run_http_to_csv(invoke, mock_server, tmp_path):
     """Test jn run with HTTP source and CSV destination."""
-    url = "https://jsonplaceholder.typicode.com/users?_limit=3"
+    url = f"{mock_server}/users"
     output = tmp_path / "users.csv"
 
     result = invoke(["run", url, str(output)])
@@ -187,7 +195,9 @@ def test_jn_run_http_to_csv(invoke, tmp_path):
     assert result.exit_code == 0, f"jn run failed: {result.output}"
     assert output.exists()
 
-    # Check CSV content
     content = output.read_text()
     assert "id" in content.lower()
     assert "name" in content.lower()
+    assert "Alice" in content
+    assert "Bob" in content
+    assert "Charlie" in content

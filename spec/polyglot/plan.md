@@ -1,16 +1,16 @@
 # JN Polyglot Implementation Plan
 
 **Status:** In Progress
-**Date:** 2024-01 (Updated 2025-12)
+**Date:** 2024-01 (Updated 2025-12-02)
 
 ## Executive Summary
 
 This plan outlines the migration of JN to a polyglot architecture with:
-- **ZQ** - Pure Zig jq replacement (Sprints 01-04a complete, v0.4.0, Zig 0.15.2)
-- **Zig core** - CLI, address parsing, pipeline execution (future)
-- **Zig plugins** - csv, json, jsonl, http (hot path, future)
-- **Python plugins** - gmail, mcp, duckdb, and others (complex APIs)
-- **Core libraries** - Python, Zig for plugin development
+- **ZQ** - Pure Zig jq replacement (v0.4.0, ~4100 lines, Zig 0.15.1+)
+- **Zig plugins** - csv, json, jsonl all complete with mode-aware discovery
+- **Python CLI** - Orchestration layer with on-demand Zig compilation
+- **Python plugins** - gmail, mcp, duckdb, xlsx, and others (complex APIs)
+- **Cross-platform builds** - ziglang PyPI package for on-demand compilation
 
 ## Sprint Roadmap
 
@@ -22,26 +22,33 @@ This plan outlines the migration of JN to a polyglot architecture with:
 | 04 | ✅ Complete | **ZQ jq-compat:** slicing, optional access, has, del, entries |
 | 04a | ✅ Complete | **Zig 0.15.2 upgrade:** I/O refactor, build system updates |
 | 05 | ✅ Complete | **Error handling + jq removal:** ZQ enhanced, jq_.py deleted |
-| 06 | ✅ Complete | **Zig plugin system:** JSONL plugin, binary discovery, 96x perf |
-| 07 | 🔲 Next | CSV & JSON Zig plugins |
-| 08 | 🔲 Planned | Integration, CI/CD, production release |
-| 09 | 🔲 Future | HTTP & compression Zig plugins |
+| 06 | ✅ Complete | **JSONL Zig plugin:** standalone plugin, on-demand build system |
+| 06a | ✅ Complete | **Cross-platform builds:** ziglang PyPI, zig_builder.py |
+| 07 | ✅ Complete | **CSV & JSON Zig plugins:** mode-aware discovery, registry priority |
+| 08 | 🔲 Next | Integration, CI/CD, production release |
+| 09 | 🔲 Planned | HTTP & compression Zig plugins |
 | 10 | 🔲 Future | **Zig core binary** (replace Python CLI) |
 
 **jq removal:** ✅ Sprint 05 complete - ZQ is now the only filter engine
-**Zig CLI:** Sprint 10 - full Zig binary for <5ms startup
+**Cross-platform:** ✅ Sprint 06a complete - ziglang PyPI package for on-demand compilation
+**Zig plugins:** ✅ Sprint 07 complete - CSV, JSON, JSONL all use Zig with Python fallback for write-only modes
 
-## Architecture Overview
-
-**Target architecture** (Python CLI replaced by Zig in later sprints):
+## Current State (Sprint 07 Complete)
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                     jn (Zig binary)                             │
+│                   jn (Python CLI)                               │
 │  ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌─────────────┐  │
-│  │    CLI    │  │  Address  │  │  Plugin   │  │  Pipeline   │  │
-│  │  Parser   │  │  Parser   │  │ Discovery │  │  Executor   │  │
+│  │   Click   │  │  Address  │  │  Plugin   │  │   Pipeline  │  │
+│  │    CLI    │  │  Parser   │  │ Discovery │  │  Executor   │  │
 │  └───────────┘  └───────────┘  └───────────┘  └─────────────┘  │
+│                                      │                          │
+│                         ┌────────────┴────────────┐             │
+│                         ▼                         ▼             │
+│              ┌──────────────────┐     ┌──────────────────┐      │
+│              │   zig_builder    │     │ Python discovery │      │
+│              │ (on-demand build)│     │ (PEP 723 parse)  │      │
+│              └──────────────────┘     └──────────────────┘      │
 └─────────────────────────────────────────────────────────────────┘
                               │
         ┌─────────────────────┼─────────────────────┐
@@ -49,504 +56,115 @@ This plan outlines the migration of JN to a polyglot architecture with:
 ┌──────────────┐      ┌──────────────┐      ┌──────────────┐
 │   ZQ (Zig)   │      │ Zig Plugins  │      │Python Plugins│
 │              │      │              │      │              │
-│ • jq filter  │      │ • csv        │      │ • gmail      │
-│   replacement│      │ • json       │      │ • mcp        │
-│ • 2-3x faster│      │ • http       │      │ • duckdb     │
-│ • v0.4.0     │      │ • gz         │      │ • xlsx       │
-│              │      │              │      │ • table      │
+│ • v0.4.0     │      │ • csv ✅     │      │ • gmail      │
+│ • 4077 lines │      │ • json ✅    │      │ • mcp        │
+│ • 2-3x faster│      │ • jsonl ✅   │      │ • xlsx       │
+│ • Zig 0.15.1+│      │              │      │ • yaml, toml │
 └──────────────┘      └──────────────┘      └──────────────┘
 ```
 
-**Current state:** Python CLI + ZQ v0.5.0 + JSONL Zig plugin (Sprints 01-06 complete, Zig 0.15.2)
-
----
-
-## Phase 1: Foundation (Week 1-2)
-
-### 1.1 Core Libraries
-
-Create plugin development libraries for all three languages.
-
-#### Python Core Library (`jn_plugin`)
-
-Location: `libs/python/jn_plugin/`
-
-```python
-from jn_plugin import Plugin, ndjson
-
-plugin = Plugin(
-    name="example",
-    matches=[r".*\.example$"],
-    role="format",
-)
-
-@plugin.reader
-def reads(config=None):
-    for line in sys.stdin:
-        yield {"data": line.strip()}
-
-@plugin.writer
-def writes(config=None):
-    for record in ndjson.read_stdin():
-        print(format_output(record))
-
-if __name__ == "__main__":
-    plugin.run()
-```
-
-#### Zig Core Library (`jn-plugin-zig`)
-
-Location: `libs/zig/jn-plugin/`
-
-```zig
-const jn = @import("jn-plugin");
-
-pub const plugin = jn.Plugin{
-    .name = "csv",
-    .matches = &[_][]const u8{ ".*\\.csv$", ".*\\.tsv$" },
-    .role = .format,
-};
-
-pub fn reads(config: jn.Config, writer: jn.NdjsonWriter) !void {
-    var reader = jn.stdinReader();
-    while (try reader.next()) |line| {
-        try writer.write(.{ .data = line });
-    }
-}
-
-pub fn writes(config: jn.Config, reader: jn.NdjsonReader) !void {
-    while (try reader.next()) |record| {
-        try std.io.getStdOut().writer().print("{s}\n", .{record.data});
-    }
-}
-
-pub fn main() !void {
-    try jn.run(plugin, .{ .reads = reads, .writes = writes });
-}
-```
-
-#### Rust Core Library (`jn-plugin-rs`)
-
-Location: `libs/rust/jn-plugin/`
-
-```rust
-use jn_plugin::{Plugin, Config, NdjsonWriter, run};
-use serde::{Deserialize, Serialize};
-
-#[derive(Plugin)]
-#[plugin(name = "jq", role = "filter")]
-struct JqPlugin;
-
-impl JqPlugin {
-    fn filters(&self, config: Config, writer: &mut NdjsonWriter) -> Result<()> {
-        let expr = config.get("expr")?;
-        for record in jn_plugin::stdin_ndjson() {
-            let result = jaq_core::run(&expr, record)?;
-            writer.write(&result)?;
-        }
-        Ok(())
-    }
-}
-
-fn main() {
-    run::<JqPlugin>();
-}
-```
-
-### 1.2 First Zig Plugin: CSV
-
-Start with CSV as it's:
-- Simple, well-defined format
-- High-impact (most common format)
-- Good test of the full pipeline
-
-**Dependencies:**
-- [zig_csv](https://github.com/matthewtolman/zig_csv) - SIMD-accelerated CSV parser
-- Or use [simdjson](https://github.com/simdjson/simdjson) via `@cImport` for JSON output
-
-**Implementation:**
-
-```zig
-// plugins/zig/csv/src/main.zig
-const std = @import("std");
-const jn = @import("jn-plugin");
-const csv = @import("zig-csv");
-
-pub const plugin = jn.Plugin{
-    .name = "csv",
-    .version = "0.1.0",
-    .matches = &[_][]const u8{ ".*\\.csv$", ".*\\.tsv$" },
-    .role = .format,
-};
-
-pub fn reads(config: jn.Config, writer: anytype) !void {
-    const delimiter = config.get("delimiter") orelse ",";
-    const has_header = config.getBool("header") orelse true;
-
-    var parser = csv.Parser.init(std.io.getStdIn().reader());
-    parser.delimiter = delimiter[0];
-
-    // Read header
-    var headers: [][]const u8 = undefined;
-    if (has_header) {
-        headers = try parser.readRow();
-    }
-
-    // Stream rows as NDJSON
-    while (try parser.next()) |row| {
-        try writer.startObject();
-        for (headers, row.fields) |key, value| {
-            try writer.field(key, value);
-        }
-        try writer.endObject();
-        try writer.newline();
-    }
-}
-
-pub fn main() !void {
-    try jn.run(plugin, .{ .reads = reads, .writes = writes });
-}
-```
-
----
-
-## Phase 2: Core Zig Binary (Week 3-4)
-
-### 2.1 Partial vs Full Core Replacement
-
-#### Option A: Full Replacement
-Replace entire `jn` CLI with Zig binary.
-
-| Pros | Cons |
-|------|------|
-| Single binary, instant startup | Large effort (~3,000 lines) |
-| No Python dependency for core | Must reimplement all resolution logic |
-| Simpler deployment | Risk of behavior differences |
-
-#### Option B: Partial Replacement (Recommended)
-Replace hot path only, keep Python for complex logic.
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                   jn-fast (Zig binary)                      │
-│  • CLI parsing                                              │
-│  • Address parsing                                          │
-│  • Plugin discovery (from manifests)                        │
-│  • Pipeline execution                                       │
-│  • Simple pattern matching                                  │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼ (fallback for complex cases)
-┌─────────────────────────────────────────────────────────────┐
-│                   jn-resolve (Python)                       │
-│  • Profile resolution (HTTP auth, OAuth)                    │
-│  • Complex address resolution                               │
-│  • Plugin introspection                                     │
-│  • Error message generation with suggestions                │
-└─────────────────────────────────────────────────────────────┘
-```
-
-**Decision:** Start with Option B, evolve to Option A if needed.
-
-### 2.2 Core Components to Implement
-
-| Component | Zig Lines | C Libraries | Notes |
-|-----------|-----------|-------------|-------|
-| CLI parser | ~200 | - | `std.process.ArgIterator` |
-| Address parser | ~400 | - | String parsing |
-| Plugin discovery | ~300 | - | Dir scan, JSON manifest |
-| Pattern matching | ~200 | PCRE2 | `@cImport("pcre2.h")` |
-| Pipeline executor | ~400 | - | `std.process.Child` |
-| Config builder | ~150 | - | Type inference |
-| **Total** | **~1,650** | | |
-
-### 2.3 C Libraries via @cImport
-
-```zig
-// Use PCRE2 for regex matching
-const pcre2 = @cImport({
-    @cInclude("pcre2.h");
-});
-
-fn matchPattern(pattern: []const u8, subject: []const u8) bool {
-    var error_code: c_int = undefined;
-    var error_offset: usize = undefined;
-
-    const re = pcre2.pcre2_compile_8(
-        pattern.ptr, pattern.len,
-        0, &error_code, &error_offset, null
-    );
-    defer pcre2.pcre2_code_free_8(re);
-
-    const match_data = pcre2.pcre2_match_data_create_from_pattern_8(re, null);
-    defer pcre2.pcre2_match_data_free_8(match_data);
-
-    const rc = pcre2.pcre2_match_8(
-        re, subject.ptr, subject.len, 0, 0, match_data, null
-    );
-
-    return rc >= 0;
-}
-```
-
----
-
-## Phase 3: Zig Plugins (Week 5-6)
-
-### 3.1 Plugin Priority Order
-
-1. **csv** - Most common, simple format
-2. **json/jsonl** - Core interchange format
-3. **gz** - Compression layer
-4. **http** - Protocol plugin
-5. **yaml** - Common config format
-6. **toml** - Common config format
-
-### 3.2 Library Dependencies
-
-| Plugin | Zig Library | C Library Option | Notes |
-|--------|-------------|------------------|-------|
-| csv | [zig_csv](https://github.com/matthewtolman/zig_csv) | - | SIMD support |
-| json | std.json | [simdjson](https://github.com/simdjson/simdjson) | 3+ GB/s with simdjson |
-| jsonl | std.json | simdjson | Streaming NDJSON |
-| gz | std.compress.gzip | zlib | Built-in to Zig std |
-| http | [zig-curl](https://github.com/jiacai2050/zig-curl) | libcurl | TLS support |
-| yaml | - | libyaml | Via @cImport |
-| toml | - | - | Simple parser |
-
-### 3.3 JSON Plugin with simdjson
-
-For maximum performance, use [simdjson](https://github.com/simdjson/simdjson) via C interop:
-
-```zig
-const simdjson = @cImport({
-    @cInclude("simdjson.h");
-});
-
-pub fn reads(config: jn.Config, writer: anytype) !void {
-    var parser = simdjson.ondemand.parser{};
-
-    // Use iterate_many for NDJSON streaming at 3+ GB/s
-    var stream = simdjson.iterate_many(stdin_buffer);
-
-    while (stream.next()) |doc| {
-        // Re-serialize to ensure valid NDJSON output
-        try writer.writeJson(doc);
-        try writer.newline();
-    }
-}
-```
-
-### 3.4 HTTP Plugin
-
-```zig
-const curl = @import("zig-curl");
-
-pub fn reads(config: jn.Config, writer: anytype) !void {
-    const url = config.get("url") orelse return error.MissingUrl;
-    const method = config.get("method") orelse "GET";
-
-    var easy = curl.Easy.init();
-    defer easy.deinit();
-
-    try easy.setUrl(url);
-    try easy.setMethod(method);
-
-    // Stream response to stdout
-    easy.setWriteCallback(struct {
-        fn callback(data: []const u8, writer: anytype) usize {
-            writer.writeAll(data) catch return 0;
-            return data.len;
-        }
-    }.callback, writer);
-
-    try easy.perform();
-}
-```
-
----
-
-## Phase 4: ZQ - Zig jq Replacement (✅ COMPLETE)
-
-### 4.1 Why Zig instead of Rust/jaq?
-
-**Decision:** Implemented pure Zig solution (ZQ) instead of Rust/jaq wrapper.
-
-| Criteria | Rust/jaq | Zig (ZQ) |
-|----------|----------|----------|
-| Binary size | ~5MB | 2.3MB |
-| Startup time | ~5ms | <1ms |
-| Build complexity | Cargo + deps | Single file |
-| Customizability | Library wrapper | Full control |
-| Performance vs jq | 10x faster | 2-3x faster |
-
-ZQ is purpose-built for JN's needs with:
-- Arena allocator for streaming (constant memory)
-- Single-file implementation (~2600 lines)
-- No external dependencies
-- Built with Zig 0.15.2 (LLVM backend)
-
-### 4.2 Implementation Status
-
-Location: `zq/src/main.zig`
-
-**Sprint 01 (v0.1.0):** Foundation ✅
-- Identity (`.`), field access (`.name`), nested paths (`.a.b`)
-- Pipes (`|`), select with comparisons
-- Basic NDJSON streaming
-
-**Sprint 02 (v0.2.0):** Extended ✅
-- Array iteration (`.[]`, `.[n]`)
-- Slurp mode (`-s`)
+## What's Working
+
+### ZQ Filter Engine (zq/src/main.zig)
+- **4077 lines** of Zig (up from ~2600 in plan)
+- Version 0.4.0
+- Zig 0.15.1+ compatible (comptime version detection for 0.15.1 vs 0.15.2 I/O API)
+- Full jq compatibility for JN's use cases
+
+**Supported Features:**
+- Identity (`.`), field access (`.foo`, `.foo.bar`)
+- Array iteration (`.[]`, `.[n]`, `.[n:m]` slicing)
+- Pipes (`|`), select with all comparison operators
+- Optional access (`.foo?`, `.[n]?`)
+- Slurp mode (`-s`) for aggregations
 - Arithmetic (`+`, `-`, `*`, `/`)
 - Boolean logic (`and`, `or`, `not`)
-- Builtins: `keys`, `values`, `length`, `type`, `empty`
+- Object construction (`{a: .x, b: .y}`)
+- Builtins: `keys`, `values`, `length`, `type`, `empty`, `not`, `null`
+- Array functions: `first`, `last`, `reverse`, `sort`, `unique`, `flatten`, `add`, `min`, `max`
+- Aggregation: `group_by`, `sort_by`, `unique_by`, `min_by`, `max_by`, `map`
+- Object operations: `has`, `del`, `to_entries`, `from_entries`
+- String functions: `split`, `join`, `ascii_downcase`, `ascii_upcase`, `startswith`, `endswith`, `contains`, `ltrimstr`, `rtrimstr`
+- Math functions: `floor`, `ceil`, `round`, `fabs`, `sqrt`, `log`, `log10`, `exp`, `pow`, `sin`, `cos`, `tan`
+- Type conversions: `tonumber`, `tostring`
 
-**Sprint 03 (v0.3.0):** Aggregation ✅
-- Array: `first`, `last`, `reverse`, `sort`, `unique`, `flatten`
-- Aggregation: `add`, `min`, `max`, `group_by`, `sort_by`, `unique_by`, `min_by`, `max_by`, `map`
-- String: `split`, `join`, `ascii_downcase`, `ascii_upcase`, `startswith`, `endswith`, `contains`, `ltrimstr`, `rtrimstr`
+### On-Demand Build System (src/jn/zig_builder.py)
+- **455 lines** of Python
+- Uses ziglang PyPI package (>=0.15.1) for cross-platform Zig compiler
+- Builds binaries on first use, caches in `~/.local/jn/bin/`
+- Source hash-based cache invalidation
+- Version-aware Zig command selection (skips incompatible system Zig)
+- Bundles Zig sources in wheel for installation
 
-**Sprint 04 (v0.4.0):** jq-compat ✅
-- Slicing: `.[n:m]`, `.[n:]`, `.[:m]`, negative indices
-- Optional access: `.foo?`, `.[n]?`
-- Object operations: `has(key)`, `del(.key)`, `to_entries`, `from_entries`
+**Build Flow:**
+1. Check `$JN_HOME/bin/` for pre-built binary
+2. Check development build in repo (`zq/zig-out/bin/zq`)
+3. Check PATH for `zq` binary
+4. Build from source using ziglang package (cached)
 
-**Sprint 04a:** Zig 0.15.2 Upgrade ✅
-- Migrated to Zig 0.15.2 "Writergate" I/O API
-- Updated build system for LLVM backend
-- All 82 unit tests + 25 integration tests passing
+### Plugin Discovery (src/jn/plugins/discovery.py)
+- Discovers Python plugins via PEP 723 metadata
+- Discovers Zig plugins via `--jn-meta` flag
+- On-demand compilation of Zig plugins via `discover_zig_plugins_with_build()`
+- Cache-based invalidation for fast subsequent discovery
 
-### 4.3 ZQ vs jq Compatibility
+### Zig Plugins (plugins/zig/)
 
-| Feature | jq | ZQ | Notes |
-|---------|----|----|-------|
-| `.`, `.field` | ✅ | ✅ | |
-| `select(expr)` | ✅ | ✅ | |
-| `\|` pipes | ✅ | ✅ | |
-| `.[]`, `.[n]` | ✅ | ✅ | |
-| `.[n:m]` slicing | ✅ | ✅ | Sprint 04 |
-| `.foo?` optional | ✅ | ✅ | Sprint 04 |
-| `-s` slurp | ✅ | ✅ | |
-| Arithmetic | ✅ | ✅ | |
-| `group_by`, `sort_by` | ✅ | ✅ | |
-| `map(expr)` | ✅ | ✅ | |
-| String functions | ✅ | ✅ | |
-| `has`, `del`, `*_entries` | ✅ | ✅ | Sprint 04 |
-| Regex (test, match) | ✅ | ❌ | Not needed for JN |
-| Variables ($x) | ✅ | ❌ | Not needed for JN |
-| Modules | ✅ | ❌ | Not needed for JN |
+| Plugin | Lines | Status | Modes | Notes |
+|--------|-------|--------|-------|-------|
+| jsonl | 188 | ✅ Complete | read, write | Validates JSON, streams NDJSON |
+| csv | 523 | ✅ Complete | read, write | Quoted fields, delimiter config |
+| json | 279 | ✅ Complete | read only | Array→NDJSON, Python fallback for write |
 
-**Coverage:** ~99% of JN filter usage patterns
-
-### 4.4 Performance (Zig 0.15.2)
-
-Benchmarks on 500k NDJSON records (46MB):
-
-| Expression | jq 1.7 | ZQ 0.4.0 | Speedup |
-|------------|--------|----------|---------|
-| `.` (identity) | 1.99s | 0.67s | **2.95x** |
-| `.name` (field) | 1.25s | 0.57s | **2.19x** |
-| `.nested.score` | 1.24s | 0.58s | **2.12x** |
-| `select(.value > 50000)` | 1.81s | 0.66s | **2.75x** |
-
-### 4.5 Next Steps
-
-**Sprint 05:** Improve error handling, then remove jq (rip and replace):
-1. Add clear error messages with context and suggestions
-2. Detect unsupported features and suggest workarounds
-3. Update `jn filter` to invoke ZQ binary instead of jq_.py
-4. Delete `jn_home/plugins/filters/jq_.py`
-5. Remove jq from dependencies
+**Plugin Features:**
+- All plugins output `--jn-meta` JSON manifest for discovery
+- Zig 0.15.1+ compatible (comptime I/O API selection)
+- Mode-aware registry: Zig plugins used when they support the mode, Python fallback otherwise
+- Binary plugins get priority over Python plugins with same pattern
 
 ---
 
-## Phase 5: Integration & Testing (Week 9-10)
+## Implementation Details
 
-### 5.1 Discovery Integration
+### Cross-Platform Build System
 
-Update `jn` to discover plugins in priority order:
-
-```python
-# src/jn/plugins/discovery.py
-
-def discover_plugins(plugin_dir: Path) -> Dict[str, PluginMetadata]:
-    plugins = {}
-
-    # 1. Binary plugins (Zig, Rust) - highest priority
-    for binary in plugin_dir.glob("*"):
-        if binary.is_file() and is_executable(binary):
-            meta = load_or_generate_manifest(binary)
-            if meta:
-                plugins[meta.name] = meta
-
-    # 2. Python plugins - lower priority (don't override binaries)
-    for py_file in plugin_dir.rglob("*.py"):
-        meta = parse_pep723(py_file)
-        if meta and meta.name not in plugins:
-            plugins[meta.name] = meta
-
-    return plugins
+**Dependencies (pyproject.toml):**
+```toml
+"ziglang>=0.15.1",  # Cross-platform Zig compiler (0.15.1+ required)
 ```
 
-### 5.2 Test Matrix
+**Zig Command Resolution (zig_builder.py):**
+```python
+def get_zig_command() -> list[str]:
+    # 1. System zig (if version >= 0.15.1)
+    # 2. python-zig from ziglang package (if version >= 0.15.1)
+    # 3. python -m ziglang fallback
+```
 
-| Test | csv (Zig) | json (Zig) | jq (Rust) | http (Zig) |
-|------|-----------|------------|-----------|------------|
-| Basic read | ✅ | ✅ | ✅ | ✅ |
-| Basic write | ✅ | ✅ | N/A | N/A |
-| Streaming 1GB | ✅ | ✅ | ✅ | ✅ |
-| Unicode | ✅ | ✅ | ✅ | ✅ |
-| Malformed input | ✅ | ✅ | ✅ | ✅ |
-| --jn-meta | ✅ | ✅ | ✅ | ✅ |
-| Pipeline chain | ✅ | ✅ | ✅ | ✅ |
+**Binary Caching:**
+- Location: `~/.local/jn/bin/`
+- Naming: `{name}-{source_hash}` (e.g., `zq-abc123def456`)
+- Invalidation: SHA256 hash of source files
 
-### 5.3 Performance Benchmarks
+### Wheel Packaging
 
-Target improvements over Python:
+**hatch build config (pyproject.toml):**
+```toml
+[tool.hatch.build.targets.wheel.force-include]
+"zq/src" = "jn_home/zig_src/zq"
+"plugins/zig" = "jn_home/zig_src/plugins"
+```
 
-| Metric | Python | Zig/Rust | Target |
-|--------|--------|----------|--------|
-| Startup | 150-200ms | <5ms | 30x+ |
-| CSV 1GB | 20s | 2s | 10x |
-| JSON 1GB | 15s | 1.5s | 10x |
-| jq filter | 50ms startup | <5ms | 10x |
+This bundles Zig sources in the wheel, enabling on-demand compilation after `pip install`.
 
----
-
-## Phase 6: Python Plugin Retention (Ongoing)
-
-### 6.1 Plugins Staying in Python
-
-| Plugin | Reason |
-|--------|--------|
-| gmail | OAuth2 complexity, Google API client |
-| mcp | JSON-RPC, complex protocol |
-| duckdb | DuckDB Python bindings |
-| xlsx | openpyxl library |
-| markdown | mdutils library |
-| table | tabulate library |
-| xml | lxml library |
-
-### 6.2 Python Core Library Updates
-
-Ensure Python plugins use the same `jn_plugin` library pattern:
+### Filter Command Integration (src/jn/cli/commands/filter.py)
 
 ```python
-# Migrate existing plugins to use jn_plugin
-from jn_plugin import Plugin
-
-plugin = Plugin(
-    name="gmail",
-    matches=[r"^gmail://"],
-    role="protocol",
-    manages_parameters=True,
-)
-
-@plugin.reader
-def reads(url: str, config=None):
-    # Existing gmail logic
-    ...
+def find_zq_binary() -> str | None:
+    # 1. $JN_HOME/bin/zq (bundled with jn)
+    # 2. zq/zig-out/bin/zq (development build)
+    # 3. zq in PATH (system install)
+    # 4. Build from source via zig_builder
 ```
 
 ---
@@ -556,75 +174,162 @@ def reads(url: str, config=None):
 ```
 jn/
 ├── src/jn/                    # Python framework
-│   └── plugins/
-│       └── discovery.py      # Plugin discovery (Python + binary)
+│   ├── cli/commands/
+│   │   └── filter.py         # ZQ integration (find_zq_binary)
+│   ├── plugins/
+│   │   └── discovery.py      # Plugin discovery (Python + Zig)
+│   └── zig_builder.py        # On-demand Zig compilation (455 lines)
+│
 ├── zq/                        # ZQ filter binary
-│   ├── src/main.zig
-│   └── zig-out/bin/zq
-├── plugins/                   # Zig plugins (self-contained)
-│   └── zig/
-│       └── jsonl/            # JSONL plugin (Sprint 06)
-│           ├── main.zig
-│           └── bin/jsonl
-├── jn_home/plugins/          # Python plugins (existing)
-│   ├── formats/              # csv, json, yaml, toml, etc.
-│   ├── protocols/            # http, gmail, mcp
-│   ├── filters/              # (empty - ZQ is binary)
-│   └── compression/          # gz
+│   ├── src/main.zig          # Main implementation (4077 lines)
+│   ├── build.zig             # Zig build configuration
+│   └── tests/integration.zig # Integration tests
+│
+├── plugins/zig/               # Zig plugins (self-contained)
+│   ├── jsonl/main.zig        # JSONL plugin (188 lines) ✅
+│   ├── csv/main.zig          # CSV plugin (523 lines) ✅
+│   └── json/main.zig         # JSON plugin (279 lines) ✅
+│
+├── jn_home/
+│   ├── plugins/              # Python plugins
+│   │   ├── formats/          # csv, json, yaml, toml, markdown, table, xlsx
+│   │   ├── protocols/        # http, gmail, mcp
+│   │   ├── filters/          # (empty - ZQ is binary)
+│   │   └── compression/      # gz
+│   └── zig_src/              # Bundled in wheel for on-demand build
+│       ├── zq/               # ZQ source
+│       └── plugins/          # Zig plugin sources
+│
 └── spec/polyglot/            # Design docs
+    ├── plan.md               # This file
+    └── sprints/              # Sprint documentation
 ```
 
-**Note:** Self-contained Zig plugins (no shared library) - each plugin is a single executable.
+---
+
+## Performance
+
+### ZQ vs jq Benchmarks (500k NDJSON records, 46MB)
+
+| Expression | jq 1.7 | ZQ 0.4.0 | Speedup |
+|------------|--------|----------|---------|
+| `.` (identity) | 1.99s | 0.67s | **2.95x** |
+| `.name` (field) | 1.25s | 0.57s | **2.19x** |
+| `.nested.score` | 1.24s | 0.58s | **2.12x** |
+| `select(.value > 50000)` | 1.81s | 0.66s | **2.75x** |
+
+### Startup Time
+
+| Component | Time |
+|-----------|------|
+| Python CLI startup | ~150-200ms |
+| ZQ binary startup | <1ms |
+| First ZQ build (cached) | ~5-10s |
+| Subsequent ZQ calls | <1ms |
 
 ---
 
-## Timeline Summary
+## Next Steps
 
-| Week | Phase | Deliverables |
-|------|-------|--------------|
-| 1-2 | Foundation | Core libraries (Python, Zig, Rust), CSV plugin PoC |
-| 3-4 | Core Binary | Zig CLI, address parser, pipeline executor |
-| 5-6 | Zig Plugins | json, jsonl, gz, http plugins |
-| 7-8 | Rust Plugin | jq replacement using jaq |
-| 9-10 | Integration | Discovery, testing, benchmarks |
+### Sprint 08: Integration & CI/CD (Next)
+1. GitHub Actions for multi-platform testing
+2. Pre-built binaries in releases
+3. Performance regression tests
+4. Documentation updates
 
----
+### Sprint 09: HTTP & Compression
+1. HTTP plugin using libcurl or Zig std.http
+2. Gzip plugin using std.compress.gzip
+3. Streaming support for large files
 
-## Risk Mitigation
-
-| Risk | Mitigation |
-|------|------------|
-| Zig learning curve | Start with simple CSV plugin |
-| C library integration | Use well-maintained libs (libcurl, PCRE2) |
-| jaq compatibility | Test against JN's actual jq usage |
-| Binary distribution | GitHub Actions for all platforms |
-| Python fallback | Keep Python resolver for complex cases |
+### Sprint 10: Zig Core Binary
+1. Replace Python CLI with Zig binary
+2. <5ms startup for all commands
+3. Keep Python plugins via subprocess
 
 ---
 
-## Success Criteria
+## Lessons Learned
 
-1. **Performance:** 10x improvement on CSV/JSON parsing
-2. **Startup:** <10ms for simple commands (vs 150-200ms)
-3. **Compatibility:** All existing tests pass
-4. **Distribution:** Single binary for core + plugins
-5. **Developer experience:** Clear docs for each language
+### What Worked Well
+1. **Pure Zig approach** - No external dependencies, single-file implementation
+2. **Comptime version detection** - Handles Zig 0.15.1 vs 0.15.2 API differences
+3. **On-demand builds** - ziglang PyPI package enables cross-platform installation
+4. **Source hash caching** - Only rebuilds when source changes
+
+### Challenges Overcome
+1. **Zig I/O API changes** - "Writergate" in 0.15.2 required comptime branching
+2. **Version resolution** - System Zig may be too old; fallback to ziglang package
+3. **Binary caching** - Platform-specific names, executable permissions
+4. **Mode-aware plugin resolution** - Registry needed to skip Zig plugins that don't support requested mode
+5. **Binary plugin invocation** - `run.py` and `cat.py` needed update to invoke binaries directly (not via `uv run`)
+
+### Key Decisions
+1. **Self-contained plugins** - No shared Zig library; each plugin is standalone
+2. **Python CLI kept** - Complex profile/address resolution stays in Python
+3. **ziglang dependency** - Enables `pip install` on any platform with on-demand compilation
 
 ---
 
 ## References
 
-### Zig Libraries
-- [zig_csv](https://github.com/matthewtolman/zig_csv) - CSV parser with SIMD
-- [zig-curl](https://github.com/jiacai2050/zig-curl) - libcurl bindings
-- [zimdjson](https://github.com/EzequielRamis/zimdjson) - simdjson port
-- [std.json](https://github.com/ziglang/zig/blob/master/lib/std/json.zig) - Standard library JSON
+### Implementation
+- `zq/src/main.zig` - ZQ filter implementation (4077 lines)
+- `src/jn/zig_builder.py` - On-demand build system (455 lines)
+- `src/jn/cli/commands/filter.py` - ZQ integration
+- `src/jn/plugins/discovery.py` - Plugin discovery with Zig support
+- `plugins/zig/jsonl/main.zig` - Example Zig plugin (188 lines)
 
-### Rust Libraries
-- [jaq](https://github.com/01mf02/jaq) - jq clone (30x faster startup)
-- [jaq-core](https://crates.io/crates/jaq-core) - jaq as library
+### External
+- [ziglang PyPI](https://pypi.org/project/ziglang/) - Cross-platform Zig compiler
+- [Zig 0.15.1 Release](https://ziglang.org/download/0.15.1/release-notes.html)
+- [std.json](https://github.com/ziglang/zig/blob/master/lib/std/json.zig) - Zig JSON parser
 
-### C Libraries
-- [simdjson](https://github.com/simdjson/simdjson) - 3+ GB/s JSON parsing
-- [PCRE2](https://github.com/PCRE2Project/pcre2) - Regex library
-- [libcurl](https://curl.se/libcurl/) - HTTP client
+### Sprint Documentation
+- `spec/polyglot/sprints/01-zq-foundation.md`
+- `spec/polyglot/sprints/02-zq-extended.md`
+- `spec/polyglot/sprints/03-zq-aggregation.md`
+- `spec/polyglot/sprints/04-zq-jq-compat.md`
+- `spec/polyglot/sprints/04a-zig-0.15.2-upgrade.md`
+- `spec/polyglot/sprints/05-jq-removal.md`
+- `spec/polyglot/sprints/06-zig-plugin-library.md`
+- `spec/polyglot/sprints/07-zig-csv-json-plugins.md`
+
+---
+
+## Packaging Verification (Sprint 07)
+
+Verified the full packaging and installation workflow:
+
+### Build Process
+```bash
+uv build
+# Creates dist/jn-0.1.0-py3-none-any.whl
+# Wheel includes bundled Zig sources in jn_home/zig_src/
+```
+
+### Installation via `uv tool install`
+```bash
+uv tool install --force dist/jn-0.1.0-py3-none-any.whl
+# Installs to ~/.local/share/uv/tools/jn/
+```
+
+### What's Verified
+1. **Wheel packaging** - Zig sources bundled correctly
+2. **Tool installation** - `jn` command available system-wide
+3. **Plugin discovery** - Both Python and Zig plugins discovered
+4. **On-demand Zig compilation** - Zig plugins compile from bundled sources
+5. **Mode-aware fallback** - JSON write falls back to Python plugin
+6. **Binary caching** - Compiled binaries cached in `~/.local/jn/bin/`
+
+### Test Commands
+```bash
+# CSV read (Zig) → JSON write (Python)
+echo 'name,value\ntest,123' | jn cat /dev/stdin~csv | jn put /dev/stdout~json
+
+# JSON read (Zig) → table display (Python)
+echo '[{"a":1},{"a":2}]' | jn cat /dev/stdin~json | jn put /dev/stdout~table
+
+# Full pipeline with filter
+jn cat data.csv | jn filter '.revenue > 100' | jn put output.json
+```
