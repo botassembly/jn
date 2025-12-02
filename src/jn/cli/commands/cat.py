@@ -58,10 +58,17 @@ def _build_command(
             if value:
                 # True: pass --flag (works for action="store_true")
                 cmd.append(f"--{cli_key}")
+            elif is_binary:
+                # Binary plugins: --flag=false
+                cmd.append(f"--{cli_key}=false")
             else:
-                # False: pass --flag false (for regular bool params like --header)
+                # Python plugins: --flag false
                 cmd.extend([f"--{cli_key}", "false"])
+        elif is_binary:
+            # Binary plugins: --key=value format
+            cmd.append(f"--{cli_key}={value}")
         else:
+            # Python plugins: --key value format
             cmd.extend([f"--{cli_key}", str(value)])
 
     # Add URL or command string if present

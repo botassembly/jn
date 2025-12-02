@@ -82,10 +82,17 @@ def put(ctx, output_file):
                 if value:
                     # True: pass --flag (works for action="store_true")
                     cmd.append(f"--{key}")
+                elif is_binary:
+                    # Binary plugins: --flag=false
+                    cmd.append(f"--{key}=false")
                 else:
-                    # False: pass --flag false (for regular bool params like --header)
+                    # Python plugins: --flag false
                     cmd.extend([f"--{key}", "false"])
+            elif is_binary:
+                # Binary plugins: --key=value format
+                cmd.append(f"--{key}={value}")
             else:
+                # Python plugins: --key value format
                 cmd.extend([f"--{key}", str(value)])
 
         # Prepare stdin for subprocess
