@@ -60,6 +60,8 @@ pub fn main() !void {
             }
         } else if (std.mem.eql(u8, arg, "--no-header")) {
             config.no_header = true;
+        } else if (std.mem.eql(u8, arg, "--header=false")) {
+            config.no_header = true;
         }
     }
 
