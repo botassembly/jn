@@ -11,6 +11,7 @@ pub const PluginMeta = meta.PluginMeta;
 pub const Role = meta.Role;
 pub const Mode = meta.Mode;
 pub const outputManifest = manifest.outputManifest;
+pub const outputManifestToStdout = manifest.outputManifestToStdout;
 
 test {
     @import("std").testing.refAllDecls(@This());

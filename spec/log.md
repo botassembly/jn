@@ -1,5 +1,17 @@
 # JN Zig Refactor - Work Log
 
+## 2025-12-03: Phase 2 - Plugin Refactor In Progress
+
+### Completed
+- Refactored Zig plugins (csv, json, jsonl, gz) to use shared libraries (`jn-core`, `jn-cli`, `jn-plugin`)
+- Added module-aware build flags for shared libs (Makefile + `zig_builder`) and packaged libs under `jn_home/zig_src/libs`
+- JSON plugin write mode now emits JSON arrays by default, with `--format=ndjson` passthrough and `--indent` pretty-print support
+- Updated Makefile to build/test all Zig plugins with shared module wiring
+
+### Tests
+- `make zig-plugins-test` (with Zig 0.15.2)
+- `make test`
+
 ## 2025-12-03: Phase 1 - Foundation Libraries Complete
 
 ### Foundation Libraries Implementation

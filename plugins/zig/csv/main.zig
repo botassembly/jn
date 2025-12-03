@@ -1,48 +1,14 @@
 const std = @import("std");
-const zig_builtin = @import("builtin");
+const jn_core = @import("jn-core");
+const jn_cli = @import("jn-cli");
+const jn_plugin = @import("jn-plugin");
 
-// Helper to read a line from reader, compatible with both Zig 0.15.1 and 0.15.2
-fn readLine(reader: anytype) ?[]u8 {
-    if (comptime zig_builtin.zig_version.order(.{ .major = 0, .minor = 15, .patch = 2 }) != .lt) {
-        return reader.takeDelimiter('\n') catch |err| {
-            std.debug.print("csv: read error: {}\n", .{err});
-            std.process.exit(1);
-        };
-    } else {
-        return reader.takeDelimiterExclusive('\n') catch |err| switch (err) {
-            error.EndOfStream => return null,
-            else => {
-                std.debug.print("csv: read error: {}\n", .{err});
-                std.process.exit(1);
-            },
-        };
-    }
-}
-
-// ============================================================================
-// CSV Plugin - Standalone Zig plugin for JN
-//
-// Reads CSV files and outputs NDJSON records.
-// Write mode reads NDJSON and outputs CSV.
-// Supports quoted fields, escaped quotes, and configurable delimiter.
-//
-// Note: Multi-line quoted fields are NOT supported (for simplicity).
-// ============================================================================
-
-const Plugin = struct {
-    name: []const u8,
-    version: []const u8,
-    matches: []const []const u8,
-    role: []const u8,
-    modes: []const []const u8,
-};
-
-const plugin = Plugin{
+const plugin_meta = jn_plugin.PluginMeta{
     .name = "csv",
-    .version = "0.1.0",
-    .matches = &[_][]const u8{ ".*\\.csv$", ".*\\.tsv$" },
-    .role = "format",
-    .modes = &[_][]const u8{ "read", "write" },
+    .version = "0.2.0",
+    .matches = &.{ ".*\\.csv$", ".*\\.tsv$" },
+    .role = .format,
+    .modes = &.{ .read, .write },
 };
 
 const Config = struct {
@@ -55,106 +21,68 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    // Parse command line arguments
-    var args = std.process.args();
-    _ = args.skip(); // Skip program name
+    const args = jn_cli.parseArgs();
+    const mode = args.get("mode", "read") orelse "read";
+    const config = parseConfig(args);
 
-    var mode: []const u8 = "read";
-    var jn_meta = false;
-    var config = Config{};
-
-    while (args.next()) |arg| {
-        if (std.mem.eql(u8, arg, "--jn-meta")) {
-            jn_meta = true;
-        } else if (std.mem.startsWith(u8, arg, "--mode=")) {
-            mode = arg["--mode=".len..];
-        } else if (std.mem.startsWith(u8, arg, "--delimiter=")) {
-            const delim_str = arg["--delimiter=".len..];
-            if (delim_str.len > 0) {
-                if (std.mem.eql(u8, delim_str, "tab") or std.mem.eql(u8, delim_str, "\\t")) {
-                    config.delimiter = '\t';
-                } else {
-                    config.delimiter = delim_str[0];
-                }
-            }
-        } else if (std.mem.eql(u8, arg, "--no-header")) {
-            config.no_header = true;
-        } else if (std.mem.eql(u8, arg, "--header=false")) {
-            config.no_header = true;
-        }
-    }
-
-    // Handle --jn-meta: output plugin manifest
-    if (jn_meta) {
-        try outputManifest();
+    if (args.has("jn-meta")) {
+        try jn_plugin.outputManifestToStdout(plugin_meta);
         return;
     }
 
-    // Dispatch based on mode
     if (std.mem.eql(u8, mode, "read")) {
         try readMode(allocator, config);
-    } else if (std.mem.eql(u8, mode, "write")) {
+        return;
+    }
+
+    if (std.mem.eql(u8, mode, "write")) {
         try writeMode(allocator, config);
-    } else {
-        std.debug.print("csv: error: unknown mode '{s}'\n", .{mode});
-        std.process.exit(1);
+        return;
     }
+
+    jn_core.exitWithError("csv: unknown mode '{s}'", .{mode});
 }
 
-fn outputManifest() !void {
-    var stdout_buf: [4096]u8 = undefined;
-    var stdout_wrapper = std.fs.File.stdout().writer(&stdout_buf);
-    const writer = &stdout_wrapper.interface;
+fn parseConfig(args: jn_cli.ArgParser) Config {
+    var config = Config{};
 
-    try writer.writeAll("{\"name\":\"");
-    try writer.writeAll(plugin.name);
-    try writer.writeAll("\",\"version\":\"");
-    try writer.writeAll(plugin.version);
-    try writer.writeAll("\",\"matches\":[");
+    if (args.get("delimiter", null)) |delim| {
+        config.delimiter = parseDelimiter(delim);
+    }
 
-    for (plugin.matches, 0..) |pattern, i| {
-        if (i > 0) try writer.writeByte(',');
-        try writer.writeByte('"');
-        for (pattern) |c| {
-            if (c == '"' or c == '\\') try writer.writeByte('\\');
-            try writer.writeByte(c);
+    if (args.has("no-header")) {
+        config.no_header = true;
+    }
+
+    if (args.get("header", null)) |value| {
+        if (std.mem.eql(u8, value, "false")) {
+            config.no_header = true;
         }
-        try writer.writeByte('"');
     }
 
-    try writer.writeAll("],\"role\":\"");
-    try writer.writeAll(plugin.role);
-    try writer.writeAll("\",\"modes\":[");
-
-    for (plugin.modes, 0..) |m, i| {
-        if (i > 0) try writer.writeByte(',');
-        try writer.writeByte('"');
-        try writer.writeAll(m);
-        try writer.writeByte('"');
-    }
-
-    try writer.writeAll("]}\n");
-    try writer.flush();
+    return config;
 }
 
-// ============================================================================
-// CSV Read Mode
-// ============================================================================
+fn parseDelimiter(value: []const u8) u8 {
+    if (std.mem.eql(u8, value, "tab") or std.mem.eql(u8, value, "\\t")) {
+        return '\t';
+    }
+    if (value.len > 0) return value[0];
+    return ',';
+}
 
 fn readMode(allocator: std.mem.Allocator, config: Config) !void {
-    var stdin_buf: [64 * 1024]u8 = undefined;
+    var stdin_buf: [jn_core.STDIN_BUFFER_SIZE]u8 = undefined;
     var stdin_wrapper = std.fs.File.stdin().reader(&stdin_buf);
     const reader = &stdin_wrapper.interface;
 
-    var stdout_buf: [64 * 1024]u8 = undefined;
+    var stdout_buf: [jn_core.STDOUT_BUFFER_SIZE]u8 = undefined;
     var stdout_wrapper = std.fs.File.stdout().writer(&stdout_buf);
     const writer = &stdout_wrapper.interface;
 
-    // Pre-allocate reusable field indices (no per-row allocation)
     var field_starts: [1024]usize = undefined;
     var field_ends: [1024]usize = undefined;
 
-    // Read and parse header row (unless --no-header)
     var headers = std.ArrayListUnmanaged([]const u8){};
     defer {
         for (headers.items) |h| allocator.free(h);
@@ -162,21 +90,15 @@ fn readMode(allocator: std.mem.Allocator, config: Config) !void {
     }
 
     if (!config.no_header) {
-        // Read header line (compatible with Zig 0.15.1+)
-        const maybe_header = readLine(reader);
+        const maybe_header = jn_core.readLine(reader);
         if (maybe_header == null) {
-            // Empty file - no output
-            try writer.flush();
+            jn_core.flushWriter(writer);
             return;
         }
 
-        // Strip \r if present
-        const clean_line = stripCR(maybe_header.?);
-
-        // Parse header fields (store indices, not slices)
+        const clean_line = jn_core.stripCR(maybe_header.?);
         const field_count = parseCSVRowFast(clean_line, config.delimiter, &field_starts, &field_ends);
 
-        // Store headers (only headers need allocation - they're reused)
         for (0..field_count) |i| {
             const field = unquoteField(clean_line[field_starts[i]..field_ends[i]]);
             const duped = try allocator.dupe(u8, field);
@@ -184,60 +106,46 @@ fn readMode(allocator: std.mem.Allocator, config: Config) !void {
         }
     }
 
-    // Read data rows (zero allocation per row, compatible with Zig 0.15.1+)
-    while (true) {
-        const maybe_line = readLine(reader);
-        if (maybe_line) |line| {
-            // Strip \r if present
-            const clean_line = stripCR(line);
+    while (jn_core.readLine(reader)) |line| {
+        const clean_line = jn_core.stripCR(line);
+        if (clean_line.len == 0) continue;
 
-            // Skip empty lines
-            if (clean_line.len == 0) continue;
+        const field_count = parseCSVRowFast(clean_line, config.delimiter, &field_starts, &field_ends);
 
-            // Parse fields into pre-allocated arrays (no allocation!)
-            const field_count = parseCSVRowFast(clean_line, config.delimiter, &field_starts, &field_ends);
+        writer.writeByte('{') catch |err| jn_core.handleWriteError(err);
 
-            // Output as JSON object
-            try writer.writeByte('{');
-
-            if (config.no_header) {
-                // Use column indices as keys
-                for (0..field_count) |i| {
-                    if (i > 0) try writer.writeByte(',');
-                    try writer.print("\"col{d}\":", .{i});
-                    const field = unquoteField(clean_line[field_starts[i]..field_ends[i]]);
-                    try writeJsonValue(writer, field);
-                }
-            } else {
-                // Use header names as keys
-                const num_fields = @min(field_count, headers.items.len);
-                for (0..num_fields) |i| {
-                    if (i > 0) try writer.writeByte(',');
-                    try writeJsonString(writer, headers.items[i]);
-                    try writer.writeByte(':');
-                    const field = unquoteField(clean_line[field_starts[i]..field_ends[i]]);
-                    try writeJsonValue(writer, field);
-                }
-                // Handle extra fields (more than headers)
-                if (field_count > headers.items.len) {
-                    for (headers.items.len..field_count) |i| {
-                        try writer.writeByte(',');
-                        try writer.print("\"_extra{d}\":", .{i - headers.items.len});
-                        const field = unquoteField(clean_line[field_starts[i]..field_ends[i]]);
-                        try writeJsonValue(writer, field);
-                    }
-                }
+        if (config.no_header) {
+            for (0..field_count) |i| {
+                if (i > 0) writer.writeByte(',') catch |err| jn_core.handleWriteError(err);
+                writer.print("\"col{d}\":", .{i}) catch |err| jn_core.handleWriteError(err);
+                const field = unquoteField(clean_line[field_starts[i]..field_ends[i]]);
+                jn_core.writeJsonString(writer, field) catch |err| jn_core.handleWriteError(err);
+            }
+        } else {
+            const num_fields = @min(field_count, headers.items.len);
+            for (0..num_fields) |i| {
+                if (i > 0) writer.writeByte(',') catch |err| jn_core.handleWriteError(err);
+                jn_core.writeJsonString(writer, headers.items[i]) catch |err| jn_core.handleWriteError(err);
+                writer.writeByte(':') catch |err| jn_core.handleWriteError(err);
+                const field = unquoteField(clean_line[field_starts[i]..field_ends[i]]);
+                jn_core.writeJsonString(writer, field) catch |err| jn_core.handleWriteError(err);
             }
 
-            try writer.writeByte('}');
-            try writer.writeByte('\n');
-        } else {
-            // EOF
-            break;
+            if (field_count > headers.items.len) {
+                for (headers.items.len..field_count) |i| {
+                    writer.writeByte(',') catch |err| jn_core.handleWriteError(err);
+                    writer.print("\"_extra{d}\":", .{i - headers.items.len}) catch |err| jn_core.handleWriteError(err);
+                    const field = unquoteField(clean_line[field_starts[i]..field_ends[i]]);
+                    jn_core.writeJsonString(writer, field) catch |err| jn_core.handleWriteError(err);
+                }
+            }
         }
+
+        writer.writeByte('}') catch |err| jn_core.handleWriteError(err);
+        writer.writeByte('\n') catch |err| jn_core.handleWriteError(err);
     }
 
-    try writer.flush();
+    jn_core.flushWriter(writer);
 }
 
 fn parseCSVRowFast(line: []const u8, delimiter: u8, starts: *[1024]usize, ends: *[1024]usize) usize {
@@ -250,16 +158,12 @@ fn parseCSVRowFast(line: []const u8, delimiter: u8, starts: *[1024]usize, ends: 
         const c = line[i];
 
         if (c == '"') {
-            if (in_quotes) {
-                // Check for escaped quote ("")
-                if (i + 1 < line.len and line[i + 1] == '"') {
-                    i += 1;
-                    continue;
-                }
+            if (in_quotes and i + 1 < line.len and line[i + 1] == '"') {
+                i += 1;
+                continue;
             }
             in_quotes = !in_quotes;
         } else if (c == delimiter and !in_quotes) {
-            // End of field
             if (field_count < 1024) {
                 starts[field_count] = field_start;
                 ends[field_count] = i;
@@ -269,7 +173,6 @@ fn parseCSVRowFast(line: []const u8, delimiter: u8, starts: *[1024]usize, ends: 
         }
     }
 
-    // Don't forget the last field
     if (field_count < 1024) {
         starts[field_count] = field_start;
         ends[field_count] = line.len;
@@ -277,13 +180,6 @@ fn parseCSVRowFast(line: []const u8, delimiter: u8, starts: *[1024]usize, ends: 
     }
 
     return field_count;
-}
-
-fn stripCR(line: []const u8) []const u8 {
-    if (line.len > 0 and line[line.len - 1] == '\r') {
-        return line[0 .. line.len - 1];
-    }
-    return line;
 }
 
 fn parseCSVRow(allocator: std.mem.Allocator, line: []const u8, delimiter: u8, fields: *std.ArrayListUnmanaged([]const u8)) !void {
@@ -295,17 +191,13 @@ fn parseCSVRow(allocator: std.mem.Allocator, line: []const u8, delimiter: u8, fi
         const c = line[i];
 
         if (c == '"') {
-            if (in_quotes) {
-                // Check for escaped quote ("")
-                if (i + 1 < line.len and line[i + 1] == '"') {
-                    i += 2;
-                    continue;
-                }
+            if (in_quotes and i + 1 < line.len and line[i + 1] == '"') {
+                i += 2;
+                continue;
             }
             in_quotes = !in_quotes;
             i += 1;
         } else if (c == delimiter and !in_quotes) {
-            // End of field
             try fields.append(allocator, unquoteField(line[field_start..i]));
             field_start = i + 1;
             i += 1;
@@ -314,59 +206,24 @@ fn parseCSVRow(allocator: std.mem.Allocator, line: []const u8, delimiter: u8, fi
         }
     }
 
-    // Don't forget the last field
     try fields.append(allocator, unquoteField(line[field_start..]));
 }
 
 fn unquoteField(field: []const u8) []const u8 {
     if (field.len < 2) return field;
     if (field[0] != '"' or field[field.len - 1] != '"') return field;
-
-    // Return the content without surrounding quotes
-    // Note: This doesn't handle escaped quotes ("") - for full compliance we'd need to allocate
     return field[1 .. field.len - 1];
 }
 
-fn writeJsonString(writer: anytype, s: []const u8) !void {
-    try writer.writeByte('"');
-    for (s) |c| {
-        switch (c) {
-            '"' => try writer.writeAll("\\\""),
-            '\\' => try writer.writeAll("\\\\"),
-            '\n' => try writer.writeAll("\\n"),
-            '\r' => try writer.writeAll("\\r"),
-            '\t' => try writer.writeAll("\\t"),
-            else => {
-                if (c < 0x20) {
-                    try writer.print("\\u{x:0>4}", .{c});
-                } else {
-                    try writer.writeByte(c);
-                }
-            },
-        }
-    }
-    try writer.writeByte('"');
-}
-
-fn writeJsonValue(writer: anytype, value: []const u8) !void {
-    // Output as JSON string (no type inference - CSV values are text)
-    try writeJsonString(writer, value);
-}
-
-// ============================================================================
-// CSV Write Mode
-// ============================================================================
-
 fn writeMode(allocator: std.mem.Allocator, config: Config) !void {
-    var stdin_buf: [64 * 1024]u8 = undefined;
+    var stdin_buf: [jn_core.STDIN_BUFFER_SIZE]u8 = undefined;
     var stdin_wrapper = std.fs.File.stdin().reader(&stdin_buf);
     const reader = &stdin_wrapper.interface;
 
-    var stdout_buf: [64 * 1024]u8 = undefined;
+    var stdout_buf: [jn_core.STDOUT_BUFFER_SIZE]u8 = undefined;
     var stdout_wrapper = std.fs.File.stdout().writer(&stdout_buf);
     const writer = &stdout_wrapper.interface;
 
-    // Store raw JSON lines - we'll re-parse them
     var lines = std.ArrayListUnmanaged([]const u8){};
     defer {
         for (lines.items) |line| allocator.free(line);
@@ -382,21 +239,11 @@ fn writeMode(allocator: std.mem.Allocator, config: Config) !void {
     var headers_seen = std.StringHashMap(void).init(allocator);
     defer headers_seen.deinit();
 
-    // Read all NDJSON records (compatible with Zig 0.15.1+)
-    while (true) {
-        const maybe_line = readLine(reader);
-        if (maybe_line) |line| {
-            // Skip empty lines
-            if (line.len == 0) continue;
+    while (jn_core.readLine(reader)) |line| {
+        if (line.len == 0) continue;
 
-            // Parse JSON to extract headers
-            const parsed = std.json.parseFromSlice(std.json.Value, allocator, line, .{}) catch |err| {
-                std.debug.print("csv: JSON parse error: {}\n", .{err});
-                continue;
-            };
+        if (jn_core.parseJsonLine(allocator, line)) |parsed| {
             defer parsed.deinit();
-
-            // Collect headers from this record
             if (parsed.value == .object) {
                 var iter = parsed.value.object.iterator();
                 while (iter.next()) |entry| {
@@ -408,53 +255,47 @@ fn writeMode(allocator: std.mem.Allocator, config: Config) !void {
                     }
                 }
             }
-
-            // Store the line for later
-            const duped_line = try allocator.dupe(u8, line);
-            try lines.append(allocator, duped_line);
         } else {
-            // EOF
-            break;
+            continue;
         }
+
+        const duped_line = try allocator.dupe(u8, line);
+        try lines.append(allocator, duped_line);
     }
 
     if (lines.items.len == 0) {
-        try writer.flush();
+        jn_core.flushWriter(writer);
         return;
     }
 
-    // Write header row
     if (!config.no_header) {
         for (headers_list.items, 0..) |header, i| {
-            if (i > 0) try writer.writeByte(config.delimiter);
-            try writeCSVField(writer, header, config.delimiter);
+            if (i > 0) writer.writeByte(config.delimiter) catch |err| jn_core.handleWriteError(err);
+            writeCSVField(writer, header, config.delimiter) catch |err| jn_core.handleWriteError(err);
         }
-        try writer.writeByte('\n');
+        writer.writeByte('\n') catch |err| jn_core.handleWriteError(err);
     }
 
-    // Write data rows
     for (lines.items) |line| {
-        const parsed = std.json.parseFromSlice(std.json.Value, allocator, line, .{}) catch continue;
+        const parsed = jn_core.parseJsonLine(allocator, line) orelse continue;
         defer parsed.deinit();
 
         if (parsed.value != .object) continue;
 
         for (headers_list.items, 0..) |header, i| {
-            if (i > 0) try writer.writeByte(config.delimiter);
+            if (i > 0) writer.writeByte(config.delimiter) catch |err| jn_core.handleWriteError(err);
 
             if (parsed.value.object.get(header)) |val| {
-                try writeCSVValue(writer, val, config.delimiter, allocator);
+                writeCSVValue(writer, val, config.delimiter) catch |err| jn_core.handleWriteError(err);
             }
-            // Missing field -> empty
         }
-        try writer.writeByte('\n');
+        writer.writeByte('\n') catch |err| jn_core.handleWriteError(err);
     }
 
-    try writer.flush();
+    jn_core.flushWriter(writer);
 }
 
 fn writeCSVField(writer: anytype, field: []const u8, delimiter: u8) !void {
-    // Check if quoting is needed
     var needs_quote = false;
     for (field) |c| {
         if (c == delimiter or c == '"' or c == '\n' or c == '\r') {
@@ -478,9 +319,9 @@ fn writeCSVField(writer: anytype, field: []const u8, delimiter: u8) !void {
     }
 }
 
-fn writeCSVValue(writer: anytype, value: std.json.Value, delimiter: u8, _: std.mem.Allocator) !void {
+fn writeCSVValue(writer: anytype, value: std.json.Value, delimiter: u8) !void {
     switch (value) {
-        .null => {}, // Empty field
+        .null => {},
         .bool => |b| try writer.writeAll(if (b) "true" else "false"),
         .integer => |i| try writer.print("{d}", .{i}),
         .float => |f| try writer.print("{d}", .{f}),
@@ -490,10 +331,6 @@ fn writeCSVValue(writer: anytype, value: std.json.Value, delimiter: u8, _: std.m
         .number_string => |s| try writeCSVField(writer, s, delimiter),
     }
 }
-
-// ============================================================================
-// Tests
-// ============================================================================
 
 test "parse simple csv row" {
     const allocator = std.testing.allocator;

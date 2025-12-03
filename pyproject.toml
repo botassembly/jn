@@ -57,7 +57,8 @@ packages = ["src/jn", "jn_home"]
 [tool.hatch.build.targets.wheel.force-include]
 # Bundle Zig sources for on-demand compilation
 "zq/src" = "jn_home/zig_src/zq"
-"plugins/zig" = "jn_home/zig_src/plugins"
+"plugins/zig" = "jn_home/zig_src/plugins/zig"
+"libs/zig" = "jn_home/zig_src/libs/zig"
 
 [tool.hatch.build.targets.sdist]
 include = [
@@ -65,6 +66,7 @@ include = [
     "jn_home/**/*",
     "zq/src/**/*.zig",
     "plugins/zig/**/*.zig",
+    "libs/zig/**/*",
     "tests/**/*",
     "pyproject.toml",
     "README.md",
