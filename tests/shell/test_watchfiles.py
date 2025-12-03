@@ -88,8 +88,9 @@ def test_jn_sh_watch_emits_on_change(jn_cli, tmp_path: Path):
     )
 
     try:
-        # Small delay to ensure watcher is running
-        time.sleep(0.5)
+        # Delay to ensure watcher is fully initialized
+        # (uv run + watchfiles initialization takes ~1-2s in some environments)
+        time.sleep(2)
 
         # Create a new file to trigger event
         new_file = tmp_path / "new.txt"
