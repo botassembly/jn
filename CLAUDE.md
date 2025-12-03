@@ -135,8 +135,8 @@ Unlike traditional ETL tools built for humans, JN is optimized for:
 - SIGPIPE signal propagates shutdown backward through pipeline
 
 #### 4. **Incorporate, Don't Replace**
-- Call existing CLIs directly (`jq`, `curl`, `aws`)
-- Don't rewrite tools in Python
+- Call existing CLIs directly (`curl`, `aws`)
+- Use built-in ZQ filter engine for JSON transformations
 - Compose battle-tested Unix utilities
 - Plugins are thin wrappers when possible
 
@@ -212,14 +212,14 @@ jn/
 │   │   ├── registry.py  # Pattern matching
 │   │   └── service.py   # Plugin services
 │   ├── context.py       # JN_HOME, paths
-│   ├── filtering.py     # NDJSON filtering with jq
+│   ├── filtering.py     # NDJSON filtering with ZQ
 │   ├── introspection.py # Plugin introspection
 │   └── process_utils.py # Process management utilities
 │
 ├── jn_home/             # Bundled default plugins (lowest priority)
 │   └── plugins/
 │       ├── formats/     # csv_.py, json_.py, yaml_.py, toml_.py, markdown_.py, table_.py, xlsx_.py
-│       ├── filters/     # jq_.py
+│       ├── filters/     # (ZQ is built-in, no external filters)
 │       ├── protocols/   # http_.py, gmail_.py, mcp_.py
 │       ├── compression/ # gz_.py
 │       └── shell/       # tail_shell.py, watch_shell.py
@@ -321,7 +321,7 @@ All plugins communicate via NDJSON (one JSON object per line):
 **Why:**
 - Streamable (unlike JSON arrays)
 - Human-readable
-- Tool-friendly (`jq`, `grep`)
+- Tool-friendly (`zq`, `grep`)
 - Constant memory
 
 ---
@@ -479,7 +479,7 @@ jn sh "df -h"                     # Disk usage as NDJSON
 - **`jn run <input> <output>`** - Two-stage pipeline (read → write)
 
 ### Filtering & Transformation
-- **`jn filter <expr>`** - Filter/transform NDJSON using jq expression
+- **`jn filter <expr>`** - Filter/transform NDJSON using ZQ expression
 - **`jn head [-n N]`** - Output first N records (default 10)
 - **`jn tail [-n N]`** - Output last N records (default 10)
 
@@ -575,7 +575,7 @@ All stages run simultaneously!
 - `src/jn/profiles/service.py` - Profile resolution
 - `jn_home/plugins/formats/csv_.py` - Example format plugin
 - `jn_home/plugins/protocols/http_.py` - Example protocol plugin
-- `jn_home/plugins/filters/jq_.py` - Example filter (wraps jq CLI)
+- `zq/` - ZQ filter engine (Zig implementation)
 
 ---
 

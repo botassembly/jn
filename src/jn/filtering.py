@@ -1,4 +1,8 @@
-"""Filter building utilities for converting query parameters to jq expressions."""
+"""Filter building utilities for converting query parameters to ZQ expressions.
+
+ZQ is JN's built-in filter engine (a jq-compatible subset implemented in Zig).
+This module builds ZQ filter expressions from URL query parameters.
+"""
 
 import json
 from typing import Dict, List, Tuple
@@ -108,8 +112,8 @@ def infer_value_type(value: str) -> any:
     return value
 
 
-def format_jq_condition(field: str, operator: str, value: any) -> str:
-    """Format a single jq condition.
+def format_zq_condition(field: str, operator: str, value: any) -> str:
+    """Format a single ZQ condition.
 
     Args:
         field: Field name
@@ -117,14 +121,14 @@ def format_jq_condition(field: str, operator: str, value: any) -> str:
         value: Value to compare (already typed)
 
     Returns:
-        jq expression string
+        ZQ expression string
 
     Examples:
-        >>> format_jq_condition("revenue", ">", 1000)
+        >>> format_zq_condition("revenue", ">", 1000)
         "(.revenue | tonumber) > 1000"
-        >>> format_jq_condition("category", "==", "Electronics")
+        >>> format_zq_condition("category", "==", "Electronics")
         '.category == "Electronics"'
-        >>> format_jq_condition("count", "==", "5")
+        >>> format_zq_condition("count", "==", "5")
         '(.count == 5 or .count == "5")'
     """
     # Numeric comparisons: compare as numbers, but allow the
@@ -160,8 +164,12 @@ def format_jq_condition(field: str, operator: str, value: any) -> str:
     return f".{field} {operator} {value_str}"
 
 
-def build_jq_filter(filters: List[Tuple[str, str, str]]) -> str:
-    """Build jq filter expression from filter parameters.
+# Alias for backward compatibility
+format_jq_condition = format_zq_condition
+
+
+def build_zq_filter(filters: List[Tuple[str, str, str]]) -> str:
+    """Build ZQ filter expression from filter parameters.
 
     Rules:
     - Different fields → AND
@@ -173,13 +181,13 @@ def build_jq_filter(filters: List[Tuple[str, str, str]]) -> str:
         filters: List of (field, operator, value) tuples
 
     Returns:
-        jq filter expression wrapped in select()
+        ZQ filter expression wrapped in select()
 
     Examples:
-        >>> build_jq_filter([("category", "==", "Electronics"), ("category", "==", "Clothing")])
+        >>> build_zq_filter([("category", "==", "Electronics"), ("category", "==", "Clothing")])
         'select((.category == "Electronics" or .category == "Clothing"))'
 
-        >>> build_jq_filter([("category", "==", "Electronics"), ("revenue", ">", "1000")])
+        >>> build_zq_filter([("category", "==", "Electronics"), ("revenue", ">", "1000")])
         'select(.category == "Electronics" and .revenue > 1000)'
     """
     if not filters:
@@ -203,7 +211,7 @@ def build_jq_filter(filters: List[Tuple[str, str, str]]) -> str:
         and_parts: List[str] = []
 
         for operator, value in conditions:
-            expr = format_jq_condition(field, operator, value)
+            expr = format_zq_condition(field, operator, value)
             if operator == "==":
                 eq_parts.append(expr)
             else:
@@ -226,6 +234,10 @@ def build_jq_filter(filters: List[Tuple[str, str, str]]) -> str:
     condition = clauses[0] if len(clauses) == 1 else " and ".join(clauses)
 
     return f"select({condition})"
+
+
+# Alias for backward compatibility
+build_jq_filter = build_zq_filter
 
 
 def separate_config_and_filters(
