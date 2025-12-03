@@ -8,6 +8,7 @@
 
 | Phase | Goal | Key Deliverables |
 |-------|------|------------------|
+| **0** | Quality Foundation | Testing strategy, code quality, demo verification |
 | **1** | Foundation Libraries | libjn-core, libjn-cli, libjn-plugin |
 | **2** | Plugin Refactor | Migrate existing Zig plugins to use shared libs |
 | **3** | Address & Profile System | Universal addressing, hierarchical profiles |
@@ -19,6 +20,54 @@
 | **9** | Orchestrator | jn command dispatcher |
 | **10** | Extended Formats | YAML, TOML, Markdown (Zig) |
 | **11** | Testing & Migration | Comprehensive tests, Python compatibility |
+
+---
+
+## Phase 0: Quality Foundation
+
+**Goal**: Establish testing and quality infrastructure before writing code.
+
+**Reference Docs**:
+- [11-demo-migration.md](11-demo-migration.md) - Demo inventory and migration plan
+- [12-testing-strategy.md](12-testing-strategy.md) - Outside-in testing approach
+- [13-code-quality.md](13-code-quality.md) - Coverage, linting, formatting
+
+### Deliverables
+
+#### Testing Infrastructure
+- Verify all existing tests pass (`make test`)
+- Verify code quality checks pass (`make check`)
+- Verify coverage threshold met (`make coverage`)
+- Document any flaky tests (especially `watch_shell.py`)
+
+#### Demo Verification
+- Run all demos (`demos/run_all.sh`)
+- Document current demo inventory
+- Identify demos that use Python plugins (xlsx, shell-commands)
+- Establish baseline for functional equivalence
+
+#### Quality Gates
+- Coverage: ≥70% for core modules
+- Linting: Zero ruff errors
+- Formatting: Zero black/zig fmt diffs
+- Plugin validation: Zero `jn check` violations
+
+#### Python Plugins Inventory
+Document plugins that stay in Python:
+- `xlsx_.py` - Excel format (openpyxl)
+- `watch_shell.py` - File watching (watchfiles)
+- `gmail_.py` - Gmail protocol (Google APIs)
+- `mcp_.py` - Model Context Protocol
+- `duckdb_.py` - DuckDB database
+
+**Reference**: [10-python-plugins.md](10-python-plugins.md)
+
+### Exit Criteria
+- [ ] All tests pass
+- [ ] All quality checks pass
+- [ ] All demos run successfully
+- [ ] Python plugin inventory documented
+- [ ] Baseline metrics recorded
 
 ---
 
@@ -422,10 +471,11 @@ These formats remain as Python plugins due to complexity:
 
 | Phase | Primary Documents |
 |-------|-------------------|
+| 0 | [11-demo-migration](11-demo-migration.md), [12-testing-strategy](12-testing-strategy.md), [13-code-quality](13-code-quality.md), [10-python-plugins](10-python-plugins.md) |
 | 1-2 | [02-architecture](02-architecture.md), [04-project-layout](04-project-layout.md), [05-plugin-system](05-plugin-system.md), [08-streaming-backpressure](08-streaming-backpressure.md) |
 | 3 | [06-matching-resolution](06-matching-resolution.md), [07-profiles](07-profiles.md) |
 | 4 | [02-architecture](02-architecture.md), [03-users-guide](03-users-guide.md), [08-streaming-backpressure](08-streaming-backpressure.md) |
 | 5 | [05-plugin-system](05-plugin-system.md), [06-matching-resolution](06-matching-resolution.md), [10-python-plugins](10-python-plugins.md) |
 | 6-7 | [05-plugin-system](05-plugin-system.md), [07-profiles](07-profiles.md) |
 | 8 | [09-joining-operations](09-joining-operations.md) |
-| 9-11 | [02-architecture](02-architecture.md), [03-users-guide](03-users-guide.md) |
+| 9-11 | [02-architecture](02-architecture.md), [03-users-guide](03-users-guide.md), [12-testing-strategy](12-testing-strategy.md) |

@@ -25,6 +25,14 @@ This folder contains the architecture and design documentation for the JN Zig re
 | 09 | [09-joining-operations.md](09-joining-operations.md) | jn-join hash join, jn-merge concatenation, use cases |
 | 10 | [10-python-plugins.md](10-python-plugins.md) | PEP 723 plugins, bundled plugins, writing Python plugins |
 
+### Quality & Migration Documents
+
+| # | Document | Purpose |
+|---|----------|---------|
+| 11 | [11-demo-migration.md](11-demo-migration.md) | Demo inventory, migration strategy, functional equivalence |
+| 12 | [12-testing-strategy.md](12-testing-strategy.md) | Outside-in testing, avoiding tautological tests, test categories |
+| 13 | [13-code-quality.md](13-code-quality.md) | Coverage, linting, formatting, cyclomatic complexity |
+
 ## Reading Order
 
 ### For New Contributors

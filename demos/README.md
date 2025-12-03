@@ -15,14 +15,18 @@ cd lcov-analysis && ./run_examples.sh     # Analyze pytest coverage reports
 
 ## Available Demos
 
-1. **csv-filtering/** - Read CSV, filter with jq, convert formats, aggregate data
-2. **http-api/** - Fetch from GitHub/REST APIs, transform responses, save locally
-3. **shell-commands/** - Convert ls/ps/df/env output to NDJSON (requires `jc`)
-4. **xlsx-files/** - Read/write Excel files, filter spreadsheets (requires `openpyxl`)
-5. **table-rendering/** - Pretty-print NDJSON as ASCII tables, markdown, HTML
-6. **lcov-analysis/** - Analyze pytest coverage with reusable JQ profiles
-7. **mcp/** - Model Context Protocol integration (documentation)
-8. **genomoncology/** - Real-world HTTP profile example (requires credentials)
+| Demo | Description | Python Plugin? |
+|------|-------------|----------------|
+| **csv-filtering/** | Read CSV, filter with ZQ, convert formats, aggregate | No |
+| **http-api/** | Fetch from GitHub/REST APIs, transform responses | No |
+| **join/** | Stream enrichment via hash join | No |
+| **glob/** | Process multiple files with glob patterns | No |
+| **shell-commands/** | Convert ls/ps/df/env output to NDJSON | Yes (`jc`) |
+| **xlsx-files/** | Read/write Excel files, filter spreadsheets | Yes (`openpyxl`) |
+| **table-rendering/** | Pretty-print NDJSON as ASCII tables | No |
+| **code-lcov/** | Analyze pytest coverage with ZQ profiles | No |
+| **adapter-merge/** | Profile-based data merging with DuckDB | Yes (`duckdb`) |
+| **genomoncology/** | Real-world HTTP profile example | No (credentials) |
 
 ## Key Patterns
 
