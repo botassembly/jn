@@ -20,10 +20,10 @@ Python CLI (jn) → Click commands → subprocess.Popen → Python plugins
 - Mixed Python/Zig creates friction
 - Python checker is obsolete for Zig plugins
 
-### Target State (Pure Zig)
+### Target State (Zig Core + Python Extensibility)
 
 ```
-jn (thin orchestrator)
+jn (thin Zig orchestrator)
 ├── jn-cat     (source reader)
 ├── jn-put     (destination writer)
 ├── jn-filter  (ZQ wrapper / direct exec)
@@ -32,19 +32,29 @@ jn (thin orchestrator)
 ├── jn-inspect (discovery/analysis)
 ├── jn-analyze (statistics)
 ├── jn-table   (pretty print)
-└── plugins/
-    ├── csv     (format)
-    ├── json    (format)
-    ├── jsonl   (format)
-    ├── gz      (compression)
-    ├── http    (protocol)
-    └── ...
+│
+├── plugins/zig/        # Bundled high-performance plugins
+│   ├── csv     (format)
+│   ├── json    (format)
+│   ├── jsonl   (format)
+│   ├── gz      (compression)
+│   └── http    (protocol)
+│
+└── plugins/python/     # User-extensible Python plugins (PEP 723)
+    ├── xlsx_.py        (complex formats)
+    ├── parquet_.py     (ecosystem libraries)
+    └── custom_.py      (user plugins)
 ```
 
 **All tools share**:
 - `libjn-core` - Streaming I/O, JSON handling, error patterns
 - `libjn-cli` - Argument parsing, help generation
 - `libjn-plugin` - Plugin interface, discovery
+
+**Python plugins remain supported** for:
+- User extensibility (custom protocols, formats)
+- Complex formats requiring Python libraries (xlsx, parquet)
+- Rapid prototyping before Zig implementation
 
 ---
 
@@ -478,27 +488,63 @@ jn (thin orchestrator)
 
 ---
 
-## Phase 8: Plugin Discovery Service
+## Phase 8: Plugin Discovery Service (Polyglot)
 
-### 8.1 Discovery Implementation
-- [ ] Create `libs/zig/jn-discovery/scan.zig`
-- [ ] Scan plugin directories for executables
+### 8.1 Plugin Directory Structure
+```
+Plugin Search Order (highest to lowest priority):
+1. ~/.local/jn/plugins/zig/      # User Zig plugins
+2. ~/.local/jn/plugins/python/   # User Python plugins
+3. .jn/plugins/                   # Project plugins (walk up)
+4. $JN_HOME/plugins/zig/          # Bundled Zig plugins
+5. $JN_HOME/plugins/python/       # Bundled Python plugins
+```
+
+### 8.2 Zig Plugin Discovery
+- [ ] Create `libs/zig/jn-discovery/zig_plugins.zig`
+- [ ] Scan for executable binaries
 - [ ] Execute each with `--jn-meta`
 - [ ] Parse JSON metadata response
-- [ ] Build pattern registry
+- [ ] Store: path, matches, modes, role
 
-### 8.2 Caching
+### 8.3 Python Plugin Discovery (PEP 723)
+- [ ] Create `libs/zig/jn-discovery/python_plugins.zig`
+- [ ] Scan for `*.py` files with UV shebang
+- [ ] Parse PEP 723 block without executing Python
+  ```zig
+  // Extract # /// script ... # /// block
+  // Parse [tool.jn] section for matches, modes, role
+  ```
+- [ ] Validate required fields (matches, at minimum)
+- [ ] Store: path, matches, modes, role, dependencies
+
+### 8.4 Python Plugin Execution
+- [ ] Create `libs/zig/jn-discovery/python_exec.zig`
+- [ ] Build UV command: `uv run --quiet --script {path} --mode={mode}`
+- [ ] Pass config args as CLI flags
+- [ ] Spawn as child process with pipe I/O
+- [ ] Handle UV not installed error gracefully
+
+### 8.5 Caching
 - [ ] Create `libs/zig/jn-discovery/cache.zig`
 - [ ] Store metadata in JSON cache file
 - [ ] Validate cache with mtime checks
+- [ ] Separate cache entries for Zig vs Python
 - [ ] Incremental cache updates
 
-### 8.3 Pattern Matching
+### 8.6 Pattern Registry
 - [ ] Create `libs/zig/jn-discovery/registry.zig`
-- [ ] Compile regex patterns
+- [ ] Compile regex patterns from all plugins
 - [ ] Implement match by source path
-- [ ] Implement specificity ordering
-- [ ] Prefer binary plugins over Python fallback
+- [ ] Priority ordering:
+  - [ ] User plugins > bundled plugins
+  - [ ] Zig plugins > Python plugins (same priority level)
+  - [ ] Longer patterns > shorter patterns (specificity)
+
+### 8.7 Plugin Selection with Mode Support
+- [ ] When plugin.modes is null → supports all modes (Python default)
+- [ ] When plugin.modes is set → check if requested mode supported
+- [ ] Fallback chain: Zig read-only → Python for write mode
 
 ---
 

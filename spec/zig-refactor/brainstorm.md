@@ -605,19 +605,132 @@ Current JN is ~10,177 lines of Python across 56 files. The goal is to replace th
 
 ---
 
-## Part 5: What Stays in Python (Compatibility Layer)
+## Part 5: Python Plugin Extensibility
 
-Some features may remain in Python for pragmatic reasons:
+### Why Keep Python Plugins?
 
-1. **Complex API clients** (Gmail OAuth, MCP) - Python has better library support
-2. **xlsx format** - Requires complex library (not worth Zig port initially)
-3. **Plugin development** - Keep Python plugin support for rapid prototyping
-4. **Backwards compatibility** - Thin Python wrapper that delegates to Zig binaries
+1. **User extensibility** - Users can write custom plugins without learning Zig
+2. **Ecosystem access** - Python has libraries for everything (Salesforce, Snowflake, etc.)
+3. **Rapid prototyping** - Test ideas before committing to Zig implementation
+4. **Complex formats** - xlsx, parquet, avro have mature Python libraries
 
-The Python layer becomes optional, only needed for:
-- Legacy plugins
-- Complex authentication flows
-- Formats without Zig libraries
+### How Python Plugins Work in Zig Architecture
+
+**Discovery** (no Python execution):
+```
+Zig discovery scans ~/.local/jn/plugins/python/*.py
+  ↓
+Parse PEP 723 block with regex (pure Zig string parsing)
+  ↓
+Extract [tool.jn] metadata: matches, modes, role
+  ↓
+Add to pattern registry with lower priority than Zig
+```
+
+**Execution** (only when matched):
+```
+User runs: jn cat data.xlsx
+  ↓
+Zig orchestrator matches *.xlsx → xlsx_.py
+  ↓
+Spawn: uv run --quiet --script ~/.local/jn/plugins/python/xlsx_.py --mode=read
+  ↓
+Plugin reads stdin, writes NDJSON to stdout
+  ↓
+Output flows through rest of pipeline
+```
+
+### User Plugin Example
+
+**Location**: `~/.local/jn/plugins/python/salesforce_.py`
+
+```python
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["simple-salesforce"]
+# [tool.jn]
+# matches = ["^salesforce://"]
+# role = "protocol"
+# modes = ["read"]
+# ///
+"""Salesforce SOQL query plugin."""
+
+import sys
+import json
+import argparse
+from simple_salesforce import Salesforce
+
+def reads(config):
+    sf = Salesforce(
+        username=config.get('username') or os.environ['SF_USERNAME'],
+        password=config.get('password') or os.environ['SF_PASSWORD'],
+        security_token=config.get('token') or os.environ['SF_TOKEN']
+    )
+    query = config.get('query', 'SELECT Id, Name FROM Account LIMIT 10')
+
+    for record in sf.query_all(query)['records']:
+        record.pop('attributes', None)  # Remove SF metadata
+        print(json.dumps(record), flush=True)
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--mode', default='read')
+    parser.add_argument('--jn-meta', action='store_true')
+    parser.add_argument('--query')
+    parser.add_argument('--username')
+    parser.add_argument('--password')
+    parser.add_argument('--token')
+    parser.add_argument('url', nargs='?')
+    args = parser.parse_args()
+
+    if args.jn_meta:
+        print(json.dumps({
+            "name": "salesforce",
+            "matches": ["^salesforce://"],
+            "role": "protocol",
+            "modes": ["read"]
+        }))
+    elif args.mode == 'read':
+        reads(vars(args))
+```
+
+**Usage**:
+```bash
+# Query Salesforce, filter results, save as CSV
+jn cat "salesforce://?query=SELECT+Id,Name+FROM+Account" \
+  | jn filter 'select(.Name | startswith("Acme"))' \
+  | jn put accounts.csv
+```
+
+### Plugin Directory Structure
+
+```
+~/.local/jn/
+├── plugins/
+│   ├── python/              # User Python plugins
+│   │   ├── salesforce_.py
+│   │   ├── snowflake_.py
+│   │   └── custom_format_.py
+│   └── zig/                 # User Zig plugins (compiled)
+│       └── fast_parser/
+│
+.jn/                         # Project-specific plugins
+└── plugins/
+    └── python/
+        └── internal_api_.py
+```
+
+### Priority Order
+
+1. **Project Zig** (`.jn/plugins/zig/`)
+2. **Project Python** (`.jn/plugins/python/`)
+3. **User Zig** (`~/.local/jn/plugins/zig/`)
+4. **User Python** (`~/.local/jn/plugins/python/`)
+5. **Bundled Zig** (`$JN_HOME/plugins/zig/`)
+6. **Bundled Python** (`$JN_HOME/plugins/python/`)
+
+Within same priority level: longer regex patterns win (specificity)
 
 ---
 
