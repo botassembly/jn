@@ -57,13 +57,13 @@ jn cat "@genie/treatment?regimen=FOLFIRI&min_survival=15"
 echo ""
 
 # =============================================================================
-# PART 2: JQ Profile Substitution (Streaming Adapters)
+# PART 2: ZQ Profile Substitution (Streaming Adapters)
 # =============================================================================
 echo "═══════════════════════════════════════════════════════════════"
-echo "PART 2: JQ Profile Substitution (Streaming Adapters)"
+echo "PART 2: ZQ Profile Substitution (Streaming Adapters)"
 echo "═══════════════════════════════════════════════════════════════"
 echo ""
-echo "JQ profiles use string substitution for parameters."
+echo "ZQ profiles use string substitution for parameters."
 echo "Parameters are replaced directly in the query: \$param → \"value\""
 echo ""
 
@@ -122,6 +122,6 @@ echo "Demo Complete!"
 echo ""
 echo "Key Takeaways:"
 echo "  - SQL optional params: Use (\$param IS NULL OR col = \$param)"
-echo "  - JQ profiles: Use @namespace/profile?param=value for string substitution"
+echo "  - ZQ profiles: Use @namespace/profile?param=value for string substitution"
 echo "  - Merge command: Combine sources with :label=X for analysis"
 echo "═══════════════════════════════════════════════════════════════"

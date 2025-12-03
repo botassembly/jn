@@ -116,13 +116,13 @@ def setup_sales_csv():
     print(f"Created sales CSV: {csv_path}")
 
 
-def setup_jq_profiles():
-    """Create JQ profiles for string substitution."""
-    profile_dir = DEMO_DIR / "profiles" / "jq" / "sales"
+def setup_zq_profiles():
+    """Create ZQ profiles for string substitution."""
+    profile_dir = DEMO_DIR / "profiles" / "zq" / "sales"
     profile_dir.mkdir(parents=True, exist_ok=True)
 
     # Filter by region
-    (profile_dir / "by_region.jq").write_text(
+    (profile_dir / "by_region.zq").write_text(
         """# Filter sales by region
 # Parameters: region
 select(.region == $region)
@@ -131,14 +131,14 @@ select(.region == $region)
 
     # Filter by threshold
     # Note: $threshold is substituted as unquoted number, so no tonumber needed
-    (profile_dir / "above_threshold.jq").write_text(
+    (profile_dir / "above_threshold.zq").write_text(
         """# Filter sales above threshold
 # Parameters: threshold (numeric)
 select((.amount | tonumber) > $threshold)
 """
     )
 
-    print(f"Created JQ profiles: {profile_dir}")
+    print(f"Created ZQ profiles: {profile_dir}")
 
 
 if __name__ == "__main__":
@@ -147,6 +147,6 @@ if __name__ == "__main__":
     setup_duckdb()
     setup_duckdb_profile()
     setup_sales_csv()
-    setup_jq_profiles()
+    setup_zq_profiles()
     print()
     print("Setup complete! Run ./run_examples.sh to see the demo.")

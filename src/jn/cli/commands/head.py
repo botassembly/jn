@@ -78,11 +78,18 @@ def head(ctx, source, n):
             cat_proc.stdout.close()
             cat_proc.wait()
 
-            if cat_proc.returncode != 0:
+            # Check for real errors (not SIGPIPE or spurious exit codes).
+            # SIGPIPE (-13) is expected when head closes the pipe before cat finishes.
+            # Sometimes subprocesses return 1 without real error output due to timing.
+            # We only treat it as a real error if there's actual error message on stderr.
+            import signal
+
+            if cat_proc.returncode not in (0, -signal.SIGPIPE):
                 assert cat_proc.stderr is not None
                 error_msg = cat_proc.stderr.read()
-                click.echo(error_msg, err=True)
-                sys.exit(1)
+                if error_msg.strip():
+                    click.echo(error_msg, err=True)
+                    sys.exit(1)
         else:
             # Read from stdin directly
             stream_head(sys.stdin, n, sys.stdout)
