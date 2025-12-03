@@ -1,5 +1,0 @@
-{
-  "driver": "duckdb",
-  "path": "../../../../test.duckdb",
-  "description": "Test database"
-}
