@@ -1,4 +1,4 @@
-.PHONY: all check test coverage clean install install-zig zq zq-test zq-bench zig-plugins zig-plugins-test
+.PHONY: all check test coverage clean install install-zig zq zq-test zq-bench zig-plugins zig-plugins-test zig-libs zig-libs-test zig-libs-fmt
 
 # Zig configuration
 ZIG_VERSION := 0.15.2
@@ -130,3 +130,35 @@ zig-plugins-test: zig-plugins
 publish:
 	@uv build
 	@uvx twine upload -r pypi dist/*
+
+# =============================================================================
+# Zig Foundation Libraries (Phase 1)
+# =============================================================================
+
+# Test Zig libraries (unit tests only, no build artifacts needed)
+zig-libs-test: install-zig
+	@echo "Testing Zig foundation libraries..."
+	cd libs/zig/jn-core && $(ZIG) test src/root.zig -fllvm
+	@echo "  jn-core: OK"
+	cd libs/zig/jn-cli && $(ZIG) test src/root.zig -fllvm
+	@echo "  jn-cli: OK"
+	cd libs/zig/jn-plugin && $(ZIG) test src/root.zig -fllvm
+	@echo "  jn-plugin: OK"
+	@echo "All Zig library tests passed"
+
+# Build example plugin to validate libraries work together
+zig-libs: install-zig
+	@echo "Building minimal plugin example..."
+	mkdir -p libs/zig/examples/bin
+	cd libs/zig/examples && $(ZIG) build-exe minimal-plugin.zig -fllvm -O ReleaseFast -femit-bin=bin/minimal
+	@echo "Testing minimal plugin..."
+	libs/zig/examples/bin/minimal --jn-meta | python3 -c "import sys,json; json.load(sys.stdin); print('  --jn-meta: OK')"
+	echo '{"test":1}' | libs/zig/examples/bin/minimal --mode=read | python3 -c "import sys,json; json.load(sys.stdin); print('  read mode: OK')"
+	@echo "Minimal plugin built and validated"
+
+# Format Zig library code
+zig-libs-fmt: install-zig
+	$(ZIG) fmt libs/zig/jn-core/src/
+	$(ZIG) fmt libs/zig/jn-cli/src/
+	$(ZIG) fmt libs/zig/jn-plugin/src/
+	$(ZIG) fmt libs/zig/examples/
