@@ -1,15 +1,19 @@
 const std = @import("std");
 const zig_builtin = @import("builtin");
+const comprezz = @import("comprezz.zig");
 
 // ============================================================================
 // GZ Plugin - Streaming Gzip Decompression/Compression for JN
 //
-// Reads gzip-compressed bytes from stdin and writes decompressed bytes to stdout.
-// Operates in raw mode (bytes, not NDJSON).
+// Modes:
+//   --mode=raw   : Decompress gzip stdin to stdout (read direction)
+//   --mode=write : Compress stdin to gzip stdout (write direction)
 //
 // Usage:
-//   cat file.csv.gz | jn-gz --mode=raw > file.csv
-//   jn cat file.csv.gz  # Framework chains: gz (raw) → csv (read)
+//   cat file.csv.gz | jn-gz --mode=raw > file.csv      # decompress
+//   cat file.csv | jn-gz --mode=write > file.csv.gz    # compress
+//   jn cat file.csv.gz   # Framework chains: gz (raw) → csv (read)
+//   jn put file.csv.gz   # Framework chains: csv (write) → gz (write)
 // ============================================================================
 
 const Plugin = struct {
@@ -23,10 +27,10 @@ const Plugin = struct {
 
 const plugin = Plugin{
     .name = "gz",
-    .version = "0.1.0",
+    .version = "0.2.0",
     .matches = &[_][]const u8{".*\\.gz$"},
     .role = "compression",
-    .modes = &[_][]const u8{"raw"},
+    .modes = &[_][]const u8{ "raw", "write" },
     .supports_raw = true,
 };
 
@@ -55,8 +59,10 @@ pub fn main() !void {
     // Dispatch based on mode
     if (std.mem.eql(u8, mode, "raw")) {
         try decompressMode();
+    } else if (std.mem.eql(u8, mode, "write")) {
+        try compressMode();
     } else {
-        std.debug.print("gz: error: unknown mode '{s}' (only 'raw' supported)\n", .{mode});
+        std.debug.print("gz: error: unknown mode '{s}' (supported: raw, write)\n", .{mode});
         std.process.exit(1);
     }
 }
@@ -135,4 +141,34 @@ fn decompressMode() !void {
             std.process.exit(1);
         };
     }
+}
+
+// ============================================================================
+// Compress Mode (write) - stream stdin to gzip stdout
+// ============================================================================
+
+fn compressMode() !void {
+    // Buffered stdin reader
+    var stdin_buf: [64 * 1024]u8 = undefined;
+    var stdin_wrapper = std.fs.File.stdin().reader(&stdin_buf);
+
+    // Buffered stdout writer
+    var stdout_buf: [64 * 1024]u8 = undefined;
+    var stdout_wrapper = std.fs.File.stdout().writer(&stdout_buf);
+
+    // Compress stdin to stdout using comprezz
+    comprezz.compress(&stdin_wrapper.interface, &stdout_wrapper.interface, .{}) catch |err| {
+        std.debug.print("gz: compression error: {}\n", .{err});
+        std.process.exit(1);
+    };
+
+    // Flush any remaining buffered output
+    stdout_wrapper.interface.flush() catch |err| {
+        // EPIPE (BrokenPipe) means downstream closed - exit cleanly
+        if (err == error.WriteFailed) {
+            std.process.exit(0);
+        }
+        std.debug.print("gz: flush error: {}\n", .{err});
+        std.process.exit(1);
+    };
 }
