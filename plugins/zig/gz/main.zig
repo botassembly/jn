@@ -164,8 +164,8 @@ fn compressMode() !void {
 
     // Flush any remaining buffered output
     stdout_wrapper.interface.flush() catch |err| {
-        // EPIPE (BrokenPipe) means downstream closed - exit cleanly
-        if (err == error.WriteFailed) {
+        // BrokenPipe/WriteFailed means downstream closed - exit cleanly
+        if (err == error.BrokenPipe or err == error.WriteFailed) {
             std.process.exit(0);
         }
         std.debug.print("gz: flush error: {}\n", .{err});
