@@ -286,6 +286,25 @@ jn (thin Zig orchestrator)
 - [ ] Verify tests still pass
 - [ ] Benchmark before/after
 
+#### 2.1.1 CSV Delimiter Auto-Detection
+**See**: `spec/zig-refactor/plugin-matching.md`
+
+Currently requires explicit `--delimiter=`. Add auto-detection:
+- [ ] Create `plugins/zig/csv/detect.zig`
+- [ ] Sample first 50 lines for analysis
+- [ ] Score candidates: comma, tab, semicolon, pipe
+- [ ] Scoring: consistency (same column count) - variance penalty
+- [ ] Extension-based hints: `.tsv` → tab, `.csv` → comma
+- [ ] `--delimiter=auto` (default) vs explicit override
+- [ ] Confidence threshold: fall back to comma if uncertain
+
+#### 2.1.2 CSV Variation Handling
+- [ ] Tab-delimited (TSV): Pattern `.*\.tsv$`, auto-detect `\t`
+- [ ] Semicolon (European): Auto-detect or `?delimiter=;`
+- [ ] Pipe-delimited: Auto-detect or `?delimiter=|`
+- [ ] Quote handling: Already implemented (RFC 4180)
+- [ ] Escaped quotes (`""`): Already implemented
+
 ### 2.2 Refactor JSON Plugin
 - [ ] Update `plugins/zig/json/main.zig`
 - [ ] Remove boilerplate
@@ -694,14 +713,40 @@ Plugin Search Order (highest to lowest priority):
 - [ ] Separate cache entries for Zig vs Python
 - [ ] Incremental cache updates
 
-### 8.6 Pattern Registry
+### 8.6 Pattern Matching Engine
+
+**See**: `spec/zig-refactor/plugin-matching.md`
+
+#### 8.6.1 Hybrid Pattern Approach
+Most plugin patterns are simple - avoid full regex overhead:
+
+| Pattern Type | Example | Zig Implementation |
+|--------------|---------|-------------------|
+| Extension | `.*\.csv$` | `std.mem.endsWith(u8, source, ".csv")` |
+| Prefix | `^https?://` | `startsWith("http://")` or `startsWith("https://")` |
+| Suffix | `.*_test\.json$` | `std.mem.endsWith(u8, source, "_test.json")` |
+| Contains | `.*foo.*` | `std.mem.indexOf(u8, source, "foo") != null` |
+
+- [ ] Create `libs/zig/jn-discovery/pattern.zig`
+- [ ] Define Pattern struct with kind enum (extension, prefix, suffix, contains, regex)
+- [ ] Implement pattern parser to convert regex → optimized pattern
+- [ ] Fallback to zig-regex for complex patterns (optional `?`, `+`, character classes)
+
+#### 8.6.2 Pattern Registry
 - [ ] Create `libs/zig/jn-discovery/registry.zig`
-- [ ] Compile regex patterns from all plugins
+- [ ] Store: (pattern, plugin_name, specificity, is_binary, modes)
+- [ ] Specificity = original pattern string length
 - [ ] Implement match by source path
 - [ ] Priority ordering:
-  - [ ] User plugins > bundled plugins
-  - [ ] Zig plugins > Python plugins (same priority level)
+  - [ ] User plugins > bundled plugins (by directory)
+  - [ ] Zig plugins > Python plugins (same specificity)
   - [ ] Longer patterns > shorter patterns (specificity)
+
+#### 8.6.3 Format Override Resolution
+- [ ] `~format` bypasses pattern matching entirely
+- [ ] Look up plugin by name: `csv` or `csv_`
+- [ ] Check mode support before selection
+- [ ] Return plugin path + config
 
 ### 8.7 Plugin Selection with Mode Support
 - [ ] When plugin.modes is null → supports all modes (Python default)
