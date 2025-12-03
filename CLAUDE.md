@@ -1,639 +1,197 @@
-# JN Project - Context for Claude
+# JN Zig Refactor - Build Context
 
-## ⚠️ CRITICAL: Always Use JN Commands (Golden Path)
+## Current Phase: Zig Core Migration
 
-**DO THIS (Correct):**
+Migrating JN from Python to a **pure Zig core** with Python plugin extensibility.
+
+**Documentation:** `spec/` contains the full architecture docs (14 documents).
+**Work Log:** `spec/log.md` tracks implementation progress.
+
+---
+
+## Quick Reference
+
+### Makefile Commands
+
 ```bash
-jn cat data.csv | jn filter '.x > 10' | jn put output.json
-jn cat data.csv --limit 100
-jn cat https://api.com/data.json | jn put results.csv
+make install      # Install deps + build Zig components
+make test         # Run pytest
+make check        # Format, lint, type check, plugin validation
+make coverage     # Run tests with coverage report
+
+make zq           # Build ZQ filter engine
+make zq-test      # Run ZQ unit + integration tests
+make zq-fmt       # Format Zig code
+
+make zig-plugins       # Build Zig plugins
+make zig-plugins-test  # Test Zig plugins
+
+make clean        # Remove build artifacts
 ```
 
-**DON'T DO THIS (Wrong - Bypasses Architecture):**
-```bash
-python jn_home/plugins/formats/csv_.py --mode read < data.csv  # ❌ NO!
-python csv_.py --mode read < data.csv | python json_.py --mode write  # ❌ NO!
-uv run csv_.py --mode read < data.csv  # ❌ NO!
-```
-
-**Why the Golden Path Matters:**
-- ✅ Automatic backpressure via OS pipes
-- ✅ Memory-efficient streaming (constant memory, any file size)
-- ✅ Early termination (`| head -n 10` stops upstream processing)
-- ✅ Parallel multi-stage execution across CPUs
-- ✅ Better error messages and diagnostics
-- ✅ Automatic plugin discovery and format detection
-
-**When writing code or examples, ALWAYS use `jn cat`, `jn put`, `jn filter` - NEVER call plugins directly!**
-
----
-
-## What is JN?
-
-JN is an **agent-native ETL framework** that uses:
-- **Unix processes + pipes** for streaming (not async/await)
-- **NDJSON** as the universal data format
-- **Standalone Python plugins** for all data operations
-- **Automatic backpressure** via OS pipe buffers
-- **UV isolation** for dependency management (no virtualenv hell)
-
-Think: `jn cat data.xlsx | jn filter '.revenue > 1000' | jn put output.csv`
-
----
-
-## Recent Major Additions
-
-**Protocol Support:**
-- **HTTP** - Fetch data from REST APIs with profile-based auth
-- **MCP** - Model Context Protocol integration for LLM tools
-- **Gmail** - Extract messages and threads via Gmail API
-
-**Profile System:**
-- Hierarchical API/service configurations
-- Credential management without embedding in commands
-- Discovery and search: `jn profile list`, `jn profile search`
-
-**Universal Addressing:**
-- `address[~format][?params]` syntax for all resources
-- Auto-detection of compression (`.gz`) and formats
-- Protocol-agnostic plugin resolution
-
-**Plugin Validation:**
-- AST-based static analysis (`jn check plugins`)
-- Security validation (no eval/exec, approved subprocess patterns)
-- Whitelist system for safe code patterns
-
-**Discovery & Introspection:**
-- `jn inspect` - Discover API endpoints, MCP resources, data schemas
-- `jn analyze` - Analyze NDJSON streams (schema, stats)
-- `jn profile discover` - Auto-discover API endpoints
-
-**Shell Integration:**
-- `jn sh` - Execute shell commands → NDJSON output
-- 70+ commands supported via `jc` (JSON Convert)
-- Custom shell plugins for specialized commands
-
-**Additional Formats:**
-- XLSX (Excel spreadsheets)
-- Markdown (tables and documents)
-- TOML (configuration files)
-- Table (pretty-printed tables)
-
-**Spec Organization:**
-- Reorganized into `done/` (implemented), `wip/` (in progress), `plan/` (planned)
-- Clear separation of completed vs. future features
-- See `spec/README.md` for navigation
-
----
-
-## Goals
-
-### Functional Goals
-**Universal JSON-based ETL that enables AI agents to create on-demand data tools**
-
-JN allows AI agents (like Claude) to:
-- **Extract** data from any source (files, APIs, databases, CLIs)
-- **Transform** data with filters and transformations
-- **Load** data into any destination format
-- **Create plugins on-demand** for new data sources/formats
-- **Compose pipelines** naturally via Unix pipes
-
-Unlike traditional ETL tools built for humans, JN is optimized for:
-- **Agent discoverability** - Regex-based plugin discovery (no imports)
-- **Agent extensibility** - Plugins are simple Python scripts with minimal boilerplate
-- **Agent composability** - Standard stdin/stdout/NDJSON everywhere
-- **Transparent execution** - Subprocess calls are visible and debuggable
-
-### Non-Functional Goals
-**High performance with constant memory usage, regardless of data size**
-
-- **Constant memory**: Process 10GB files with ~1MB RAM usage
-- **Streaming by default**: First output appears immediately, not after processing entire dataset
-- **Parallel execution**: Multi-stage pipelines run concurrently across CPUs
-- **Early termination**: `| head -n 10` stops upstream processing after 10 rows
-- **No buffering**: Data flows through pipes, never accumulated in memory
-
-### Architectural Approach
-**Leverage the OS for concurrency, backpressure, and resource management**
-
-#### 1. **Backpressure via OS Pipes**
-- OS pipe buffers (~64KB) automatically block when full
-- Slow downstream consumers pause fast upstream producers
-- No manual flow control, queues, or async complexity
-- See `spec/done/arch-backpressure.md` for detailed explanation
-
-#### 2. **UV Python Environment Isolation**
-- Each plugin declares dependencies via PEP 723 (`# /// script`)
-- UV automatically manages isolated environments per plugin
-- No virtualenv activation, no dependency conflicts
-- First run downloads deps, subsequent runs are instant
-
-#### 3. **Process-based Parallelism**
-- Each pipeline stage runs as a separate process
-- True parallelism (not Python GIL-limited threads)
-- OS scheduler distributes work across CPUs
-- SIGPIPE signal propagates shutdown backward through pipeline
-
-#### 4. **Incorporate, Don't Replace**
-- Call existing CLIs directly (`curl`, `aws`)
-- Use built-in ZQ filter engine for JSON transformations
-- Compose battle-tested Unix utilities
-- Plugins are thin wrappers when possible
-
-#### 5. **NDJSON as Universal Format**
-- Newline-Delimited JSON (one object per line)
-- Streamable (unlike JSON arrays)
-- Human-readable and tool-friendly
-- Universal interchange format between all plugins
-
----
-
-## Quick Start
+### Zig Build (Direct)
 
 ```bash
-# Install
-pip install -e .
+# ZQ
+cd zq && zig build-exe src/main.zig -fllvm -O ReleaseFast -femit-bin=zig-out/bin/zq
 
-# Test
-make test    # Run all tests
-make check   # Code quality checks
-
-# Basic usage
-jn cat data.csv                    # Read CSV → NDJSON
-jn cat data.json | jn put out.csv  # JSON → CSV
-jn cat data.csv | jn filter '.revenue > 1000' | jn put filtered.json
-
-# Advanced features
-jn cat https://api.github.com/users~json | jn head -n 5
-jn cat http://myapi/users | jn filter '.active' | jn put out.json
-jn inspect http://myapi                # Discover API endpoints
-jn profile list                        # List configured profiles
-jn sh "ps aux" | jn filter '.cpu > 50' # Shell commands → NDJSON
-jn check plugins                       # Validate plugin security
+# Plugins
+cd plugins/zig/jsonl && zig build-exe main.zig -fllvm -O ReleaseFast -femit-bin=bin/jsonl
 ```
 
 ---
 
-## Project Structure
+## Architecture Overview
 
 ```
 jn/
-├── src/jn/              # Core framework
-│   ├── cli/             # CLI entry and subcommands
-│   │   ├── main.py      # CLI entry point
-│   │   ├── commands/    # cat, put, filter, head, tail, run, analyze, check, inspect, profile, sh
-│   │   ├── plugins/     # plugin subcommands (list, info, call, test)
-│   │   └── helpers.py   # CLI utilities
-│   ├── addressing/      # Universal resource addressing system
-│   │   ├── parser.py    # Parse address[~format][?params]
-│   │   ├── resolver.py  # Resolve addresses to plugins
-│   │   └── types.py     # Address data models
-│   ├── checker/         # AST-based plugin validation
-│   │   ├── ast_checker.py    # Static analysis engine
-│   │   ├── rules/            # Validation rules (forbidden, structure, subprocess)
-│   │   ├── scanner.py        # Plugin scanner
-│   │   ├── whitelist.py      # Approved pattern whitelist
-│   │   ├── violation.py      # Violation models
-│   │   └── report.py         # Violation reporting
-│   ├── profiles/        # Hierarchical profile system (APIs, MCPs)
-│   │   ├── service.py   # Profile discovery and resolution
-│   │   ├── resolver.py  # Profile path resolution
-│   │   ├── http.py      # HTTP profile handling
-│   │   ├── gmail.py     # Gmail profile handling
-│   │   └── mcp.py       # MCP profile handling
-│   ├── shell/           # Shell command integration
-│   │   └── jc_fallback.py   # jc (JSON Convert) integration
-│   ├── core/            # Pipeline + streaming
-│   │   ├── pipeline.py  # Pipeline orchestration
-│   │   ├── streaming.py # Streaming utilities
-│   │   └── plugins.py   # Plugin loading
-│   ├── plugins/         # Plugin system logic
-│   │   ├── discovery.py # Plugin discovery
-│   │   ├── registry.py  # Pattern matching
-│   │   └── service.py   # Plugin services
-│   ├── context.py       # JN_HOME, paths
-│   ├── filtering.py     # NDJSON filtering with ZQ
-│   ├── introspection.py # Plugin introspection
-│   └── process_utils.py # Process management utilities
+├── libs/zig/              # Shared Zig libraries (TO BUILD)
+│   ├── jn-core/           # Streaming I/O, JSON, errors
+│   ├── jn-cli/            # Argument parsing
+│   ├── jn-plugin/         # Plugin interface
+│   ├── jn-address/        # Address parsing
+│   ├── jn-profile/        # Profile resolution
+│   └── jn-discovery/      # Plugin scanning
 │
-├── jn_home/             # Bundled default plugins (lowest priority)
-│   └── plugins/
-│       ├── formats/     # csv_.py, json_.py, yaml_.py, toml_.py, markdown_.py, table_.py, xlsx_.py
-│       ├── filters/     # (ZQ is built-in, no external filters)
-│       ├── protocols/   # http_.py, gmail_.py, mcp_.py
-│       ├── compression/ # gz_.py
-│       └── shell/       # tail_shell.py, watch_shell.py
+├── tools/zig/             # CLI tools (TO BUILD)
+│   ├── jn/                # Orchestrator
+│   ├── jn-cat/            # Universal reader
+│   ├── jn-put/            # Universal writer
+│   ├── jn-filter/         # ZQ wrapper
+│   └── ...                # head, tail, join, merge, etc.
 │
-├── spec/                # Architecture documentation (organized by status)
-│   ├── README.md        # Spec organization guide
-│   ├── done/            # Fully implemented features
-│   │   ├── arch-design.md      # v5 architecture overview
-│   │   ├── arch-backpressure.md # Why Popen > async
-│   │   ├── addressability.md   # Universal addressing
-│   │   ├── plugin-specification.md
-│   │   ├── plugin-checker.md
-│   │   ├── profile-usage.md
-│   │   ├── format-design.md
-│   │   ├── http-design.md
-│   │   ├── mcp.md
-│   │   ├── gmail-profile-architecture.md
-│   │   ├── shell-commands.md
-│   │   ├── inspect-design.md
-│   │   └── work-*.md    # Completed work tickets
-│   ├── wip/             # Work in progress
-│   │   ├── roadmap.md   # Development roadmap
-│   │   └── design-index.md
-│   └── plan/            # Planned features
-│       ├── profile-cli.md
-│       ├── debug-explain-mode.md
-│       └── work-*.md    # Planned work tickets
+├── plugins/zig/           # Zig plugins (IN PROGRESS)
+│   └── jsonl/             # JSONL passthrough (DONE)
 │
-└── tests/               # Test suite
+├── plugins/python/        # Python plugins (STAY IN PYTHON)
+│   ├── xlsx_.py           # Excel (openpyxl)
+│   ├── gmail_.py          # Gmail (Google APIs)
+│   ├── mcp_.py            # MCP protocol
+│   └── duckdb_.py         # DuckDB
+│
+├── zq/                    # ZQ filter engine (DONE)
+│
+├── spec/                  # Architecture documentation
+│   ├── 00-plan.md         # Implementation phases
+│   ├── 01-vision.md       # Philosophy
+│   ├── 02-architecture.md # System design
+│   └── ...                # 14 total documents
+│
+├── src/jn/                # Python CLI (legacy, being replaced)
+└── jn_home/               # Bundled defaults
 ```
 
 ---
 
-## Critical Architecture Decisions
+## Implementation Phases
 
-### 1. Use Popen, Not Async
+| Phase | Status | Description |
+|-------|--------|-------------|
+| 0 | Current | Quality foundation - verify tests, demos, baseline |
+| 1 | Next | Foundation libraries (libjn-core, libjn-cli, libjn-plugin) |
+| 2 | Planned | Plugin refactor - migrate to shared libs |
+| 3 | Planned | Address & profile system |
+| 4 | Planned | Core CLI tools (jn-cat, jn-put, jn-filter) |
+| 5-11 | Planned | Discovery, HTTP, analysis, join/merge, orchestrator |
 
-**DO:**
-```python
-reader = subprocess.Popen([sys.executable, plugin.path, "--mode", "read"],
-                         stdin=infile, stdout=subprocess.PIPE)
-writer = subprocess.Popen([sys.executable, plugin.path, "--mode", "write"],
-                         stdin=reader.stdout, stdout=outfile)
-reader.stdout.close()  # CRITICAL for SIGPIPE backpressure!
-writer.wait()
-reader.wait()
+**Full plan:** `spec/00-plan.md`
+
+---
+
+## Key Design Decisions
+
+### 1. Process + Pipes (Not Async)
+
+```zig
+// Spawn pipeline stages as separate processes
+// OS handles backpressure via pipe buffers (~64KB)
+// SIGPIPE propagates shutdown
 ```
 
-**DON'T:**
-```python
-# NO async/await for data pipelines
-# NO subprocess.run(capture_output=True) - buffers everything!
-# NO threads - Python GIL kills parallelism
-```
+### 2. NDJSON Universal Format
 
-**Why:** OS handles concurrency, backpressure, and shutdown automatically. See `spec/done/arch-backpressure.md`.
-
-### 2. Plugins are Standalone Scripts with PEP 723
-
-**Pattern:**
-```python
-#!/usr/bin/env -S uv run --script
-# /// script
-# requires-python = ">=3.11"
-# dependencies = []
-# [tool.jn]
-# matches = [".*\\.csv$", ".*\\.tsv$"]
-# ///
-
-def reads(config=None):
-    """Read CSV from stdin, yield NDJSON records."""
-    # ...
-
-def writes(config=None):
-    """Read NDJSON from stdin, write CSV to stdout."""
-    # ...
-
-if __name__ == '__main__':
-    # --mode read|write CLI interface
-```
-
-**Key features:**
-- UV shebang for direct execution
-- PEP 723 TOML for dependencies
-- Regex patterns for file matching
-- Duck typing (`reads`/`writes` functions)
-- Framework passes `--mode` flag
-
-**See:** `jn_home/plugins/formats/csv_.py` for complete example
-
-### 3. NDJSON is the Universal Format
-
-All plugins communicate via NDJSON (one JSON object per line):
 ```
 {"name": "Alice", "age": 30}
 {"name": "Bob", "age": 25}
 ```
 
-**Why:**
-- Streamable (unlike JSON arrays)
-- Human-readable
-- Tool-friendly (`zq`, `grep`)
-- Constant memory
-
----
-
-## Plugin System
-
-### Discovery
-1. Scan `$JN_HOME/plugins/` for `.py` files
-2. Parse PEP 723 `[tool.jn]` metadata using regex
-3. Cache in `cache.json` with timestamp-based invalidation
-4. Fallback to built-in plugins if custom dir empty
-
-**See:** `src/jn/plugins/discovery.py`
-
-### Pattern Matching
-- Plugins declare regex patterns in `[tool.jn] matches = [...]`
-- Registry compiles patterns and matches source files
-- Longest pattern wins
-
-**See:** `src/jn/plugins/registry.py`
-
-### Invocation
-```bash
-# Framework invokes plugins as subprocesses:
-python plugin.py --mode=read < input.csv
-python plugin.py --mode=write > output.csv
-
-# Chained:
-python csv_.py --mode=read < input.csv | python json_.py --mode=write > output.json
-```
-
----
-
-## Advanced Features
-
-### Universal Addressing
-JN supports a universal addressing syntax for resources:
-
-```
-address[~format][?params]
-```
-
-**Examples:**
-```bash
-jn cat data.csv                          # Local file
-jn cat https://api.com/data~json         # HTTP with format hint
-jn cat https://api.com/data.csv.gz       # Auto-detect compression + format
-jn cat "mcp://server/resource?id=123"    # MCP protocol
-jn cat "gmail://label/INBOX"             # Gmail messages
-```
-
-**How it works:**
-1. Parser extracts protocol, path, format hint, and parameters
-2. Resolver matches protocol to plugin (http_.py, mcp_.py, etc.)
-3. Format hint overrides auto-detection
-4. Parameters passed to plugin via query string
-
-**See:** `src/jn/addressing/parser.py`, `spec/done/addressability.md`
-
-### Profile System
-Hierarchical configuration for APIs and services:
-
-```
-$JN_HOME/profiles/
-├── http/
-│   └── myapi/
-│       ├── _meta.json       # Base URL, auth, headers
-│       ├── users.json       # GET /users endpoint
-│       └── projects.json    # GET /projects endpoint
-├── mcp/
-│   └── myserver/
-│       └── _meta.json       # MCP server config
-└── gmail/
-    └── myaccount/
-        └── _meta.json       # Gmail credentials
-```
-
-**Usage:**
-```bash
-jn cat http://myapi/users              # Uses profile for auth
-jn cat mcp://myserver/resource         # Uses MCP profile
-jn filter '.type == "inbox"' --profile gmail://myaccount/filters/inbox
-```
-
-**Benefits:**
-- Reusable API configurations
-- No credentials in commands
-- Hierarchical inheritance (_meta.json)
-- Discovery via `jn profile list`
-
-**See:** `src/jn/profiles/service.py`, `spec/done/profile-usage.md`
-
-### Plugin Checker
-AST-based static analysis for plugin security:
+### 3. Plugin Interface
 
 ```bash
-jn check plugins             # Check all plugins
-jn check plugin path.py      # Check specific plugin
+# All plugins support:
+plugin --mode={read,write,raw,profiles}
+plugin --jn-meta  # Output metadata JSON
 ```
 
-**Validates:**
-- No `eval()`, `exec()`, `compile()`
-- No direct `__import__()`
-- Subprocess calls use approved patterns
-- Required structure (reads/writes functions)
-- PEP 723 metadata present
+### 4. Priority Order
 
-**Whitelist:** `src/jn/checker/whitelist.py` defines approved subprocess patterns
+1. Project plugins (`.jn/plugins/`)
+2. User plugins (`~/.local/jn/plugins/`)
+3. Bundled plugins (`$JN_HOME/plugins/`)
 
-**See:** `src/jn/checker/ast_checker.py`, `spec/done/plugin-checker.md`
+Within same level: Zig > Python, longer patterns win.
 
-### Inspect Command
-Unified discovery and analysis:
+---
+
+## Performance Targets
+
+| Metric | Python | Zig Target |
+|--------|--------|------------|
+| Startup | 50-100ms | <5ms |
+| Memory (10MB) | ~50MB | ~1MB |
+| Memory (1GB) | ~500MB+ | ~1MB |
+
+---
+
+## Golden Path (CLI Usage)
 
 ```bash
-jn inspect http://myapi           # Discover API endpoints (from profile)
-jn inspect mcp://server           # Discover MCP tools/resources
-jn inspect data.csv               # Analyze data structure
-jn inspect --container text data  # Analyze as text stream
+# Always use jn commands, never call plugins directly
+jn cat data.csv | jn filter '.x > 10' | jn put output.json
+jn cat https://api.com/data~json | jn head -n 5
+jn cat @myapi/users?limit=10 | jn put users.csv
 ```
 
-**Modes:**
-- **Discovery** - Find available endpoints/resources/tools
-- **Analysis** - Examine data structure and schema
-- **Container** - Force specific interpretation
+---
 
-**See:** `src/jn/cli/commands/inspect.py`, `spec/done/inspect-design.md`
-
-### Shell Commands
-Execute shell commands with JSON output:
+## Quality Gates
 
 ```bash
-jn sh "ls -la"                    # List files as NDJSON
-jn sh "ps aux"                    # Process list as NDJSON
-jn sh "df -h"                     # Disk usage as NDJSON
+make check   # Must pass before commit
+make test    # All tests green
+make coverage # ≥70% coverage
 ```
 
-**How it works:**
-1. Check for custom plugin (e.g., `ls_shell.py`)
-2. Fallback to `jc` (JSON Convert) for standard commands
-3. Parse output to NDJSON
-4. Stream results
-
-**Supported commands** (via jc): ls, ps, df, dig, ping, netstat, env, and 70+ more
-
-**See:** `src/jn/shell/jc_fallback.py`, `spec/done/shell-commands.md`
+| Check | Tool | Threshold |
+|-------|------|-----------|
+| Coverage | coverage.py | ≥70% |
+| Lint | ruff | 0 errors |
+| Format | black, zig fmt | 0 diffs |
+| Plugins | jn check | 0 violations |
 
 ---
 
-## CLI Commands Reference
+## Spec Documents
 
-### Data Pipeline
-- **`jn cat <address>`** - Read data from file/URL/protocol → NDJSON
-- **`jn put <address>`** - Write NDJSON from stdin → file/format
-- **`jn run <input> <output>`** - Two-stage pipeline (read → write)
-
-### Filtering & Transformation
-- **`jn filter <expr>`** - Filter/transform NDJSON using ZQ expression
-- **`jn head [-n N]`** - Output first N records (default 10)
-- **`jn tail [-n N]`** - Output last N records (default 10)
-
-### Discovery & Analysis
-- **`jn inspect <address>`** - Discover endpoints or analyze data
-- **`jn analyze`** - Analyze NDJSON stream (schema, stats)
-- **`jn profile list`** - List available profiles
-- **`jn profile discover <url>`** - Discover API endpoints
-- **`jn profile search <query>`** - Search profiles and endpoints
-
-### Development
-- **`jn plugin list`** - List all available plugins
-- **`jn plugin info <name>`** - Show plugin details
-- **`jn plugin call <name>`** - Invoke plugin directly
-- **`jn plugin test [name]`** - Test plugin(s)
-- **`jn check plugins`** - Validate all plugins
-- **`jn check plugin <path>`** - Validate specific plugin
-
-### Shell Integration
-- **`jn sh <command>`** - Execute shell command → NDJSON
+| Doc | Purpose |
+|-----|---------|
+| `00-plan.md` | Phase-by-phase implementation plan |
+| `01-vision.md` | Why JN exists, design principles |
+| `02-architecture.md` | Component model, data flow |
+| `03-users-guide.md` | CLI usage and workflows |
+| `04-project-layout.md` | Repository structure |
+| `05-plugin-system.md` | Plugin interface |
+| `06-matching-resolution.md` | Address parsing, pattern matching |
+| `07-profiles.md` | Hierarchical profiles |
+| `08-streaming-backpressure.md` | Why pipes beat async |
+| `09-joining-operations.md` | Join and merge |
+| `10-python-plugins.md` | PEP 723 plugins |
+| `11-demo-migration.md` | Demo inventory |
+| `12-testing-strategy.md` | Outside-in testing |
+| `13-code-quality.md` | Coverage, linting |
 
 ---
 
-## Common Patterns
+## Work Tracking
 
-### Two-Stage Pipeline
-See `src/jn/core/pipeline.py` (convert) and `src/jn/cli/commands/run.py`:
-- Load plugins with fallback
-- Resolve input/output plugins via registry
-- Start reader and writer as Popen subprocesses
-- **Critical:** `reader.stdout.close()` for SIGPIPE
-- Wait for both processes
-
-### Filter Pipeline
-See `src/jn/cli/commands/filter.py`:
-- Find plugin (custom dir → fallback to built-in)
-- Run as Popen (inherit stdin/stdout for chaining)
-- Wait and check returncode
-
-### Direct Plugin Invocation
-```python
-# Test plugins directly without framework (bundled defaults)
-plugin_path = Path("jn_home/plugins/formats/csv_.py")
-result = subprocess.run([sys.executable, str(plugin_path), "--mode", "read"],
-                        stdin=f, capture_output=True, text=True)
-```
-
----
-
-## Performance Characteristics
-
-**Memory:** Constant ~1MB regardless of file size (10MB, 1GB, 10GB)
-
-**Early Termination:**
-```bash
-jn cat https://example.com/1GB.csv | head -n 10
-# Downloads ~1KB, processes 10 rows, stops ✅ (not entire 1GB)
-```
-
-**Parallel Execution:**
-```
-CPU1: ████ fetch     CPU2:   ████ parse
-CPU3:     ████ filter CPU4:       ████ write
-All stages run simultaneously!
-```
-
----
-
-## Architecture Deep Dives
-
-**Core architecture (spec/done/):**
-- `arch-design.md` - v5 architecture, PEP 723, duck typing
-- `arch-backpressure.md` - Why Popen > async, SIGPIPE, memory
-- `addressability.md` - Universal addressing: `address[~format][?params]`
-- `plugin-specification.md` - Plugin development standards
-- `plugin-checker.md` - AST-based static analysis
-
-**Advanced features (spec/done/):**
-- `profile-usage.md` - Hierarchical profiles for APIs/MCPs
-- `inspect-design.md` - Unified discovery and analysis
-- `shell-commands.md` - Shell command handling with jc
-- `http-design.md` - HTTP protocol plugin
-- `mcp.md` - Model Context Protocol integration
-- `gmail-profile-architecture.md` - Gmail plugin
-
-**Roadmap (spec/wip/):**
-- `roadmap.md` - Development roadmap with status (✅/🚧/🔲)
-
-**Code examples:**
-- `src/jn/cli/commands/run.py` - Pipeline orchestration
-- `src/jn/plugins/discovery.py` - Plugin discovery
-- `src/jn/addressing/parser.py` - Address parsing
-- `src/jn/profiles/service.py` - Profile resolution
-- `jn_home/plugins/formats/csv_.py` - Example format plugin
-- `jn_home/plugins/protocols/http_.py` - Example protocol plugin
-- `zq/` - ZQ filter engine (Zig implementation)
-
----
-
-## Key Principles
-
-### Unix Philosophy
-- Small, focused plugins (each does one thing well)
-- stdin → process → stdout (standard interface)
-- Compose via pipes (build complex from simple)
-
-### Agent-Friendly
-- Plugins are standalone scripts (no framework imports)
-- Fast discovery (regex parsing, no execution)
-- Self-documenting (PEP 723 metadata)
-- Extensible (agents create plugins on-demand)
-
-### Performance
-- Streaming by default (constant memory)
-- Automatic backpressure (OS handles flow control)
-- Parallel execution (multi-CPU via processes)
-- Early termination (SIGPIPE propagates shutdown)
-
-### Simplicity
-- No async complexity (no async/await)
-- No heavy dependencies (click + ruamel.yaml)
-- Transparent execution (subprocess calls visible via `ps`)
-- UV isolation (no virtualenv hell)
-
----
-
-## Development
-
-```bash
-# Install with dev dependencies
-uv sync --all-extras
-
-# Run tests
-make test
-
-# Code quality
-make check
-
-# See Makefile for more commands
-```
-
----
-
-## Documentation Guidelines
-
-**Temporary vs Permanent Documentation:**
-
-- **Permanent docs** → `spec/done/`, `spec/wip/`, `spec/plan/` (organized by status)
-- **Temporary analysis/evaluation docs** → Delete after work is done, don't store in `docs/`
-- **One-off investigation files** → Delete when no longer needed
-
-Examples:
-- `EVALUATION.md` for a specific PR → Delete after merging
-- `ANALYSIS.md` for investigating a bug → Delete after fix
-- Architecture decisions that inform future work → `spec/done/`
-
-**Rule:** If a doc is only relevant for a single PR/task, delete it. If it has lasting value, put it in `spec/`.
+Progress is tracked in `spec/log.md`.

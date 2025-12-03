@@ -6,26 +6,67 @@
 
 ## Phase Overview
 
-| Phase | Goal | Key Deliverables |
-|-------|------|------------------|
-| **0** | Quality Foundation | Testing strategy, code quality, demo verification |
-| **1** | Foundation Libraries | libjn-core, libjn-cli, libjn-plugin |
-| **2** | Plugin Refactor | Migrate existing Zig plugins to use shared libs |
-| **3** | Address & Profile System | Universal addressing, hierarchical profiles |
-| **4** | Core CLI Tools | jn-cat, jn-put, jn-filter, jn-head, jn-tail |
-| **5** | Plugin Discovery | Polyglot discovery (Zig + Python), caching |
-| **6** | HTTP Protocol | Zig HTTP plugin with profile support |
-| **7** | Analysis Tools | jn-analyze, jn-inspect, jn-table |
-| **8** | Join & Merge | jn-join, jn-merge, jn-sh |
-| **9** | Orchestrator | jn command dispatcher |
-| **10** | Extended Formats | YAML, TOML, Markdown (Zig) |
-| **11** | Testing & Migration | Comprehensive tests, Python compatibility |
+| Phase | Goal | Key Deliverables | Dependencies |
+|-------|------|------------------|--------------|
+| **0** | Quality Foundation | Testing strategy, code quality, demo verification | None |
+| **1** | Foundation Libraries | libjn-core, libjn-cli, libjn-plugin | Phase 0 |
+| **2** | Plugin Refactor | Migrate existing Zig plugins to use shared libs | Phase 1 |
+| **3** | OpenDAL Protocol | Unified protocol plugin (HTTP, S3, HDFS, etc.) | Phase 2 |
+| **4** | Address & Profile System | Universal addressing, hierarchical profiles | Phase 1 |
+| **5** | Core CLI Tools | jn-cat, jn-put, jn-filter, jn-head, jn-tail | Phases 2, 3, 4 |
+| **6** | Plugin Discovery | Polyglot discovery (Zig + Python), caching | Phase 2 |
+| **7** | Analysis Tools | jn-analyze, jn-inspect | Phase 5 |
+| **8** | Join & Merge | jn-join, jn-merge, jn-sh | Phase 5 |
+| **9** | Orchestrator | jn command dispatcher | Phases 5-8 |
+| **10** | Extended Formats | YAML, TOML, Markdown (Zig) | Phase 2 |
+| **11** | Testing & Migration | Comprehensive tests, Python compatibility | All |
+
+---
+
+## Dependency Graph
+
+```
+Phase 0 (Quality Foundation)
+    │
+    ▼
+Phase 1 (Foundation Libraries)
+    │
+    ├───────────────────┬────────────────────┐
+    ▼                   ▼                    ▼
+Phase 2              Phase 4             Phase 10
+(Plugin Refactor)    (Address/Profile)   (Extended Formats)
+    │                   │
+    ▼                   │
+Phase 3                 │
+(OpenDAL Protocol)      │
+    │                   │
+    └───────┬───────────┘
+            ▼
+        Phase 5
+        (Core CLI Tools)
+            │
+            ├──────────────────┐
+            ▼                  ▼
+        Phase 6            Phases 7, 8
+        (Discovery)        (Analysis, Join/Merge)
+            │                  │
+            └───────┬──────────┘
+                    ▼
+                Phase 9
+                (Orchestrator)
+                    │
+                    ▼
+                Phase 11
+                (Testing & Migration)
+```
 
 ---
 
 ## Phase 0: Quality Foundation
 
 **Goal**: Establish testing and quality infrastructure before writing code.
+
+**Status**: ✅ COMPLETE (416 tests pass, all quality checks pass)
 
 **Reference Docs**:
 - [11-demo-migration.md](11-demo-migration.md) - Demo inventory and migration plan
@@ -34,40 +75,15 @@
 
 ### Deliverables
 
-#### Testing Infrastructure
-- Verify all existing tests pass (`make test`)
-- Verify code quality checks pass (`make check`)
-- Verify coverage threshold met (`make coverage`)
-- Document any flaky tests (especially `watch_shell.py`)
+- [x] Verify all existing tests pass (`make test`)
+- [x] Verify code quality checks pass (`make check`)
+- [x] Baseline coverage documented
+- [x] Demo inventory reviewed
 
-#### Demo Verification
-- Run all demos (`demos/run_all.sh`)
-- Document current demo inventory
-- Identify demos that use Python plugins (xlsx, shell-commands)
-- Establish baseline for functional equivalence
-
-#### Quality Gates
-- Coverage: ≥70% for core modules
-- Linting: Zero ruff errors
-- Formatting: Zero black/zig fmt diffs
-- Plugin validation: Zero `jn check` violations
-
-#### Python Plugins Inventory
-Document plugins that stay in Python:
-- `xlsx_.py` - Excel format (openpyxl)
-- `watch_shell.py` - File watching (watchfiles)
-- `gmail_.py` - Gmail protocol (Google APIs)
-- `mcp_.py` - Model Context Protocol
-- `duckdb_.py` - DuckDB database
-
-**Reference**: [10-python-plugins.md](10-python-plugins.md)
-
-### Exit Criteria
-- [ ] All tests pass
-- [ ] All quality checks pass
-- [ ] All demos run successfully
-- [ ] Python plugin inventory documented
-- [ ] Baseline metrics recorded
+### Exit Criteria ✅
+- All tests pass (416 passing)
+- All quality checks pass (format, lint, types)
+- Python plugin inventory documented
 
 ---
 
@@ -97,7 +113,6 @@ Argument parsing:
 - Custom argument registration API
 - Type-safe parsing (string, int, bool, enum)
 - Help text generation
-- Environment variable fallback
 
 #### libjn-plugin (`libs/zig/jn-plugin/`)
 Plugin interface:
@@ -108,81 +123,144 @@ Plugin interface:
 
 ### Build System
 - Create `libs/zig/build.zig` for library compilation
-- Create root `build.zig` that includes libs + tools + plugins
-- Cross-compilation targets (linux, macos, windows)
+- Update root `Makefile` for unified build
+- Target: ReleaseFast with `-fllvm`
+
+### Exit Criteria
+- [ ] Libraries compile and pass unit tests
+- [ ] Example plugin using all three libraries
+- [ ] Documentation for library APIs
 
 ---
 
 ## Phase 2: Plugin Refactor
 
-**Goal**: Refactor existing Zig plugins to use shared libraries, eliminating duplicated code.
+**Goal**: Refactor existing Zig plugins to use shared libraries, validating the Phase 1 design.
 
 **Reference Docs**:
 - [05-plugin-system.md](05-plugin-system.md) - Plugin interface
-- [04-project-layout.md](04-project-layout.md) - Plugin locations (`plugins/zig/`)
+- [04-project-layout.md](04-project-layout.md) - Plugin locations
 
 ### Deliverables
 
 #### CSV Plugin (`plugins/zig/csv/`)
-- Use libjn-core for streaming
-- Use libjn-plugin for entry point
-- Add delimiter auto-detection (sample first 50 lines)
-- Extension hints (.tsv → tab, .csv → comma)
+- Use libjn-core for streaming I/O
+- Use libjn-cli for argument parsing
+- Use libjn-plugin for entry point and manifest
 
 #### JSON Plugin (`plugins/zig/json/`)
 - Refactor to use shared libraries
 - Add write mode (pretty-print with indent option)
-- Array detection and streaming extraction
 
 #### JSONL Plugin (`plugins/zig/jsonl/`)
 - Simplest refactor (mostly passthrough)
-- Optional validation mode
+- Validates minimal plugin structure
 
 #### GZ Plugin (`plugins/zig/gz/`)
 - Use shared libraries for I/O
 - Keep comprezz.zig as local dependency
-- Raw mode (bytes in, bytes out)
 
 ### Metrics
 - Document lines of code reduction per plugin
-- Verify tests still pass
-- Benchmark before/after
+- Verify all plugin tests still pass
+- Benchmark before/after (startup time, throughput)
+
+### Exit Criteria
+- [ ] All existing Zig plugins refactored
+- [ ] Tests pass for all plugins
+- [ ] Code reduction documented (expect >50% less boilerplate)
 
 ---
 
-## Phase 3: Address & Profile System
+## Phase 3: OpenDAL Protocol Plugin
 
-**Goal**: Implement universal addressing and hierarchical profile resolution in Zig.
+**Goal**: Implement unified protocol handler for all remote sources using Apache OpenDAL.
+
+**Status**: Prototype verified ✅ (See [opendal-analysis.md](opendal-analysis.md))
+
+**What OpenDAL replaces**:
+- ❌ HTTP plugin (originally planned for old Phase 6)
+- ❌ Future S3 plugin
+- ❌ Future HDFS plugin
+- ❌ Future GCS/Azure/FTP plugins
+
+**What OpenDAL provides**:
+- 70+ storage backends via single plugin
+- Streaming reads (verified with prototype)
+- Consistent API across all protocols
+
+### Deliverables
+
+#### Build Integration
+- Add OpenDAL C library build to `make install`
+- Store in `vendor/opendal/` (already cloned)
+- Build with services: fs, http, s3, memory
+
+#### OpenDAL Plugin (`plugins/zig/opendal/`)
+Productionize the prototype:
+- Scheme routing (s3://, http://, gs://, etc.)
+- Streaming output to stdout
+- Error handling with meaningful messages
+- Use libjn-plugin for manifest
+
+#### Profile Integration
+- Load credentials from JN profile system
+- Map profile fields to OpenDAL operator options
+- Environment variable substitution
+
+### Supported Schemes (Initial)
+| Scheme | OpenDAL Service |
+|--------|-----------------|
+| `http://`, `https://` | http |
+| `s3://` | s3 |
+| `gs://`, `gcs://` | gcs |
+| `az://`, `azblob://` | azblob |
+| `hdfs://` | hdfs |
+| `ftp://` | ftp |
+| `sftp://` | sftp |
+| `file://` | fs |
+
+### Exit Criteria
+- [ ] OpenDAL plugin reads from HTTP URLs
+- [ ] OpenDAL plugin reads from S3 (with credentials)
+- [ ] Streaming verified (constant memory on large files)
+- [ ] Plugin manifest includes all supported schemes
+
+---
+
+## Phase 4: Address & Profile System
+
+**Goal**: Implement universal addressing and hierarchical profile resolution.
 
 **Reference Docs**:
-- [06-matching-resolution.md](06-matching-resolution.md) - Address parsing, pattern matching
-- [07-profiles.md](07-profiles.md) - Profile hierarchy, environment substitution
+- [06-matching-resolution.md](06-matching-resolution.md) - Address parsing
+- [07-profiles.md](07-profiles.md) - Profile hierarchy
 
 ### Deliverables
 
 #### Address Parser (`libs/zig/jn-address/`)
 Parse: `[protocol://]path[~format][?params]`
-- Protocol detection (http://, duckdb://, etc.)
+- Protocol detection (s3://, http://, duckdb://, etc.)
 - Format override extraction (~csv, ~json)
 - Query parameter parsing (?key=value)
 - Compression detection (.gz, .bz2, .xz)
 - Profile reference detection (@namespace/name)
-- Glob pattern detection (*, **, ?)
 
 #### Profile System (`libs/zig/jn-profile/`)
 - Directory discovery (project → user → bundled)
-- JSON loading with hierarchical merge (_meta.json + endpoint.json)
+- JSON loading with hierarchical merge
 - Environment variable substitution (${VAR}, ${VAR:-default})
 - Profile reference parsing (@namespace/name?params)
 
-#### ZQ Profile Support
-- Scan `profiles/zq/**/*.zq` files
-- Extract description from `#` comments
-- Parameter substitution ($param references)
+### Exit Criteria
+- [ ] Address parser handles all documented formats
+- [ ] Profile loader resolves hierarchically
+- [ ] Environment substitution works
+- [ ] Unit tests for edge cases
 
 ---
 
-## Phase 4: Core CLI Tools
+## Phase 5: Core CLI Tools
 
 **Goal**: Implement the core CLI tools that form the JN pipeline.
 
@@ -195,12 +273,13 @@ Parse: `[protocol://]path[~format][?params]`
 
 #### jn-cat (`tools/zig/jn-cat/`)
 Universal reader:
-- Source detection (file, stdin, URL, profile, glob)
+- Parse source with address library
+- Route to OpenDAL for remote sources (s3://, http://)
+- Route to local plugins for files
 - Format inference from extension
 - Format override (~format)
-- Compression detection and decompression stage
-- Multi-stage pipeline construction
-- Proper stdout.close() for SIGPIPE
+- Compression stage insertion
+- Proper SIGPIPE handling
 
 #### jn-put (`tools/zig/jn-put/`)
 Universal writer:
@@ -214,24 +293,29 @@ ZQ wrapper:
 - Find ZQ binary (bundled → PATH)
 - Parse filter expression
 - Resolve profile references
-- Direct exec to ZQ (no intermediate process)
+- Direct exec to ZQ
 
-#### jn-head / jn-tail (`tools/zig/jn-head/`, `tools/zig/jn-tail/`)
+#### jn-head / jn-tail
 Stream truncation:
 - `-n N` argument (default 10)
-- head: Count and exit (triggers SIGPIPE)
-- tail: Circular buffer, output at EOF
+- Efficient early termination
+
+### Exit Criteria
+- [ ] `jn-cat file.csv` works (local file)
+- [ ] `jn-cat https://...` works (via OpenDAL)
+- [ ] `jn-cat s3://...` works (via OpenDAL with creds)
+- [ ] `jn-cat data.csv.gz` works (decompression chain)
+- [ ] Pipelines work: `jn-cat x | jn-filter '.y' | jn-put z`
 
 ---
 
-## Phase 5: Plugin Discovery
+## Phase 6: Plugin Discovery
 
-**Goal**: Implement polyglot plugin discovery that finds both Zig and Python plugins.
+**Goal**: Implement polyglot plugin discovery for Zig and Python plugins.
 
 **Reference Docs**:
 - [05-plugin-system.md](05-plugin-system.md) - Discovery process
 - [10-python-plugins.md](10-python-plugins.md) - PEP 723 parsing
-- [06-matching-resolution.md](06-matching-resolution.md) - Pattern matching
 
 ### Deliverables
 
@@ -239,17 +323,14 @@ Stream truncation:
 
 **Zig Plugin Discovery**:
 - Scan plugin directories for executables
-- Execute with `--jn-meta`, parse JSON response
-- Extract: path, matches, modes, role
+- Execute with `--jn-meta`, parse JSON
 
 **Python Plugin Discovery** (no execution):
-- Scan for `*.py` files with UV shebang
 - Parse PEP 723 `# /// script` block
 - Extract `[tool.jn]` metadata via regex
 - No Python execution required
 
 #### Pattern Registry
-- Compile regex patterns (or optimize to simple matchers)
 - Specificity scoring (pattern length)
 - Priority ordering (user > bundled, Zig > Python)
 - Mode support checking
@@ -257,33 +338,12 @@ Stream truncation:
 #### Cache System
 - Store metadata in `$JN_HOME/cache/plugins.json`
 - Validate with file modification times
-- Incremental updates
 
----
-
-## Phase 6: HTTP Protocol
-
-**Goal**: Implement HTTP protocol plugin in Zig for high-performance API access.
-
-**Reference Docs**:
-- [05-plugin-system.md](05-plugin-system.md) - Protocol plugins
-- [07-profiles.md](07-profiles.md) - HTTP profile details
-
-### Deliverables
-
-#### HTTP Plugin (`plugins/zig/http/`)
-- HTTP/HTTPS client (evaluate: Zig std.http vs libcurl binding)
-- TLS support with CA certificates
-- Response streaming to stdout (raw mode)
-- Header injection from profiles
-- Authentication: Bearer, Basic, API key
-- Timeout and retry configuration
-- Redirect following
-
-#### Profile Integration
-- Load HTTP profiles from filesystem
-- Query plugin for bundled profiles (--mode=profiles)
-- Merge: base_url + path + headers
+### Exit Criteria
+- [ ] Discovery finds all bundled plugins
+- [ ] Discovery finds user plugins
+- [ ] Python plugin metadata extracted without execution
+- [ ] Cache speeds up subsequent runs
 
 ---
 
@@ -291,33 +351,22 @@ Stream truncation:
 
 **Goal**: Implement data analysis and discovery tools.
 
-**Reference Docs**:
-- [02-architecture.md](02-architecture.md) - Tool purposes
-- [03-users-guide.md](03-users-guide.md) - Usage examples
-
 ### Deliverables
 
 #### jn-analyze (`tools/zig/jn-analyze/`)
 Single-pass statistics:
-- Record count
-- Field frequency and types
-- Numeric stats (min, max, mean, stddev)
-- String stats (length distribution)
+- Record count, field frequency
+- Numeric stats (min, max, mean)
 - Null/missing tracking
-- Sample collection
 
 #### jn-inspect (`tools/zig/jn-inspect/`)
 Discovery and analysis:
 - Profile-based endpoint discovery
-- Schema inference from data sample
-- Output formatting (JSON, table)
+- Schema inference from sample
 
-#### jn-table (`tools/zig/jn-table/`)
-Pretty print:
-- Column width calculation (sample-based)
-- Table formats (simple, grid, markdown)
-- Terminal width detection
-- Wide column truncation
+### Exit Criteria
+- [ ] `jn-analyze` produces useful statistics
+- [ ] `jn-inspect` discovers profile endpoints
 
 ---
 
@@ -326,58 +375,43 @@ Pretty print:
 **Goal**: Implement multi-source data operations.
 
 **Reference Docs**:
-- [09-joining-operations.md](09-joining-operations.md) - Join/merge architecture
+- [09-joining-operations.md](09-joining-operations.md)
 
 ### Deliverables
 
 #### jn-join (`tools/zig/jn-join/`)
-Hash join:
-- Right source buffered in hash map
-- Left source streams through
-- Join modes: natural, named, composite keys
-- Join types: left (default), inner
-- Output modes: flat merge, embed as array
-- Aggregation functions: count, sum, avg, min, max
-- Condition joins (--where expression)
+Hash join implementation
 
 #### jn-merge (`tools/zig/jn-merge/`)
-Source concatenation:
-- Multiple source arguments
-- Source tagging (_source, _label fields)
-- Custom labels (source:label=Name)
-- Error handling: fail-safe vs fail-fast
+Source concatenation with tagging
 
 #### jn-sh (`tools/zig/jn-sh/`)
-Shell integration:
-- Execute shell commands
-- Parse output to NDJSON
-- Common parsers (ls, ps, df, env)
-- jc integration as fallback
+Shell command output parsing
+
+### Exit Criteria
+- [ ] Join operations work correctly
+- [ ] Merge handles multiple sources
+- [ ] Shell integration parses common commands
 
 ---
 
 ## Phase 9: Orchestrator
 
-**Goal**: Implement the main `jn` command that dispatches to tools.
-
-**Reference Docs**:
-- [02-architecture.md](02-architecture.md) - Orchestrator role
+**Goal**: Implement the main `jn` command.
 
 ### Deliverables
 
 #### jn Command (`tools/zig/jn/`)
 Thin dispatcher:
-- Subcommand routing (cat → jn-cat, put → jn-put, etc.)
-- Tool discovery (scan PATH for jn-* binaries)
-- Help aggregation from tools
+- Subcommand routing (cat → jn-cat, etc.)
+- Tool discovery
+- Help aggregation
 - Version reporting
-- Pass-through arguments
 
-#### jn-profile (`tools/zig/jn-profile/`)
-Profile CLI:
-- `list` - List all profiles (query all plugins)
-- `info @ref` - Show profile details
-- `discover <url>` - Dynamic discovery
+### Exit Criteria
+- [ ] `jn cat file.csv` works
+- [ ] `jn --help` shows all commands
+- [ ] `jn --version` reports correctly
 
 ---
 
@@ -385,44 +419,33 @@ Profile CLI:
 
 **Goal**: Add Zig implementations for additional formats.
 
-**Reference Docs**:
-- [05-plugin-system.md](05-plugin-system.md) - Format plugins
-
 ### Deliverables
 
 #### YAML Plugin (`plugins/zig/yaml/`)
-- Evaluate parser options (zig-yaml or custom)
-- Read: YAML → NDJSON
-- Write: NDJSON → YAML
-- Multi-document support
+- Evaluate zig-yaml library
+- Read/write support
 
 #### TOML Plugin (`plugins/zig/toml/`)
 - TOML parser
-- Read: TOML → NDJSON
-- Write: NDJSON → TOML
+- Read/write support
 
-#### Markdown Plugin (`plugins/zig/markdown/`)
-- Table parsing
-- Table generation from NDJSON
-- Alignment handling
-
-### Python Fallbacks
-These formats remain as Python plugins due to complexity:
+### Python Fallbacks (Stay in Python)
 - xlsx (openpyxl)
 - xml (lxml)
 - gmail (Google APIs)
 - mcp (Model Context Protocol)
 - duckdb (database bindings)
-- parquet (PyArrow)
+
+### Exit Criteria
+- [ ] YAML plugin works
+- [ ] TOML plugin works
+- [ ] Python plugins still function
 
 ---
 
 ## Phase 11: Testing & Migration
 
-**Goal**: Comprehensive testing and smooth migration from Python.
-
-**Reference Docs**:
-- All documents for expected behavior
+**Goal**: Comprehensive testing and smooth migration.
 
 ### Deliverables
 
@@ -430,18 +453,21 @@ These formats remain as Python plugins due to complexity:
 - Unit tests for all libraries
 - Integration tests (stdin → tool → stdout)
 - End-to-end pipeline tests
-- Backpressure verification tests
 - Performance benchmarks vs Python
 
 #### Python Compatibility
-- Thin Python wrapper that delegates to Zig tools
-- Backwards compatibility for existing users
-- Deprecation warnings for removed features
+- Thin Python wrapper for backwards compatibility
+- Deprecation warnings for changed features
 
 #### Documentation
-- Update CLAUDE.md with new architecture
+- Update CLAUDE.md with final architecture
 - Tool man pages
 - Plugin development guide
+
+### Exit Criteria
+- [ ] All tests pass
+- [ ] Performance targets met
+- [ ] Documentation complete
 
 ---
 
@@ -460,22 +486,26 @@ These formats remain as Python plugins due to complexity:
 
 | Risk | Mitigation |
 |------|------------|
-| Zig HTTP/TLS complexity | Use libcurl binding if std.http insufficient |
-| YAML/TOML parser availability | Keep Python plugins as fallback |
-| Cross-platform testing | CI matrix with Linux, macOS, Windows |
+| OpenDAL C library build | Already prototyped, vendor/ has source |
+| Zig 0.15 API changes | Pin version, use -fllvm for compatibility |
+| Cross-platform builds | CI matrix with Linux, macOS, Windows |
 | User migration friction | Python compatibility layer, gradual rollout |
 
 ---
 
-## Quick Reference: Documents by Phase
+## Key Documents
 
-| Phase | Primary Documents |
-|-------|-------------------|
-| 0 | [11-demo-migration](11-demo-migration.md), [12-testing-strategy](12-testing-strategy.md), [13-code-quality](13-code-quality.md), [10-python-plugins](10-python-plugins.md) |
-| 1-2 | [02-architecture](02-architecture.md), [04-project-layout](04-project-layout.md), [05-plugin-system](05-plugin-system.md), [08-streaming-backpressure](08-streaming-backpressure.md) |
-| 3 | [06-matching-resolution](06-matching-resolution.md), [07-profiles](07-profiles.md) |
-| 4 | [02-architecture](02-architecture.md), [03-users-guide](03-users-guide.md), [08-streaming-backpressure](08-streaming-backpressure.md) |
-| 5 | [05-plugin-system](05-plugin-system.md), [06-matching-resolution](06-matching-resolution.md), [10-python-plugins](10-python-plugins.md) |
-| 6-7 | [05-plugin-system](05-plugin-system.md), [07-profiles](07-profiles.md) |
-| 8 | [09-joining-operations](09-joining-operations.md) |
-| 9-11 | [02-architecture](02-architecture.md), [03-users-guide](03-users-guide.md), [12-testing-strategy](12-testing-strategy.md) |
+| Document | Purpose |
+|----------|---------|
+| [01-vision.md](01-vision.md) | Philosophy and design principles |
+| [02-architecture.md](02-architecture.md) | Component model |
+| [03-users-guide.md](03-users-guide.md) | CLI usage |
+| [04-project-layout.md](04-project-layout.md) | Repository structure |
+| [05-plugin-system.md](05-plugin-system.md) | Plugin interface |
+| [06-matching-resolution.md](06-matching-resolution.md) | Address parsing |
+| [07-profiles.md](07-profiles.md) | Hierarchical profiles |
+| [08-streaming-backpressure.md](08-streaming-backpressure.md) | I/O patterns |
+| [09-joining-operations.md](09-joining-operations.md) | Join/merge |
+| [10-python-plugins.md](10-python-plugins.md) | PEP 723 plugins |
+| [opendal-analysis.md](opendal-analysis.md) | OpenDAL integration |
+| [zig-libraries-evaluation.md](zig-libraries-evaluation.md) | Library recommendations |

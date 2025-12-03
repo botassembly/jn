@@ -1,0 +1,12 @@
+# Compiled binaries
+opendal-test
+test-fs
+test-http
+*.o
+*.a
+*.so
+
+# Zig cache
+zig-cache/
+zig-out/
+.zig-cache/
