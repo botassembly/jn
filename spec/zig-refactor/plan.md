@@ -222,7 +222,7 @@ jn (thin Zig orchestrator)
 
 ### 1.3 libjn-plugin: Plugin Interface
 
-**Goal**: Standard interface for all plugins
+**Goal**: Standard interface for all plugins (any language)
 
 #### 1.3.1 Plugin Metadata
 - [ ] Create `libs/zig/jn-plugin/meta.zig`
@@ -232,10 +232,14 @@ jn (thin Zig orchestrator)
       name: []const u8,
       version: []const u8,
       matches: []const []const u8,
-      role: Role,        // format, protocol, compression, filter
-      modes: []const Mode,
+      role: Role,              // format, protocol, compression, database
+      modes: []const Mode,     // read, write, raw, profiles
       description: []const u8,
+      profile_type: ?[]const u8,        // For profile routing (http, zq, duckdb)
+      bundled_profiles: ?[]const []const u8,  // Optional bundled profile refs
   };
+
+  const Mode = enum { read, write, raw, profiles };
   ```
 - [ ] Implement `outputMeta()` for `--jn-meta`
 
@@ -245,14 +249,20 @@ jn (thin Zig orchestrator)
   ```zig
   pub fn pluginMain(
       comptime meta: PluginMeta,
-      comptime Handlers: type,  // struct with read/write/raw fns
+      comptime Handlers: type,  // struct with read/write/raw/profiles fns
   ) !void
   ```
-- [ ] Handle mode dispatch
+- [ ] Handle mode dispatch (read, write, raw, profiles)
 - [ ] Handle --jn-meta output
 - [ ] Handle --help/--version
 
-#### 1.3.3 Config Passing
+#### 1.3.3 Profiles Mode Support
+- [ ] `--mode=profiles --list` → call `Handlers.profilesList()`
+- [ ] `--mode=profiles --info=@ref` → call `Handlers.profilesInfo(ref)`
+- [ ] `--mode=profiles --discover=<url>` → call `Handlers.profilesDiscover(url)`
+- [ ] Output format: NDJSON for list, JSON for info/discover
+
+#### 1.3.4 Config Passing
 - [ ] Create `libs/zig/jn-plugin/config.zig`
 - [ ] Implement config struct builder from CLI args
 - [ ] Type-safe config access
@@ -347,23 +357,44 @@ jn (thin Zig orchestrator)
 
 **Python equivalent**: `src/jn/profiles/` (1,202 lines total)
 
-### 4.1 Profile Directory Resolution
+**Key Design Change**: Profiles become a plugin capability via `--mode=profiles`
+See: `spec/zig-refactor/plugin-profiles.md`
+
+### 4.1 Plugin Profile Mode Specification
+
+#### 4.1.1 Extended Plugin Metadata
+- [ ] Add `profiles` to valid modes list
+- [ ] Add `profile_type` field (http, zq, duckdb, etc.)
+- [ ] Add optional `bundled_profiles` array in `--jn-meta`
+- [ ] Update PluginMeta struct in `libjn-plugin`
+
+#### 4.1.2 Profile Mode Interface
+- [ ] `--mode=profiles --list` - List available profiles (NDJSON output)
+- [ ] `--mode=profiles --info=@ref` - Get profile details (JSON)
+- [ ] `--mode=profiles --discover=<url>` - Dynamic discovery (optional)
+
+#### 4.1.3 Profile Output Format
+```json
+{"reference": "@namespace/name", "description": "...", "params": [...], "defaults": {...}}
+```
+
+### 4.2 Profile Directory Resolution (Filesystem Fallback)
 - [ ] Create `libs/zig/jn-profile/dirs.zig`
 - [ ] Implement search path discovery
   - [ ] Project: `.jn/profiles` (walk up from cwd)
   - [ ] User: `~/.local/jn/profiles`
   - [ ] System: `$JN_HOME/profiles`
-- [ ] Implement priority ordering (project > user > system)
+- [ ] Implement priority ordering (filesystem > plugin bundled > dynamic)
 - [ ] Type subdirectory mapping (http/, zq/, etc.)
 
-### 4.2 Profile Loading
+### 4.3 Profile Loading (Filesystem)
 - [ ] Create `libs/zig/jn-profile/loader.zig`
 - [ ] Implement JSON file loading
 - [ ] Implement hierarchical merge (`_meta.json` + `endpoint.json`)
 - [ ] Implement deep merge for nested objects
 - [ ] Handle missing optional files gracefully
 
-### 4.3 Environment Variable Substitution
+### 4.4 Environment Variable Substitution
 - [ ] Create `libs/zig/jn-profile/env.zig`
 - [ ] Implement `${VAR}` pattern detection
 - [ ] Implement recursive substitution (nested objects/arrays)
@@ -371,31 +402,42 @@ jn (thin Zig orchestrator)
 - [ ] Error on missing required variables
 - [ ] Security: Don't log/expose resolved secrets
 
-### 4.4 Profile Reference Parsing
+### 4.5 Profile Reference Parsing
 - [ ] Create `libs/zig/jn-profile/reference.zig`
 - [ ] Parse `@namespace/name` syntax
 - [ ] Parse `@namespace/name?param=value` with query params
-- [ ] Map namespace to profile type directory
+- [ ] Map namespace to profile type (determines which plugin to query)
 - [ ] Extract and validate parameters
 
-### 4.5 HTTP Profile Support
+### 4.6 Profile Resolution Flow
+```
+@myapi/users?limit=10
+    ↓
+1. Check filesystem: ~/.local/jn/profiles/http/myapi/users.json
+    ↓ (if not found)
+2. Find plugin for profile_type=http
+    ↓
+3. Query plugin: http --mode=profiles --info=@myapi/users
+    ↓
+4. Get profile definition with URL template, params, auth
+    ↓
+5. Substitute parameters, resolve env vars
+    ↓
+6. Return (url, headers, method) for execution
+```
+
+### 4.7 HTTP Profile Support
 - [ ] Create `libs/zig/jn-profile/http.zig`
-- [ ] Load `_meta.json` for base config:
-  ```json
-  {"base_url": "https://api.example.com", "headers": {"Authorization": "Bearer ${TOKEN}"}}
-  ```
-- [ ] Load `endpoint.json` for specific endpoint:
-  ```json
-  {"path": "/v1/users", "method": "GET", "params": ["limit", "offset"]}
-  ```
+- [ ] Load filesystem profiles with hierarchical merge
+- [ ] Query http plugin for bundled/dynamic profiles
 - [ ] Merge: base_url + path → full URL
 - [ ] Merge: headers with env var substitution
 - [ ] Validate provided params against allowed list
 - [ ] Return: (url, headers, method)
 
-### 4.6 ZQ Filter Profile Support
+### 4.8 ZQ Filter Profile Support
 - [ ] Create `libs/zig/jn-profile/zq.zig`
-- [ ] Scan `profiles/zq/**/*.{zq,jq}` files
+- [ ] Scan filesystem `profiles/zq/**/*.{zq,jq}` files
 - [ ] Extract description from first `#` comment
 - [ ] Extract parameters from `# Parameters: x, y, z` line
 - [ ] Fallback: detect `$param` references in content
@@ -403,45 +445,50 @@ jn (thin Zig orchestrator)
   - [ ] Numeric values: unquoted (for comparisons)
   - [ ] String values: quoted (for equality)
 - [ ] Strip `#` comment lines from output
-- [ ] Collapse multi-line to single line
 
-### 4.7 Profile CLI Tool (jn-profile)
+### 4.9 Profile CLI Tool (jn-profile)
 - [ ] Create `tools/zig/jn-profile/main.zig`
 
-#### 4.7.1 List Subcommand
+#### 4.9.1 List Subcommand
 - [ ] `jn profile list [query]` - List/search profiles
-- [ ] `--type {http,zq}` filter by type
+- [ ] Query ALL plugins that support profiles mode
+- [ ] Merge with filesystem profiles
+- [ ] `--type {http,zq,duckdb}` filter by type
 - [ ] `--format {text,json}` output format
 - [ ] Group output by type and namespace
 
-#### 4.7.2 Info Subcommand
+#### 4.9.2 Info Subcommand
 - [ ] `jn profile info @namespace/name` - Show details
-- [ ] Display: path, description, parameters, examples
+- [ ] Route to appropriate plugin based on namespace
+- [ ] Display: path/source, description, parameters, examples
 - [ ] Auto-generate usage examples
 - [ ] `--format {text,json}` output format
 
-#### 4.7.3 Tree Subcommand
-- [ ] `jn profile tree` - Hierarchical view
-- [ ] `--type {http,zq}` filter
-- [ ] ASCII tree structure
+#### 4.9.3 Discover Subcommand
+- [ ] `jn profile discover <url>` - Dynamic discovery
+- [ ] Route to appropriate plugin
+- [ ] Plugin introspects URL (OpenAPI, etc.)
+- [ ] Output discovered profiles
 
-### 4.8 Profile Discovery Service
+### 4.10 Profile Discovery Service
 - [ ] Create `libs/zig/jn-profile/discovery.zig`
-- [ ] Scan all profile directories
+- [ ] Query all plugins with `profiles` mode
+- [ ] Merge with filesystem profiles
 - [ ] Build ProfileInfo records:
   ```zig
   const ProfileInfo = struct {
       reference: []const u8,    // "@namespace/name"
-      profile_type: []const u8, // "http", "zq"
+      profile_type: []const u8, // "http", "zq", "duckdb"
+      source: ProfileSource,    // .filesystem, .plugin_bundled, .plugin_dynamic
       namespace: []const u8,
       name: []const u8,
-      path: []const u8,
       description: []const u8,
       params: []const []const u8,
+      defaults: ?std.json.Value,
   };
   ```
 - [ ] Cache discovery results
-- [ ] Support search/filter operations
+- [ ] Priority: filesystem > plugin bundled > dynamic
 
 ---
 
