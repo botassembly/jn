@@ -8,6 +8,9 @@ ZIG_LOCAL := $(HOME)/.local/zig-x86_64-linux-$(ZIG_VERSION)
 SYSTEM_ZIG := $(shell command -v zig 2>/dev/null)
 SYSTEM_ZIG_VERSION := $(shell if [ -n "$(SYSTEM_ZIG)" ]; then $(SYSTEM_ZIG) version 2>/dev/null; fi)
 ZIG := $(ZIG_LOCAL)/zig
+OPENDAL_C_DIR := $(abspath vendor/opendal/bindings/c)
+OPENDAL_INCLUDE := $(OPENDAL_C_DIR)/include
+OPENDAL_LIB_DIR := $(OPENDAL_C_DIR)/target/debug
 ifeq ($(SYSTEM_ZIG_VERSION),$(ZIG_VERSION))
 ZIG := $(SYSTEM_ZIG)
 endif
@@ -134,6 +137,26 @@ zig-plugins: install-zig
 	cd plugins/zig/jsonl && $(ZIG) build-exe -fllvm -O ReleaseFast $(PLUGIN_MODULES) -femit-bin=bin/jsonl
 	cd plugins/zig/gz && $(ZIG) build-exe -fllvm -O ReleaseFast $(PLUGIN_MODULES) -femit-bin=bin/gz
 	@echo "Zig plugins built successfully"
+
+# Build OpenDAL C library (optional; requires vendor/opendal)
+opendal-c:
+	@if [ -d "$(OPENDAL_C_DIR)" ]; then \
+		echo "Building OpenDAL C library..."; \
+		cd $(OPENDAL_C_DIR) && mkdir -p build && cd build && cmake .. -DFEATURES="opendal/services-memory,opendal/services-fs,opendal/services-http,opendal/services-s3" && cmake --build . --target cargo_build -j4; \
+	else \
+		echo "OpenDAL source not found at $(OPENDAL_C_DIR); skip (clone into vendor/opendal to enable)"; \
+	fi
+
+# Build OpenDAL Zig plugin (optional; requires opendal-c artifacts)
+zig-opendal: install-zig opendal-c
+	@if [ -f "$(OPENDAL_LIB_DIR)/libopendal_c.a" ]; then \
+		echo "Building OpenDAL plugin..."; \
+		mkdir -p plugins/zig/opendal/bin; \
+		cd plugins/zig/opendal && $(ZIG) build-exe -fllvm -O ReleaseFast $(PLUGIN_MODULES) \
+			-I$(OPENDAL_INCLUDE) -L$(OPENDAL_LIB_DIR) -lopendal_c -lc -femit-bin=bin/opendal; \
+	else \
+		echo "OpenDAL C library not built; skipping zig-opendal (run 'make opendal-c' once vendor/opendal is present)"; \
+	fi
 
 # Run Zig plugin tests
 zig-plugins-test: zig-plugins
