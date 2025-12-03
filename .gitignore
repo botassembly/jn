@@ -34,6 +34,9 @@ zig-linux-x86_64-0.11.0.tar.xz
 # Zig build artifacts
 plugins/zig/*/bin/
 plugins/zig/*/jn-*
+plugins/zig/*/test_*
+plugins/zig/*/bench_*
+!plugins/zig/*/*.zig
 zq/zig-out/
 zq/.zig-cache/
 .zig-cache/
