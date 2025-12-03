@@ -64,7 +64,7 @@ Each document follows a consistent structure:
   - Libraries (core streaming, CLI parsing, plugin interface)
 - Data flow: Source → (Protocol) → (Decompress) → Format → NDJSON
 - Key abstractions: Address, Plugin, Profile, Pipeline
-- Current vs target state (Python → Zig migration)
+- Language split: Zig for performance, Python for ecosystem
 
 **Why separate**: Provides the mental model for understanding everything else. The "30,000 foot view" that other docs drill into.
 
@@ -268,42 +268,26 @@ Each document follows a consistent structure:
 
 ---
 
-### 10. Migration Roadmap
-**`10-migration-roadmap.md`**
+### 10. Python Plugins
+**`10-python-plugins.md`**
 
-**Purpose**: The plan for migrating from Python to Zig.
+**Purpose**: PEP 723 self-contained plugins for formats and protocols requiring Python ecosystems.
 
 **Contents**:
-- Current state: Python CLI with mixed Zig plugins
-- Target state: Zig core with Python extensibility
-- What's migrating:
-  - CLI tools (cat, put, filter, head, tail, etc.)
-  - Core libraries (streaming, CLI parsing, plugin interface)
-  - Format plugins (CSV, JSON, JSONL, GZ)
-  - Protocol plugins (HTTP)
-- What stays in Python:
-  - Complex formats (XLSX, Parquet)
-  - OAuth-based protocols (Gmail)
-  - User-extensible plugins
-- Migration phases:
-  1. Foundation libraries
-  2. Plugin refactor
-  3. Address parsing
-  4. Profile system
-  5. Core CLI tools
-  6. HTTP protocol
-  7. Analysis tools
-  8. Plugin discovery
-  9. Orchestrator
-  10. Extended formats
-- Success metrics:
-  - Startup time: 50-100ms → <5ms
-  - Memory: O(data) → O(1)
-  - Lines of code: ~10K → ~5K
-  - Binary size: ~5MB total
-- Risk mitigation strategies
+- Why Python plugins: Complex formats, rich ecosystems
+- PEP 723 inline metadata: Self-contained execution
+- Bundled Python plugins:
+  - xlsx (Excel, openpyxl)
+  - xml (lxml)
+  - gmail (Google APIs)
+  - mcp (Model Context Protocol)
+  - duckdb (database queries)
+  - parquet (PyArrow)
+- Writing Python plugins: Templates and best practices
+- Profile mode support: Dynamic discovery
+- Testing and debugging
 
-**Why separate**: The migration plan is important but should be separate from architecture docs. It's time-bound; architecture docs should be timeless.
+**Why separate**: Python plugins are a key extensibility mechanism. They complement Zig plugins for ecosystem access and rapid development.
 
 ---
 
@@ -312,12 +296,12 @@ Each document follows a consistent structure:
 ```
 01-vision
     ↓
-02-architecture ←──────────────────────┐
-    ↓                                  │
-03-users-guide                         │
-    ↓                                  │
-04-project-layout                      │
-    ↓                                  │
+02-architecture
+    ↓
+03-users-guide
+    ↓
+04-project-layout
+    ↓
 05-plugin-system ──→ 06-matching-resolution
     ↓                     ↓
 07-profiles ←─────────────┘
@@ -326,14 +310,13 @@ Each document follows a consistent structure:
     ↓
 09-joining-operations
     ↓
-10-migration-roadmap ──────────────────┘
+10-python-plugins ←── 05-plugin-system
 ```
 
 **Reading order for**:
-- New users: 03 → 01 → 02
 - New contributors: 01 → 02 → 04 → 05
 - Performance understanding: 08 (standalone)
-- Migration work: 10 → 02 → 05
+- Plugin development: 05 → 10
 
 ---
 
@@ -348,8 +331,8 @@ Each document follows a consistent structure:
 | `brainstorm.md` §Ideas 27-28 (join, merge) | `09-joining-operations.md` |
 | `brainstorm.md` §Part 5 (Python plugins) | `05-plugin-system.md` §Language Support |
 | `plan.md` §Architecture Overview | `02-architecture.md` |
-| `plan.md` §Features NOT Being Migrated | `10-migration-roadmap.md` |
-| `plan.md` §Phase 1-13 | `10-migration-roadmap.md` |
+| `plan.md` §Features NOT Being Migrated | `10-python-plugins.md` (what stays in Python) |
+| `plan.md` §Phase 1-13 | (implementation details, not migrated to docs) |
 | `plugin-profiles.md` (entire) | `07-profiles.md` |
 | `plugin-matching.md` §Pattern Matching | `06-matching-resolution.md` |
 | `plugin-matching.md` §CSV Variations | `06-matching-resolution.md` §CSV delimiter detection |
@@ -375,7 +358,7 @@ Documents use numbered prefixes for suggested reading order:
 - `01-` through `03-`: Start here (vision, architecture, usage)
 - `04-` through `07-`: Core concepts (layout, plugins, matching, profiles)
 - `08-` through `09-`: Deep dives (streaming, joins)
-- `10-`: Planning (migration roadmap)
+- `10-`: Extensibility (Python plugins)
 
 ---
 
