@@ -2,6 +2,11 @@
 
 > **Vision**: A pure Zig ETL toolkit where each command is an independent process that composes via Unix pipes with OS-managed backpressure.
 
+**Related Documents**:
+- `brainstorm.md` - 30 ideas with dependency graph
+- `plugin-profiles.md` - Profiles as plugin capability design
+- `plugin-matching.md` - Pattern matching and format resolution
+
 ---
 
 ## Architecture Overview
@@ -1022,19 +1027,21 @@ Most plugin patterns are simple - avoid full regex overhead:
 ### Priority Order (if time-constrained)
 
 **Must Have** (Phases 0-5, 8-9): ~6.5 weeks
-- Foundation libraries
+- Foundation libraries (libjn-core, libjn-cli, libjn-plugin)
+- Plugin refactor (CSV, JSON, JSONL, GZ)
+- Address parsing
+- Profile system (HTTP + ZQ)
 - Core commands (cat, put, filter, head, tail)
 - Plugin discovery (Zig + Python)
 - Orchestrator
 
-**Should Have** (Phases 4, 6-7, 11): ~3.5 weeks
-- Full profile system
-- HTTP protocol
-- Analysis tools
-- Join/Merge commands
+**Should Have** (Phases 6-7, 11): ~3 weeks
+- HTTP protocol plugin
+- Analysis tools (inspect, analyze, table)
+- Join/Merge/Sh commands
 
 **Nice to Have** (Phases 10, 12-13): ~3 weeks
-- Extended format plugins
+- Extended format plugins (YAML, TOML, Markdown)
 - Comprehensive testing
 - Migration tooling
 
@@ -1042,7 +1049,7 @@ Most plugin patterns are simple - avoid full regex overhead:
 
 ## Next Steps
 
-1. Review and approve this plan
-2. Start Phase 0 (cleanup and preparation)
-3. Begin Phase 1 with `libjn-core` streaming library
-4. Iterate with frequent testing and benchmarking
+1. ✅ Review and approve this plan
+2. **Start Phase 0**: Deprecate Python checker, inventory Zig code, set up directory structure
+3. **Begin Phase 1**: Create `libjn-core` streaming library
+4. **Iterate**: Frequent testing and benchmarking
