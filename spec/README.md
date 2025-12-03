@@ -1,141 +1,77 @@
-# JN Specification Documentation
+# JN Zig Refactor Documentation
 
-This directory contains all specification and design documents for the JN project, organized by implementation status.
+This folder contains the architecture and design documentation for the JN Zig refactor - migrating JN from Python to a pure Zig core with Python plugin extensibility.
 
-## Directory Structure
+## Document Inventory
 
-```
-spec/
-├── roadmap.md   # Project roadmap (top level for easy access)
-├── done/        # Implemented features
-└── todo/        # Planned features
-```
+### Implementation Plan
 
-### `roadmap.md` - Project Roadmap
+| Document | Purpose |
+|----------|---------|
+| [00-plan.md](00-plan.md) | **Start here.** Phase-based implementation plan with deliverables and document references |
 
-High-level project roadmap with current status (✅/🚧/🔲). Located at top level for easy access.
+### Architecture Documents
 
-### `/done/` - Implemented Features
+| # | Document | Purpose |
+|---|----------|---------|
+| 01 | [01-vision.md](01-vision.md) | Why JN exists, core philosophy, design principles, non-goals |
+| 02 | [02-architecture.md](02-architecture.md) | System overview, component responsibilities, data flow, concurrency model |
+| 03 | [03-users-guide.md](03-users-guide.md) | How to use JN: commands, address syntax, common workflows |
+| 04 | [04-project-layout.md](04-project-layout.md) | Repository structure, where components live, build system |
+| 05 | [05-plugin-system.md](05-plugin-system.md) | Plugin roles, modes, metadata, discovery, interface |
+| 06 | [06-matching-resolution.md](06-matching-resolution.md) | Address parsing, pattern matching, multi-stage resolution |
+| 07 | [07-profiles.md](07-profiles.md) | Profile types, hierarchy, environment substitution, CLI |
+| 08 | [08-streaming-backpressure.md](08-streaming-backpressure.md) | Pipes, backpressure, SIGPIPE, memory characteristics |
+| 09 | [09-joining-operations.md](09-joining-operations.md) | jn-join hash join, jn-merge concatenation, use cases |
+| 10 | [10-python-plugins.md](10-python-plugins.md) | PEP 723 plugins, bundled plugins, writing Python plugins |
 
-Specifications for features that have been fully implemented. These documents accurately reflect the current state of the project and serve as reference documentation.
+### Quality & Migration Documents
 
-**Core architecture:**
-- `arch-design.md` - v5 architecture (PEP 723, UV, NDJSON, Unix pipes)
-- `arch-backpressure.md` - Backpressure and streaming architecture
-- `addressability.md` - Universal addressing (`address[~format][?params]`)
-- `addressability-filtering.md` - Filtering with universal addressing
+| # | Document | Purpose |
+|---|----------|---------|
+| 11 | [11-demo-migration.md](11-demo-migration.md) | Demo inventory, migration strategy, functional equivalence |
+| 12 | [12-testing-strategy.md](12-testing-strategy.md) | Outside-in testing, avoiding tautological tests, test categories |
+| 13 | [13-code-quality.md](13-code-quality.md) | Coverage, linting, formatting, cyclomatic complexity |
 
-**Plugin system:**
-- `plugin-specification.md` - Plugin development standards
-- `plugin-checker.md` - AST-based static analysis
-- `checker-whitelist.md` - Plugin checker whitelisting
+## Reading Order
 
-**Profile system:**
-- `profile-usage.md` - Hierarchical profile system
-- `gmail-profile-architecture.md` - Gmail profiles
-- `restful-api-profile.md` - REST API profiles
-- `jq-profile.md` - JQ filter profiles
+### For New Contributors
+1. [01-vision.md](01-vision.md) - Understand why JN exists
+2. [02-architecture.md](02-architecture.md) - Learn the component model
+3. [04-project-layout.md](04-project-layout.md) - Know where things go
+4. [05-plugin-system.md](05-plugin-system.md) - Understand the core abstraction
 
-**Formats:**
-- `format-design.md` - Format plugin architecture
-- `xlsx-format.md` - Excel format
-- `markdown-format.md` - Markdown format
-- `toml-format.md` - TOML format
+### For Understanding Performance
+- [08-streaming-backpressure.md](08-streaming-backpressure.md) - The key insight
 
-**Protocols:**
-- `http-design.md` - HTTP protocol plugin
-- `http-protocol.md` - HTTP protocol implementation
-- `mcp.md` - Model Context Protocol integration
-- `mcp-protocol.md` - MCP implementation
-- `gmail-plugin.md` - Gmail plugin
+### For Plugin Development
+1. [05-plugin-system.md](05-plugin-system.md) - Plugin interface
+2. [10-python-plugins.md](10-python-plugins.md) - Python specifics
+3. [06-matching-resolution.md](06-matching-resolution.md) - Pattern matching
 
-**Commands:**
-- `inspect-design.md` - Unified inspect command
-- `shell-commands.md` - Shell command handling (custom + jc fallback)
-- `jc-shell-plugins.md` - JC shell integration
+### For Implementation
+1. [00-plan.md](00-plan.md) - Phase-by-phase plan
+2. Follow document references in each phase
 
-**Utilities:**
-- `jtbl-renderer.md` - Table rendering
-- `ls-folder-reader.md` - Folder listing
-- `tail-file-follower.md` - File following
-- `watchdog-monitor.md` - File monitoring
+## Document Conventions
 
-**Refactors:**
-- `addressability-refactor.md` - Addressability refactor
-- `mcp-naked-access-refactor.md` - MCP naked access
+Each document follows a consistent structure:
 
-**Workflows:**
-- `workflows-genomoncology-examples.md` - Real-world API examples
-- `workflows-gmail-examples.md` - Gmail workflows
+1. **Purpose** - One-sentence summary
+2. **Core Concepts** - The "what"
+3. **How It Works** - The "how" (conceptually, not code)
+4. **Design Decisions** - Trade-offs and rationale
+5. **See Also** - Related documents
 
-### `/todo/` - Planned Features
+Documents are conceptual - they explain architecture and design, not implementation details. For implementation, refer to the source code in the locations specified by [04-project-layout.md](04-project-layout.md).
 
-Specifications for features that are designed but not yet implemented. Developer-ready specs with complete designs and code examples.
+## Key Locations
 
-**Databases:**
-- `duckdb-profiles.md` - **DuckDB profile system (comprehensive spec + code)**
-- `duckdb-implementation-guide.md` - **DuckDB developer guide (7-day plan)**
-- `duckdb-database.md` - DuckDB overview (points to other specs)
-- `sqlite-database.md` - SQLite plugin
-- `postgres-database.md` - PostgreSQL plugin
-
-**Protocols:**
-- `s3-protocol.md` - S3 protocol plugin
-- `ftp-protocol.md` - FTP protocol plugin
-
-**Formats:**
-- `parquet-format.md` - Parquet format plugin
-- `google-sheets.md` - Google Sheets plugin
-
-**Features:**
-- `debug-explain-mode.md` - Debug and explain mode
-- `profile-cli.md` - Profile management CLI
-
-## Document Lifecycle
-
-1. **Design** → Create in `/todo/`
-2. **Implementation** → Work from spec in `/todo/`
-3. **Complete** → Move to `/done/`
-
-Simple and clear: TODO → DONE.
-
-## Quick Reference
-
-### Core Architecture
-- **v5 Design**: `done/arch-design.md`
-- **Backpressure**: `done/arch-backpressure.md`
-- **Addressing**: `done/addressability.md`
-- **Plugin System**: `done/plugin-specification.md`
-
-### Development
-- **Roadmap**: `wip/roadmap.md`
-- **Plugin Checker**: `done/plugin-checker.md`
-- **Whitelisting**: `done/checker-whitelist.md`
-
-### Feature Documentation
-- **Profiles**: `done/profile-usage.md`
-- **Formats**: `done/format-design.md`
-- **Protocols**: `done/http-design.md`, `done/mcp.md`
-- **Shell Commands**: `done/shell-commands.md`
-- **Inspect**: `done/inspect-design.md`
-
-## Contributing
-
-When creating new specifications:
-
-1. **Start with a clear problem statement** - What are we solving?
-2. **Define the architecture** - How does it fit with Unix pipes, NDJSON, and PEP 723?
-3. **Create work tickets** - Break down implementation into manageable tasks
-4. **Place in `/plan/`** - New specs start here
-5. **Update as you build** - Move to `/wip/` during implementation if needed
-6. **Mark as done** - Move to `/done/` when fully implemented
-
-## Organizational Principles
-
-This reorganization was done to:
-- **Improve discoverability** - Easy to find what's implemented vs. planned
-- **Maintain accuracy** - Specs match code reality
-- **Support development** - Clear roadmap of what's next
-- **Reduce confusion** - No ambiguity about feature status
-
-All documents preserve their original content and commit history via `git mv`.
+| Component | Location |
+|-----------|----------|
+| Shared Zig libraries | `libs/zig/` |
+| Zig CLI tools | `tools/zig/` |
+| Zig plugins | `plugins/zig/` |
+| Python plugins | `plugins/python/` |
+| ZQ filter engine | `zq/` |
+| Bundled defaults | `jn_home/` |
