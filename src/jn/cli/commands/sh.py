@@ -57,18 +57,58 @@ def sh(ctx, command):
 
         # Join all arguments into command string
         command_str = " ".join(command)
+        command_name = command[0]
 
-        # Parse as address (first word becomes the command)
-        addr = parse_address(command_str)
+        # For shell commands, explicitly look up shell plugins by command name
+        # Don't use parse_address because it may misinterpret args like "*.foo"
+        from ...plugins.discovery import get_cached_plugins_with_fallback
 
-        # Plan execution
-        resolver = AddressResolver(ctx.plugin_dir, ctx.cache_path, ctx.home)
+        plugins = get_cached_plugins_with_fallback(
+            ctx.plugin_dir, ctx.cache_path
+        )
 
-        try:
-            stages = resolver.plan_execution(addr, mode="read")
-        except AddressResolutionError:
+        # Find shell plugin that matches this command
+        shell_plugin = None
+        for _name, meta in plugins.items():
+            if "/shell/" in meta.path:
+                import re
+
+                for pattern in meta.matches:
+                    if re.match(pattern, command_str):
+                        shell_plugin = meta
+                        break
+                if shell_plugin:
+                    break
+
+        if shell_plugin:
+            # Use matched shell plugin directly - create stage dataclass
+            from dataclasses import dataclass, field
+            from typing import Dict, Optional
+
+            @dataclass
+            class ShellStage:
+                plugin_path: str
+                mode: str = "read"
+                config: Dict[str, any] = field(default_factory=dict)
+                url: Optional[str] = None
+                headers: Optional[Dict[str, str]] = None
+
+            stage = ShellStage(plugin_path=shell_plugin.path)
+            stages = [stage]
+        else:
+            # Fall back to address-based resolution for non-shell commands
+            addr = parse_address(command_str)
+            resolver = AddressResolver(
+                ctx.plugin_dir, ctx.cache_path, ctx.home
+            )
+
+            try:
+                stages = resolver.plan_execution(addr, mode="read")
+            except AddressResolutionError:
+                stages = None
+
+        if not stages:
             # No custom plugin found - try jc fallback
-            command_name = command[0]
             if supports_command(command_name):
                 exit_code = execute_with_jc(command_str)
                 sys.exit(exit_code)
@@ -78,13 +118,6 @@ def sh(ctx, command):
                     err=True,
                 )
                 sys.exit(1)
-
-        # Plugin found - use it
-        if not stages:
-            click.echo(
-                f"Error: No stages planned for command: {command[0]}", err=True
-            )
-            sys.exit(1)
 
         if len(stages) > 1:
             click.echo(

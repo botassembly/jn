@@ -15,7 +15,7 @@ from ...addressing import (
     parse_address,
 )
 from ...context import pass_context
-from ...filtering import build_jq_filter, separate_config_and_filters
+from ...filtering import build_zq_filter, separate_config_and_filters
 from ...introspection import get_plugin_config_params
 from ...process_utils import popen_with_validation
 from ...shell.jc_fallback import execute_with_jc, supports_command
@@ -31,18 +31,24 @@ def _build_command(
         stage: Execution stage with plugin info
         command_str: Optional command string for shell plugins (overrides stage.url)
     """
-    cmd = [
-        "uv",
-        "run",
-        "--quiet",
-        "--script",
-        stage.plugin_path,
-        "--mode",
-        stage.mode,
-    ]
+    # Detect binary plugins (non-.py files) and run directly
+    is_binary = not stage.plugin_path.endswith(".py")
 
-    # DEBUG
-    sys.stderr.flush()
+    if is_binary:
+        cmd = [
+            stage.plugin_path,
+            f"--mode={stage.mode}",
+        ]
+    else:
+        cmd = [
+            "uv",
+            "run",
+            "--quiet",
+            "--script",
+            stage.plugin_path,
+            "--mode",
+            stage.mode,
+        ]
 
     # Add configuration parameters
     for key, value in stage.config.items():
@@ -52,10 +58,17 @@ def _build_command(
             if value:
                 # True: pass --flag (works for action="store_true")
                 cmd.append(f"--{cli_key}")
+            elif is_binary:
+                # Binary plugins: --flag=false
+                cmd.append(f"--{cli_key}=false")
             else:
-                # False: pass --flag false (for regular bool params like --header)
+                # Python plugins: --flag false
                 cmd.extend([f"--{cli_key}", "false"])
+        elif is_binary:
+            # Binary plugins: --key=value format
+            cmd.append(f"--{cli_key}={value}")
         else:
+            # Python plugins: --key value format
             cmd.extend([f"--{cli_key}", str(value)])
 
     # Add URL or command string if present
@@ -77,7 +90,7 @@ def _execute_with_filter(stages, addr, filters, home_dir=None):
     Args:
         stages: Execution stages to run
         addr: Parsed address
-        filters: Optional jq filters to apply
+        filters: Optional ZQ filters to apply
         home_dir: JN home directory (overrides $JN_HOME)
     """
 
@@ -179,9 +192,9 @@ def _execute_with_filter(stages, addr, filters, home_dir=None):
             return
 
         if filters:
-            jq_expr = build_jq_filter(filters)
+            zq_expr = build_zq_filter(filters)
             filter_proc = popen_with_validation(
-                [sys.executable, "-m", "jn.cli.main", "filter", jq_expr],
+                [sys.executable, "-m", "jn.cli.main", "filter", zq_expr],
                 stdin=reader_stdout,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -256,7 +269,7 @@ def cat(ctx, input_file):
 
     Query parameters can be either config or filters:
     - Config params (delimiter, limit, etc.) are passed to the plugin
-    - Filter params (field=value) are applied as jq filters after reading
+    - Filter params (field=value) are applied as ZQ filters after reading
 
     Filter syntax:
     - Same field multiple times: OR logic (city=NYC&city=LA)

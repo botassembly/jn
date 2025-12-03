@@ -5,7 +5,7 @@ Profiles are files stored in profiles/{plugin_dir}/ directories that contain
 plugin-specific content (queries, configurations, templates, etc.).
 
 Examples:
-    - JQ filter profiles: profiles/jq/builtin/group_count.jq
+    - ZQ filter profiles: profiles/zq/custom/filter_active.zq
     - CSV format profiles: profiles/csv/formats/wide.csv (hypothetical)
     - SQL query profiles: profiles/sql/analytics/revenue.sql (hypothetical)
 
@@ -29,11 +29,11 @@ def find_profile_path(profile_ref: str, plugin_name: str) -> Optional[Path]:
     """Find profile file path without resolving content.
 
     This is useful when you want to pass the file to a tool that
-    can handle file input directly (e.g., jq -f file.jq).
+    can handle file input directly.
 
     Args:
-        profile_ref: Profile reference like "@builtin/pivot"
-        plugin_name: Name of plugin (e.g., "jq_")
+        profile_ref: Profile reference like "@custom/filter_active"
+        plugin_name: Name of plugin (e.g., "zq_")
 
     Returns:
         Path to profile file, or None if not found
@@ -87,8 +87,8 @@ def resolve_profile(
     Searches for profile files and performs parameter substitution.
 
     Args:
-        profile_ref: Profile reference like "@builtin/pivot" or "@analytics/custom"
-        plugin_name: Name of plugin (e.g., "jq_", "csv_", "http_")
+        profile_ref: Profile reference like "@custom/filter" or "@analytics/custom"
+        plugin_name: Name of plugin (e.g., "zq_", "csv_", "http_")
         params: Optional parameters to substitute (e.g., {"by": "status"})
 
     Returns:
@@ -98,7 +98,7 @@ def resolve_profile(
         ProfileError: If profile not found
 
     Profile Directory Structure:
-        Plugin "jq_" looks in profiles/jq/ (trailing underscore removed)
+        Plugin "zq_" looks in profiles/zq/ (trailing underscore removed)
         Plugin "csv_" looks in profiles/csv/
         Plugin "http_" looks in profiles/http/
 
@@ -109,7 +109,7 @@ def resolve_profile(
 
     File Extension:
         Auto-detected - searches for files with any extension.
-        Common patterns: .jq for jq_, .json for http_, .sql for sql_, etc.
+        Common patterns: .zq for zq_, .json for http_, .sql for sql_, etc.
 
     Parameter Substitution:
         - $param_name - replaced with "param_value" (quoted)
@@ -118,13 +118,13 @@ def resolve_profile(
 
     Comment Stripping:
         Lines starting with # are treated as comments and removed.
-        This works for .jq, .sql, .py, and other hash-comment formats.
+        This works for .zq, .sql, .py, and other hash-comment formats.
 
     Examples:
-        # JQ filter profile
-        resolve_profile("@builtin/group_count", "jq_", {"by": "status"})
-        → Searches profiles/jq/builtin/group_count.jq
-        → Returns jq query with $by replaced with "status"
+        # ZQ filter profile
+        resolve_profile("@custom/by_status", "zq_", {"status": "active"})
+        → Searches profiles/zq/custom/by_status.zq
+        → Returns ZQ query with $status replaced with "active"
 
         # Hypothetical CSV format profile
         resolve_profile("@formats/wide", "csv_", {})
@@ -197,7 +197,7 @@ def resolve_profile(
     content = profile_file.read_text()
 
     # Strip comment lines (lines starting with #)
-    # This is generic and works for many file formats (.jq, .sql, .py, etc.)
+    # This is generic and works for many file formats (.zq, .sql, .py, etc.)
     # Note: Some formats (like JSON) don't support # comments, so this is optional
     content_lines = [
         line
@@ -206,13 +206,25 @@ def resolve_profile(
     ]
     content = "\n".join(content_lines).strip()
 
+    # For ZQ profiles, collapse to single line (ZQ doesn't handle multi-line)
+    if profile_file.suffix in (".jq", ".zq"):
+        # Replace newlines with spaces and collapse multiple spaces
+        content = " ".join(content.split())
+
     # Substitute parameters
-    # Simple string replacement: $param_name → "param_value"
+    # Smart replacement: numbers stay unquoted, strings get quoted
     # TODO: More sophisticated substitution could support ${param_name} syntax
     # TODO: Consider plugin-specific escaping (e.g., SQL injection prevention)
     for param_name, param_value in params.items():
-        # Replace $param_name with "param_value" (quoted)
-        # This works for jq and most query languages
-        content = content.replace(f"${param_name}", f'"{param_value}"')
+        # Check if value is numeric (int or float)
+        try:
+            # Try parsing as number
+            float(param_value)
+            # It's numeric, don't quote (allows direct numeric comparison)
+            replacement = param_value
+        except ValueError:
+            # It's a string, quote it
+            replacement = f'"{param_value}"'
+        content = content.replace(f"${param_name}", replacement)
 
     return content

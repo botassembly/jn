@@ -58,15 +58,23 @@ def put(ctx, output_file):
         resolver = AddressResolver(ctx.plugin_dir, ctx.cache_path, ctx.home)
         resolved = resolver.resolve(addr, mode="write")
 
-        # Build command
-        cmd = [
-            "uv",
-            "run",
-            "--script",
-            resolved.plugin_path,
-            "--mode",
-            "write",
-        ]
+        # Build command - detect binary plugins and run directly
+        is_binary = not resolved.plugin_path.endswith(".py")
+
+        if is_binary:
+            cmd = [
+                resolved.plugin_path,
+                "--mode=write",
+            ]
+        else:
+            cmd = [
+                "uv",
+                "run",
+                "--script",
+                resolved.plugin_path,
+                "--mode",
+                "write",
+            ]
 
         # Add configuration parameters
         for key, value in resolved.config.items():
@@ -74,10 +82,17 @@ def put(ctx, output_file):
                 if value:
                     # True: pass --flag (works for action="store_true")
                     cmd.append(f"--{key}")
+                elif is_binary:
+                    # Binary plugins: --flag=false
+                    cmd.append(f"--{key}=false")
                 else:
-                    # False: pass --flag false (for regular bool params like --header)
+                    # Python plugins: --flag false
                     cmd.extend([f"--{key}", "false"])
+            elif is_binary:
+                # Binary plugins: --key=value format
+                cmd.append(f"--{key}={value}")
             else:
+                # Python plugins: --key value format
                 cmd.extend([f"--{key}", str(value)])
 
         # Prepare stdin for subprocess

@@ -1,14 +1,13 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["openpyxl>=3.1.0"]
+# ///
 """
 Create sample budget.xlsx file for demo
 """
 
-try:
-    from openpyxl import Workbook
-except ImportError:
-    print("ERROR: openpyxl not installed")
-    print("Install with: pip install openpyxl")
-    exit(1)
+from openpyxl import Workbook
 
 # Sample budget data
 budget_data = [

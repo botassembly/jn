@@ -1,4 +1,8 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = []
+# ///
 """Setup test data for the adapter-merge demo."""
 
 import json
@@ -113,7 +117,7 @@ def setup_sales_csv():
 
 
 def setup_jq_profiles():
-    """Create JQ profiles for native argument binding."""
+    """Create JQ profiles for string substitution."""
     profile_dir = DEMO_DIR / "profiles" / "jq" / "sales"
     profile_dir.mkdir(parents=True, exist_ok=True)
 
@@ -126,10 +130,11 @@ select(.region == $region)
     )
 
     # Filter by threshold
+    # Note: $threshold is substituted as unquoted number, so no tonumber needed
     (profile_dir / "above_threshold.jq").write_text(
         """# Filter sales above threshold
-# Parameters: threshold
-select((.amount | tonumber) > ($threshold | tonumber))
+# Parameters: threshold (numeric)
+select((.amount | tonumber) > $threshold)
 """
     )
 

@@ -107,12 +107,33 @@ def get_plugin_config_params(plugin_path: str) -> List[str]:
     For plugins using the config dict pattern (config: Optional[dict]),
     returns a list of common config parameter names.
 
+    For binary plugins (non-.py files), returns common config params since
+    we can't introspect native executables.
+
     Args:
-        plugin_path: Path to plugin .py file
+        plugin_path: Path to plugin file (.py or binary)
 
     Returns:
         List of config parameter names, or empty list if can't introspect
     """
+    # Common config parameters for plugins that can't be introspected
+    common_config_params = [
+        "limit",
+        "offset",
+        "delimiter",
+        "skip_rows",
+        "header",
+        "method",
+        "timeout",
+        "headers",
+        "format",
+        "mode",  # Output mode (e.g., lcov lines/functions/branches)
+    ]
+
+    # Binary plugins (non-.py) - return common config params
+    if not plugin_path.endswith(".py"):
+        return common_config_params
+
     func = load_plugin_function(plugin_path, "reads")
     if not func:
         return []
@@ -121,18 +142,6 @@ def get_plugin_config_params(plugin_path: str) -> List[str]:
 
     # If function uses config dict pattern, return common config params
     if is_config_dict_pattern(func):
-        # Common config parameters that should not be treated as filters
-        return [
-            "limit",
-            "offset",
-            "delimiter",
-            "skip_rows",
-            "header",
-            "method",
-            "timeout",
-            "headers",
-            "format",
-            "mode",  # Output mode (e.g., lcov lines/functions/branches)
-        ]
+        return common_config_params
 
     return params

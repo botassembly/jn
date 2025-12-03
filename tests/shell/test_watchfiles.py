@@ -69,9 +69,6 @@ def test_jn_sh_watch_rejects_files(jn_cli, tmp_path: Path):
     assert "tail -F" in (result.stdout + result.stderr)
 
 
-@pytest.mark.skip(
-    reason="Flaky test - watchfiles subprocess interaction issue. Command works manually but times out in pytest. Needs investigation."
-)
 def test_jn_sh_watch_emits_on_change(jn_cli, tmp_path: Path):
     """watchfiles should emit a created event when a new file appears."""
     proc = subprocess.Popen(

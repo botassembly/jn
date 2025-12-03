@@ -3,7 +3,7 @@
 Demonstrates JN's unified data orchestration capabilities:
 
 1. **SQL Optional Parameters (Pushdown Adapters)** - Query databases with flexible filters
-2. **JQ Native Arguments (Streaming Adapters)** - Transform data with type-safe parameters
+2. **JQ Profile Substitution (Streaming Adapters)** - Transform data with parameterized profiles
 3. **Merge Command (Composability)** - Combine multiple data sources for analysis
 
 ## Quick Start
@@ -38,18 +38,21 @@ jn cat '@genie/treatment?regimen=FOLFOX'
 jn cat '@genie/treatment?regimen=FOLFIRI&min_survival=15'
 ```
 
-### 2. JQ Native Arguments
+### 2. JQ Profile Substitution
 
-Use jq's native `--arg` binding for type-safe parameter passing:
+Use profile references with string substitution for parameterized filtering:
 
 ```jq
 # profile: @sales/by_region
 select(.region == $region)
 ```
 
+The `$region` parameter is replaced with the quoted value from the query string.
+
 Usage:
 ```bash
-jn cat sales.csv | jn filter '@sales/by_region?region=East' --native-args
+jn cat sales.csv | jn filter '@sales/by_region?region=East'
+# Resolves to: select(.region == "East")
 ```
 
 ### 3. Merge Command
@@ -80,6 +83,6 @@ Output includes `_label` and `_source` metadata:
 - `run_examples.sh` - Main demo script
 - `setup_data.py` - Creates test data and profiles
 - `profiles/duckdb/genie/` - DuckDB profile with optional params
-- `profiles/jq/sales/` - JQ profiles with native args
+- `profiles/jq/sales/` - JQ profiles with string substitution
 - `sales.csv` - Sample sales data
 - `genie.duckdb` - Sample clinical database

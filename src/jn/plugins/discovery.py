@@ -1,7 +1,9 @@
 """Plugin discovery with timestamp-based caching (logic module)."""
 
 import json
+import os
 import re
+import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -31,6 +33,8 @@ class PluginMetadata:
     manages_parameters: bool = False  # Plugin handles own parameter parsing
     supports_container: bool = False  # Plugin supports container inspection
     container_mode: Optional[str] = None  # e.g., "path_count", "query_param"
+    is_binary: bool = False  # True for native binary plugins (Zig, Rust, etc.)
+    modes: List[str] = None  # Supported modes (read, write) - None means all
 
     def __post_init__(self):
         if self.dependencies is None:
@@ -117,6 +121,121 @@ def discover_plugins(plugin_dir: Path) -> Dict[str, PluginMetadata]:
     return plugins
 
 
+def _get_binary_metadata(binary: Path) -> Optional[PluginMetadata]:
+    """Get metadata from a binary plugin via --jn-meta.
+
+    Args:
+        binary: Path to executable binary
+
+    Returns:
+        PluginMetadata if binary responds properly, None otherwise
+    """
+    if not binary.is_file() or not os.access(binary, os.X_OK):
+        return None
+
+    try:
+        result = subprocess.run(  # noqa: S603  # jn:ignore[subprocess_capture_output]
+            [str(binary), "--jn-meta"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode != 0:
+            return None
+
+        meta = json.loads(result.stdout.strip())
+        name = meta.get("name", binary.name)
+        matches = meta.get("matches", [])
+        role = meta.get("role", "format")
+        mtime = binary.stat().st_mtime
+
+        return PluginMetadata(
+            name=name,
+            path=str(binary),
+            mtime=mtime,
+            matches=matches,
+            role=role,
+            is_binary=True,
+            modes=meta.get("modes"),
+        )
+    except (
+        subprocess.TimeoutExpired,
+        json.JSONDecodeError,
+        OSError,
+    ):
+        return None
+
+
+def discover_binary_plugins(binary_dir: Path) -> Dict[str, PluginMetadata]:
+    """Discover native binary plugins (Zig, Rust, etc.) via --jn-meta.
+
+    Binary plugins must:
+    1. Be executable files
+    2. Respond to --jn-meta with JSON metadata containing:
+       - name: plugin name
+       - matches: list of regex patterns
+       - role: plugin role (format, filter, protocol)
+       - modes: list of supported modes
+       - version (optional): plugin version
+    """
+    plugins: Dict[str, PluginMetadata] = {}
+    if not binary_dir or not binary_dir.exists():
+        return plugins
+
+    # Look for Zig plugins in plugins/zig/*/bin/*
+    zig_dir = binary_dir / "zig"
+    if zig_dir.exists():
+        for plugin_dir in zig_dir.iterdir():
+            if not plugin_dir.is_dir():
+                continue
+            bin_dir = plugin_dir / "bin"
+            if not bin_dir.exists():
+                continue
+
+            for binary in bin_dir.iterdir():
+                meta = _get_binary_metadata(binary)
+                if meta:
+                    plugins[meta.name] = meta
+
+    return plugins
+
+
+def discover_zig_plugins_with_build() -> Dict[str, PluginMetadata]:
+    """Discover Zig plugins, building from source if needed.
+
+    This function:
+    1. Lists available Zig plugin sources
+    2. Builds binaries on-demand using zig_builder
+    3. Returns metadata for successfully built plugins
+
+    This enables cross-platform installation via `uv pip install` by
+    compiling native binaries from bundled Zig sources on first use.
+
+    Returns:
+        Dictionary of plugin name -> PluginMetadata
+    """
+    plugins: Dict[str, PluginMetadata] = {}
+
+    try:
+        from ..zig_builder import (
+            get_or_build_plugin,
+            list_available_zig_plugins,
+        )
+
+        for plugin_name in list_available_zig_plugins():
+            binary_path = get_or_build_plugin(plugin_name)
+            if binary_path:
+                meta = _get_binary_metadata(binary_path)
+                if meta:
+                    plugins[meta.name] = meta
+
+    except ImportError:
+        # zig_builder not available
+        pass
+
+    return plugins
+
+
 def load_cache(cache_path: Optional[Path]) -> dict:
     if cache_path is None or not cache_path.exists():
         return {"version": "0.0.1", "plugins": {}}
@@ -185,7 +304,23 @@ def get_cached_plugins_with_fallback(
     plugin_dir: Path,
     cache_path: Optional[Path],
     fallback_to_builtin: bool = True,
+    binary_plugins_dir: Optional[Path] = None,
+    build_zig_plugins: bool = True,
 ) -> Dict[str, PluginMetadata]:
+    """Discover all plugins with fallback to built-in plugins.
+
+    Args:
+        plugin_dir: Custom plugin directory
+        cache_path: Path to cache file
+        fallback_to_builtin: Include built-in Python plugins
+        binary_plugins_dir: Directory containing binary plugins (e.g., plugins/zig/)
+                           If None, binary plugins are not discovered.
+        build_zig_plugins: Build Zig plugins from source if not already compiled.
+                          This enables cross-platform installation via `uv pip install`.
+
+    Returns:
+        Dictionary of plugin name -> PluginMetadata
+    """
     result: Dict[str, PluginMetadata] = {}
 
     if fallback_to_builtin:
@@ -198,6 +333,19 @@ def get_cached_plugins_with_fallback(
 
     custom_plugins = get_cached_plugins(plugin_dir, cache_path)
     result.update(custom_plugins)
+
+    # Discover binary plugins (Zig, Rust, etc.) if directory provided
+    # Binary plugins take precedence over Python plugins with same name
+    if binary_plugins_dir:
+        binary_plugins = discover_binary_plugins(binary_plugins_dir)
+        result.update(binary_plugins)
+
+    # Build Zig plugins from source if enabled (on-demand compilation)
+    # This enables `uv pip install jn-cli` to work on all platforms
+    if build_zig_plugins:
+        zig_plugins = discover_zig_plugins_with_build()
+        result.update(zig_plugins)
+
     return result
 
 
