@@ -1,5 +1,48 @@
 # JN Zig Refactor - Work Log
 
+## 2025-12-03: Phase 4 - Address & Profile System Complete
+
+### Address Library Implementation
+
+**Goal:** Create address parsing library for JN tool addresses.
+
+#### Completed
+- [x] Created `libs/zig/jn-address/` - Address parsing library
+  - `address.zig` - Parse addresses: `[protocol://]path[~format][?params]`
+  - Address type detection: file, URL, profile, stdin, glob
+  - Protocol detection: http, https, s3, gs, duckdb, etc.
+  - Format override extraction: `~csv`, `~json`
+  - Query parameter parsing: `?delimiter=;`
+  - Compression detection: `.gz`, `.bz2`, `.xz`, `.zst`
+  - Profile reference parsing: `@namespace/name`
+
+### Profile Library Implementation
+
+**Goal:** Create hierarchical profile resolution library.
+
+#### Completed
+- [x] Created `libs/zig/jn-profile/` - Profile system library
+  - `profile.zig` - Directory discovery, JSON loading, deep merge
+  - `envsubst.zig` - Environment variable substitution
+  - Directory discovery: project (`.jn/profiles/`) → user (`~/.local/jn/profiles/`) → bundled
+  - Hierarchical merge via `_meta.json` files
+  - Deep merge of nested JSON objects
+  - Environment substitution: `${VAR}`, `${VAR:-default}`
+- [x] Updated Makefile: added jn-address and jn-profile to `zig-libs-test` and `zig-libs-fmt`
+
+#### Test Results
+- jn-address: 19 tests passed
+- jn-profile: 14 tests passed
+- Total library tests: 50 tests across 5 libraries
+
+#### Exit Criteria ✅
+- [x] Address parser handles all documented formats
+- [x] Profile loader resolves hierarchically
+- [x] Environment substitution works
+- [x] Unit tests for edge cases
+
+---
+
 ## 2025-12-03: Phase 2 - Plugin Refactor In Progress
 
 ### Completed

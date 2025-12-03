@@ -184,6 +184,10 @@ zig-libs-test: install-zig
 	@echo "  jn-cli: OK"
 	cd libs/zig/jn-plugin && $(ZIG) test src/root.zig -fllvm
 	@echo "  jn-plugin: OK"
+	cd libs/zig/jn-address && $(ZIG) test src/root.zig -fllvm
+	@echo "  jn-address: OK"
+	cd libs/zig/jn-profile && $(ZIG) test src/root.zig -fllvm
+	@echo "  jn-profile: OK"
 	@echo "All Zig library tests passed"
 
 # Build example plugin to validate libraries work together
@@ -201,4 +205,6 @@ zig-libs-fmt: install-zig
 	$(ZIG) fmt libs/zig/jn-core/src/
 	$(ZIG) fmt libs/zig/jn-cli/src/
 	$(ZIG) fmt libs/zig/jn-plugin/src/
+	$(ZIG) fmt libs/zig/jn-address/src/
+	$(ZIG) fmt libs/zig/jn-profile/src/
 	$(ZIG) fmt libs/zig/examples/
