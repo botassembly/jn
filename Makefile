@@ -5,7 +5,20 @@ ZIG_VERSION := 0.15.2
 ZIG_ARCHIVE := zig-x86_64-linux-$(ZIG_VERSION).tar.xz
 ZIG_URL := https://ziglang.org/download/$(ZIG_VERSION)/$(ZIG_ARCHIVE)
 ZIG_LOCAL := $(HOME)/.local/zig-x86_64-linux-$(ZIG_VERSION)
+SYSTEM_ZIG := $(shell command -v zig 2>/dev/null)
+SYSTEM_ZIG_VERSION := $(shell if [ -n "$(SYSTEM_ZIG)" ]; then $(SYSTEM_ZIG) version 2>/dev/null; fi)
 ZIG := $(ZIG_LOCAL)/zig
+OPENDAL_C_DIR := $(abspath vendor/opendal/bindings/c)
+OPENDAL_INCLUDE := $(OPENDAL_C_DIR)/include
+OPENDAL_LIB_DIR := $(OPENDAL_C_DIR)/target/debug
+ifeq ($(SYSTEM_ZIG_VERSION),$(ZIG_VERSION))
+ZIG := $(SYSTEM_ZIG)
+endif
+PLUGIN_MODULES := --dep jn-core --dep jn-cli --dep jn-plugin \
+	-Mroot=main.zig \
+	-Mjn-core=../../../libs/zig/jn-core/src/root.zig \
+	-Mjn-cli=../../../libs/zig/jn-cli/src/root.zig \
+	-Mjn-plugin=../../../libs/zig/jn-plugin/src/root.zig
 
 all: check test
 
@@ -32,7 +45,9 @@ check:
 zq-fmt: install-zig
 	$(ZIG) fmt zq/src/ zq/tests/
 
-test:
+test: install-zig
+	$(MAKE) zig-libs-test
+	$(MAKE) zig-plugins-test
 	uv run pytest -q
 
 coverage:
@@ -73,7 +88,9 @@ install: install-zig
 
 # Install Zig compiler
 install-zig:
-	@if [ ! -f "$(ZIG)" ]; then \
+	@if [ -x "$(ZIG)" ]; then \
+		echo "Using Zig $(ZIG_VERSION) at $(ZIG)"; \
+	else \
 		echo "Downloading Zig $(ZIG_VERSION)..."; \
 		mkdir -p $(HOME)/.local/bin; \
 		curl -L $(ZIG_URL) -o /tmp/$(ZIG_ARCHIVE); \
@@ -81,8 +98,6 @@ install-zig:
 		ln -sf $(ZIG) $(HOME)/.local/bin/zig; \
 		rm -f /tmp/$(ZIG_ARCHIVE); \
 		echo "Zig installed to $(ZIG_LOCAL)"; \
-	else \
-		echo "Zig $(ZIG_VERSION) already installed"; \
 	fi
 	@$(ZIG) version
 
@@ -113,18 +128,43 @@ zq-bench: zq
 # Build Zig plugins
 zig-plugins: install-zig
 	@echo "Building Zig plugins..."
+	mkdir -p plugins/zig/csv/bin
+	mkdir -p plugins/zig/json/bin
 	mkdir -p plugins/zig/jsonl/bin
-	cd plugins/zig/jsonl && $(ZIG) build-exe main.zig -fllvm -O ReleaseFast -femit-bin=bin/jsonl
+	mkdir -p plugins/zig/gz/bin
+	cd plugins/zig/csv && $(ZIG) build-exe -fllvm -O ReleaseFast $(PLUGIN_MODULES) -femit-bin=bin/csv
+	cd plugins/zig/json && $(ZIG) build-exe -fllvm -O ReleaseFast $(PLUGIN_MODULES) -femit-bin=bin/json
+	cd plugins/zig/jsonl && $(ZIG) build-exe -fllvm -O ReleaseFast $(PLUGIN_MODULES) -femit-bin=bin/jsonl
+	cd plugins/zig/gz && $(ZIG) build-exe -fllvm -O ReleaseFast $(PLUGIN_MODULES) -femit-bin=bin/gz
 	@echo "Zig plugins built successfully"
+
+# Build OpenDAL C library (optional; requires vendor/opendal)
+opendal-c:
+	@if [ -d "$(OPENDAL_C_DIR)" ]; then \
+		echo "Building OpenDAL C library..."; \
+		cd $(OPENDAL_C_DIR) && mkdir -p build && cd build && cmake .. -DFEATURES="opendal/services-memory,opendal/services-fs,opendal/services-http,opendal/services-s3" && cmake --build . --target cargo_build -j4; \
+	else \
+		echo "OpenDAL source not found at $(OPENDAL_C_DIR); skip (clone into vendor/opendal to enable)"; \
+	fi
+
+# Build OpenDAL Zig plugin (optional; requires opendal-c artifacts)
+zig-opendal: install-zig opendal-c
+	@if [ -f "$(OPENDAL_LIB_DIR)/libopendal_c.a" ]; then \
+		echo "Building OpenDAL plugin..."; \
+		mkdir -p plugins/zig/opendal/bin; \
+		cd plugins/zig/opendal && $(ZIG) build-exe -fllvm -O ReleaseFast $(PLUGIN_MODULES) \
+			-I$(OPENDAL_INCLUDE) -L$(OPENDAL_LIB_DIR) -lopendal_c -lc -femit-bin=bin/opendal; \
+	else \
+		echo "OpenDAL C library not built; skipping zig-opendal (run 'make opendal-c' once vendor/opendal is present)"; \
+	fi
 
 # Run Zig plugin tests
 zig-plugins-test: zig-plugins
 	@echo "Testing Zig plugins..."
-	cd plugins/zig/jsonl && $(ZIG) test main.zig -fllvm
-	@echo "Testing JSONL plugin --jn-meta..."
-	plugins/zig/jsonl/bin/jsonl --jn-meta | python3 -c "import sys,json; json.load(sys.stdin); print('  --jn-meta: OK')"
-	@echo "Testing JSONL plugin read mode..."
-	echo '{"name":"Alice","age":30}' | plugins/zig/jsonl/bin/jsonl --mode=read | python3 -c "import sys,json; json.load(sys.stdin); print('  read mode: OK')"
+	cd plugins/zig/csv && $(ZIG) test -fllvm $(PLUGIN_MODULES)
+	cd plugins/zig/json && $(ZIG) test -fllvm $(PLUGIN_MODULES)
+	cd plugins/zig/jsonl && $(ZIG) test -fllvm $(PLUGIN_MODULES)
+	cd plugins/zig/gz && $(ZIG) test -fllvm $(PLUGIN_MODULES)
 	@echo "All Zig plugin tests passed"
 
 publish:

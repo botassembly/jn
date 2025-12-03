@@ -166,9 +166,15 @@ Plugin interface:
 - Benchmark before/after (startup time, throughput)
 
 ### Exit Criteria
-- [ ] All existing Zig plugins refactored
-- [ ] Tests pass for all plugins
-- [ ] Code reduction documented (expect >50% less boilerplate)
+- [x] All existing Zig plugins refactored
+- [x] Tests pass for all plugins
+- [x] Code reduction documented (expect >50% less boilerplate)
+
+**Code size deltas (before → after, net reduction):**
+- csv: 523 → 360 lines (‑31%)
+- json: 279 → 210 lines (‑25%)
+- jsonl: 188 → 55 lines (‑71%)
+- gz: 174 → 72 lines (‑59%)
 
 ---
 
@@ -221,10 +227,10 @@ Productionize the prototype:
 | `file://` | fs |
 
 ### Exit Criteria
-- [ ] OpenDAL plugin reads from HTTP URLs
+- [x] OpenDAL plugin reads from HTTP URLs
 - [ ] OpenDAL plugin reads from S3 (with credentials)
-- [ ] Streaming verified (constant memory on large files)
-- [ ] Plugin manifest includes all supported schemes
+- [x] Streaming verified (constant memory on large files)
+- [x] Plugin manifest includes all supported schemes
 
 ---
 

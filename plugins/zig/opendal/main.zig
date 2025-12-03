@@ -1,92 +1,225 @@
-// OpenDAL Zig Binding Prototype
-// Tests linking to the OpenDAL C library
-
 const std = @import("std");
+const jn_core = @import("jn-core");
+const jn_cli = @import("jn-cli");
+const jn_plugin = @import("jn-plugin");
+
 const c = @cImport({
     @cInclude("opendal.h");
 });
 
+const plugin_meta = jn_plugin.PluginMeta{
+    .name = "opendal",
+    .version = "0.3.0",
+    .matches = &.{
+        "^https?://.*",
+        "^file://.*",
+        "^s3://.*",
+        "^gs://.*",
+        "^gcs://.*",
+    },
+    .role = .protocol,
+    .modes = &.{ .raw },
+    .supports_raw = true,
+};
+
 pub fn main() !void {
-    // Test 1: Create a memory-backed operator
-    std.debug.print("Creating memory operator...\n", .{});
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
 
-    const result = c.opendal_operator_new("memory", null);
-    if (result.@"error" != null) {
-        std.debug.print("Error creating operator\n", .{});
-        c.opendal_error_free(result.@"error");
+    const args = jn_cli.parseArgs();
+    if (args.has("jn-meta")) {
+        try jn_plugin.outputManifestToStdout(plugin_meta);
         return;
     }
-    defer c.opendal_operator_free(result.op);
 
-    const op = result.op;
-    std.debug.print("Operator created successfully!\n", .{});
+    // Allow --url=value or first positional argument
+    const url_arg = args.get("url", null) orelse findPositionalUrl() orelse
+        jn_core.exitWithError("opendal: missing URL (pass --url=<address> or positional)", .{});
 
-    // Test 2: Write some data
-    const test_data = "Hello from JN OpenDAL prototype!";
-    var bytes = c.opendal_bytes{
-        .data = @constCast(@ptrCast(test_data.ptr)),
-        .len = test_data.len,
-        .capacity = test_data.len,
-    };
+    const uri = std.Uri.parse(url_arg) catch
+        jn_core.exitWithError("opendal: invalid URL '{s}'", .{url_arg});
 
-    std.debug.print("Writing data to /test.txt...\n", .{});
-    const write_err = c.opendal_operator_write(op, "/test.txt", &bytes);
-    if (write_err != null) {
-        std.debug.print("Error writing data\n", .{});
-        c.opendal_error_free(write_err);
-        return;
+    streamUrl(allocator, uri, args);
+}
+
+fn findPositionalUrl() ?[]const u8 {
+    var iter = std.process.args();
+    _ = iter.skip(); // skip program name
+    while (iter.next()) |arg| {
+        if (!std.mem.startsWith(u8, arg, "--")) {
+            return arg;
+        }
     }
-    std.debug.print("Write successful!\n", .{});
+    return null;
+}
 
-    // Test 3: Read the data back (full read)
-    std.debug.print("Reading data back...\n", .{});
-    const read_result = c.opendal_operator_read(op, "/test.txt");
-    if (read_result.@"error" != null) {
-        std.debug.print("Error reading data\n", .{});
-        c.opendal_error_free(read_result.@"error");
-        return;
+fn streamUrl(allocator: std.mem.Allocator, uri: std.Uri, args: jn_cli.ArgParser) void {
+    const scheme = uri.scheme;
+    const service: [:0]const u8 = if (std.mem.eql(u8, scheme, "http") or std.mem.eql(u8, scheme, "https"))
+        "http"
+    else if (std.mem.eql(u8, scheme, "file"))
+        "fs"
+    else if (std.mem.eql(u8, scheme, "s3"))
+        "s3"
+    else if (std.mem.eql(u8, scheme, "gs") or std.mem.eql(u8, scheme, "gcs"))
+        "gcs"
+    else
+        jn_core.exitWithError("opendal: unsupported scheme '{s}'", .{scheme});
+
+    const options = c.opendal_operator_options_new();
+    defer c.opendal_operator_options_free(options);
+
+    const endpoint = buildEndpointZ(allocator, uri) catch
+        jn_core.exitWithError("opendal: failed to build endpoint", .{});
+    defer allocator.free(endpoint);
+
+    const path = buildObjectPathZ(allocator, uri) catch
+        jn_core.exitWithError("opendal: failed to build path", .{});
+    defer allocator.free(path);
+    var object_path: [:0]const u8 = path;
+
+    if (std.mem.eql(u8, service, "http")) {
+        c.opendal_operator_options_set(options, "endpoint", endpoint);
+        applyDefaultHeaders(options, args) catch {};
+    } else if (std.mem.eql(u8, service, "fs")) {
+        const trimmed = trimLeadingSlash(path);
+        c.opendal_operator_options_set(options, "root", "/");
+        object_path = trimmed;
+    } else if (std.mem.eql(u8, service, "s3")) {
+        const bucket_comp = uri.host orelse jn_core.exitWithError("opendal: missing bucket in s3 URL", .{});
+        const bucket = componentToRawAlloc(allocator, bucket_comp) catch
+            jn_core.exitWithError("opendal: failed to parse bucket", .{});
+        c.opendal_operator_options_set(options, "bucket", toZ(allocator, bucket) catch
+            jn_core.exitWithError("opendal: alloc bucket", .{}));
+        c.opendal_operator_options_set(options, "region", getenvOrFallback(allocator, "AWS_REGION", "us-east-1") catch
+            jn_core.exitWithError("opendal: alloc region", .{}));
+        if (std.process.getEnvVarOwned(allocator, "AWS_ENDPOINT_URL")) |endpoint_url| {
+            defer allocator.free(endpoint_url);
+            c.opendal_operator_options_set(options, "endpoint", toZ(allocator, endpoint_url) catch
+                jn_core.exitWithError("opendal: alloc endpoint", .{}));
+        } else |_| {}
+        if (std.process.getEnvVarOwned(allocator, "AWS_ACCESS_KEY_ID")) |ak| {
+            defer allocator.free(ak);
+            c.opendal_operator_options_set(options, "access_key_id", toZ(allocator, ak) catch
+                jn_core.exitWithError("opendal: alloc access_key", .{}));
+        } else |_| {}
+        if (std.process.getEnvVarOwned(allocator, "AWS_SECRET_ACCESS_KEY")) |sk| {
+            defer allocator.free(sk);
+            c.opendal_operator_options_set(options, "secret_access_key", toZ(allocator, sk) catch
+                jn_core.exitWithError("opendal: alloc secret_key", .{}));
+        } else |_| {}
+        object_path = trimLeadingSlash(path);
+    } else if (std.mem.eql(u8, service, "gcs")) {
+        const bucket_comp = uri.host orelse jn_core.exitWithError("opendal: missing bucket in gcs URL", .{});
+        const bucket = componentToRawAlloc(allocator, bucket_comp) catch
+            jn_core.exitWithError("opendal: failed to parse bucket", .{});
+        c.opendal_operator_options_set(options, "bucket", toZ(allocator, bucket) catch
+            jn_core.exitWithError("opendal: alloc bucket", .{}));
+        if (std.process.getEnvVarOwned(allocator, "GOOGLE_APPLICATION_CREDENTIALS")) |cred_path| {
+            defer allocator.free(cred_path);
+            c.opendal_operator_options_set(options, "credential_path", toZ(allocator, cred_path) catch
+                jn_core.exitWithError("opendal: alloc credential path", .{}));
+        } else |_| {}
+        object_path = trimLeadingSlash(path);
     }
-    defer c.opendal_bytes_free(@constCast(&read_result.data));
 
-    const read_data = read_result.data;
-    std.debug.print("Read {d} bytes: {s}\n", .{ read_data.len, read_data.data[0..read_data.len] });
-
-    // Test 4: Streaming read (most important for JN!)
-    std.debug.print("\n--- Testing Streaming API ---\n", .{});
-
-    const reader_result = c.opendal_operator_reader(op, "/test.txt");
-    if (reader_result.@"error" != null) {
-        std.debug.print("Error creating reader\n", .{});
-        c.opendal_error_free(reader_result.@"error");
-        return;
+    const op_res = c.opendal_operator_new(service.ptr, options);
+    if (op_res.@"error" != null) {
+        reportErrorAndExit("opendal: operator error", op_res.@"error");
     }
-    defer c.opendal_reader_free(reader_result.reader);
+    defer c.opendal_operator_free(op_res.op);
 
-    const reader = reader_result.reader;
-    std.debug.print("Streaming reader created!\n", .{});
+    const reader_res = c.opendal_operator_reader(op_res.op, object_path.ptr);
+    if (reader_res.@"error" != null) {
+        reportErrorAndExit("opendal: reader error", reader_res.@"error");
+    }
+    defer c.opendal_reader_free(reader_res.reader);
 
-    // Read in chunks (simulating streaming)
-    var buf: [10]u8 = undefined;
-    var total_read: usize = 0;
+    var buf: [jn_core.STDOUT_BUFFER_SIZE]u8 = undefined;
+    const stdout = std.fs.File.stdout();
 
-    std.debug.print("Reading in 10-byte chunks:\n", .{});
     while (true) {
-        const chunk_result = c.opendal_reader_read(reader, &buf, buf.len);
-        if (chunk_result.@"error" != null) {
-            std.debug.print("Error in streaming read\n", .{});
-            c.opendal_error_free(chunk_result.@"error");
-            break;
+        const chunk = c.opendal_reader_read(reader_res.reader, &buf, buf.len);
+        if (chunk.@"error" != null) {
+            reportErrorAndExit("opendal: read error", chunk.@"error");
         }
-
-        const bytes_read = chunk_result.size;
-        if (bytes_read == 0) {
-            break; // EOF
-        }
-
-        total_read += bytes_read;
-        std.debug.print("  Chunk: '{s}'\n", .{buf[0..bytes_read]});
+        if (chunk.size == 0) break;
+        _ = stdout.write(buf[0..chunk.size]) catch |err| jn_core.handleWriteError(err);
     }
+}
 
-    std.debug.print("Total streamed: {d} bytes\n", .{total_read});
-    std.debug.print("\n=== OpenDAL prototype SUCCESS ===\n", .{});
+fn buildEndpointZ(allocator: std.mem.Allocator, uri: std.Uri) ![:0]u8 {
+    // For http(s): scheme://host[:port]
+    if (uri.host) |host_comp| {
+        const host = try componentToRawAlloc(allocator, host_comp);
+        if (uri.port) |port| {
+            return try toZ(allocator, try std.fmt.allocPrint(allocator, "{s}://{s}:{d}", .{ uri.scheme, host, port }));
+        }
+        return try toZ(allocator, try std.fmt.allocPrint(allocator, "{s}://{s}", .{ uri.scheme, host }));
+    }
+    // For file: endpoint unused; return empty string
+    return try toZ(allocator, try std.fmt.allocPrint(allocator, "", .{}));
+}
+
+fn buildObjectPathZ(allocator: std.mem.Allocator, uri: std.Uri) ![:0]u8 {
+    const path_part = try componentToRawAlloc(allocator, uri.path);
+    if (uri.query) |q_comp| {
+        const query = try componentToRawAlloc(allocator, q_comp);
+        return try toZ(allocator, try std.fmt.allocPrint(allocator, "{s}?{s}", .{ path_part, query }));
+    }
+    return try toZ(allocator, try std.fmt.allocPrint(allocator, "{s}", .{path_part}));
+}
+
+fn toZ(allocator: std.mem.Allocator, bytes: []const u8) ![:0]u8 {
+    return try std.mem.concatWithSentinel(allocator, u8, &.{bytes}, 0);
+}
+
+fn componentToRawAlloc(allocator: std.mem.Allocator, comp: std.Uri.Component) ![]const u8 {
+    return try comp.toRawMaybeAlloc(allocator);
+}
+
+fn trimLeadingSlash(path: [:0]const u8) [:0]const u8 {
+    if (path.len > 0 and path[0] == '/') {
+        return path[1..];
+    }
+    return path;
+}
+
+fn getenvOrFallback(allocator: std.mem.Allocator, key: []const u8, fallback: []const u8) ![:0]u8 {
+    if (std.process.getEnvVarOwned(allocator, key)) |val| {
+        return toZ(allocator, val);
+    } else |_| {
+        return toZ(allocator, fallback);
+    }
+}
+
+fn applyDefaultHeaders(options: [*c]c.struct_opendal_operator_options, args: jn_cli.ArgParser) !void {
+    if (args.get("headers", null)) |raw| {
+        // Expect JSON object from CLI
+        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+        defer arena.deinit();
+        const parsed = std.json.parseFromSlice(std.json.Value, arena.allocator(), raw, .{}) catch return;
+        if (parsed.value != .object) return;
+        var iter = parsed.value.object.iterator();
+        while (iter.next()) |entry| {
+            const key = try std.fmt.allocPrint(arena.allocator(), "default_headers.{s}", .{entry.key_ptr.*});
+            const key_z = try toZ(arena.allocator(), key);
+            switch (entry.value_ptr.*) {
+                .string => |v| {
+                    const val_z = try toZ(arena.allocator(), v);
+                    c.opendal_operator_options_set(options, key_z, val_z);
+                },
+                else => {},
+            }
+        }
+    }
+}
+
+fn reportErrorAndExit(prefix: []const u8, err: *c.struct_opendal_error) noreturn {
+    const msg = err.message;
+    const msg_slice = msg.data[0..msg.len];
+    std.debug.print("{s}: code={d} msg={s}\n", .{ prefix, err.code, msg_slice });
+    c.opendal_error_free(err);
+    std.process.exit(1);
 }

@@ -173,8 +173,8 @@ def test_read_json_multiline_formatted(json_binary):
 # --mode=write tests
 
 
-def test_write_passthrough(json_binary):
-    """Write mode should pass through NDJSON."""
+def test_write_outputs_array_by_default(json_binary):
+    """Write mode should emit a JSON array by default."""
     input_data = '{"a":1}\n{"a":2}\n'
     result = subprocess.run(
         [json_binary, "--mode=write"],
@@ -183,10 +183,38 @@ def test_write_passthrough(json_binary):
         text=True,
     )
     assert result.returncode == 0
-    lines = result.stdout.strip().split("\n")
+    data = json.loads(result.stdout)
+    assert isinstance(data, list)
+    assert data == [{"a": 1}, {"a": 2}]
+
+
+def test_write_ndjson_format_passthrough(json_binary):
+    """--format=ndjson should preserve NDJSON streaming."""
+    input_data = '{"a":1}\n{"a":2}\n'
+    result = subprocess.run(
+        [json_binary, "--mode=write", "--format=ndjson"],
+        input=input_data,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    lines = [line for line in result.stdout.split("\n") if line]
     assert len(lines) == 2
-    assert json.loads(lines[0]) == {"a": 1}
-    assert json.loads(lines[1]) == {"a": 2}
+    assert json.loads(lines[0])["a"] == 1
+    assert json.loads(lines[1])["a"] == 2
+
+
+def test_write_supports_indent(json_binary):
+    """--indent should pretty-print the output array."""
+    input_data = '{"a":1}\n{"a":2}\n'
+    result = subprocess.run(
+        [json_binary, "--mode=write", "--indent=2"],
+        input=input_data,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert result.stdout.startswith("[\n  {")
 
 
 # Integration with jn CLI

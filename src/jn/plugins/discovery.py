@@ -157,6 +157,7 @@ def _get_binary_metadata(binary: Path) -> Optional[PluginMetadata]:
             role=role,
             is_binary=True,
             modes=meta.get("modes"),
+            supports_raw=meta.get("supports_raw", False),
         )
     except (
         subprocess.TimeoutExpired,

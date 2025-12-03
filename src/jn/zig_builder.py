@@ -195,6 +195,35 @@ def get_cached_binary_path(name: str, source_hash: str) -> Path:
     return _CACHE_DIR / binary_name
 
 
+def _find_libs_root(source_path: Path) -> Optional[Path]:
+    """Locate the shared Zig libraries relative to a source file."""
+    for parent in source_path.parents:
+        candidate = parent / "libs" / "zig"
+        if (candidate / "jn-core" / "src" / "root.zig").exists():
+            return candidate
+    return None
+
+
+def _module_flags_for_plugin(source_path: Path) -> list[str]:
+    """Build module flags so plugins can import jn-core/jn-cli/jn-plugin."""
+    libs_root = _find_libs_root(source_path)
+    if not libs_root:
+        return []
+
+    return [
+        "--dep",
+        "jn-core",
+        "--dep",
+        "jn-cli",
+        "--dep",
+        "jn-plugin",
+        f"-Mroot={source_path.name}",
+        f"-Mjn-core={libs_root / 'jn-core' / 'src' / 'root.zig'}",
+        f"-Mjn-cli={libs_root / 'jn-cli' / 'src' / 'root.zig'}",
+        f"-Mjn-plugin={libs_root / 'jn-plugin' / 'src' / 'root.zig'}",
+    ]
+
+
 def is_zig_available() -> bool:
     """Check if Zig compiler is available.
 
@@ -224,6 +253,8 @@ def build_zig_binary(
     use_llvm: bool = True,
     optimize: str = "ReleaseFast",
     quiet: bool = False,
+    extra_flags: Optional[list[str]] = None,
+    use_module_syntax: bool = False,
 ) -> Optional[Path]:
     """Build a Zig binary from source.
 
@@ -233,6 +264,8 @@ def build_zig_binary(
         use_llvm: Use LLVM backend (more stable, required for some targets)
         optimize: Optimization level (Debug, ReleaseSafe, ReleaseFast, ReleaseSmall)
         quiet: Suppress warning messages
+        extra_flags: Additional Zig CLI flags (e.g., module definitions)
+        use_module_syntax: Use -Mroot to define the main module instead of positional args
 
     Returns:
         Path to compiled binary, or None if compilation failed
@@ -276,13 +309,17 @@ def build_zig_binary(
 
     # Build command
     zig_cmd = get_zig_command()
-    cmd = [
-        *zig_cmd,
-        "build-exe",
-        str(source_path),
-        f"-O{optimize}",
-        f"-femit-bin={cached_path}",
-    ]
+    cmd = [*zig_cmd, "build-exe"]
+
+    if not use_module_syntax:
+        cmd.append(str(source_path))
+
+    cmd.append(f"-O{optimize}")
+
+    if extra_flags:
+        cmd.extend(extra_flags)
+
+    cmd.append(f"-femit-bin={cached_path}")
 
     if use_llvm:
         cmd.append("-fllvm")
@@ -395,6 +432,10 @@ def get_or_build_plugin(plugin_name: str) -> Optional[Path]:
     # Bundled with package (installed via wheel)
     bundled = _find_bundled_zig_src()
     if bundled:
+        source_locations.append(
+            bundled / "plugins" / "zig" / plugin_name / "main.zig"
+        )
+        # Legacy wheel layout fallback (pre-library refactor)
         source_locations.append(bundled / "plugins" / plugin_name / "main.zig")
 
     # Development locations (repo root)
@@ -416,7 +457,13 @@ def get_or_build_plugin(plugin_name: str) -> Optional[Path]:
 
     for source_path in source_locations:
         if source_path.exists():
-            binary = build_zig_binary(source_path, f"jn-{plugin_name}")
+            module_flags = _module_flags_for_plugin(source_path)
+            binary = build_zig_binary(
+                source_path,
+                f"jn-{plugin_name}",
+                extra_flags=module_flags,
+                use_module_syntax=True,
+            )
             if binary:
                 return binary
 
@@ -434,11 +481,19 @@ def list_available_zig_plugins() -> list[str]:
     # Check bundled location
     bundled = _find_bundled_zig_src()
     if bundled:
-        plugins_dir = bundled / "plugins"
+        # Preferred layout (plugins/zig/<name>/main.zig)
+        plugins_dir = bundled / "plugins" / "zig"
         if plugins_dir.exists():
             for plugin_dir in plugins_dir.iterdir():
                 if plugin_dir.is_dir() and (plugin_dir / "main.zig").exists():
                     plugins.add(plugin_dir.name)
+        else:
+            # Legacy layout fallback
+            legacy_plugins = bundled / "plugins"
+            if legacy_plugins.exists():
+                for plugin_dir in legacy_plugins.iterdir():
+                    if plugin_dir.is_dir() and (plugin_dir / "main.zig").exists():
+                        plugins.add(plugin_dir.name)
 
     # Check development locations
     module_dir = Path(__file__).parent

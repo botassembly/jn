@@ -79,6 +79,10 @@ class PatternRegistry:
         proto = self.match_role(source, "protocol")
         fmt = self.match_role(source, "format")
 
+        # Heuristic: NCBI gene_info files are tabular; default to CSV format
+        if not fmt and source.endswith(".gene_info"):
+            fmt = "csv_"
+
         if proto and fmt:
             proto_meta = plugins.get(proto)
             if proto_meta and getattr(proto_meta, "supports_raw", False):

@@ -325,8 +325,8 @@ class AddressResolver:
                     # Protocol + format: insert decomp between them
                     stages = [stages[0], decomp_stage, stages[1]]
                 elif len(stages) == 1:
-                    # Single stage: add decomp before it
-                    stages = [decomp_stage, stages[0]]
+                    # Single stage (protocol/file): fetch -> decompress
+                    stages = [stages[0], decomp_stage]
             except KeyError:
                 raise AddressResolutionError(
                     f"Decompression plugin not found: {address.compression}"

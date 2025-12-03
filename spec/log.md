@@ -1,5 +1,29 @@
 # JN Zig Refactor - Work Log
 
+## 2025-12-03: Phase 2 - Plugin Refactor In Progress
+
+### Completed
+- Refactored Zig plugins (csv, json, jsonl, gz) to use shared libraries (`jn-core`, `jn-cli`, `jn-plugin`)
+- Added module-aware build flags for shared libs (Makefile + `zig_builder`) and packaged libs under `jn_home/zig_src/libs`
+- JSON plugin write mode now emits JSON arrays by default, with `--format=ndjson` passthrough and `--indent` pretty-print support
+- Updated Makefile to build/test all Zig plugins with shared module wiring
+- `make test` now runs Zig libs tests, Zig plugin build+tests, and pytest in one command
+- Started refactoring OpenDAL plugin to shared libs (manifest + streaming read skeleton)
+- Added optional OpenDAL build targets (`make opendal-c`, `make zig-opendal`) guarded on vendor/opendal presence
+- Cloned `vendor/opendal` (sparse checkout) and built `opendal_c` via CMake/Cargo; `make zig-opendal` now produces a binary that streams file:// URLs (verified)
+- HTTP/HTTPS now routed through OpenDAL → gzip → CSV pipelines; plan heuristics updated for gene_info.gz
+- All tests green after OpenDAL integration
+
+### Tests
+- `make zig-plugins-test` (with Zig 0.15.2)
+- `make test`
+
+### Code Reduction (before → after)
+- csv: 523 → 360 lines (‑31%)
+- json: 279 → 210 lines (‑25%)
+- jsonl: 188 → 55 lines (‑71%)
+- gz: 174 → 72 lines (‑59%)
+
 ## 2025-12-03: Phase 1 - Foundation Libraries Complete
 
 ### Foundation Libraries Implementation
