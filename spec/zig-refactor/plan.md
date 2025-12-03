@@ -58,6 +58,58 @@ jn (thin Zig orchestrator)
 
 ---
 
+## Features NOT Being Migrated (Deferred to Python Plugins)
+
+### Explicitly Deferred Protocols
+
+| Feature | Reason | Python Plugin |
+|---------|--------|---------------|
+| **Gmail** | OAuth2 complexity, Google API libraries | `gmail_.py` |
+| **MCP** | Model Context Protocol, evolving spec | `mcp_.py` |
+| **DuckDB** | SQL database, complex library binding | `duckdb_.py` |
+
+### Explicitly Deferred Formats
+
+| Feature | Reason | Python Plugin |
+|---------|--------|---------------|
+| **XLSX** | Complex ZIP + XML, requires openpyxl | `xlsx_.py` |
+| **Parquet** | Binary columnar format, requires pyarrow | User plugin |
+| **Avro** | Binary format, requires fastavro | User plugin |
+| **XML** | Complex parsing, many edge cases | `xml_.py` |
+
+### Explicitly Deferred Commands
+
+| Feature | Reason | Status |
+|---------|--------|--------|
+| **jn check** | Python-specific AST checker, obsolete for Zig | **Deprecate entirely** |
+| **jn vd** | VisiData integration, Python TUI | Keep as Python wrapper |
+| **jn plugin test** | Plugin testing framework | Defer to later phase |
+
+### Explicitly Deferred Profile Types
+
+| Profile Type | Reason | Status |
+|--------------|--------|--------|
+| **Gmail profiles** | Tied to gmail_.py plugin | Keep in Python |
+| **MCP profiles** | Tied to mcp_.py plugin | Keep in Python |
+| **DuckDB profiles** | Tied to duckdb_.py plugin | Keep in Python |
+
+### Features That May Never Migrate
+
+| Feature | Reason |
+|---------|--------|
+| **Python plugin checker** | Zig plugins don't need it; backpressure violations impossible |
+| **OAuth2 flows** | Complex browser-based auth better in Python |
+| **Rich TUI output** | VisiData, interactive prompts stay Python |
+
+### Migration Strategy for Deferred Features
+
+1. **Keep Python plugins functional** - They work via `uv run --script`
+2. **Zig discovery supports Python** - PEP 723 parsing without execution
+3. **Priority ordering** - Zig plugins preferred when available
+4. **Fallback chain** - Zig read → Python write (e.g., JSON indent)
+
+---
+
 ## Phase 0: Preparation and Cleanup
 
 ### 0.1 Deprecate Python Plugin Checker
@@ -293,40 +345,103 @@ jn (thin Zig orchestrator)
 
 ## Phase 4: Profile System (Zig)
 
+**Python equivalent**: `src/jn/profiles/` (1,202 lines total)
+
 ### 4.1 Profile Directory Resolution
 - [ ] Create `libs/zig/jn-profile/dirs.zig`
 - [ ] Implement search path discovery
   - [ ] Project: `.jn/profiles` (walk up from cwd)
   - [ ] User: `~/.local/jn/profiles`
   - [ ] System: `$JN_HOME/profiles`
-- [ ] Implement priority ordering
+- [ ] Implement priority ordering (project > user > system)
+- [ ] Type subdirectory mapping (http/, zq/, etc.)
 
 ### 4.2 Profile Loading
 - [ ] Create `libs/zig/jn-profile/loader.zig`
 - [ ] Implement JSON file loading
 - [ ] Implement hierarchical merge (`_meta.json` + `endpoint.json`)
 - [ ] Implement deep merge for nested objects
+- [ ] Handle missing optional files gracefully
 
 ### 4.3 Environment Variable Substitution
 - [ ] Create `libs/zig/jn-profile/env.zig`
 - [ ] Implement `${VAR}` pattern detection
-- [ ] Implement recursive substitution
+- [ ] Implement recursive substitution (nested objects/arrays)
 - [ ] Implement default value syntax `${VAR:-default}`
 - [ ] Error on missing required variables
+- [ ] Security: Don't log/expose resolved secrets
 
-### 4.4 Profile Reference Resolution
-- [ ] Create `libs/zig/jn-profile/resolve.zig`
-- [ ] Parse `@namespace/name?params`
-- [ ] Map namespace to type directory
-- [ ] Load and merge profile
-- [ ] Substitute environment variables
-- [ ] Return URL + headers (for HTTP)
+### 4.4 Profile Reference Parsing
+- [ ] Create `libs/zig/jn-profile/reference.zig`
+- [ ] Parse `@namespace/name` syntax
+- [ ] Parse `@namespace/name?param=value` with query params
+- [ ] Map namespace to profile type directory
+- [ ] Extract and validate parameters
 
 ### 4.5 HTTP Profile Support
-- [ ] Implement HTTP-specific profile handling
-- [ ] Build URL from base_url + path
-- [ ] Build headers with auth substitution
-- [ ] Validate parameters against allowed list
+- [ ] Create `libs/zig/jn-profile/http.zig`
+- [ ] Load `_meta.json` for base config:
+  ```json
+  {"base_url": "https://api.example.com", "headers": {"Authorization": "Bearer ${TOKEN}"}}
+  ```
+- [ ] Load `endpoint.json` for specific endpoint:
+  ```json
+  {"path": "/v1/users", "method": "GET", "params": ["limit", "offset"]}
+  ```
+- [ ] Merge: base_url + path → full URL
+- [ ] Merge: headers with env var substitution
+- [ ] Validate provided params against allowed list
+- [ ] Return: (url, headers, method)
+
+### 4.6 ZQ Filter Profile Support
+- [ ] Create `libs/zig/jn-profile/zq.zig`
+- [ ] Scan `profiles/zq/**/*.{zq,jq}` files
+- [ ] Extract description from first `#` comment
+- [ ] Extract parameters from `# Parameters: x, y, z` line
+- [ ] Fallback: detect `$param` references in content
+- [ ] Parameter substitution:
+  - [ ] Numeric values: unquoted (for comparisons)
+  - [ ] String values: quoted (for equality)
+- [ ] Strip `#` comment lines from output
+- [ ] Collapse multi-line to single line
+
+### 4.7 Profile CLI Tool (jn-profile)
+- [ ] Create `tools/zig/jn-profile/main.zig`
+
+#### 4.7.1 List Subcommand
+- [ ] `jn profile list [query]` - List/search profiles
+- [ ] `--type {http,zq}` filter by type
+- [ ] `--format {text,json}` output format
+- [ ] Group output by type and namespace
+
+#### 4.7.2 Info Subcommand
+- [ ] `jn profile info @namespace/name` - Show details
+- [ ] Display: path, description, parameters, examples
+- [ ] Auto-generate usage examples
+- [ ] `--format {text,json}` output format
+
+#### 4.7.3 Tree Subcommand
+- [ ] `jn profile tree` - Hierarchical view
+- [ ] `--type {http,zq}` filter
+- [ ] ASCII tree structure
+
+### 4.8 Profile Discovery Service
+- [ ] Create `libs/zig/jn-profile/discovery.zig`
+- [ ] Scan all profile directories
+- [ ] Build ProfileInfo records:
+  ```zig
+  const ProfileInfo = struct {
+      reference: []const u8,    // "@namespace/name"
+      profile_type: []const u8, // "http", "zq"
+      namespace: []const u8,
+      name: []const u8,
+      path: []const u8,
+      description: []const u8,
+      params: []const []const u8,
+  };
+  ```
+- [ ] Cache discovery results
+- [ ] Support search/filter operations
 
 ---
 
@@ -602,25 +717,115 @@ Plugin Search Order (highest to lowest priority):
 
 ---
 
-## Phase 11: Advanced Commands (Stretch)
+## Phase 11: Join and Merge Commands
 
-### 11.1 jn-join
+### 11.1 jn-join (Hash Join with Aggregations)
+
+**Python equivalent**: `src/jn/cli/commands/join.py` (405 lines)
+
+**Architecture**: Right source buffered in memory, left source streams
+
+#### 11.1.1 Basic Infrastructure
 - [ ] Create `tools/zig/jn-join/main.zig`
-- [ ] Implement hash join on key field
-- [ ] Support join types (inner, left, outer)
-- [ ] Handle memory limits (spill to disk)
+- [ ] Implement hash map for right source lookup
+- [ ] Stream left source from stdin
+- [ ] Output joined records to stdout
 
-### 11.2 jn-merge
+#### 11.1.2 Join Key Modes
+- [ ] Natural join: `--on field` (same field name both sides)
+- [ ] Named join: `--left-key X --right-key Y` (different names)
+- [ ] Composite keys: `--on field1,field2` (multiple fields)
+
+#### 11.1.3 Join Types
+- [ ] Left join (default): All left records, nulls for no match
+- [ ] Inner join (`--inner`): Only records with matches
+- [ ] Outer join consideration (may defer - requires buffering both sides)
+
+#### 11.1.4 Range/Condition Joins
+- [ ] `--where` expression for condition-based matching
+- [ ] Expression evaluation: `.line >= .start_line and .line <= .end_line`
+- [ ] Secure expression parser (no eval, whitelist operators)
+- [ ] Access both left (`.field`) and right (`$field` or context) values
+
+#### 11.1.5 Output Modes
+- [ ] Embed as array: `--target field` → matches embedded as array
+  ```json
+  {"id": 1, "orders": [{"order_id": "O1"}, {"order_id": "O2"}]}
+  ```
+- [ ] Flatten single match: `--flatten` → merge fields directly
+- [ ] Field selection: `--pick field1,field2` → only include specific right fields
+
+#### 11.1.6 Aggregation Functions
+- [ ] `--agg "name: func(.field), ..."` syntax
+- [ ] Implement aggregators:
+  - [ ] `count` - Number of matches
+  - [ ] `sum(.field)` - Sum of numeric values
+  - [ ] `avg(.field)` - Average
+  - [ ] `min(.field)` - Minimum
+  - [ ] `max(.field)` - Maximum
+- [ ] Expression parser for aggregation specs
+
+#### 11.1.7 Right Source Loading
+- [ ] Spawn `jn-cat` to read right source (any format/protocol)
+- [ ] Build hash map from right records
+- [ ] Memory limit consideration (warn if exceeds threshold)
+
+### 11.2 jn-merge (Multi-Source Combination)
+
+**Python equivalent**: `src/jn/cli/commands/merge.py` (154 lines)
+
+#### 11.2.1 Basic Infrastructure
 - [ ] Create `tools/zig/jn-merge/main.zig`
-- [ ] Implement sequential merge (concatenate streams)
-- [ ] Implement interleaved merge
-- [ ] Add source tagging
+- [ ] Accept multiple source arguments
+- [ ] Process sources sequentially
+
+#### 11.2.2 Source Specification
+- [ ] Parse `source:label=CustomLabel` syntax
+- [ ] Default label to source address if not specified
+- [ ] Support all source types (files, URLs, profiles)
+
+#### 11.2.3 Source Tagging
+- [ ] Inject `_source` field with source address
+- [ ] Inject `_label` field with custom or default label
+- [ ] Configurable field names: `--source-field`, `--label-field`
+
+#### 11.2.4 Error Handling
+- [ ] Fail-safe mode (default): Skip failed sources, continue
+- [ ] Fail-fast mode (`--fail-fast`): Stop on first error
+- [ ] Per-source error reporting
+
+#### 11.2.5 Source Execution
+- [ ] Spawn `jn-cat` for each source
+- [ ] Stream output with metadata injection
+- [ ] Handle subprocess errors gracefully
 
 ### 11.3 jn-sh (Shell Integration)
+
+**Python equivalent**: `src/jn/cli/commands/sh.py` (163 lines)
+
+#### 11.3.1 Basic Infrastructure
 - [ ] Create `tools/zig/jn-sh/main.zig`
-- [ ] Execute shell command
-- [ ] Parse output to NDJSON (via parsers or jc integration)
-- [ ] Handle exit codes
+- [ ] Execute shell command via `/bin/sh -c`
+- [ ] Capture stdout
+
+#### 11.3.2 Output Parsing
+- [ ] Detect command type for parser selection
+- [ ] Implement common parsers:
+  - [ ] `ls` → file objects
+  - [ ] `ps` → process objects
+  - [ ] `df` → disk usage objects
+  - [ ] `env` → key-value objects
+- [ ] Fallback: line-by-line with `_line` field
+
+#### 11.3.3 jc Integration (Optional)
+- [ ] Check if `jc` available in PATH
+- [ ] Delegate to `jc` for 70+ supported commands
+- [ ] Parse jc JSON output
+
+#### 11.3.4 Error Handling
+- [ ] Capture stderr
+- [ ] Propagate exit codes
+- [ ] Error records with `_error` field
 
 ---
 
@@ -703,24 +908,43 @@ Plugin Search Order (highest to lowest priority):
 
 ## Timeline Estimate
 
-| Phase | Effort | Cumulative |
-|-------|--------|------------|
-| Phase 0: Prep | 1 day | 1 day |
-| Phase 1: Foundation | 1 week | 1 week |
-| Phase 2: Plugin Refactor | 3 days | 2 weeks |
-| Phase 3: Address Parser | 3 days | 2 weeks |
-| Phase 4: Profiles | 4 days | 3 weeks |
-| Phase 5: Core CLI | 1 week | 4 weeks |
-| Phase 6: HTTP | 4 days | 5 weeks |
-| Phase 7: Analysis | 4 days | 5 weeks |
-| Phase 8: Discovery | 3 days | 6 weeks |
-| Phase 9: Orchestrator | 2 days | 6 weeks |
-| Phase 10: Extended | 1 week | 7 weeks |
-| Phase 11: Advanced | 1 week | 8 weeks |
-| Phase 12: Testing | 1 week | 9 weeks |
-| Phase 13: Migration | 1 week | 10 weeks |
+| Phase | Effort | Cumulative | Notes |
+|-------|--------|------------|-------|
+| Phase 0: Prep | 1 day | 1 day | Cleanup, inventory |
+| Phase 1: Foundation | 1 week | 1.5 weeks | libjn-core, libjn-cli, libjn-plugin |
+| Phase 2: Plugin Refactor | 3 days | 2 weeks | Refactor existing Zig plugins |
+| Phase 3: Address Parser | 3 days | 2.5 weeks | Universal addressing |
+| Phase 4: Profiles | 1 week | 3.5 weeks | HTTP + ZQ profiles, CLI tool |
+| Phase 5: Core CLI | 1 week | 4.5 weeks | cat, put, filter, head, tail |
+| Phase 6: HTTP | 4 days | 5 weeks | HTTP protocol plugin |
+| Phase 7: Analysis | 4 days | 5.5 weeks | inspect, analyze, table |
+| Phase 8: Discovery | 4 days | 6 weeks | Polyglot plugin discovery |
+| Phase 9: Orchestrator | 2 days | 6.5 weeks | jn command dispatcher |
+| Phase 10: Extended Formats | 1 week | 7.5 weeks | YAML, TOML, Markdown |
+| Phase 11: Join/Merge/Sh | 1.5 weeks | 9 weeks | High-value data commands |
+| Phase 12: Testing | 1 week | 10 weeks | Unit, integration, benchmarks |
+| Phase 13: Migration | 1 week | 11 weeks | Compatibility, rollout |
 
-**Total**: ~10 weeks (2.5 months) of focused effort
+**Total**: ~11 weeks (2.75 months) of focused effort
+
+### Priority Order (if time-constrained)
+
+**Must Have** (Phases 0-5, 8-9): ~6.5 weeks
+- Foundation libraries
+- Core commands (cat, put, filter, head, tail)
+- Plugin discovery (Zig + Python)
+- Orchestrator
+
+**Should Have** (Phases 4, 6-7, 11): ~3.5 weeks
+- Full profile system
+- HTTP protocol
+- Analysis tools
+- Join/Merge commands
+
+**Nice to Have** (Phases 10, 12-13): ~3 weeks
+- Extended format plugins
+- Comprehensive testing
+- Migration tooling
 
 ---
 
