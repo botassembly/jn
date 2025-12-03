@@ -21,7 +21,7 @@ from ...process_utils import popen_with_validation
     "--filter",
     "-f",
     "filter_expr",
-    help="Pre-filter with jq expression before viewing",
+    help="Pre-filter with ZQ expression before viewing",
 )
 @click.pass_obj
 def vd(ctx: JNContext, source: str, filter_expr: str) -> None:
@@ -122,39 +122,15 @@ def vd(ctx: JNContext, source: str, filter_expr: str) -> None:
                 cat_cmd.extend(["--headers", json.dumps(resolved.headers)])
             cat_cmd.append(resolved.url)
 
-        # Phase 2: filter (optional)
+        # Phase 2: filter (optional) - use built-in ZQ filter
         if filter_expr:
-            # Find jq filter plugin
-            filter_plugin = None
-            for plugin in plugins.values():
-                from pathlib import Path
-
-                plugin_path = (
-                    Path(plugin.path)
-                    if isinstance(plugin.path, str)
-                    else plugin.path
-                )
-                if "jq" in plugin_path.name.lower():
-                    filter_plugin = plugin
-                    break
-
-            if not filter_plugin:
-                click.echo(
-                    "Warning: jq filter plugin not found, skipping filter",
-                    err=True,
-                )
-                filter_cmd = None
-            else:
-                filter_cmd = [
-                    "uv",
-                    "run",
-                    "--script",
-                    str(filter_plugin.path),
-                    "--mode",
-                    "filter",
-                    "--expr",
-                    filter_expr,
-                ]
+            filter_cmd = [
+                sys.executable,
+                "-m",
+                "jn.cli.main",
+                "filter",
+                filter_expr,
+            ]
         else:
             filter_cmd = None
 

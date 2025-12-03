@@ -80,7 +80,7 @@ def filter(ctx, query, slurp):
     - A profile reference: '@sales/by_region?region=East'
 
     Profile Support:
-    - Profiles are stored in profiles/jq/{namespace}/{name}.jq
+    - Profiles are stored in profiles/zq/{namespace}/{name}.zq
     - Parameters are substituted: $param → "value"
     - Example: '@sales/by_region?region=East' resolves the profile
       and replaces $region with "East"
@@ -150,7 +150,7 @@ def filter(ctx, query, slurp):
             # Resolve profile with string substitution
             resolved_query = resolve_profile(
                 addr.base,
-                plugin_name="jq_",
+                plugin_name="zq_",
                 params=addr.parameters,
             )
         except ProfileError as e:

@@ -1,6 +1,6 @@
 """Filter building utilities for converting query parameters to ZQ expressions.
 
-ZQ is JN's built-in filter engine (a jq-compatible subset implemented in Zig).
+ZQ is JN's built-in filter engine (a JSON query language subset implemented in Zig).
 This module builds ZQ filter expressions from URL query parameters.
 """
 
@@ -164,10 +164,6 @@ def format_zq_condition(field: str, operator: str, value: any) -> str:
     return f".{field} {operator} {value_str}"
 
 
-# Alias for backward compatibility
-format_jq_condition = format_zq_condition
-
-
 def build_zq_filter(filters: List[Tuple[str, str, str]]) -> str:
     """Build ZQ filter expression from filter parameters.
 
@@ -234,10 +230,6 @@ def build_zq_filter(filters: List[Tuple[str, str, str]]) -> str:
     condition = clauses[0] if len(clauses) == 1 else " and ".join(clauses)
 
     return f"select({condition})"
-
-
-# Alias for backward compatibility
-build_jq_filter = build_zq_filter
 
 
 def separate_config_and_filters(

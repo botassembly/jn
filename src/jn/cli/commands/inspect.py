@@ -8,7 +8,7 @@ import click
 
 from ...addressing import parse_address
 from ...context import pass_context
-from ...filtering import build_jq_filter, separate_config_and_filters
+from ...filtering import build_zq_filter, separate_config_and_filters
 from ...introspection import get_plugin_config_params
 from ...process_utils import popen_with_validation
 from ..helpers import build_subprocess_env_for_coverage, check_uv_available
@@ -482,9 +482,9 @@ def _inspect_data(ctx, address_str: str, limit: int) -> dict:
 
     # Add filter if needed
     if filters:
-        jq_expr = build_jq_filter(filters)
+        zq_expr = build_zq_filter(filters)
         filter_proc = popen_with_validation(
-            [*JN_CLI, "filter", jq_expr],
+            [*JN_CLI, "filter", zq_expr],
             stdin=cat_proc.stdout,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

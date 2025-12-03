@@ -35,7 +35,7 @@ def _eval_where(expr: str, left: dict, right: dict) -> bool:
     # Pattern matches .fieldname
     py_expr = re.sub(r"\.([a-zA-Z_][a-zA-Z0-9_]*)", replace_field, expr)
 
-    # Replace 'and' and 'or' (jq style) to Python
+    # Replace 'and' and 'or' (ZQ style) to Python
     py_expr = py_expr.replace(" and ", " and ")
     py_expr = py_expr.replace(" or ", " or ")
 

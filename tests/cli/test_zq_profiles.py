@@ -1,7 +1,7 @@
 """Tests for ZQ profile system with named filters.
 
-ZQ is JN's built-in filter engine (a jq-compatible subset implemented in Zig).
-Profiles are reusable filter expressions stored in profiles/jq/ directories.
+ZQ is JN's built-in filter engine (a JSON query language subset implemented in Zig).
+Profiles are reusable filter expressions stored in profiles/zq/ directories.
 """
 
 import json
@@ -35,11 +35,11 @@ def test_zq_direct_query(invoke):
 def test_zq_profile_string_substitution_simple(invoke, tmp_path, monkeypatch):
     """Test ZQ profile with string substitution for string values."""
     # Create a ZQ profile that uses $variables
-    profile_dir = tmp_path / "profiles" / "jq" / "test"
+    profile_dir = tmp_path / "profiles" / "zq" / "test"
     profile_dir.mkdir(parents=True)
 
     # Create filter that uses $value variable (string substitution wraps in quotes)
-    (profile_dir / "filter_by_city.jq").write_text(
+    (profile_dir / "filter_by_city.zq").write_text(
         """# Filter by city value
 # Parameters: value
 select(.city == $value)
@@ -74,12 +74,12 @@ select(.city == $value)
 
 def test_zq_profile_string_substitution_numeric(invoke, tmp_path, monkeypatch):
     """Test ZQ profile with string substitution for numeric comparison."""
-    profile_dir = tmp_path / "profiles" / "jq" / "test"
+    profile_dir = tmp_path / "profiles" / "zq" / "test"
     profile_dir.mkdir(parents=True)
 
     # Create filter that compares against numeric threshold
     # Note: numeric values are not quoted, so no tonumber needed on threshold
-    (profile_dir / "above_threshold.jq").write_text(
+    (profile_dir / "above_threshold.zq").write_text(
         """# Filter items above threshold
 # Parameters: threshold (numeric)
 select(.revenue > $threshold)

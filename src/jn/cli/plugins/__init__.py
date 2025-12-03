@@ -158,7 +158,7 @@ def call(ctx, args):
     Examples:
         jn plugin call csv_ --mode read < input.csv
         jn plugin call csv_ --test
-        jn plugin call jq_ --query '.name'
+        jn plugin call json_ --mode read < data.json
     """
     # First arg is the plugin name, rest are plugin arguments
     if not args:

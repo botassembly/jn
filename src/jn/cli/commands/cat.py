@@ -15,7 +15,7 @@ from ...addressing import (
     parse_address,
 )
 from ...context import pass_context
-from ...filtering import build_jq_filter, separate_config_and_filters
+from ...filtering import build_zq_filter, separate_config_and_filters
 from ...introspection import get_plugin_config_params
 from ...process_utils import popen_with_validation
 from ...shell.jc_fallback import execute_with_jc, supports_command
@@ -90,7 +90,7 @@ def _execute_with_filter(stages, addr, filters, home_dir=None):
     Args:
         stages: Execution stages to run
         addr: Parsed address
-        filters: Optional jq filters to apply
+        filters: Optional ZQ filters to apply
         home_dir: JN home directory (overrides $JN_HOME)
     """
 
@@ -192,9 +192,9 @@ def _execute_with_filter(stages, addr, filters, home_dir=None):
             return
 
         if filters:
-            jq_expr = build_jq_filter(filters)
+            zq_expr = build_zq_filter(filters)
             filter_proc = popen_with_validation(
-                [sys.executable, "-m", "jn.cli.main", "filter", jq_expr],
+                [sys.executable, "-m", "jn.cli.main", "filter", zq_expr],
                 stdin=reader_stdout,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -269,7 +269,7 @@ def cat(ctx, input_file):
 
     Query parameters can be either config or filters:
     - Config params (delimiter, limit, etc.) are passed to the plugin
-    - Filter params (field=value) are applied as jq filters after reading
+    - Filter params (field=value) are applied as ZQ filters after reading
 
     Filter syntax:
     - Same field multiple times: OR logic (city=NYC&city=LA)

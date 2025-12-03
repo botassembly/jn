@@ -36,7 +36,7 @@ def _get_profile_types(home_dir=None, plugin_dir=None, cache_path=None):
     Returns list of profile types that have profiles or support profile management.
     """
     # Start with known profile types as baseline
-    types = {"jq", "http", "gmail", "mcp", "duckdb"}
+    types = {"zq", "http", "gmail", "mcp", "duckdb"}
 
     # Try to add discovered plugins (this enriches the list with custom plugins)
     try:
@@ -59,7 +59,7 @@ def _get_profile_types(home_dir=None, plugin_dir=None, cache_path=None):
                 profile_type = plugin.name.rstrip("_")
                 types.add(profile_type)
 
-        # Add filter plugins (jq)
+        # Add filter plugins (zq)
         for plugin in plugins.values():
             if plugin.role == "filter":
                 types.add(plugin.name.rstrip("_"))
@@ -105,7 +105,7 @@ def list_cmd(ctx, query, output_format, type_filter):
     Examples:
         jn profile list                  # List all profiles
         jn profile list pivot            # Search for "pivot"
-        jn profile list --type jq        # Only JQ profiles
+        jn profile list --type zq        # Only ZQ profiles
         jn profile list gmail --format json
     """
     # Get discovered plugins for inspect-profiles mode
@@ -266,7 +266,7 @@ def info(ctx, reference, output_format):
                 click.echo()
 
         # Generic usage examples based on type
-        elif profile.type == "jq":
+        elif profile.type == "zq":
             click.echo("\nUsage:")
             click.echo(f"  jn cat data.json | jn filter '{profile.reference}'")
             if profile.params:
@@ -300,7 +300,7 @@ def tree(ctx, type_filter):
 
     Examples:
         jn profile tree
-        jn profile tree --type jq
+        jn profile tree --type zq
     """
     # Get discovered plugins for inspect-profiles mode
     plugins = get_cached_plugins_with_fallback(

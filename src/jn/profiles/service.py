@@ -19,7 +19,7 @@ class ProfileInfo:
     """Profile metadata."""
 
     reference: str  # "@gmail/inbox" or "@builtin/pivot"
-    type: str  # "gmail", "jq", "http", "mcp"
+    type: str  # "gmail", "zq", "http", "mcp"
     namespace: str  # "gmail", "builtin", "genomoncology"
     name: str  # "inbox", "pivot"
     path: Path  # Full file path
@@ -75,12 +75,12 @@ def _get_profile_paths(home_dir: Optional[Path] = None) -> List[Path]:
     return paths
 
 
-def _parse_jq_profile(jq_file: Path, profile_root: Path) -> ProfileInfo:
-    """Parse JQ profile from .jq file.
+def _parse_zq_profile(zq_file: Path, profile_root: Path) -> ProfileInfo:
+    """Parse ZQ profile from .zq or .jq file.
 
     Extracts description and parameters from comments at top of file.
     """
-    content = jq_file.read_text()
+    content = zq_file.read_text()
 
     # Extract description from first comment line
     description = ""
@@ -119,13 +119,19 @@ def _parse_jq_profile(jq_file: Path, profile_root: Path) -> ProfileInfo:
         seen = set()
         params = [p for p in params if not (p in seen or seen.add(p))]
 
-    # Build reference from path
-    rel_path = jq_file.relative_to(profile_root / "jq")
+    # Build reference from path - check both zq and jq directories
+    try:
+        rel_path = zq_file.relative_to(profile_root / "zq")
+        profile_type = "zq"
+    except ValueError:
+        rel_path = zq_file.relative_to(profile_root / "jq")
+        profile_type = "zq"  # Still use zq as type even for legacy .jq files
+
     parts = rel_path.with_suffix("").parts
 
     if len(parts) == 1:
         # No subdirectory - use profile type as namespace
-        namespace = "jq"
+        namespace = profile_type
         name = parts[0]
     else:
         namespace = parts[0]
@@ -135,10 +141,10 @@ def _parse_jq_profile(jq_file: Path, profile_root: Path) -> ProfileInfo:
 
     return ProfileInfo(
         reference=reference,
-        type="jq",
+        type="zq",
         namespace=namespace,
         name=name,
-        path=jq_file,
+        path=zq_file,
         description=description,
         params=params,
     )
@@ -213,12 +219,16 @@ def list_all_profiles(
         if profile and profile.reference not in profiles_by_ref:
             profiles_by_ref[profile.reference] = profile
 
-    # JQ profiles still use filesystem scanning (no plugin to call)
+    # ZQ profiles still use filesystem scanning (no plugin to call)
+    # Check both zq/ and jq/ directories for compatibility
     for profile_root in _get_profile_paths(home_dir):
-        jq_dir = profile_root / "jq"
-        if jq_dir.exists():
-            for jq_file in jq_dir.rglob("*.jq"):
-                _add_profile(_parse_jq_profile(jq_file, profile_root))
+        for dir_name in ("zq", "jq"):
+            zq_dir = profile_root / dir_name
+            if zq_dir.exists():
+                for zq_file in zq_dir.rglob("*.zq"):
+                    _add_profile(_parse_zq_profile(zq_file, profile_root))
+                for zq_file in zq_dir.rglob("*.jq"):
+                    _add_profile(_parse_zq_profile(zq_file, profile_root))
 
     # Call plugins with --mode inspect-profiles to discover plugin-managed profiles
     # This replaces hardcoded directory scanning for http, gmail, mcp, duckdb, etc.
@@ -313,7 +323,7 @@ def search_profiles(
 
     Args:
         query: Search term (case-insensitive), or None for all
-        type_filter: Optional filter by type ("jq", "gmail", "http", "mcp")
+        type_filter: Optional filter by type ("zq", "gmail", "http", "mcp")
         discovered_plugins: Optional dict of discovered plugins for inspect-profiles mode
         home_dir: JN home directory (overrides $JN_HOME)
         builtin_plugins: Optional dict of builtin plugins for fallback
