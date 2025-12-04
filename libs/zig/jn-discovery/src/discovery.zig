@@ -238,7 +238,11 @@ pub fn discoverZigPlugin(
     defer allocator.free(stdout);
 
     const result = child.wait() catch return null;
-    if (result.Exited != 0) return null;
+    // Check for successful exit (not signal/stop/unknown)
+    switch (result) {
+        .Exited => |code| if (code != 0) return null,
+        else => return null, // Signal, Stop, or Unknown - treat as failure
+    }
 
     // Parse JSON output
     const parsed = std.json.parseFromSlice(std.json.Value, allocator, stdout, .{}) catch return null;
