@@ -234,6 +234,9 @@ zig-tools: install-zig
 	mkdir -p tools/zig/jn-tail/bin
 	mkdir -p tools/zig/jn-analyze/bin
 	mkdir -p tools/zig/jn-inspect/bin
+	mkdir -p tools/zig/jn-join/bin
+	mkdir -p tools/zig/jn-merge/bin
+	mkdir -p tools/zig/jn-sh/bin
 	cd tools/zig/jn-cat && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-cat
 	cd tools/zig/jn-put && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-put
 	cd tools/zig/jn-filter && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-filter
@@ -241,6 +244,9 @@ zig-tools: install-zig
 	cd tools/zig/jn-tail && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-tail
 	cd tools/zig/jn-analyze && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-analyze
 	cd tools/zig/jn-inspect && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-inspect
+	cd tools/zig/jn-join && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-join
+	cd tools/zig/jn-merge && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-merge
+	cd tools/zig/jn-sh && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-sh
 	@echo "Zig CLI tools built successfully"
 
 # Test CLI tools
@@ -253,4 +259,7 @@ zig-tools-test: zig-tools
 	cd tools/zig/jn-tail && $(ZIG) test -fllvm $(TOOL_MODULES)
 	cd tools/zig/jn-analyze && $(ZIG) test -fllvm $(TOOL_MODULES)
 	cd tools/zig/jn-inspect && $(ZIG) test -fllvm $(TOOL_MODULES)
+	cd tools/zig/jn-join && $(ZIG) test -fllvm $(TOOL_MODULES)
+	cd tools/zig/jn-merge && $(ZIG) test -fllvm $(TOOL_MODULES)
+	cd tools/zig/jn-sh && $(ZIG) test -fllvm $(TOOL_MODULES)
 	@echo "All Zig CLI tool tests passed"
