@@ -12,6 +12,14 @@
 //! # role = "format"
 //! # ///
 //! ```
+//!
+//! Supports multi-line arrays:
+//! ```python
+//! # matches = [
+//! #   ".*\\.csv$",
+//! #   ".*\\.tsv$"
+//! # ]
+//! ```
 
 const std = @import("std");
 
@@ -85,25 +93,84 @@ pub fn parseToolJn(allocator: std.mem.Allocator, content: []const u8) !?ToolJnMe
         r.deinit();
     }
 
+    // Collect all stripped lines for multi-line parsing
+    var lines: std.ArrayListUnmanaged([]const u8) = .empty;
+    defer lines.deinit(allocator);
+
     var line_iter = std.mem.splitScalar(u8, block[after_tool_jn..], '\n');
     while (line_iter.next()) |line| {
-        // Strip comment prefix and whitespace
         const stripped = stripCommentPrefix(line);
-
-        // Stop at next section or empty content
         if (stripped.len == 0) continue;
         if (stripped[0] == '[') break; // Next section
+        try lines.append(allocator, stripped);
+    }
 
-        // Parse TOML-like key = value
-        if (parseTomlLine(allocator, stripped)) |kv| {
-            errdefer {
-                allocator.free(kv.key);
-                freeJsonValue(allocator, kv.value);
-            }
-            try result.put(kv.key, kv.value);
-        } else |_| {
-            // Skip invalid lines
+    // Parse lines with multi-line array support
+    var i: usize = 0;
+    while (i < lines.items.len) {
+        const line = lines.items[i];
+
+        // Find '=' separator
+        const eq_pos = std.mem.indexOf(u8, line, "=") orelse {
+            i += 1;
+            continue;
+        };
+
+        const key = std.mem.trim(u8, line[0..eq_pos], " \t");
+        if (key.len == 0) {
+            i += 1;
+            continue;
         }
+
+        var value_str = std.mem.trim(u8, line[eq_pos + 1 ..], " \t");
+
+        // Check if this is a multi-line array (starts with [ but doesn't end with ])
+        if (value_str.len > 0 and value_str[0] == '[') {
+            if (std.mem.indexOf(u8, value_str, "]") == null) {
+                // Multi-line array - accumulate lines until we find ]
+                var array_buf: std.ArrayListUnmanaged(u8) = .empty;
+                defer array_buf.deinit(allocator);
+
+                // Add first line
+                try array_buf.appendSlice(allocator, value_str);
+
+                // Keep adding lines until we find closing ]
+                // Note: We look for ] as the last non-whitespace char to avoid
+                // matching ] inside strings like ".*[*?].*"
+                i += 1;
+                while (i < lines.items.len) {
+                    const next_line = lines.items[i];
+                    try array_buf.append(allocator, ' '); // Join with space
+                    try array_buf.appendSlice(allocator, next_line);
+                    if (isArrayClosingLine(next_line)) {
+                        i += 1;
+                        break;
+                    }
+                    i += 1;
+                }
+
+                value_str = array_buf.items;
+
+                // Parse the accumulated array
+                const value = parseTomlValue(allocator, value_str) catch {
+                    continue;
+                };
+                const key_dup = try allocator.dupe(u8, key);
+                errdefer allocator.free(key_dup);
+                try result.put(key_dup, value);
+                continue;
+            }
+        }
+
+        // Single-line value
+        const value = parseTomlValue(allocator, value_str) catch {
+            i += 1;
+            continue;
+        };
+        const key_dup = try allocator.dupe(u8, key);
+        errdefer allocator.free(key_dup);
+        try result.put(key_dup, value);
+        i += 1;
     }
 
     // Must have at least 'matches' key
@@ -123,6 +190,63 @@ pub fn parseToolJn(allocator: std.mem.Allocator, content: []const u8) !?ToolJnMe
     };
 }
 
+/// Check if a line ends the TOML array (has ] as last non-whitespace char)
+/// This avoids matching ] inside strings like ".*[*?].*"
+fn isArrayClosingLine(line: []const u8) bool {
+    const trimmed = std.mem.trimRight(u8, line, " \t\r");
+    if (trimmed.len == 0) return false;
+    return trimmed[trimmed.len - 1] == ']';
+}
+
+/// Unescape TOML basic string escape sequences
+/// Handles: \\ -> \, \" -> ", \n -> newline, \t -> tab
+fn unescapeTomlString(allocator: std.mem.Allocator, raw: []const u8) ![]u8 {
+    var result = try allocator.alloc(u8, raw.len);
+    var result_len: usize = 0;
+    var i: usize = 0;
+
+    while (i < raw.len) {
+        if (raw[i] == '\\' and i + 1 < raw.len) {
+            const next = raw[i + 1];
+            switch (next) {
+                '\\' => {
+                    result[result_len] = '\\';
+                    result_len += 1;
+                    i += 2;
+                },
+                '"' => {
+                    result[result_len] = '"';
+                    result_len += 1;
+                    i += 2;
+                },
+                'n' => {
+                    result[result_len] = '\n';
+                    result_len += 1;
+                    i += 2;
+                },
+                't' => {
+                    result[result_len] = '\t';
+                    result_len += 1;
+                    i += 2;
+                },
+                else => {
+                    // Unknown escape, keep as-is
+                    result[result_len] = raw[i];
+                    result_len += 1;
+                    i += 1;
+                },
+            }
+        } else {
+            result[result_len] = raw[i];
+            result_len += 1;
+            i += 1;
+        }
+    }
+
+    // Shrink to actual size
+    return allocator.realloc(result, result_len);
+}
+
 /// Strip "# " prefix from a comment line
 fn stripCommentPrefix(line: []const u8) []const u8 {
     var trimmed = std.mem.trim(u8, line, " \t\r");
@@ -133,37 +257,6 @@ fn stripCommentPrefix(line: []const u8) []const u8 {
         return std.mem.trim(u8, trimmed[1..], " \t");
     }
     return "";
-}
-
-/// Key-value pair from TOML parsing
-const KeyValue = struct {
-    key: []const u8,
-    value: std.json.Value,
-};
-
-/// Parse a TOML-like line: key = value
-fn parseTomlLine(allocator: std.mem.Allocator, line: []const u8) !KeyValue {
-    // Find '=' separator
-    const eq_pos = std.mem.indexOf(u8, line, "=") orelse return error.InvalidLine;
-
-    // Extract key (trim whitespace)
-    const key = std.mem.trim(u8, line[0..eq_pos], " \t");
-    if (key.len == 0) return error.InvalidLine;
-
-    // Extract value (trim whitespace)
-    const value_str = std.mem.trim(u8, line[eq_pos + 1 ..], " \t");
-    if (value_str.len == 0) return error.InvalidLine;
-
-    // Parse value based on format
-    const value = try parseTomlValue(allocator, value_str);
-
-    // Duplicate key
-    const key_dup = try allocator.dupe(u8, key);
-
-    return .{
-        .key = key_dup,
-        .value = value,
-    };
 }
 
 /// Parse a TOML value (string, array, or basic literal)
@@ -177,7 +270,8 @@ fn parseTomlValue(allocator: std.mem.Allocator, value_str: []const u8) !std.json
     if (value_str.len >= 2 and value_str[0] == '"') {
         const end_quote = std.mem.lastIndexOf(u8, value_str, "\"") orelse return error.InvalidValue;
         if (end_quote == 0) return error.InvalidValue;
-        const str = try allocator.dupe(u8, value_str[1..end_quote]);
+        const raw = value_str[1..end_quote];
+        const str = try unescapeTomlString(allocator, raw);
         return .{ .string = str };
     }
 
@@ -222,7 +316,8 @@ fn parseTomlArray(allocator: std.mem.Allocator, value_str: []const u8) !std.json
         if (trimmed.len >= 2 and trimmed[0] == '"') {
             const end_quote = std.mem.lastIndexOf(u8, trimmed, "\"") orelse continue;
             if (end_quote == 0) continue;
-            const str = try allocator.dupe(u8, trimmed[1..end_quote]);
+            const raw = trimmed[1..end_quote];
+            const str = try unescapeTomlString(allocator, raw);
             try array.append(.{ .string = str });
         }
     }
@@ -355,17 +450,71 @@ test "parseToolJn handles multiline arrays" {
         \\#   ".*\\.xlsx$",
         \\#   ".*\\.xlsm$"
         \\# ]
+        \\# role = "format"
         \\# ///
     ;
 
-    // Note: Current implementation doesn't handle multiline arrays perfectly
-    // This test documents the limitation - arrays must be on single line
-    const result = try parseToolJn(allocator, content);
-    // May return null due to multiline array - that's expected behavior
-    if (result) |*r| {
-        var meta = r.*;
-        meta.deinit();
-    }
+    var meta = (try parseToolJn(allocator, content)).?;
+    defer meta.deinit();
+
+    const obj = meta.value.object;
+    try std.testing.expect(obj.contains("matches"));
+
+    const matches = obj.get("matches").?.array;
+    try std.testing.expectEqual(@as(usize, 2), matches.items.len);
+    try std.testing.expectEqualStrings(".*\\.xlsx$", matches.items[0].string);
+    try std.testing.expectEqualStrings(".*\\.xlsm$", matches.items[1].string);
+}
+
+test "parseToolJn handles watch_shell style multiline" {
+    const allocator = std.testing.allocator;
+
+    // Exact format from watch_shell.py
+    const content =
+        \\#!/usr/bin/env -S uv run --script
+        \\# /// script
+        \\# requires-python = ">=3.11"
+        \\# dependencies = ["watchfiles>=0.21"]
+        \\# [tool.jn]
+        \\# matches = [
+        \\#   "^watch($| )", "^watch .*",
+        \\#   "^watchfiles($| )", "^watchfiles .*"
+        \\# ]
+        \\# ///
+    ;
+
+    var meta = (try parseToolJn(allocator, content)).?;
+    defer meta.deinit();
+
+    const obj = meta.value.object;
+    const matches = obj.get("matches").?.array;
+    try std.testing.expectEqual(@as(usize, 4), matches.items.len);
+    try std.testing.expectEqualStrings("^watch($| )", matches.items[0].string);
+    try std.testing.expectEqualStrings("^watch .*", matches.items[1].string);
+}
+
+test "parseToolJn handles glob style multiline" {
+    const allocator = std.testing.allocator;
+
+    const content =
+        \\# /// script
+        \\# [tool.jn]
+        \\# type = "protocol"
+        \\# matches = [
+        \\#   "^glob://.*",
+        \\#   ".*[*?].*",
+        \\#   ".*\\*\\*.*"
+        \\# ]
+        \\# ///
+    ;
+
+    var meta = (try parseToolJn(allocator, content)).?;
+    defer meta.deinit();
+
+    const obj = meta.value.object;
+    const matches = obj.get("matches").?.array;
+    try std.testing.expectEqual(@as(usize, 3), matches.items.len);
+    try std.testing.expectEqualStrings("^glob://.*", matches.items[0].string);
 }
 
 test "parseToolJn extracts name from metadata" {
