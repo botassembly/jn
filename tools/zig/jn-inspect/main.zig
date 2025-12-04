@@ -23,7 +23,6 @@
 const std = @import("std");
 const jn_core = @import("jn-core");
 const jn_cli = @import("jn-cli");
-const jn_address = @import("jn-address");
 
 const VERSION = "0.1.0";
 const DEFAULT_SAMPLE: usize = 100;
