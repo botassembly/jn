@@ -53,13 +53,13 @@ jn/
 │   ├── jn-profile/        # Profile resolution (DONE)
 │   └── jn-discovery/      # Plugin scanning (Phase 6 - TO BUILD)
 │
-├── tools/zig/             # CLI tools (Phase 5 - TO BUILD)
-│   ├── jn-cat/            # Universal reader
-│   ├── jn-put/            # Universal writer
-│   ├── jn-filter/         # ZQ wrapper
-│   ├── jn-head/           # Stream head
-│   ├── jn-tail/           # Stream tail
-│   └── jn/                # Orchestrator (Phase 9)
+├── tools/zig/             # CLI tools (DONE)
+│   ├── jn-cat/            # Universal reader (DONE)
+│   ├── jn-put/            # Universal writer (DONE)
+│   ├── jn-filter/         # ZQ wrapper (DONE)
+│   ├── jn-head/           # Stream head (DONE)
+│   ├── jn-tail/           # Stream tail (DONE)
+│   └── jn/                # Orchestrator (Phase 9 - TO BUILD)
 │
 ├── plugins/zig/           # Zig plugins (DONE)
 │   ├── csv/               # CSV/TSV parser (DONE)
@@ -97,8 +97,9 @@ jn/
 | 2 | ✅ Done | Plugin refactor - CSV/JSON/JSONL/GZ use shared libs |
 | 3 | ⚠️ Partial | OpenDAL protocol plugin (HTTP works, S3 needs testing) |
 | 4 | ✅ Done | Address & profile system |
-| 5 | 🔜 Next | Core CLI tools (jn-cat, jn-put, jn-filter) |
-| 6-11 | Planned | Discovery, analysis, join/merge, orchestrator |
+| 5 | ✅ Done | Core CLI tools (jn-cat, jn-put, jn-filter, jn-head, jn-tail) |
+| 6 | 🔜 Next | Plugin discovery library |
+| 7-11 | Planned | Analysis, join/merge, orchestrator |
 
 **Full plan:** `spec/00-plan.md`
 
