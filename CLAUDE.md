@@ -54,6 +54,7 @@ jn/
 │   └── jn-discovery/      # Plugin scanning (DONE)
 │
 ├── tools/zig/             # CLI tools (DONE)
+│   ├── jn/                # Orchestrator (DONE)
 │   ├── jn-cat/            # Universal reader (DONE)
 │   ├── jn-put/            # Universal writer (DONE)
 │   ├── jn-filter/         # ZQ wrapper (DONE)
@@ -61,7 +62,9 @@ jn/
 │   ├── jn-tail/           # Stream tail (DONE)
 │   ├── jn-analyze/        # NDJSON statistics (DONE)
 │   ├── jn-inspect/        # Profile discovery & schema (DONE)
-│   └── jn/                # Orchestrator (Phase 9 - TO BUILD)
+│   ├── jn-join/           # Hash join (DONE)
+│   ├── jn-merge/          # Source concatenation (DONE)
+│   └── jn-sh/             # Shell command parser (DONE)
 │
 ├── plugins/zig/           # Zig plugins (DONE)
 │   ├── csv/               # CSV/TSV parser (DONE)
@@ -102,7 +105,9 @@ jn/
 | 5 | ✅ Done | Core CLI tools (jn-cat, jn-put, jn-filter, jn-head, jn-tail) |
 | 6 | ✅ Done | Plugin discovery library |
 | 7 | ✅ Done | Analysis tools (jn-analyze, jn-inspect) |
-| 8-11 | Planned | Join/merge, orchestrator, extended formats |
+| 8 | ✅ Done | Join & Merge (jn-join, jn-merge, jn-sh) |
+| 9 | ✅ Done | Orchestrator (jn command) |
+| 10-11 | Planned | Extended formats, testing & migration |
 
 **Full plan:** `spec/00-plan.md`
 

@@ -224,6 +224,11 @@ TOOL_MODULES := --dep jn-core --dep jn-cli --dep jn-address \
 	-Mjn-cli=../../../libs/zig/jn-cli/src/root.zig \
 	-Mjn-address=../../../libs/zig/jn-address/src/root.zig
 
+# Module definitions for jn orchestrator (minimal deps)
+JN_MODULES := --dep jn-core \
+	-Mroot=main.zig \
+	-Mjn-core=../../../libs/zig/jn-core/src/root.zig
+
 # Build CLI tools
 zig-tools: install-zig
 	@echo "Building Zig CLI tools..."
@@ -237,6 +242,7 @@ zig-tools: install-zig
 	mkdir -p tools/zig/jn-join/bin
 	mkdir -p tools/zig/jn-merge/bin
 	mkdir -p tools/zig/jn-sh/bin
+	mkdir -p tools/zig/jn/bin
 	cd tools/zig/jn-cat && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-cat
 	cd tools/zig/jn-put && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-put
 	cd tools/zig/jn-filter && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-filter
@@ -247,6 +253,7 @@ zig-tools: install-zig
 	cd tools/zig/jn-join && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-join
 	cd tools/zig/jn-merge && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-merge
 	cd tools/zig/jn-sh && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-sh
+	cd tools/zig/jn && $(ZIG) build-exe -fllvm -O ReleaseFast $(JN_MODULES) -femit-bin=bin/jn
 	@echo "Zig CLI tools built successfully"
 
 # Test CLI tools
@@ -262,4 +269,5 @@ zig-tools-test: zig-tools
 	cd tools/zig/jn-join && $(ZIG) test -fllvm $(TOOL_MODULES)
 	cd tools/zig/jn-merge && $(ZIG) test -fllvm $(TOOL_MODULES)
 	cd tools/zig/jn-sh && $(ZIG) test -fllvm $(TOOL_MODULES)
+	cd tools/zig/jn && $(ZIG) test -fllvm $(JN_MODULES)
 	@echo "All Zig CLI tool tests passed"

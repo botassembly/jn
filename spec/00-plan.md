@@ -456,6 +456,8 @@ Shell command output parsing:
 
 **Goal**: Implement the main `jn` command.
 
+**Status**: ✅ COMPLETE
+
 ### Deliverables
 
 #### jn Command (`tools/zig/jn/`)
@@ -465,10 +467,10 @@ Thin dispatcher:
 - Help aggregation
 - Version reporting
 
-### Exit Criteria
-- [ ] `jn cat file.csv` works
-- [ ] `jn --help` shows all commands
-- [ ] `jn --version` reports correctly
+### Exit Criteria ✅
+- [x] `jn cat file.csv` works
+- [x] `jn --help` shows all commands
+- [x] `jn --version` reports correctly
 
 ---
 
