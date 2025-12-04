@@ -1,5 +1,52 @@
 # JN Zig Refactor - Work Log
 
+## 2025-12-04: Phase 7 Analysis Tools
+
+### Analysis Tools Implementation
+
+**Goal:** Implement data analysis and discovery tools.
+
+#### Completed
+
+**jn-analyze** (`tools/zig/jn-analyze/`):
+Single-pass NDJSON statistics tool:
+- [x] Record count tracking
+- [x] Per-field frequency (% of records containing field)
+- [x] Type distribution (string, number, boolean, null, array, object)
+- [x] Numeric statistics (min, max, mean, sum)
+- [x] Text and JSON output formats
+- [x] `--sample=N` option for large datasets
+
+**jn-inspect** (`tools/zig/jn-inspect/`):
+Profile discovery and schema inference tool:
+- [x] `profiles` subcommand: List available profiles from all sources
+- [x] `schema` subcommand: Infer schema from NDJSON input
+- [x] Profile source scanning (project, user, bundled)
+- [x] Type filtering (`--type=http`)
+- [x] Sample value collection for schema
+- [x] Nullable field detection
+- [x] Text and JSON output formats
+
+#### Test Results
+- jn-analyze: 3 unit tests passed
+- jn-inspect: 3 unit tests passed
+- All 7 CLI tools build and test successfully
+
+#### Files Created
+| File | Lines | Purpose |
+|------|-------|---------|
+| `tools/zig/jn-analyze/main.zig` | ~400 | Statistics tool |
+| `tools/zig/jn-inspect/main.zig` | ~640 | Discovery/schema tool |
+
+#### Exit Criteria ✅
+- [x] `jn-analyze` produces useful statistics
+- [x] `jn-inspect profiles` discovers profile endpoints
+- [x] `jn-inspect schema` infers schema from sample
+- [x] All tests pass
+- [x] Makefile updated
+
+---
+
 ## 2025-12-04: Phase 6 Bug Fixes
 
 ### Multi-line TOML Array Parsing Fix
@@ -484,6 +531,7 @@ External libraries would add complexity without significant benefit for these.
 | Phase 4 address/profile | **Done** |
 | Phase 5 CLI tools | **Done** |
 | Phase 6 plugin discovery | **Done** |
+| Phase 7 analysis tools | **Done** |
 | Plugin system integration | **Done** (Zig binary support) |
 
 ---
