@@ -134,10 +134,25 @@ fn handleFile(allocator: std.mem.Allocator, address: jn_address.Address, args: *
     try spawnFormatPlugin(allocator, format, address.path, args);
 }
 
+/// Build format plugin argument string for shell commands
+fn buildFormatArgs(args: *const jn_cli.ArgParser, buf: []u8) []const u8 {
+    var pos: usize = 0;
+
+    if (args.get("delimiter", null)) |delim| {
+        // Quote the delimiter value for shell safety
+        const written = std.fmt.bufPrint(buf[pos..], " --delimiter='{s}'", .{delim}) catch return buf[0..pos];
+        pos += written.len;
+    }
+    if (args.has("no-header")) {
+        const written = std.fmt.bufPrint(buf[pos..], " --no-header", .{}) catch return buf[0..pos];
+        pos += written.len;
+    }
+
+    return buf[0..pos];
+}
+
 /// Handle compressed file (spawn decompression + format pipeline)
 fn handleCompressedFile(allocator: std.mem.Allocator, address: jn_address.Address, format: []const u8, args: *const jn_cli.ArgParser) !void {
-    _ = args; // TODO: Pass args to format plugin via shell
-
     // Find compression plugin
     const compression_plugin = switch (address.compression) {
         .gzip => "gz",
@@ -162,11 +177,15 @@ fn handleCompressedFile(allocator: std.mem.Allocator, address: jn_address.Addres
         jn_core.exitWithError("jn-cat: format plugin '{s}' not found", .{format});
     };
 
-    // Use shell to construct pipeline: cat file | gz --mode=raw | format --mode=read
+    // Build format args
+    var format_args_buf: [64]u8 = undefined;
+    const format_args = buildFormatArgs(args, &format_args_buf);
+
+    // Use shell to construct pipeline: cat file | gz --mode=raw | format --mode=read [args]
     const shell_cmd = try std.fmt.allocPrint(
         allocator,
-        "cat '{s}' | {s} --mode=raw | {s} --mode=read",
-        .{ address.path, gz_path, format_path },
+        "cat '{s}' | {s} --mode=raw | {s} --mode=read{s}",
+        .{ address.path, gz_path, format_path, format_args },
     );
     defer allocator.free(shell_cmd);
 
@@ -222,15 +241,18 @@ fn spawnFormatPlugin(allocator: std.mem.Allocator, format: []const u8, file_path
     var child = std.process.Child.init(argv, allocator);
 
     if (file_path) |path| {
-        // Open file and use as stdin
-        const file = std.fs.cwd().openFile(path, .{}) catch |err| {
+        // Verify file exists
+        std.fs.cwd().access(path, .{}) catch |err| {
             jn_core.exitWithError("jn-cat: cannot open file '{s}': {s}", .{ path, @errorName(err) });
         };
 
-        // Use shell to pipe file into plugin
-        const shell_cmd = try std.fmt.allocPrint(allocator, "cat '{s}' | {s} --mode=read", .{ path, plugin_path });
+        // Build format args for shell command
+        var format_args_buf: [64]u8 = undefined;
+        const format_args = buildFormatArgs(args, &format_args_buf);
+
+        // Use shell to pipe file into plugin with all args
+        const shell_cmd = try std.fmt.allocPrint(allocator, "cat '{s}' | {s} --mode=read{s}", .{ path, plugin_path, format_args });
         defer allocator.free(shell_cmd);
-        file.close();
 
         const shell_argv: [3][]const u8 = .{ "/bin/sh", "-c", shell_cmd };
         var shell_child = std.process.Child.init(&shell_argv, allocator);
