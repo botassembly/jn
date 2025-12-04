@@ -1,4 +1,4 @@
-.PHONY: all check test coverage clean install install-zig zq zq-test zq-bench zig-plugins zig-plugins-test zig-libs zig-libs-test zig-libs-fmt
+.PHONY: all check test coverage clean install install-zig zq zq-test zq-bench zig-plugins zig-plugins-test zig-libs zig-libs-test zig-libs-fmt zig-tools zig-tools-test
 
 # Zig configuration
 ZIG_VERSION := 0.15.2
@@ -208,3 +208,40 @@ zig-libs-fmt: install-zig
 	$(ZIG) fmt libs/zig/jn-address/src/
 	$(ZIG) fmt libs/zig/jn-profile/src/
 	$(ZIG) fmt libs/zig/examples/
+	$(ZIG) fmt tools/zig/
+
+# =============================================================================
+# Zig CLI Tools (Phase 5)
+# =============================================================================
+
+# Module definitions for CLI tools (includes address library)
+TOOL_MODULES := --dep jn-core --dep jn-cli --dep jn-address \
+	-Mroot=main.zig \
+	-Mjn-core=../../../libs/zig/jn-core/src/root.zig \
+	-Mjn-cli=../../../libs/zig/jn-cli/src/root.zig \
+	-Mjn-address=../../../libs/zig/jn-address/src/root.zig
+
+# Build CLI tools
+zig-tools: install-zig
+	@echo "Building Zig CLI tools..."
+	mkdir -p tools/zig/jn-cat/bin
+	mkdir -p tools/zig/jn-put/bin
+	mkdir -p tools/zig/jn-filter/bin
+	mkdir -p tools/zig/jn-head/bin
+	mkdir -p tools/zig/jn-tail/bin
+	cd tools/zig/jn-cat && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-cat
+	cd tools/zig/jn-put && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-put
+	cd tools/zig/jn-filter && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-filter
+	cd tools/zig/jn-head && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-head
+	cd tools/zig/jn-tail && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-tail
+	@echo "Zig CLI tools built successfully"
+
+# Test CLI tools
+zig-tools-test: zig-tools
+	@echo "Testing Zig CLI tools..."
+	cd tools/zig/jn-cat && $(ZIG) test -fllvm $(TOOL_MODULES)
+	cd tools/zig/jn-put && $(ZIG) test -fllvm $(TOOL_MODULES)
+	cd tools/zig/jn-filter && $(ZIG) test -fllvm $(TOOL_MODULES)
+	cd tools/zig/jn-head && $(ZIG) test -fllvm $(TOOL_MODULES)
+	cd tools/zig/jn-tail && $(ZIG) test -fllvm $(TOOL_MODULES)
+	@echo "All Zig CLI tool tests passed"

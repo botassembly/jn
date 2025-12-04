@@ -1,5 +1,126 @@
 # JN Zig Refactor - Work Log
 
+## 2025-12-04: Phase 5 Core CLI Tools Complete
+
+### All Phase 5 Tools Implemented
+
+**Goal:** Implement the core CLI tools for the JN pipeline.
+
+#### Tools Implemented
+
+| Tool | Lines | Purpose | Status |
+|------|-------|---------|--------|
+| `jn-cat` | 380 | Universal reader | ✅ Working |
+| `jn-put` | 290 | Universal writer | ✅ Working |
+| `jn-filter` | 175 | ZQ wrapper | ✅ Working |
+| `jn-head` | 100 | First N records | ✅ Working |
+| `jn-tail` | 130 | Last N records | ✅ Working |
+
+#### Test Results
+- Unit tests: 10 passed across 5 tools
+- Manual tests verified:
+  - `jn-cat data.csv` → NDJSON ✓
+  - `jn-cat data.csv.gz` → Decompressed NDJSON ✓
+  - `echo '{"a":1}' | jn-put output.csv` → CSV file ✓
+  - `echo '{"x":10}' | jn-filter '.x'` → `10` ✓
+  - `jn-head --n=3` → First 3 records ✓
+  - `jn-tail --n=2` → Last 2 records ✓
+
+#### Features by Tool
+
+**jn-cat** (Universal Reader):
+- Address parsing via jn-address library
+- Format auto-detection from extension
+- Format override (~csv, ~json)
+- Gzip decompression pipeline
+- Plugin discovery and invocation
+
+**jn-put** (Universal Writer):
+- NDJSON to format conversion
+- File output with format detection
+- Stdout output with format hint
+- Delimiter and indent options
+
+**jn-filter** (ZQ Wrapper):
+- Finds and executes ZQ binary
+- Passes through -c, -r, -s options
+- Expression as positional argument
+
+**jn-head** (First N):
+- Default 10 records
+- -n/--lines option
+- Early termination (efficient)
+
+**jn-tail** (Last N):
+- Default 10 records
+- Circular buffer (max 10000)
+- -n/--lines option
+
+#### Known Limitations
+- Stdin with format hint (`-~csv`) not yet working in jn-cat
+- Remote URLs, profiles, globs not yet implemented
+- SIGPIPE error display in pipelines (cosmetic)
+
+---
+
+## 2025-12-04: Phase 5 Started - jn-cat Tool Implemented
+
+### Architecture Review & Documentation Fixes
+
+**Goal:** Review project status, fix documentation inconsistencies, begin Phase 5.
+
+#### Documentation Fixes
+- [x] Updated `CLAUDE.md`:
+  - Fixed libs/zig section to show actual completion status (5 libraries DONE)
+  - Fixed plugins/zig section to show all 4 completed plugins
+  - Updated implementation phases table with current status
+  - Marked jn-discovery and tools/zig as "TO BUILD" with phase numbers
+- [x] Updated `spec/00-plan.md`:
+  - Checked off Phase 1 exit criteria (was left unchecked)
+  - Added status marker "✅ COMPLETE" to Phase 1
+
+### jn-cat Implementation (Phase 5)
+
+**Goal:** Implement the universal reader tool as first Phase 5 deliverable.
+
+#### Completed
+- [x] Created `tools/zig/jn-cat/main.zig` (380 lines)
+  - Address parsing via jn-address library
+  - Plugin discovery for format plugins
+  - Local file handling with format auto-detection
+  - Format override support (data.txt~csv)
+  - Gzip decompression pipeline (via shell)
+  - Stdin passthrough for JSONL
+  - Help and version commands
+- [x] Added Makefile targets:
+  - `zig-tools` - Build CLI tools
+  - `zig-tools-test` - Run tool tests
+  - Added tools/zig to zig-libs-fmt for formatting
+
+#### Test Results
+- Unit tests: 4 passed (address parsing tests)
+- Manual tests passed:
+  - `jn-cat data.csv` → NDJSON output ✓
+  - `jn-cat data.json` → NDJSON output ✓
+  - `jn-cat data.csv.gz` → Decompressed NDJSON ✓
+  - `jn-cat data.txt~csv` → Format override ✓
+  - `jn-cat --help` → Usage output ✓
+
+#### Known Limitations (To Address Later)
+- Stdin with format hint (`-~csv`) not yet working
+- Extra plugin args (--delimiter) not passed through in compressed pipeline
+- Remote URLs, profiles, globs not yet implemented
+
+#### Files Changed
+| File | Changes |
+|------|---------|
+| `tools/zig/jn-cat/main.zig` | +380 lines - New tool |
+| `Makefile` | +20 lines - zig-tools targets |
+| `CLAUDE.md` | Updated to reflect current status |
+| `spec/00-plan.md` | Fixed Phase 1 exit criteria |
+
+---
+
 ## 2025-12-04: Zig CSV Plugin Integration Complete
 
 ### Plugin System Integration
