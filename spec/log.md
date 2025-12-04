@@ -1,5 +1,68 @@
 # JN Zig Refactor - Work Log
 
+## 2025-12-04: Phase 5 Core CLI Tools Complete
+
+### All Phase 5 Tools Implemented
+
+**Goal:** Implement the core CLI tools for the JN pipeline.
+
+#### Tools Implemented
+
+| Tool | Lines | Purpose | Status |
+|------|-------|---------|--------|
+| `jn-cat` | 380 | Universal reader | ✅ Working |
+| `jn-put` | 290 | Universal writer | ✅ Working |
+| `jn-filter` | 175 | ZQ wrapper | ✅ Working |
+| `jn-head` | 100 | First N records | ✅ Working |
+| `jn-tail` | 130 | Last N records | ✅ Working |
+
+#### Test Results
+- Unit tests: 10 passed across 5 tools
+- Manual tests verified:
+  - `jn-cat data.csv` → NDJSON ✓
+  - `jn-cat data.csv.gz` → Decompressed NDJSON ✓
+  - `echo '{"a":1}' | jn-put output.csv` → CSV file ✓
+  - `echo '{"x":10}' | jn-filter '.x'` → `10` ✓
+  - `jn-head --n=3` → First 3 records ✓
+  - `jn-tail --n=2` → Last 2 records ✓
+
+#### Features by Tool
+
+**jn-cat** (Universal Reader):
+- Address parsing via jn-address library
+- Format auto-detection from extension
+- Format override (~csv, ~json)
+- Gzip decompression pipeline
+- Plugin discovery and invocation
+
+**jn-put** (Universal Writer):
+- NDJSON to format conversion
+- File output with format detection
+- Stdout output with format hint
+- Delimiter and indent options
+
+**jn-filter** (ZQ Wrapper):
+- Finds and executes ZQ binary
+- Passes through -c, -r, -s options
+- Expression as positional argument
+
+**jn-head** (First N):
+- Default 10 records
+- -n/--lines option
+- Early termination (efficient)
+
+**jn-tail** (Last N):
+- Default 10 records
+- Circular buffer (max 10000)
+- -n/--lines option
+
+#### Known Limitations
+- Stdin with format hint (`-~csv`) not yet working in jn-cat
+- Remote URLs, profiles, globs not yet implemented
+- SIGPIPE error display in pipelines (cosmetic)
+
+---
+
 ## 2025-12-04: Phase 5 Started - jn-cat Tool Implemented
 
 ### Architecture Review & Documentation Fixes
