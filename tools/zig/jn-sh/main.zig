@@ -22,6 +22,36 @@ const jn_cli = @import("jn-cli");
 
 const VERSION = "0.1.0";
 
+/// Cached result for jc availability check
+var jc_available: ?bool = null;
+
+/// Check if jc is installed (cached)
+fn isJcInstalled() bool {
+    if (jc_available) |available| {
+        return available;
+    }
+
+    // Try to run 'jc --version' to check if it's installed
+    const argv: [2][]const u8 = .{ "jc", "--version" };
+    var child = std.process.Child.init(&argv, std.heap.page_allocator);
+    child.stdin_behavior = .Close;
+    child.stdout_behavior = .Close;
+    child.stderr_behavior = .Close;
+
+    child.spawn() catch {
+        jc_available = false;
+        return false;
+    };
+
+    const result = child.wait() catch {
+        jc_available = false;
+        return false;
+    };
+
+    jc_available = (result.Exited == 0);
+    return jc_available.?;
+}
+
 // Commands supported by jc with streaming parsers
 const STREAMING_COMMANDS = [_][]const u8{
     "ls",
@@ -158,8 +188,9 @@ pub fn main() !void {
 
     const cmd_str = cmd_stream.getWritten();
 
-    // Check if jc supports this command
-    const use_jc = !raw_mode and jcSupportsCommand(command_name);
+    // Check if jc supports this command AND jc is installed
+    const jc_supports = !raw_mode and jcSupportsCommand(command_name);
+    const use_jc = jc_supports and isJcInstalled();
     const use_streaming = use_jc and isStreamingCommand(command_name) and hasStreamingFlag(cmd_parts.items);
 
     if (use_jc) {
