@@ -417,24 +417,38 @@ Discovery and analysis:
 
 **Goal**: Implement multi-source data operations.
 
+**Status**: ✅ COMPLETE
+
 **Reference Docs**:
 - [09-joining-operations.md](09-joining-operations.md)
 
 ### Deliverables
 
 #### jn-join (`tools/zig/jn-join/`)
-Hash join implementation
+Hash join implementation:
+- Loads right source into memory with StringHashMap
+- Streams left source for constant memory on left side
+- Inner join with field merging (right fields override left)
+- Supports file and stdin sources
 
 #### jn-merge (`tools/zig/jn-merge/`)
-Source concatenation with tagging
+Source concatenation with tagging:
+- Combines multiple NDJSON sources sequentially
+- Adds `_source` and optional `_label` metadata fields
+- Delegates to jn-cat for format conversion
+- `--no-source` flag for clean concatenation
 
 #### jn-sh (`tools/zig/jn-sh/`)
-Shell command output parsing
+Shell command output parsing:
+- Executes shell commands and parses output via `jc`
+- Supports 50+ commands with structured JSON output
+- Streaming mode for commands like `ls`, `ping`
+- Raw mode wraps output as `{line, text}` objects
 
-### Exit Criteria
-- [ ] Join operations work correctly
-- [ ] Merge handles multiple sources
-- [ ] Shell integration parses common commands
+### Exit Criteria ✅
+- [x] Join operations work correctly
+- [x] Merge handles multiple sources
+- [x] Shell integration parses common commands
 
 ---
 

@@ -1,5 +1,63 @@
 # JN Zig Refactor - Work Log
 
+## 2025-12-04: Phase 8 Join & Merge Tools
+
+### Join & Merge Tool Implementation
+
+**Goal:** Implement data joining and merging tools for combining multiple sources.
+
+#### Completed
+
+**jn-join** (`tools/zig/jn-join/`):
+Hash-based join tool:
+- [x] Left/right join on key fields
+- [x] `--on=FIELD` for same-name keys
+- [x] `--left-key` and `--right-key` for different keys
+- [x] `--inner` flag for inner joins
+- [x] Right source loaded into memory hash map
+- [x] Left source streams through
+- [x] Merges fields from both records
+
+**jn-merge** (`tools/zig/jn-merge/`):
+Source concatenation tool:
+- [x] Multiple source files as arguments
+- [x] `_source` field added to each record
+- [x] `--no-source` flag to skip metadata
+- [x] `:label=NAME` syntax for custom labels
+- [x] `--fail-fast` to stop on first error
+- [x] jn-cat invocation for format conversion
+
+**jn-sh** (`tools/zig/jn-sh/`):
+Shell command output parsing tool:
+- [x] Executes shell commands
+- [x] Parses output via jc if available
+- [x] Streaming and batch parser support
+- [x] `--raw` flag for raw text wrapping
+- [x] NDJSON output conversion
+
+#### Test Results
+- jn-join: 1 unit test passed
+- jn-merge: 4 unit tests passed
+- jn-sh: 3 unit tests passed
+- All 10 CLI tools build and test successfully
+- Manual verification: join, merge, and sh all working
+
+#### Files Created
+| File | Lines | Purpose |
+|------|-------|---------|
+| `tools/zig/jn-join/main.zig` | ~350 | Hash join tool |
+| `tools/zig/jn-merge/main.zig` | ~400 | Source concatenation |
+| `tools/zig/jn-sh/main.zig` | ~450 | Shell command parser |
+
+#### Exit Criteria ✅
+- [x] `jn-join` performs hash joins on NDJSON
+- [x] `jn-merge` concatenates sources with metadata
+- [x] `jn-sh` executes commands and outputs NDJSON
+- [x] All tests pass
+- [x] Makefile updated
+
+---
+
 ## 2025-12-04: Phase 7 Analysis Tools
 
 ### Analysis Tools Implementation
