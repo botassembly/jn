@@ -51,7 +51,7 @@ jn/
 │   ├── jn-plugin/         # Plugin interface (DONE)
 │   ├── jn-address/        # Address parsing (DONE)
 │   ├── jn-profile/        # Profile resolution (DONE)
-│   └── jn-discovery/      # Plugin scanning (Phase 6 - TO BUILD)
+│   └── jn-discovery/      # Plugin scanning (DONE)
 │
 ├── tools/zig/             # CLI tools (DONE)
 │   ├── jn-cat/            # Universal reader (DONE)
@@ -98,7 +98,7 @@ jn/
 | 3 | ⚠️ Partial | OpenDAL protocol plugin (HTTP works, S3 needs testing) |
 | 4 | ✅ Done | Address & profile system |
 | 5 | ✅ Done | Core CLI tools (jn-cat, jn-put, jn-filter, jn-head, jn-tail) |
-| 6 | 🔜 Next | Plugin discovery library |
+| 6 | ✅ Done | Plugin discovery library |
 | 7-11 | Planned | Analysis, join/merge, orchestrator |
 
 **Full plan:** `spec/00-plan.md`

@@ -1,5 +1,78 @@
 # JN Zig Refactor - Work Log
 
+## 2025-12-04: Phase 6 Plugin Discovery Library Complete
+
+### Plugin Discovery Library Implementation
+
+**Goal:** Create polyglot plugin discovery library for Zig + Python plugins.
+
+#### Completed
+- [x] Created `libs/zig/jn-discovery/` - Plugin discovery library (4 modules)
+  - `discovery.zig` - Core discovery types and directory scanning
+    - PluginInfo, PluginLanguage, PluginSource, PluginRole, PluginMode types
+    - getPluginDirs() - Find plugin directories in priority order
+    - discoverZigPlugin() - Execute --jn-meta, parse JSON
+    - discoverPythonPlugin() - Parse PEP 723 metadata
+    - scanDirectory() - Scan directory for plugins
+    - discoverAll() - Full plugin discovery
+  - `pep723.zig` - Python PEP 723 metadata parser (no Python execution)
+    - parseToolJn() - Extract [tool.jn] section from Python scripts
+    - TOML-like key=value parsing for metadata
+  - `registry.zig` - Pattern matching and plugin registry
+    - Registry struct with add/findPlugin/getByName/getByRole
+    - Pattern matching: extension (.*\.csv$), protocol (^s3://), alternatives (|)
+    - Score calculation: source priority, language preference, specificity
+  - `cache.zig` - Plugin metadata cache
+    - Cache.init/load/save/isValid/invalidate
+    - JSON serialization with version tracking
+    - Atomic writes (temp file + rename)
+  - `root.zig` - Public API and re-exports
+- [x] Updated Makefile: added jn-discovery to `zig-libs-test` and `zig-libs-fmt`
+
+#### Test Results
+- jn-discovery: 37 tests passed
+- All library tests now total: 57 tests across 6 libraries
+
+#### Features
+
+**Discovery**:
+- Scan directories: project (.jn/plugins/) → user (~/.local/jn/plugins/) → bundled
+- Zig plugins: Execute --jn-meta, parse JSON manifest
+- Python plugins: Parse PEP 723 [tool.jn] block without executing Python
+- Priority order: project > user > bundled, Zig > Python
+
+**Pattern Matching**:
+- Extension patterns: `.*\.csv$`, `.*\.json$`
+- Protocol patterns: `^s3://`, `^http://`
+- Multiple patterns: `.*\.csv$|.*\.tsv$`
+- Specificity scoring: longer patterns win
+
+**Caching**:
+- Cache path: $JN_HOME/cache/plugins.json
+- Versioned format for forward compatibility
+- mtime-based invalidation
+- Atomic writes
+
+#### Files Created
+| File | Lines | Purpose |
+|------|-------|---------|
+| `libs/zig/jn-discovery/build.zig` | 21 | Build configuration |
+| `libs/zig/jn-discovery/src/root.zig` | 175 | Public API |
+| `libs/zig/jn-discovery/src/discovery.zig` | 590 | Core discovery |
+| `libs/zig/jn-discovery/src/pep723.zig` | 240 | PEP 723 parser |
+| `libs/zig/jn-discovery/src/registry.zig` | 460 | Pattern registry |
+| `libs/zig/jn-discovery/src/cache.zig` | 450 | Plugin cache |
+
+#### Exit Criteria ✅
+- [x] Zig plugin discovery (--jn-meta parsing)
+- [x] Python plugin discovery (PEP 723 parsing)
+- [x] Pattern matching with specificity scoring
+- [x] Plugin cache with mtime validation
+- [x] All 37 unit tests pass
+- [x] Makefile targets updated
+
+---
+
 ## 2025-12-04: Phase 5 Core CLI Tools Complete
 
 ### All Phase 5 Tools Implemented
@@ -380,6 +453,8 @@ External libraries would add complexity without significant benefit for these.
 | Phase 1 libraries | **Done** |
 | Phase 2 plugin refactor | **Done** |
 | Phase 4 address/profile | **Done** |
+| Phase 5 CLI tools | **Done** |
+| Phase 6 plugin discovery | **Done** |
 | Plugin system integration | **Done** (Zig binary support) |
 
 ---
