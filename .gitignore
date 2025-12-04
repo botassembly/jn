@@ -37,6 +37,7 @@ plugins/zig/*/jn-*
 plugins/zig/*/test_*
 plugins/zig/*/bench_*
 !plugins/zig/*/*.zig
+tools/zig/*/bin/
 zq/zig-out/
 zq/.zig-cache/
 .zig-cache/
