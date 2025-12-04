@@ -107,12 +107,14 @@ def find_format_plugin(filepath: str, plugin_dir: Path, format_ext: str = None) 
         return None
 
     # Map extensions to plugin names
+    # Note: csv/json/jsonl are now Zig binary plugins, others remain Python
     ext_to_plugin = {
-        '.json': 'json_',
-        '.jsonl': 'json_',
-        '.ndjson': 'json_',
-        '.csv': 'csv_',
-        '.tsv': 'csv_',
+        '.json': 'json',
+        '.jsonl': 'jsonl',
+        '.ndjson': 'jsonl',
+        '.csv': 'csv',
+        '.tsv': 'csv',
+        '.txt': 'csv',
         '.yaml': 'yaml_',
         '.yml': 'yaml_',
         '.toml': 'toml_',
@@ -125,7 +127,22 @@ def find_format_plugin(filepath: str, plugin_dir: Path, format_ext: str = None) 
     plugin_name = ext_to_plugin.get(ext)
     if not plugin_name:
         # Default to treating as text/ndjson for unknown extensions
-        plugin_name = 'json_'
+        plugin_name = 'jsonl'
+
+    # First, try to find Zig binary plugin in known locations
+    # 1. Development location: plugins/zig/<plugin_name>/bin/<plugin_name>
+    script_dir = Path(__file__).parent.parent
+    zig_binary = script_dir.parent / "plugins" / "zig" / plugin_name / "bin" / plugin_name
+    if zig_binary.exists() and os.access(zig_binary, os.X_OK):
+        return zig_binary
+
+    # 2. Cached location: ~/.local/jn/bin/jn-<plugin_name>-*
+    cache_dir = Path.home() / ".local" / "jn" / "bin"
+    if cache_dir.exists():
+        prefix = f"jn-{plugin_name}-"
+        for f in cache_dir.iterdir():
+            if f.name.startswith(prefix) and os.access(f, os.X_OK):
+                return f
 
     # Search paths: custom plugins, then bundled
     search_paths = []
@@ -148,7 +165,7 @@ def find_format_plugin(filepath: str, plugin_dir: Path, format_ext: str = None) 
     if bundled_formats.exists() and bundled_formats not in search_paths:
         search_paths.append(bundled_formats)
 
-    # Search for plugin
+    # Search for Python plugin
     for search_dir in search_paths:
         plugin_path = search_dir / f"{plugin_name}.py"
         if plugin_path.exists():
@@ -165,20 +182,28 @@ def parse_file_with_plugin(
 ) -> Iterator[dict]:
     """Parse a file using the specified plugin.
 
-    Runs plugin as subprocess using uv to maintain streaming, isolation,
-    and proper dependency management (PEP 723).
+    Runs plugin as subprocess - binary plugins run directly, Python plugins
+    run via uv to maintain streaming, isolation, and dependency management.
 
     Args:
         filepath: Path to the file to parse
-        plugin_path: Path to the format plugin script
+        plugin_path: Path to the format plugin (binary or Python script)
         config: Configuration parameters
         compression_type: Compression extension (e.g., '.gz', '.bz2', '.xz') or None
     """
-    cmd = [
-        "uv", "run", "--quiet", "--script",
-        str(plugin_path),
-        "--mode", "read",
-    ]
+    # Detect if this is a binary plugin or Python script
+    is_binary = not str(plugin_path).endswith('.py')
+
+    if is_binary:
+        # Binary plugin: run directly with --mode=read (equals syntax for Zig)
+        cmd = [str(plugin_path), "--mode=read"]
+    else:
+        # Python plugin: run via uv
+        cmd = [
+            "uv", "run", "--quiet", "--script",
+            str(plugin_path),
+            "--mode", "read",
+        ]
 
     # Parameters that are internal to glob plugin and shouldn't be passed to format plugins
     glob_internal_params = {
@@ -193,7 +218,12 @@ def parse_file_with_plugin(
             continue  # Skip internal params
         if key in glob_internal_params:
             continue  # Skip glob-specific params
-        cmd.extend([f"--{key}", str(value)])
+        if is_binary:
+            # Binary plugins use --key=value format
+            cmd.append(f"--{key}={value}")
+        else:
+            # Python plugins use --key value format
+            cmd.extend([f"--{key}", str(value)])
 
     try:
         # Open file with appropriate decompression

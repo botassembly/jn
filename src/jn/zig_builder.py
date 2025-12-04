@@ -492,7 +492,10 @@ def list_available_zig_plugins() -> list[str]:
             legacy_plugins = bundled / "plugins"
             if legacy_plugins.exists():
                 for plugin_dir in legacy_plugins.iterdir():
-                    if plugin_dir.is_dir() and (plugin_dir / "main.zig").exists():
+                    if (
+                        plugin_dir.is_dir()
+                        and (plugin_dir / "main.zig").exists()
+                    ):
                         plugins.add(plugin_dir.name)
 
     # Check development locations
