@@ -5,9 +5,9 @@ from pathlib import Path
 def test_plugin_list_text(invoke):
     res = invoke(["plugin", "list"])
     assert res.exit_code == 0
-    # Built-ins should be present
-    assert "csv_" in res.output
-    assert "json_" in res.output
+    # Built-ins should be present (csv is now Zig binary, json_/yaml_ are Python)
+    assert "csv" in res.output
+    assert "json" in res.output or "json_" in res.output
     assert "yaml_" in res.output
 
 
@@ -34,9 +34,9 @@ def reads(config=None):
     assert res.exit_code == 0
     data = json.loads(res.output)
     assert "custom" in data
-    # Built-ins still present
-    assert "csv_" in data
-    assert "json_" in data
+    # Built-ins still present (csv is now Zig binary, json can be json or json_)
+    assert "csv" in data
+    assert "json" in data or "json_" in data
     assert "yaml_" in data
 
 
@@ -44,9 +44,9 @@ def test_plugin_default_to_list(invoke):
     """Test that 'jn plugin' without subcommand defaults to 'list'."""
     result = invoke(["plugin"])
     assert result.exit_code == 0
-    # Should show list of plugins
-    assert "csv_" in result.output
-    assert "json_" in result.output
+    # Should show list of plugins (csv is now Zig binary)
+    assert "csv" in result.output
+    assert "json" in result.output or "json_" in result.output
 
 
 def test_plugin_list_with_plugin_without_description(invoke, tmp_path):

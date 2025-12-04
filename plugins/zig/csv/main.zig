@@ -6,7 +6,7 @@ const jn_plugin = @import("jn-plugin");
 const plugin_meta = jn_plugin.PluginMeta{
     .name = "csv",
     .version = "0.2.0",
-    .matches = &.{ ".*\\.csv$", ".*\\.tsv$" },
+    .matches = &.{ ".*\\.csv$", ".*\\.tsv$", ".*\\.txt$" },
     .role = .format,
     .modes = &.{ .read, .write },
 };

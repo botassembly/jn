@@ -3,10 +3,10 @@ from pathlib import Path
 
 
 def test_plugin_call_csv_read(invoke, people_csv):
-    # Call the csv_ plugin directly via plugin subcommand
+    # Call the csv plugin directly via plugin subcommand
     with open(people_csv) as f:
         res = invoke(
-            ["plugin", "call", "csv_", "--mode", "read"], input_data=f.read()
+            ["plugin", "call", "csv", "--mode", "read"], input_data=f.read()
         )
 
     assert res.exit_code == 0

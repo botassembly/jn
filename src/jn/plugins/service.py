@@ -184,10 +184,22 @@ def find_plugin(
     return get_plugin_info(plugin_name, plugins[plugin_name])
 
 
+def _is_binary_plugin(plugin_path: str) -> bool:
+    """Check if plugin is a binary executable (not a Python script)."""
+    # Binary plugins don't have .py extension and are executable
+    import os
+
+    return not plugin_path.endswith(".py") and os.access(plugin_path, os.X_OK)
+
+
 def call_plugin(plugin_path: str, args: List[str]) -> int:
     """Call a plugin directly with arguments, piping stdin if needed."""
-    # Check UV availability first
-    _check_uv_available()
+    # Detect if this is a binary plugin
+    is_binary = _is_binary_plugin(plugin_path)
+
+    # Check UV availability only for Python plugins
+    if not is_binary:
+        _check_uv_available()
 
     # Try to pass through current stdin; if it's not a real file (e.g., Click runner),
     # use PIPE and feed the input content explicitly.
@@ -200,11 +212,32 @@ def call_plugin(plugin_path: str, args: List[str]) -> int:
         stdin_source = subprocess.PIPE
         input_data = sys.stdin.read()
 
+    # Build command based on plugin type
+    if is_binary:
+        # Binary plugins run directly, convert --key value to --key=value format
+        cmd = [plugin_path]
+        i = 0
+        while i < len(args):
+            arg = args[i]
+            # Check if this is a --key followed by a value
+            if arg.startswith("--") and "=" not in arg and i + 1 < len(args):
+                next_arg = args[i + 1]
+                # If next arg doesn't start with -, it's a value
+                if not next_arg.startswith("-"):
+                    cmd.append(f"{arg}={next_arg}")
+                    i += 2
+                    continue
+            cmd.append(arg)
+            i += 1
+    else:
+        # Python plugins run via uv
+        # Use --quiet to suppress "Installed X packages" messages from uv
+        cmd = ["uv", "run", "--quiet", "--script", plugin_path, *args]
+
     # Always use binary mode for the subprocess
     # This allows plugins to output either text (NDJSON) or binary (XLSX, PDF, etc.)
-    # Use --quiet to suppress "Installed X packages" messages from uv
     proc = popen_with_validation(
-        ["uv", "run", "--quiet", "--script", plugin_path, *args],
+        cmd,
         stdin=stdin_source,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
