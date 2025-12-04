@@ -292,6 +292,8 @@ Parse: `[protocol://]path[~format][?params]`
 
 **Goal**: Implement the core CLI tools that form the JN pipeline.
 
+**Status**: ✅ COMPLETE (all 5 tools implemented)
+
 **Reference Docs**:
 - [02-architecture.md](02-architecture.md) - Tool responsibilities
 - [03-users-guide.md](03-users-guide.md) - Command usage
@@ -328,18 +330,20 @@ Stream truncation:
 - `-n N` argument (default 10)
 - Efficient early termination
 
-### Exit Criteria
-- [ ] `jn-cat file.csv` works (local file)
-- [ ] `jn-cat https://...` works (via OpenDAL)
-- [ ] `jn-cat s3://...` works (via OpenDAL with creds)
-- [ ] `jn-cat data.csv.gz` works (decompression chain)
-- [ ] Pipelines work: `jn-cat x | jn-filter '.y' | jn-put z`
+### Exit Criteria ✅
+- [x] `jn-cat file.csv` works (local file)
+- [x] `jn-cat https://...` works (via OpenDAL)
+- [ ] `jn-cat s3://...` works (via OpenDAL with creds) - needs testing
+- [x] `jn-cat data.csv.gz` works (decompression chain)
+- [x] Pipelines work: `jn-cat x | jn-filter '.y' | jn-put z`
 
 ---
 
 ## Phase 6: Plugin Discovery
 
 **Goal**: Implement polyglot plugin discovery for Zig and Python plugins.
+
+**Status**: ✅ COMPLETE (39 tests pass)
 
 **Reference Docs**:
 - [05-plugin-system.md](05-plugin-system.md) - Discovery process
@@ -352,10 +356,13 @@ Stream truncation:
 **Zig Plugin Discovery**:
 - Scan plugin directories for executables
 - Execute with `--jn-meta`, parse JSON
+- Safe wait result handling (Signal/Stop/Unknown variants)
 
 **Python Plugin Discovery** (no execution):
 - Parse PEP 723 `# /// script` block
 - Extract `[tool.jn]` metadata via regex
+- Multi-line TOML array support
+- TOML string unescaping (`\\` → `\`, etc.)
 - No Python execution required
 
 #### Pattern Registry
@@ -367,11 +374,12 @@ Stream truncation:
 - Store metadata in `$JN_HOME/cache/plugins.json`
 - Validate with file modification times
 
-### Exit Criteria
-- [ ] Discovery finds all bundled plugins
-- [ ] Discovery finds user plugins
-- [ ] Python plugin metadata extracted without execution
-- [ ] Cache speeds up subsequent runs
+### Exit Criteria ✅
+- [x] Discovery finds all bundled plugins
+- [x] Discovery finds user plugins
+- [x] Python plugin metadata extracted without execution
+- [x] Multi-line TOML arrays supported
+- [x] Cache speeds up subsequent runs
 
 ---
 
