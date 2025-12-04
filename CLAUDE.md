@@ -45,23 +45,28 @@ cd plugins/zig/jsonl && zig build-exe main.zig -fllvm -O ReleaseFast -femit-bin=
 
 ```
 jn/
-├── libs/zig/              # Shared Zig libraries (TO BUILD)
-│   ├── jn-core/           # Streaming I/O, JSON, errors
-│   ├── jn-cli/            # Argument parsing
-│   ├── jn-plugin/         # Plugin interface
-│   ├── jn-address/        # Address parsing
-│   ├── jn-profile/        # Profile resolution
-│   └── jn-discovery/      # Plugin scanning
+├── libs/zig/              # Shared Zig libraries
+│   ├── jn-core/           # Streaming I/O, JSON, errors (DONE)
+│   ├── jn-cli/            # Argument parsing (DONE)
+│   ├── jn-plugin/         # Plugin interface (DONE)
+│   ├── jn-address/        # Address parsing (DONE)
+│   ├── jn-profile/        # Profile resolution (DONE)
+│   └── jn-discovery/      # Plugin scanning (Phase 6 - TO BUILD)
 │
-├── tools/zig/             # CLI tools (TO BUILD)
-│   ├── jn/                # Orchestrator
+├── tools/zig/             # CLI tools (Phase 5 - TO BUILD)
 │   ├── jn-cat/            # Universal reader
 │   ├── jn-put/            # Universal writer
 │   ├── jn-filter/         # ZQ wrapper
-│   └── ...                # head, tail, join, merge, etc.
+│   ├── jn-head/           # Stream head
+│   ├── jn-tail/           # Stream tail
+│   └── jn/                # Orchestrator (Phase 9)
 │
-├── plugins/zig/           # Zig plugins (IN PROGRESS)
-│   └── jsonl/             # JSONL passthrough (DONE)
+├── plugins/zig/           # Zig plugins (DONE)
+│   ├── csv/               # CSV/TSV parser (DONE)
+│   ├── json/              # JSON array ↔ NDJSON (DONE)
+│   ├── jsonl/             # NDJSON passthrough (DONE)
+│   ├── gz/                # Gzip compression (DONE)
+│   └── opendal/           # Protocol handler (EXPERIMENTAL)
 │
 ├── plugins/python/        # Python plugins (STAY IN PYTHON)
 │   ├── xlsx_.py           # Excel (openpyxl)
@@ -87,12 +92,13 @@ jn/
 
 | Phase | Status | Description |
 |-------|--------|-------------|
-| 0 | Current | Quality foundation - verify tests, demos, baseline |
-| 1 | Next | Foundation libraries (libjn-core, libjn-cli, libjn-plugin) |
-| 2 | Planned | Plugin refactor - migrate to shared libs |
-| 3 | Planned | Address & profile system |
-| 4 | Planned | Core CLI tools (jn-cat, jn-put, jn-filter) |
-| 5-11 | Planned | Discovery, HTTP, analysis, join/merge, orchestrator |
+| 0 | ✅ Done | Quality foundation - verify tests, demos, baseline |
+| 1 | ✅ Done | Foundation libraries (jn-core, jn-cli, jn-plugin, jn-address, jn-profile) |
+| 2 | ✅ Done | Plugin refactor - CSV/JSON/JSONL/GZ use shared libs |
+| 3 | ⚠️ Partial | OpenDAL protocol plugin (HTTP works, S3 needs testing) |
+| 4 | ✅ Done | Address & profile system |
+| 5 | 🔜 Next | Core CLI tools (jn-cat, jn-put, jn-filter) |
+| 6-11 | Planned | Discovery, analysis, join/merge, orchestrator |
 
 **Full plan:** `spec/00-plan.md`
 
