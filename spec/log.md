@@ -1,5 +1,32 @@
 # JN Zig Refactor - Work Log
 
+## 2025-12-04: Phase 6 Bug Fixes
+
+### Multi-line TOML Array Parsing Fix
+
+**Issue:** PEP 723 parser couldn't handle multi-line arrays in Python plugins.
+
+#### Fixed
+- [x] Added `isArrayClosingLine()` to detect `]` as last non-whitespace char
+  - Avoids false positives from `]` inside strings like `".*[*?].*"`
+- [x] Added `unescapeTomlString()` for TOML escape sequences (`\\` → `\`, `\"` → `"`, etc.)
+- [x] Added tests for watch_shell.py and glob_.py style multi-line patterns
+
+### Unsafe Tagged Union Access Fix
+
+**Issue:** `discoverZigPlugin()` accessed `result.Exited` without checking the wait result variant.
+
+#### Fixed
+- [x] Changed direct field access to proper `switch` statement
+- [x] Handles Signal, Stop, and Unknown variants by treating them as failures
+- [x] Prevents runtime trap if plugin crashes or is killed by signal
+
+### Test Results
+- jn-discovery: 39 tests passed (was 37)
+- All 89 Zig library tests pass
+
+---
+
 ## 2025-12-04: Phase 6 Plugin Discovery Library Complete
 
 ### Plugin Discovery Library Implementation
@@ -18,6 +45,8 @@
   - `pep723.zig` - Python PEP 723 metadata parser (no Python execution)
     - parseToolJn() - Extract [tool.jn] section from Python scripts
     - TOML-like key=value parsing for metadata
+    - Multi-line array support
+    - TOML string unescaping
   - `registry.zig` - Pattern matching and plugin registry
     - Registry struct with add/findPlugin/getByName/getByRole
     - Pattern matching: extension (.*\.csv$), protocol (^s3://), alternatives (|)
@@ -30,8 +59,8 @@
 - [x] Updated Makefile: added jn-discovery to `zig-libs-test` and `zig-libs-fmt`
 
 #### Test Results
-- jn-discovery: 37 tests passed
-- All library tests now total: 57 tests across 6 libraries
+- jn-discovery: 39 tests passed
+- All library tests now total: 89 tests across 6 libraries
 
 #### Features
 
