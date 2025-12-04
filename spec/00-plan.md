@@ -137,6 +137,8 @@ Plugin interface:
 
 **Goal**: Refactor existing Zig plugins to use shared libraries, validating the Phase 1 design.
 
+**Status**: ✅ COMPLETE (all plugins refactored and integrated)
+
 **Reference Docs**:
 - [05-plugin-system.md](05-plugin-system.md) - Plugin interface
 - [04-project-layout.md](04-project-layout.md) - Plugin locations
@@ -147,6 +149,9 @@ Plugin interface:
 - Use libjn-core for streaming I/O
 - Use libjn-cli for argument parsing
 - Use libjn-plugin for entry point and manifest
+- Delimiter auto-detection (comma, tab, semicolon, pipe)
+- `.txt` file auto-detection support
+- **Replaced Python `csv_.py` plugin** (removed 277 lines Python)
 
 #### JSON Plugin (`plugins/zig/json/`)
 - Refactor to use shared libraries
@@ -160,21 +165,30 @@ Plugin interface:
 - Use shared libraries for I/O
 - Keep comprezz.zig as local dependency
 
+### Plugin System Integration (2025-12-04)
+- Updated `glob_.py` to discover and invoke Zig binary plugins
+- Updated `src/jn/plugins/service.py` for binary plugin invocation
+- Updated tests to use new `csv` plugin name (was `csv_`)
+
 ### Metrics
 - Document lines of code reduction per plugin
 - Verify all plugin tests still pass
 - Benchmark before/after (startup time, throughput)
 
-### Exit Criteria
+### Exit Criteria ✅
 - [x] All existing Zig plugins refactored
 - [x] Tests pass for all plugins
 - [x] Code reduction documented (expect >50% less boilerplate)
+- [x] Python CSV plugin removed and replaced by Zig version
+- [x] Plugin discovery works for Zig binary plugins
+- [x] `jn plugin call` works with Zig plugins
 
 **Code size deltas (before → after, net reduction):**
 - csv: 523 → 360 lines (‑31%)
 - json: 279 → 210 lines (‑25%)
 - jsonl: 188 → 55 lines (‑71%)
 - gz: 174 → 72 lines (‑59%)
+- Python csv_.py: 277 → 0 lines (removed, replaced by Zig)
 
 ---
 

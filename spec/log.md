@@ -1,5 +1,59 @@
 # JN Zig Refactor - Work Log
 
+## 2025-12-04: Zig CSV Plugin Integration Complete
+
+### Plugin System Integration
+
+**Goal:** Integrate Zig CSV plugin with the plugin discovery and invocation system after removing Python `csv_` plugin.
+
+#### Problem
+After removing the Python `csv_.py` plugin (commit d7e0b11), the system had integration issues:
+- `glob_.py` still referenced `csv_` and didn't discover Zig binary plugins
+- `jn plugin call csv` failed (tried to run binary via `uv run --script`)
+- Tests referenced old `csv_` plugin name
+
+#### Completed
+- [x] Updated `glob_.py` to discover and invoke Zig binary plugins
+  - Added binary plugin discovery in `plugins/zig/*/bin/` and `~/.local/jn/bin/jn-*-*`
+  - Updated format plugin mapping: `csv_` → `csv`, `json_` → `json`, `jsonl_` → `jsonl`
+  - Added `.txt` extension mapping to CSV plugin
+  - Added direct binary invocation (not via `uv run --script`)
+  - Added arg format conversion (`--mode read` → `--mode=read` for Zig)
+- [x] Updated `src/jn/plugins/service.py` for binary plugin support
+  - Added `_is_binary_plugin()` detection function
+  - Updated `call_plugin()` to run binaries directly with arg conversion
+- [x] Updated `plugins/zig/csv/main.zig` - added `.*\.txt$` pattern for .txt auto-detection
+- [x] Updated tests to use `csv` instead of `csv_`:
+  - `tests/cli/test_plugin_call.py`
+  - `tests/cli/test_plugin_call_csv.py`
+  - `tests/cli/test_plugin_info.py`
+  - `tests/cli/test_plugin_list.py`
+
+#### Test Results
+- All Zig library tests: 50 passed
+- All Zig plugin tests: 12 passed
+- pytest: 2 failures (pre-existing flaky tests, unrelated to changes):
+  - `test_head_ncbi_homo_sapiens_escape_params` - network test (external NCBI FTP)
+  - `test_jn_sh_watch_emits_on_change` - filesystem notification timing
+
+#### Files Changed
+| File | Changes |
+|------|---------|
+| `glob_.py` | +62/-37 - Binary plugin discovery and invocation |
+| `plugins/zig/csv/main.zig` | +1/-1 - Added `.txt` pattern |
+| `src/jn/plugins/service.py` | +41/-3 - Binary plugin support in `call_plugin()` |
+| Test files (4) | Updated `csv_` → `csv` references |
+
+#### Exit Criteria ✅
+- [x] `jn cat file.csv` works with Zig CSV plugin
+- [x] `jn cat "*.csv"` works (glob with Zig plugin)
+- [x] `jn plugin call csv --mode read` works
+- [x] `jn plugin call csv --mode write` works
+- [x] `make check` passes
+- [x] `make test` passes (except 2 pre-existing flaky tests)
+
+---
+
 ## 2025-12-03: Phase 4 - Address & Profile System Complete
 
 ### Address Library Implementation
@@ -194,7 +248,7 @@ External libraries would add complexity without significant benefit for these.
 |-----------|--------|
 | ZQ filter engine | Done |
 | JSONL Zig plugin | Done |
-| CSV Zig plugin | Done |
+| CSV Zig plugin | Done (replaces Python csv_.py) |
 | JSON Zig plugin | Done |
 | GZ Zig plugin | Done |
 | Spec documentation | Done |
@@ -202,9 +256,10 @@ External libraries would add complexity without significant benefit for these.
 | OpenDAL prototype | **Done** |
 | Library evaluation | **Done** |
 | Plan finalized | **Done** |
-| Phase 1 task defined | **Done** |
 | Phase 1 libraries | **Done** |
-| Phase 2 plugin refactor | **Ready for Developer** |
+| Phase 2 plugin refactor | **Done** |
+| Phase 4 address/profile | **Done** |
+| Plugin system integration | **Done** (Zig binary support) |
 
 ---
 
