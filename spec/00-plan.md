@@ -387,22 +387,29 @@ Stream truncation:
 
 **Goal**: Implement data analysis and discovery tools.
 
+**Status**: ✅ COMPLETE
+
 ### Deliverables
 
 #### jn-analyze (`tools/zig/jn-analyze/`)
 Single-pass statistics:
 - Record count, field frequency
-- Numeric stats (min, max, mean)
+- Type distribution (string, number, boolean, null, array, object)
+- Numeric stats (min, max, mean, sum)
 - Null/missing tracking
+- Text and JSON output formats
 
 #### jn-inspect (`tools/zig/jn-inspect/`)
 Discovery and analysis:
-- Profile-based endpoint discovery
-- Schema inference from sample
+- Profile-based endpoint discovery (`jn-inspect profiles`)
+- Schema inference from sample (`jn-inspect schema`)
+- Nullable field detection
+- Sample value collection
 
-### Exit Criteria
-- [ ] `jn-analyze` produces useful statistics
-- [ ] `jn-inspect` discovers profile endpoints
+### Exit Criteria ✅
+- [x] `jn-analyze` produces useful statistics
+- [x] `jn-inspect profiles` discovers profile endpoints
+- [x] `jn-inspect schema` infers schema from sample
 
 ---
 

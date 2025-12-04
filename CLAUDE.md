@@ -59,6 +59,8 @@ jn/
 │   ├── jn-filter/         # ZQ wrapper (DONE)
 │   ├── jn-head/           # Stream head (DONE)
 │   ├── jn-tail/           # Stream tail (DONE)
+│   ├── jn-analyze/        # NDJSON statistics (DONE)
+│   ├── jn-inspect/        # Profile discovery & schema (DONE)
 │   └── jn/                # Orchestrator (Phase 9 - TO BUILD)
 │
 ├── plugins/zig/           # Zig plugins (DONE)
@@ -99,7 +101,8 @@ jn/
 | 4 | ✅ Done | Address & profile system |
 | 5 | ✅ Done | Core CLI tools (jn-cat, jn-put, jn-filter, jn-head, jn-tail) |
 | 6 | ✅ Done | Plugin discovery library |
-| 7-11 | Planned | Analysis, join/merge, orchestrator |
+| 7 | ✅ Done | Analysis tools (jn-analyze, jn-inspect) |
+| 8-11 | Planned | Join/merge, orchestrator, extended formats |
 
 **Full plan:** `spec/00-plan.md`
 
