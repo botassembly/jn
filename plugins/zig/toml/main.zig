@@ -851,8 +851,8 @@ const TomlParser = struct {
                         self.pos += 1;
                         while (self.pos < self.source.len and
                             (self.source[self.pos] == ' ' or
-                            self.source[self.pos] == '\t' or
-                            self.source[self.pos] == '\n'))
+                                self.source[self.pos] == '\t' or
+                                self.source[self.pos] == '\n'))
                         {
                             if (self.source[self.pos] == '\n') self.line_number += 1;
                             self.pos += 1;

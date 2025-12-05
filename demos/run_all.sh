@@ -12,7 +12,8 @@ cd "$SCRIPT_DIR"
 
 # Set up environment for Zig tools
 export JN_HOME="${JN_HOME:-$PROJECT_ROOT}"
-export PATH="$PROJECT_ROOT/tools/zig/jn/bin:$PATH"
+# Include jn tools, jn-cat, and uv in PATH
+export PATH="$PROJECT_ROOT/tools/zig/jn/bin:$PROJECT_ROOT/tools/zig/jn-cat/bin:/root/.local/bin:$PATH"
 
 # Colors for output
 RED='\033[0;31m'
@@ -76,23 +77,20 @@ skip_demo() {
     SKIPPED=$((SKIPPED + 1))
 }
 
-# Run demos - only working ones by default
+# Run demos - Phase 12 features implemented
 echo "--- Working Demos ---"
 run_demo "csv-filtering" "run_examples.sh" "CSV Filtering"
 run_demo "join" "run_examples.sh" "Join Operations"
-
-echo ""
-echo "--- Partial Support ---"
 run_demo "shell-commands" "run_examples.sh" "Shell Commands"
+run_demo "glob" "run_examples.sh" "Glob Patterns"
+run_demo "http-api" "run_examples.sh" "HTTP API"
+run_demo "xlsx-files" "run_examples.sh" "Excel Files"
+run_demo "table-rendering" "run_examples.sh" "Table Rendering"
 
 echo ""
-echo "--- Pending Features ---"
-skip_demo "Glob Patterns" "glob patterns not yet in Zig"
-skip_demo "HTTP API" "remote URLs pending OpenDAL"
-skip_demo "Excel Files" "Python plugin discovery pending"
-skip_demo "Table Rendering" "jn table not yet in Zig"
-skip_demo "Adapter Merge" "DuckDB Python plugin pending"
-skip_demo "Code Coverage" "Python @code profiles pending"
+echo "--- Features Requiring External Services ---"
+skip_demo "Adapter Merge" "requires DuckDB setup"
+skip_demo "Code Coverage" "requires code_ profile protocol"
 
 echo ""
 echo "========================================"

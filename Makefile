@@ -19,11 +19,12 @@ PLUGIN_MODULES := --dep jn-core --dep jn-cli --dep jn-plugin \
 	-Mjn-cli=../../../libs/zig/jn-cli/src/root.zig \
 	-Mjn-plugin=../../../libs/zig/jn-plugin/src/root.zig
 
-TOOL_MODULES := --dep jn-core --dep jn-cli --dep jn-address \
+TOOL_MODULES := --dep jn-core --dep jn-cli --dep jn-address --dep jn-profile \
 	-Mroot=main.zig \
 	-Mjn-core=../../../libs/zig/jn-core/src/root.zig \
 	-Mjn-cli=../../../libs/zig/jn-cli/src/root.zig \
-	-Mjn-address=../../../libs/zig/jn-address/src/root.zig
+	-Mjn-address=../../../libs/zig/jn-address/src/root.zig \
+	-Mjn-profile=../../../libs/zig/jn-profile/src/root.zig
 
 JN_MODULES := --dep jn-core \
 	-Mroot=main.zig \

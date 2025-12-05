@@ -284,7 +284,8 @@ fn listProfiles(allocator: std.mem.Allocator, type_filter: ?[]const u8, json_for
             const path = std.fmt.allocPrint(allocator, "{s}/.local/jn/profiles", .{h}) catch break :blk null;
             break :blk path;
         } else null },
-        .{ .name = "bundled", .base = if (jn_home) |jh| blk: {
+        .{ .name = "bundled", .base = if (jn_home) |jh|
+        blk: {
             const path = std.fmt.allocPrint(allocator, "{s}/profiles", .{jh}) catch break :blk null;
             break :blk path;
         } else null },
