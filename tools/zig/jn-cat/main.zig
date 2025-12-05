@@ -73,7 +73,7 @@ pub fn main() !void {
             jn_core.exitWithError("jn-cat: profile references not yet supported\nAddress: {s}", .{address_str});
         },
         .glob => {
-            jn_core.exitWithError("jn-cat: glob patterns not yet supported\nAddress: {s}", .{address_str});
+            try handleGlob(allocator, address, &args);
         },
     }
 }
@@ -326,6 +326,201 @@ fn handleHttpUrl(allocator: std.mem.Allocator, address: jn_address.Address, args
             std.process.exit(1);
         },
     }
+}
+
+/// Handle glob pattern - expand and process each file
+fn handleGlob(allocator: std.mem.Allocator, address: jn_address.Address, args: *const jn_cli.ArgParser) !void {
+    const pattern = address.path;
+    const format = address.effectiveFormat();
+    const inject_meta = args.has("meta") or args.has("inject-meta");
+
+    // Use shell to expand glob and iterate files
+    // Build command: for f in <pattern>; do echo "$f"; done
+    const expand_cmd = try std.fmt.allocPrint(allocator, "for f in {s}; do [ -f \"$f\" ] && echo \"$f\"; done 2>/dev/null", .{pattern});
+    defer allocator.free(expand_cmd);
+
+    const expand_argv: [3][]const u8 = .{ "/bin/sh", "-c", expand_cmd };
+    var expand_child = std.process.Child.init(&expand_argv, allocator);
+    expand_child.stdin_behavior = .Close;
+    expand_child.stdout_behavior = .Pipe;
+    expand_child.stderr_behavior = .Inherit;
+
+    try expand_child.spawn();
+
+    // Read file list from stdout
+    const stdout_pipe = expand_child.stdout.?;
+    var file_count: usize = 0;
+
+    var reader_buf: [4096]u8 = undefined;
+    var reader_wrapper = stdout_pipe.reader(&reader_buf);
+    const reader = &reader_wrapper.interface;
+    while (jn_core.readLine(reader)) |line| {
+        const file_path = std.mem.trim(u8, line, " \t\r\n");
+        if (file_path.len == 0) continue;
+
+        // Process this file
+        try processGlobFile(allocator, file_path, format, args, file_count, inject_meta);
+        file_count += 1;
+    }
+
+    _ = expand_child.wait() catch {};
+
+    if (file_count == 0) {
+        jn_core.exitWithError("jn-cat: no files match pattern: {s}", .{pattern});
+    }
+}
+
+/// Process a single file from glob expansion
+fn processGlobFile(allocator: std.mem.Allocator, file_path: []const u8, format: ?[]const u8, args: *const jn_cli.ArgParser, file_index: usize, inject_meta: bool) !void {
+    // Determine format from file extension if not specified
+    var effective_format: []const u8 = "jsonl";
+    var compression: jn_address.Compression = .none;
+
+    // Check for compression
+    const compression_exts = [_][]const u8{ ".gz", ".bz2", ".xz", ".zst" };
+    var path_for_format = file_path;
+    for (compression_exts) |ext| {
+        if (std.mem.endsWith(u8, file_path, ext)) {
+            compression = jn_address.Compression.fromExtension(ext);
+            path_for_format = file_path[0 .. file_path.len - ext.len];
+            break;
+        }
+    }
+
+    // Get format from extension
+    if (format) |f| {
+        effective_format = f;
+    } else if (std.mem.lastIndexOf(u8, path_for_format, ".")) |dot_pos| {
+        const ext = path_for_format[dot_pos + 1 ..];
+        if (ext.len > 0 and ext.len <= 10) {
+            effective_format = ext;
+        }
+    }
+
+    // Find format plugin
+    const plugin_path = findPlugin(allocator, effective_format);
+
+    // Build format args
+    var format_args_buf: [64]u8 = undefined;
+    const format_args = buildFormatArgs(args, &format_args_buf);
+
+    // Build the pipeline command
+    var shell_cmd: []const u8 = undefined;
+
+    if (compression != .none) {
+        const gz_path = findPlugin(allocator, "gz") orelse {
+            jn_core.exitWithError("jn-cat: compression plugin 'gz' not found", .{});
+        };
+
+        if (plugin_path) |fmt_path| {
+            shell_cmd = try std.fmt.allocPrint(
+                allocator,
+                "cat '{s}' | {s} --mode=raw | {s} --mode=read{s}",
+                .{ file_path, gz_path, fmt_path, format_args },
+            );
+        } else {
+            shell_cmd = try std.fmt.allocPrint(
+                allocator,
+                "cat '{s}' | {s} --mode=raw",
+                .{ file_path, gz_path },
+            );
+        }
+    } else if (plugin_path) |fmt_path| {
+        shell_cmd = try std.fmt.allocPrint(
+            allocator,
+            "cat '{s}' | {s} --mode=read{s}",
+            .{ file_path, fmt_path, format_args },
+        );
+    } else if (std.mem.eql(u8, effective_format, "jsonl") or std.mem.eql(u8, effective_format, "ndjson")) {
+        // JSONL - if inject_meta, wrap each line; otherwise cat directly
+        if (inject_meta) {
+            // Wrap with path metadata
+            try outputWithMeta(allocator, file_path, file_index);
+            return;
+        }
+        shell_cmd = try std.fmt.allocPrint(allocator, "cat '{s}'", .{file_path});
+    } else {
+        jn_core.exitWithError("jn-cat: format plugin '{s}' not found", .{effective_format});
+    }
+    defer allocator.free(shell_cmd);
+
+    // Run the pipeline
+    const shell_argv: [3][]const u8 = .{ "/bin/sh", "-c", shell_cmd };
+    var child = std.process.Child.init(&shell_argv, allocator);
+    child.stdin_behavior = .Close;
+    child.stdout_behavior = .Inherit;
+    child.stderr_behavior = .Inherit;
+
+    try child.spawn();
+    const result = child.wait() catch |err| {
+        jn_core.exitWithError("jn-cat: failed to process file '{s}': {s}", .{ file_path, @errorName(err) });
+    };
+
+    switch (result) {
+        .Exited => |code| {
+            if (code != 0) {
+                // Continue with other files, don't fail
+            }
+        },
+        else => {},
+    }
+}
+
+/// Output JSONL file with path metadata injected
+fn outputWithMeta(allocator: std.mem.Allocator, file_path: []const u8, file_index: usize) !void {
+    const file = std.fs.cwd().openFile(file_path, .{}) catch |err| {
+        std.debug.print("jn-cat: cannot open '{s}': {s}\n", .{ file_path, @errorName(err) });
+        return;
+    };
+    defer file.close();
+
+    // Parse path components
+    const dirname = std.fs.path.dirname(file_path) orelse ".";
+    const filename = std.fs.path.basename(file_path);
+    const ext_start = std.mem.lastIndexOf(u8, filename, ".") orelse filename.len;
+    const basename = filename[0..ext_start];
+    const ext = if (ext_start < filename.len) filename[ext_start..] else "";
+
+    var stdout_buf: [8192]u8 = undefined;
+    var stdout_wrapper = std.fs.File.stdout().writer(&stdout_buf);
+    const stdout = &stdout_wrapper.interface;
+    var line_index: usize = 0;
+    var reader_buf: [65536]u8 = undefined;
+    var reader_wrapper = file.reader(&reader_buf);
+    const reader = &reader_wrapper.interface;
+
+    while (jn_core.readLine(reader)) |line| {
+        if (line.len == 0) continue;
+
+        // Parse JSON and inject metadata
+        // For simplicity, just prepend metadata fields to the JSON object
+        if (line[0] == '{' and line[line.len - 1] == '}') {
+            // Insert metadata at start of object
+            const meta = try std.fmt.allocPrint(allocator, "\"_path\":\"{s}\",\"_dir\":\"{s}\",\"_filename\":\"{s}\",\"_basename\":\"{s}\",\"_ext\":\"{s}\",\"_file_index\":{d},\"_line_index\":{d},", .{
+                file_path,
+                dirname,
+                filename,
+                basename,
+                ext,
+                file_index,
+                line_index,
+            });
+            defer allocator.free(meta);
+
+            stdout.print("{{{s}{s}\n", .{ meta, line[1..] }) catch |err| {
+                jn_core.handleWriteError(err);
+            };
+            jn_core.flushWriter(stdout);
+        } else {
+            // Not a JSON object, output as-is
+            stdout.print("{s}\n", .{line}) catch |err| {
+                jn_core.handleWriteError(err);
+            };
+            jn_core.flushWriter(stdout);
+        }
+        line_index += 1;
+    }
+    jn_core.flushWriter(stdout);
 }
 
 /// Handle cloud storage URLs using OpenDAL plugin (s3://, gs://, gcs://, gdrive://)
