@@ -79,6 +79,12 @@ pub fn main() !void {
         return;
     }
 
+    // Handle special Python-based commands
+    if (std.mem.eql(u8, first_arg, "table")) {
+        try runPythonPlugin(allocator, "table_.py", "--mode=write", args);
+        return;
+    }
+
     // Look up the subcommand
     var tool_name: ?[]const u8 = null;
     for (COMMANDS) |cmd| {
@@ -205,6 +211,71 @@ fn findTool(allocator: std.mem.Allocator, name: []const u8) ?[]const u8 {
     return null;
 }
 
+/// Find a Python plugin by name in JN_HOME/plugins/*/
+fn findPythonPlugin(allocator: std.mem.Allocator, name: []const u8) ?[]const u8 {
+    const jn_home = std.posix.getenv("JN_HOME") orelse return null;
+
+    // Search in common plugin subdirectories
+    const subdirs = [_][]const u8{ "formats", "protocols", "databases", "filters", "shell" };
+    for (subdirs) |subdir| {
+        const path = std.fmt.allocPrint(allocator, "{s}/jn_home/plugins/{s}/{s}", .{ jn_home, subdir, name }) catch continue;
+        if (std.fs.cwd().access(path, .{})) |_| {
+            return path;
+        } else |_| {
+            allocator.free(path);
+        }
+    }
+    return null;
+}
+
+/// Run a Python plugin using uv run --script
+fn runPythonPlugin(allocator: std.mem.Allocator, plugin_name: []const u8, default_mode: []const u8, remaining_args: std.process.ArgIterator) !void {
+    const plugin_path = findPythonPlugin(allocator, plugin_name) orelse {
+        jn_core.exitWithError("jn: Python plugin '{s}' not found\nHint: check JN_HOME/jn_home/plugins/", .{plugin_name});
+    };
+
+    // Build shell command: uv run --script <plugin> <mode> [extra args...]
+    var cmd_buf: [2048]u8 = undefined;
+    var cmd_len: usize = 0;
+
+    const base = std.fmt.bufPrint(cmd_buf[cmd_len..], "uv run --script '{s}' {s}", .{ plugin_path, default_mode }) catch {
+        jn_core.exitWithError("jn: command too long", .{});
+    };
+    cmd_len += base.len;
+
+    // Collect remaining arguments
+    var args_copy = remaining_args;
+    while (args_copy.next()) |arg| {
+        const added = std.fmt.bufPrint(cmd_buf[cmd_len..], " '{s}'", .{arg}) catch break;
+        cmd_len += added.len;
+    }
+
+    const shell_cmd = cmd_buf[0..cmd_len];
+
+    // Run via shell
+    const shell_argv: [3][]const u8 = .{ "/bin/sh", "-c", shell_cmd };
+    var child = std.process.Child.init(&shell_argv, allocator);
+    child.stdin_behavior = .Inherit;
+    child.stdout_behavior = .Inherit;
+    child.stderr_behavior = .Inherit;
+
+    try child.spawn();
+    const result = child.wait() catch |err| {
+        jn_core.exitWithError("jn: failed to run Python plugin: {s}", .{@errorName(err)});
+    };
+
+    switch (result) {
+        .Exited => |code| {
+            if (code != 0) {
+                std.process.exit(code);
+            }
+        },
+        else => {
+            std.process.exit(1);
+        },
+    }
+}
+
 /// Print version
 fn printVersion() void {
     var buf: [256]u8 = undefined;
@@ -232,6 +303,7 @@ fn printUsage() void {
         \\  join       Join two NDJSON sources
         \\  merge      Concatenate multiple sources
         \\  sh         Execute shell commands as NDJSON
+        \\  table      Format NDJSON as table (via Python)
         \\
         \\Options:
         \\  --help, -h     Show this help
