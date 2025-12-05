@@ -20,6 +20,7 @@
 | **9** | Orchestrator | jn command dispatcher | Phases 5-8 |
 | **10** | Extended Formats | YAML, TOML, Markdown (Zig) | Phase 2 |
 | **11** | Testing & Migration | Comprehensive tests, Python compatibility | All |
+| **12** | Python Plugin Integration | Zig tools invoke Python plugins, all demos work | Phase 11 |
 
 ---
 
@@ -58,6 +59,10 @@ Phase 3                 │
                     ▼
                 Phase 11
                 (Testing & Migration)
+                    │
+                    ▼
+                Phase 12
+                (Python Plugin Integration)
 ```
 
 ---
@@ -536,6 +541,138 @@ Thin dispatcher:
 - [x] All tests pass (563 total)
 - [x] Performance targets exceeded (>1000x improvement)
 - [x] Documentation complete
+
+---
+
+## Phase 12: Python Plugin Integration
+
+**Goal**: Enable Zig tools (jn-cat, jn-put) to invoke Python plugins, making all demos work.
+
+**Status**: ⏳ NOT STARTED
+
+**Problem Statement**:
+Phase 6 created discovery (metadata extraction) but not invocation. The Zig tools currently:
+- ❌ Only find Zig plugins at `$JN_HOME/plugins/zig/*/bin/*`
+- ❌ Cannot invoke Python plugins (xlsx, duckdb, table, xml, etc.)
+- ❌ Cannot route HTTP URLs to OpenDAL plugin
+- ❌ Cannot expand glob patterns
+- ❌ Cannot resolve @namespace/profile references
+
+**Reference Docs**:
+- [05-plugin-system.md](05-plugin-system.md) - Plugin interface
+- [10-python-plugins.md](10-python-plugins.md) - PEP 723 plugins
+
+### Deliverables
+
+#### 1. Python Plugin Invocation
+
+Update jn-cat and jn-put to find and invoke Python plugins:
+
+**Option A: Use jn-discovery library**
+- Call discovery library to find best-match plugin
+- Execute Python plugins via `uv run --script <plugin.py>`
+- Pass mode and arguments appropriately
+
+**Option B: Direct path scanning**
+- Scan `$JN_HOME/plugins/*/` for `*_.py` files
+- Match by pattern (e.g., `*.xlsx` → `xlsx_.py`)
+- Execute via uv
+
+**Python Plugins Requiring Invocation**:
+| Plugin | Patterns | Mode |
+|--------|----------|------|
+| xlsx_.py | `*.xlsx`, `*.xls` | read, write |
+| xml_.py | `*.xml` | read, write |
+| table_.py | `*~table` | read, write |
+| markdown_.py | `*.md` | read |
+| lcov_.py | `*.lcov`, `coverage.lcov` | read |
+| duckdb_.py | `duckdb://`, `*.duckdb` | read, profiles |
+| http_.py | `http://`, `https://` | read |
+| glob_.py | `**/*`, `*.{ext}` | read |
+| code_.py | `@code/*` | read, profiles |
+| gmail_.py | `@gmail/*` | read, profiles |
+
+#### 2. URL Routing (OpenDAL or http_.py)
+
+Update jn-cat to handle URL addresses:
+
+**Option A: Route to OpenDAL plugin (Zig)**
+- jn-cat spawns OpenDAL plugin for `http://`, `https://`
+- OpenDAL handles the actual HTTP request
+- Output streams to stdout
+
+**Option B: Route to http_.py (Python)**
+- jn-cat spawns `http_.py --mode=read`
+- Python handles HTTP with proper headers, auth
+- Simpler but adds Python dependency for URLs
+
+#### 3. Glob Pattern Support
+
+Update jn-cat to expand and process glob patterns:
+
+**Option A: Use glob_.py plugin**
+- Detect glob patterns (`*`, `**`, `{a,b}`)
+- Invoke glob_.py which handles expansion + metadata
+- Stream concatenated results
+
+**Option B: Native Zig glob expansion**
+- Use std.fs.walkPath with pattern matching
+- Add `_path`, `_filename` metadata fields
+- More complex but faster
+
+#### 4. jn table Command
+
+Add table rendering to orchestrator:
+
+**Option A: Invoke table_.py directly**
+- Add `table` to orchestrator command list
+- Route to `table_.py --mode=write`
+- Simple, uses existing Python plugin
+
+**Option B: Zig implementation**
+- Port table rendering logic to Zig
+- More work, but faster startup
+
+#### 5. Profile Reference Resolution
+
+Update jn-cat to handle `@namespace/name` addresses:
+
+- Use jn-profile library to resolve profile
+- Determine if profile uses plugin (duckdb, http, code)
+- Invoke appropriate plugin with resolved parameters
+
+### Demo Coverage Target
+
+All demos must pass after Phase 12:
+
+| Demo | Current | After Phase 12 |
+|------|---------|----------------|
+| csv-filtering | ✅ | ✅ |
+| join | ✅ | ✅ |
+| shell-commands | ✅ | ✅ |
+| http-api | ❌ | ✅ (URL routing) |
+| glob | ❌ | ✅ (glob expansion) |
+| xlsx-files | ❌ | ✅ (Python plugin) |
+| table-rendering | ❌ | ✅ (jn table) |
+| code-lcov | ❌ | ✅ (code_.py profile) |
+| adapter-merge | ❌ | ✅ (duckdb_.py profile) |
+| genomoncology | ❌ | ✅ (HTTP + profiles) |
+
+### Implementation Priority
+
+1. **Python Plugin Invocation** - Highest priority, unblocks xlsx, table, xml
+2. **URL Routing** - Enables http-api, genomoncology demos
+3. **jn table Command** - Enables table-rendering demo
+4. **Glob Patterns** - Enables glob demo
+5. **Profile Resolution** - Enables code-lcov, adapter-merge demos
+
+### Exit Criteria
+- [ ] `jn cat data.xlsx` works (Python xlsx plugin)
+- [ ] `jn cat https://api.github.com/...` works (HTTP)
+- [ ] `jn cat '**/*.json'` works (glob expansion)
+- [ ] `jn table` command works (table rendering)
+- [ ] `jn cat @code/functions` works (profile resolution)
+- [ ] All 10 demos pass in `./demos/run_all.sh`
 
 ---
 

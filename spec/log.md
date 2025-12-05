@@ -1,5 +1,51 @@
 # JN Zig Refactor - Work Log
 
+## 2025-12-05: Phase 12 Defined - Python Plugin Integration
+
+### Gap Analysis
+
+After Python CLI removal, discovered critical gap: **Zig tools cannot invoke Python plugins**.
+
+**Phase 6 completed discovery** (metadata extraction from PEP 723), but:
+- jn-cat only finds Zig plugins at `$JN_HOME/plugins/zig/*/bin/*`
+- Cannot call Python plugins (xlsx, duckdb, table, xml, http, glob, etc.)
+- Cannot route HTTP URLs to OpenDAL or http_.py
+- Cannot expand glob patterns
+- Cannot resolve @namespace/profile references
+
+### Demo Status
+
+| Demo | Status | Blocking Issue |
+|------|--------|----------------|
+| csv-filtering | ✅ Working | - |
+| join | ✅ Working | - |
+| shell-commands | ✅ Working | - |
+| http-api | ❌ Broken | URL routing not implemented |
+| glob | ❌ Broken | Glob expansion not implemented |
+| xlsx-files | ❌ Broken | Python plugin invocation missing |
+| table-rendering | ❌ Broken | No jn table command |
+| code-lcov | ❌ Broken | Profile resolution + code_.py |
+| adapter-merge | ❌ Broken | Profile resolution + duckdb_.py |
+| genomoncology | ❌ Broken | HTTP + profile credentials |
+
+### Phase 12 Plan Created
+
+Added Phase 12 to `spec/00-plan.md` with 5 deliverables:
+1. **Python Plugin Invocation** - jn-cat/jn-put call Python plugins via uv
+2. **URL Routing** - Route http:// to OpenDAL or http_.py
+3. **Glob Patterns** - Expand globs via glob_.py or native Zig
+4. **jn table Command** - Add to orchestrator, route to table_.py
+5. **Profile Resolution** - Resolve @namespace/name to plugin calls
+
+### Fixes Made
+
+- Fixed jn-filter ZQ path lookup to find `$JN_HOME/zq/zig-out/bin/zq`
+- Fixed join demo to use Zig tools instead of `uv run`
+- Updated demos/README.md with accurate status
+- Updated run_all.sh to skip pending demos
+
+---
+
 ## 2025-12-05: Phase 11 Testing & Migration Complete
 
 ### Testing & Migration Implementation
