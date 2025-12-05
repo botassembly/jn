@@ -172,7 +172,7 @@ pub fn main() !void {
 
 /// Find a tool binary by name
 fn findTool(allocator: std.mem.Allocator, name: []const u8) ?[]const u8 {
-    // Try paths relative to JN_HOME
+    // Try paths relative to JN_HOME (only if JN_HOME has tools)
     if (std.posix.getenv("JN_HOME")) |jn_home| {
         const path = std.fmt.allocPrint(allocator, "{s}/tools/zig/{s}/bin/{s}", .{ jn_home, name, name }) catch return null;
         if (std.fs.cwd().access(path, .{})) |_| {
@@ -198,6 +198,28 @@ fn findTool(allocator: std.mem.Allocator, name: []const u8) ?[]const u8 {
         allocator.free(dev_path);
     }
 
+    // Try relative to executable's location
+    // Executable is at: /path/to/jn/tools/zig/jn/bin/jn
+    // Sibling tools are at: /path/to/jn/tools/zig/<tool>/bin/<tool>
+    var exe_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    if (std.fs.selfExePath(&exe_path_buf)) |exe_path| {
+        // Go up from jn -> bin -> jn -> zig -> tools -> root
+        var dir = std.fs.path.dirname(exe_path); // bin
+        var i: usize = 0;
+        while (i < 2 and dir != null) : (i += 1) {
+            dir = std.fs.path.dirname(dir.?); // jn -> zig
+        }
+        // Now we're at tools/zig, can access sibling tool directories
+        if (dir) |zig_dir| {
+            const exe_rel_path = std.fmt.allocPrint(allocator, "{s}/{s}/bin/{s}", .{ zig_dir, name, name }) catch return null;
+            if (std.fs.cwd().access(exe_rel_path, .{})) |_| {
+                return exe_rel_path;
+            } else |_| {
+                allocator.free(exe_rel_path);
+            }
+        }
+    } else |_| {}
+
     // Try ~/.local/jn/bin (user installation)
     if (std.posix.getenv("HOME")) |home| {
         const user_path = std.fmt.allocPrint(allocator, "{s}/.local/jn/bin/{s}", .{ home, name }) catch return null;
@@ -213,18 +235,56 @@ fn findTool(allocator: std.mem.Allocator, name: []const u8) ?[]const u8 {
 
 /// Find a Python plugin by name in JN_HOME/plugins/*/
 fn findPythonPlugin(allocator: std.mem.Allocator, name: []const u8) ?[]const u8 {
-    const jn_home = std.posix.getenv("JN_HOME") orelse return null;
-
     // Search in common plugin subdirectories
     const subdirs = [_][]const u8{ "formats", "protocols", "databases", "filters", "shell" };
+
+    // Try JN_HOME first (if jn_home/plugins exists there)
+    if (std.posix.getenv("JN_HOME")) |jn_home| {
+        const check_path = std.fmt.allocPrint(allocator, "{s}/jn_home/plugins", .{jn_home}) catch return null;
+        defer allocator.free(check_path);
+        if (std.fs.cwd().access(check_path, .{})) |_| {
+            for (subdirs) |subdir| {
+                const path = std.fmt.allocPrint(allocator, "{s}/jn_home/plugins/{s}/{s}", .{ jn_home, subdir, name }) catch continue;
+                if (std.fs.cwd().access(path, .{})) |_| {
+                    return path;
+                } else |_| {
+                    allocator.free(path);
+                }
+            }
+        } else |_| {}
+    }
+
+    // Try relative to current directory
     for (subdirs) |subdir| {
-        const path = std.fmt.allocPrint(allocator, "{s}/jn_home/plugins/{s}/{s}", .{ jn_home, subdir, name }) catch continue;
+        const path = std.fmt.allocPrint(allocator, "jn_home/plugins/{s}/{s}", .{ subdir, name }) catch continue;
         if (std.fs.cwd().access(path, .{})) |_| {
             return path;
         } else |_| {
             allocator.free(path);
         }
     }
+
+    // Try relative to executable's location
+    var exe_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    if (std.fs.selfExePath(&exe_path_buf)) |exe_path| {
+        // Go up 4 levels: bin -> jn -> zig -> tools -> root
+        var dir = std.fs.path.dirname(exe_path);
+        var i: usize = 0;
+        while (i < 4 and dir != null) : (i += 1) {
+            dir = std.fs.path.dirname(dir.?);
+        }
+        if (dir) |root| {
+            for (subdirs) |subdir| {
+                const path = std.fmt.allocPrint(allocator, "{s}/jn_home/plugins/{s}/{s}", .{ root, subdir, name }) catch continue;
+                if (std.fs.cwd().access(path, .{})) |_| {
+                    return path;
+                } else |_| {
+                    allocator.free(path);
+                }
+            }
+        }
+    } else |_| {}
+
     return null;
 }
 

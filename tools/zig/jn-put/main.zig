@@ -375,6 +375,27 @@ fn findPluginInfo(allocator: std.mem.Allocator, name: []const u8) ?PluginInfo {
         allocator.free(dev_path);
     }
 
+    // Try relative to executable's location
+    // Executable is at: /path/to/jn/tools/zig/jn-put/bin/jn-put
+    // Plugins are at: /path/to/jn/plugins/zig/<name>/bin/<name>
+    var exe_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    if (std.fs.selfExePath(&exe_path_buf)) |exe_path| {
+        // Go up 4 levels: bin -> jn-put -> zig -> tools -> root
+        var dir = std.fs.path.dirname(exe_path);
+        var i: usize = 0;
+        while (i < 4 and dir != null) : (i += 1) {
+            dir = std.fs.path.dirname(dir.?);
+        }
+        if (dir) |root| {
+            const exe_rel_path = std.fmt.allocPrint(allocator, "{s}/plugins/zig/{s}/bin/{s}", .{ root, name, name }) catch return null;
+            if (std.fs.cwd().access(exe_rel_path, .{})) |_| {
+                return .{ .path = exe_rel_path, .plugin_type = .zig };
+            } else |_| {
+                allocator.free(exe_rel_path);
+            }
+        }
+    } else |_| {}
+
     // Try ~/.local/jn/plugins
     if (std.posix.getenv("HOME")) |home| {
         const user_path = std.fmt.allocPrint(allocator, "{s}/.local/jn/plugins/zig/{s}/bin/{s}", .{ home, name, name }) catch return null;

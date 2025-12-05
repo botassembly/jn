@@ -57,31 +57,10 @@ jn cat "@genie/treatment?regimen=FOLFIRI&min_survival=15"
 echo ""
 
 # =============================================================================
-# PART 2: ZQ Profile Substitution (Streaming Adapters)
+# PART 2: Merge Command (Composability)
 # =============================================================================
 echo "═══════════════════════════════════════════════════════════════"
-echo "PART 2: ZQ Profile Substitution (Streaming Adapters)"
-echo "═══════════════════════════════════════════════════════════════"
-echo ""
-echo "ZQ profiles use string substitution for parameters."
-echo "Parameters are replaced directly in the query: \$param → \"value\""
-echo ""
-
-echo "1. Filter sales by region using profile:"
-echo "   jn cat sales.csv | jn filter '@sales/by_region?region=East'"
-jn cat sales.csv | jn filter '@sales/by_region?region=East'
-echo ""
-
-echo "2. Filter by threshold using profile:"
-echo "   jn cat sales.csv | jn filter '@sales/above_threshold?threshold=1000'"
-jn cat sales.csv | jn filter '@sales/above_threshold?threshold=1000'
-echo ""
-
-# =============================================================================
-# PART 3: Merge Command (Composability)
-# =============================================================================
-echo "═══════════════════════════════════════════════════════════════"
-echo "PART 3: Merge Command (Composability)"
+echo "PART 2: Merge Command (Composability)"
 echo "═══════════════════════════════════════════════════════════════"
 echo ""
 echo "The merge command combines multiple sources into a single stream"
@@ -102,26 +81,26 @@ echo ""
 
 echo "2. Compare treatment regimens from database:"
 echo "   Using DuckDB optional params with merge for cohort comparison..."
-jn cat "@genie/treatment?regimen=FOLFOX" | jn put /tmp/folfox.json
-jn cat "@genie/treatment?regimen=FOLFIRI" | jn put /tmp/folfiri.json
-echo "   jn merge '/tmp/folfox.json:label=FOLFOX' '/tmp/folfiri.json:label=FOLFIRI'"
-jn merge "/tmp/folfox.json:label=FOLFOX" "/tmp/folfiri.json:label=FOLFIRI"
+jn cat "@genie/treatment?regimen=FOLFOX" | jn put /tmp/folfox.jsonl
+jn cat "@genie/treatment?regimen=FOLFIRI" | jn put /tmp/folfiri.jsonl
+echo "   jn merge '/tmp/folfox.jsonl:label=FOLFOX' '/tmp/folfiri.jsonl:label=FOLFIRI'"
+jn merge "/tmp/folfox.jsonl:label=FOLFOX" "/tmp/folfiri.jsonl:label=FOLFIRI"
 echo ""
 
 echo "3. Use merged data for analysis:"
 echo "   Count by label to compare cohort sizes:"
-jn merge "/tmp/folfox.json:label=FOLFOX" "/tmp/folfiri.json:label=FOLFIRI" | \
+jn merge "/tmp/folfox.jsonl:label=FOLFOX" "/tmp/folfiri.jsonl:label=FOLFIRI" | \
   jq -s 'group_by(._label) | map({label: .[0]._label, count: length})'
 echo ""
 
 # Cleanup
-rm -f /tmp/east.json /tmp/west.json /tmp/folfox.json /tmp/folfiri.json
+rm -f /tmp/east.json /tmp/west.json /tmp/folfox.jsonl /tmp/folfiri.jsonl
 
 echo "═══════════════════════════════════════════════════════════════"
 echo "Demo Complete!"
 echo ""
 echo "Key Takeaways:"
 echo "  - SQL optional params: Use (\$param IS NULL OR col = \$param)"
-echo "  - ZQ profiles: Use @namespace/profile?param=value for string substitution"
 echo "  - Merge command: Combine sources with :label=X for analysis"
+echo "  - Profile resolution: @namespace/query works for DuckDB profiles"
 echo "═══════════════════════════════════════════════════════════════"

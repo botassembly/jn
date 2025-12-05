@@ -211,6 +211,9 @@ fn handleCompressedFile(allocator: std.mem.Allocator, address: jn_address.Addres
     }
 }
 
+/// Profile type enumeration
+const ProfileType = enum { http, duckdb, code };
+
 /// Handle profile reference (@namespace/name)
 fn handleProfile(allocator: std.mem.Allocator, address: jn_address.Address, args: *const jn_cli.ArgParser) !void {
     const namespace = address.profile_namespace orelse {
@@ -219,6 +222,12 @@ fn handleProfile(allocator: std.mem.Allocator, address: jn_address.Address, args
     const name = address.profile_name orelse {
         jn_core.exitWithError("jn-cat: profile reference requires name: @namespace/name\nAddress: {s}", .{address.raw});
     };
+
+    // Special case: @code/* routes directly to code_.py plugin
+    if (std.mem.eql(u8, namespace, "code")) {
+        try handleCodeProfile(allocator, address);
+        return;
+    }
 
     // Get profile directories
     const profile_dirs = jn_profile.getProfileDirs(allocator, .{
@@ -233,11 +242,13 @@ fn handleProfile(allocator: std.mem.Allocator, address: jn_address.Address, args
         allocator.free(profile_dirs);
     }
 
-    // Search for profile in each directory (http type for now)
-    // Profile path: <profile_dir>/http/<namespace>/<name>.json
+    // Search for profile in each directory
+    // Try HTTP first, then DuckDB
+    var profile_type: ProfileType = .http;
     var profile_file: ?[]const u8 = null;
     var profile_dir: ?[]const u8 = null;
 
+    // Search HTTP profiles: profiles/http/<namespace>/<name>.json
     for (profile_dirs) |dir| {
         const path = std.fmt.allocPrint(allocator, "{s}/http/{s}/{s}.json", .{ dir, namespace, name }) catch continue;
         if (jn_profile.pathExists(path)) {
@@ -246,25 +257,232 @@ fn handleProfile(allocator: std.mem.Allocator, address: jn_address.Address, args
                 allocator.free(path);
                 continue;
             };
+            profile_type = .http;
             break;
         } else {
             allocator.free(path);
         }
     }
 
+    // If no HTTP profile found, search DuckDB profiles: profiles/duckdb/<namespace>/<name>.sql
+    if (profile_file == null) {
+        for (profile_dirs) |dir| {
+            const path = std.fmt.allocPrint(allocator, "{s}/duckdb/{s}/{s}.sql", .{ dir, namespace, name }) catch continue;
+            if (jn_profile.pathExists(path)) {
+                profile_file = path;
+                profile_dir = std.fmt.allocPrint(allocator, "{s}/duckdb/{s}", .{ dir, namespace }) catch {
+                    allocator.free(path);
+                    continue;
+                };
+                profile_type = .duckdb;
+                break;
+            } else {
+                allocator.free(path);
+            }
+        }
+    }
+
     if (profile_file == null or profile_dir == null) {
-        jn_core.exitWithError("jn-cat: profile not found: @{s}/{s}\nSearched: profiles/http/{s}/{s}.json", .{ namespace, name, namespace, name });
+        jn_core.exitWithError("jn-cat: profile not found: @{s}/{s}\nSearched:\n  profiles/http/{s}/{s}.json\n  profiles/duckdb/{s}/{s}.sql", .{ namespace, name, namespace, name, namespace, name });
     }
     defer allocator.free(profile_file.?);
     defer allocator.free(profile_dir.?);
 
+    // Route based on profile type
+    switch (profile_type) {
+        .http => try handleHttpProfile(allocator, address, args, namespace, name, profile_dir.?),
+        .duckdb => try handleDuckdbProfile(allocator, address, profile_dir.?),
+        .code => unreachable, // Handled above
+    }
+}
+
+/// Find the plugins root directory (where jn_home/plugins lives)
+/// Tries multiple locations: JN_HOME, relative to cwd, relative to executable
+fn findPluginsRoot(allocator: std.mem.Allocator) []const u8 {
+    // Try JN_HOME first - but verify jn_home/plugins exists there
+    if (std.posix.getenv("JN_HOME")) |jn_home| {
+        const check_path = std.fmt.allocPrint(allocator, "{s}/jn_home/plugins", .{jn_home}) catch "";
+        if (check_path.len > 0) {
+            defer allocator.free(check_path);
+            if (std.fs.cwd().access(check_path, .{})) |_| {
+                return jn_home;
+            } else |_| {}
+        }
+    }
+
+    // Try relative to current working directory
+    if (std.fs.cwd().access("jn_home/plugins", .{})) |_| {
+        return ".";
+    } else |_| {}
+
+    // Try to find relative to executable path
+    var exe_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    if (std.fs.selfExePath(&exe_path_buf)) |exe_path| {
+        // Executable is at: /path/to/jn/tools/zig/jn-cat/bin/jn-cat
+        // We want: /path/to/jn
+        // Go up 5 levels: bin -> jn-cat -> zig -> tools -> jn
+        var dir = std.fs.path.dirname(exe_path); // bin
+        var i: usize = 0;
+        while (i < 4 and dir != null) : (i += 1) {
+            dir = std.fs.path.dirname(dir.?);
+        }
+        if (dir) |root| {
+            const check_path = std.fmt.allocPrint(allocator, "{s}/jn_home/plugins", .{root}) catch "";
+            if (check_path.len > 0) {
+                defer allocator.free(check_path);
+                if (std.fs.cwd().access(check_path, .{})) |_| {
+                    // Return a copy since root points into exe_path_buf
+                    return allocator.dupe(u8, root) catch ".";
+                } else |_| {}
+            }
+        }
+    } else |_| {}
+
+    // Fallback
+    return ".";
+}
+
+/// Handle @code/* profiles by invoking code_.py plugin
+fn handleCodeProfile(allocator: std.mem.Allocator, address: jn_address.Address) !void {
+    // Find code_.py plugin - use plugins root, not JN_HOME
+    const plugins_root = findPluginsRoot(allocator);
+    const plugin_path = std.fmt.allocPrint(allocator, "{s}/jn_home/plugins/protocols/code_.py", .{plugins_root}) catch {
+        jn_core.exitWithError("jn-cat: out of memory", .{});
+    };
+    defer allocator.free(plugin_path);
+
+    // Build the full address with query string
+    var full_address: []const u8 = undefined;
+    if (address.query_string) |qs| {
+        full_address = std.fmt.allocPrint(allocator, "@{s}/{s}?{s}", .{
+            address.profile_namespace.?,
+            address.profile_name.?,
+            qs,
+        }) catch {
+            jn_core.exitWithError("jn-cat: out of memory", .{});
+        };
+    } else {
+        full_address = std.fmt.allocPrint(allocator, "@{s}/{s}", .{
+            address.profile_namespace.?,
+            address.profile_name.?,
+        }) catch {
+            jn_core.exitWithError("jn-cat: out of memory", .{});
+        };
+    }
+    defer allocator.free(full_address);
+
+    // Build shell command: uv run --script code_.py --mode=read <address>
+    const shell_cmd = std.fmt.allocPrint(
+        allocator,
+        "uv run --script '{s}' --mode=read '{s}'",
+        .{ plugin_path, full_address },
+    ) catch {
+        jn_core.exitWithError("jn-cat: out of memory", .{});
+    };
+    defer allocator.free(shell_cmd);
+
+    // Run via shell
+    const shell_argv: [3][]const u8 = .{ "/bin/sh", "-c", shell_cmd };
+    var shell_child = std.process.Child.init(&shell_argv, allocator);
+    shell_child.stdin_behavior = .Close;
+    shell_child.stdout_behavior = .Inherit;
+    shell_child.stderr_behavior = .Inherit;
+
+    try shell_child.spawn();
+    const result = shell_child.wait() catch |err| {
+        jn_core.exitWithError("jn-cat: code profile execution failed: {s}", .{@errorName(err)});
+    };
+
+    switch (result) {
+        .Exited => |code| {
+            if (code != 0) {
+                std.process.exit(code);
+            }
+        },
+        else => {
+            std.process.exit(1);
+        },
+    }
+}
+
+/// Handle DuckDB profiles by invoking duckdb_.py plugin
+fn handleDuckdbProfile(allocator: std.mem.Allocator, address: jn_address.Address, profile_dir: []const u8) !void {
+    // Find duckdb_.py plugin - use plugins root, not JN_HOME
+    const plugins_root = findPluginsRoot(allocator);
+    const plugin_path = std.fmt.allocPrint(allocator, "{s}/jn_home/plugins/databases/duckdb_.py", .{plugins_root}) catch {
+        jn_core.exitWithError("jn-cat: out of memory", .{});
+    };
+    defer allocator.free(plugin_path);
+
+    // Build the full address with query string
+    var full_address: []const u8 = undefined;
+    if (address.query_string) |qs| {
+        full_address = std.fmt.allocPrint(allocator, "@{s}/{s}?{s}", .{
+            address.profile_namespace.?,
+            address.profile_name.?,
+            qs,
+        }) catch {
+            jn_core.exitWithError("jn-cat: out of memory", .{});
+        };
+    } else {
+        full_address = std.fmt.allocPrint(allocator, "@{s}/{s}", .{
+            address.profile_namespace.?,
+            address.profile_name.?,
+        }) catch {
+            jn_core.exitWithError("jn-cat: out of memory", .{});
+        };
+    }
+    defer allocator.free(full_address);
+
+    // Set JN_PROJECT_DIR to the profile directory's parent (so duckdb_.py can find profiles)
+    // The profile_dir is like ".../profiles/duckdb/namespace", we need ".../profiles"
+    // Actually, duckdb_.py looks in JN_HOME/profiles/duckdb, so we need to set JN_HOME correctly
+    // Get the profiles root by going up from profile_dir
+    const profiles_root = std.fs.path.dirname(std.fs.path.dirname(profile_dir) orelse profile_dir) orelse profile_dir;
+
+    // Build shell command: JN_PROJECT_DIR=<profiles_root> uv run --script duckdb_.py --mode=read --path <address>
+    const shell_cmd = std.fmt.allocPrint(
+        allocator,
+        "JN_PROJECT_DIR='{s}' uv run --script '{s}' --mode=read --path '{s}'",
+        .{ profiles_root, plugin_path, full_address },
+    ) catch {
+        jn_core.exitWithError("jn-cat: out of memory", .{});
+    };
+    defer allocator.free(shell_cmd);
+
+    // Run via shell
+    const shell_argv: [3][]const u8 = .{ "/bin/sh", "-c", shell_cmd };
+    var shell_child = std.process.Child.init(&shell_argv, allocator);
+    shell_child.stdin_behavior = .Close;
+    shell_child.stdout_behavior = .Inherit;
+    shell_child.stderr_behavior = .Inherit;
+
+    try shell_child.spawn();
+    const result = shell_child.wait() catch |err| {
+        jn_core.exitWithError("jn-cat: DuckDB profile execution failed: {s}", .{@errorName(err)});
+    };
+
+    switch (result) {
+        .Exited => |code| {
+            if (code != 0) {
+                std.process.exit(code);
+            }
+        },
+        else => {
+            std.process.exit(1);
+        },
+    }
+}
+
+/// Handle HTTP profiles using curl
+fn handleHttpProfile(allocator: std.mem.Allocator, address: jn_address.Address, args: *const jn_cli.ArgParser, namespace: []const u8, name: []const u8, profile_dir: []const u8) !void {
     // Load profile with hierarchical merge
     const profile_path = std.fmt.allocPrint(allocator, "{s}.json", .{name}) catch {
         jn_core.exitWithError("jn-cat: out of memory", .{});
     };
     defer allocator.free(profile_path);
 
-    var config = jn_profile.loadProfile(allocator, profile_dir.?, profile_path, true) catch |err| {
+    var config = jn_profile.loadProfile(allocator, profile_dir, profile_path, true) catch |err| {
         jn_core.exitWithError("jn-cat: failed to load profile @{s}/{s}: {s}", .{ namespace, name, @errorName(err) });
     };
     defer jn_profile.freeValue(allocator, config);
@@ -1012,6 +1230,27 @@ fn findPluginInfo(allocator: std.mem.Allocator, name: []const u8) ?PluginInfo {
     } else |_| {
         allocator.free(dev_path);
     }
+
+    // Try relative to executable's location
+    // Executable is at: /path/to/jn/tools/zig/jn-cat/bin/jn-cat
+    // Plugins are at: /path/to/jn/plugins/zig/<name>/bin/<name>
+    var exe_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    if (std.fs.selfExePath(&exe_path_buf)) |exe_path| {
+        // Go up 5 levels: bin -> jn-cat -> zig -> tools -> root
+        var dir = std.fs.path.dirname(exe_path);
+        var i: usize = 0;
+        while (i < 4 and dir != null) : (i += 1) {
+            dir = std.fs.path.dirname(dir.?);
+        }
+        if (dir) |root| {
+            const exe_rel_path = std.fmt.allocPrint(allocator, "{s}/plugins/zig/{s}/bin/{s}", .{ root, name, name }) catch return null;
+            if (std.fs.cwd().access(exe_rel_path, .{})) |_| {
+                return .{ .path = exe_rel_path, .plugin_type = .zig };
+            } else |_| {
+                allocator.free(exe_rel_path);
+            }
+        }
+    } else |_| {}
 
     // Try ~/.local/jn/plugins
     if (std.posix.getenv("HOME")) |home| {
