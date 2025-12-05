@@ -67,7 +67,7 @@ pub fn main() !void {
             try handleFile(allocator, address, &args);
         },
         .url => {
-            jn_core.exitWithError("jn-cat: remote URLs not yet supported (OpenDAL integration pending)\nAddress: {s}", .{address_str});
+            try handleUrl(allocator, address, &args);
         },
         .profile => {
             jn_core.exitWithError("jn-cat: profile references not yet supported\nAddress: {s}", .{address_str});
@@ -203,6 +203,119 @@ fn handleCompressedFile(allocator: std.mem.Allocator, address: jn_address.Addres
 
     if (result.Exited != 0) {
         std.process.exit(result.Exited);
+    }
+}
+
+/// Handle URL address (http://, https://, s3://, etc.)
+fn handleUrl(allocator: std.mem.Allocator, address: jn_address.Address, args: *const jn_cli.ArgParser) !void {
+    const protocol = address.protocol orelse {
+        jn_core.exitWithError("jn-cat: URL has no protocol: {s}", .{address.raw});
+    };
+
+    // For HTTP/HTTPS, use curl to fetch the data
+    if (std.mem.eql(u8, protocol, "http") or std.mem.eql(u8, protocol, "https")) {
+        try handleHttpUrl(allocator, address, args);
+        return;
+    }
+
+    // For S3, GCS, etc. - not yet supported without OpenDAL
+    jn_core.exitWithError("jn-cat: protocol '{s}' not yet supported (requires OpenDAL)\nAddress: {s}", .{ protocol, address.raw });
+}
+
+/// Handle HTTP/HTTPS URL using curl
+fn handleHttpUrl(allocator: std.mem.Allocator, address: jn_address.Address, args: *const jn_cli.ArgParser) !void {
+    const format = address.effectiveFormat() orelse "json"; // Default to JSON for HTTP
+
+    // Build the clean URL (protocol://path) without format hint
+    const protocol = address.protocol.?;
+    const url = try std.fmt.allocPrint(allocator, "{s}://{s}", .{ protocol, address.path });
+    defer allocator.free(url);
+
+    // Find format plugin
+    const plugin_path = findPlugin(allocator, format);
+
+    // Build format args
+    var format_args_buf: [64]u8 = undefined;
+    const format_args = buildFormatArgs(args, &format_args_buf);
+
+    // Build header arg if provided
+    var header_arg_buf: [256]u8 = undefined;
+    var header_arg: []const u8 = "";
+    if (args.get("header", null)) |header| {
+        header_arg = std.fmt.bufPrint(&header_arg_buf, " -H '{s}'", .{header}) catch "";
+    }
+
+    // Build the shell command
+    var shell_cmd: []const u8 = undefined;
+
+    if (address.compression != .none) {
+        // URL with compression: curl | gunzip | format_plugin
+        const gz_path = findPlugin(allocator, "gz") orelse {
+            jn_core.exitWithError("jn-cat: compression plugin 'gz' not found", .{});
+        };
+
+        if (plugin_path) |fmt_path| {
+            // curl URL | gz --mode=raw | format --mode=read
+            shell_cmd = try std.fmt.allocPrint(
+                allocator,
+                "curl -sS -L -f{s} '{s}' | {s} --mode=raw | {s} --mode=read{s}",
+                .{ header_arg, url, gz_path, fmt_path, format_args },
+            );
+        } else {
+            // No format plugin (assume JSONL) - just decompress
+            shell_cmd = try std.fmt.allocPrint(
+                allocator,
+                "curl -sS -L -f{s} '{s}' | {s} --mode=raw",
+                .{ header_arg, url, gz_path },
+            );
+        }
+    } else if (plugin_path) |fmt_path| {
+        // curl URL | format_plugin --mode=read
+        shell_cmd = try std.fmt.allocPrint(
+            allocator,
+            "curl -sS -L -f{s} '{s}' | {s} --mode=read{s}",
+            .{ header_arg, url, fmt_path, format_args },
+        );
+    } else if (std.mem.eql(u8, format, "jsonl") or std.mem.eql(u8, format, "ndjson")) {
+        // JSONL/NDJSON - just curl directly
+        shell_cmd = try std.fmt.allocPrint(
+            allocator,
+            "curl -sS -L -f{s} '{s}'",
+            .{ header_arg, url },
+        );
+    } else {
+        jn_core.exitWithError("jn-cat: format plugin '{s}' not found", .{format});
+    }
+    defer allocator.free(shell_cmd);
+
+    // Run via shell
+    const shell_argv: [3][]const u8 = .{ "/bin/sh", "-c", shell_cmd };
+    var shell_child = std.process.Child.init(&shell_argv, allocator);
+    shell_child.stdin_behavior = .Close;
+    shell_child.stdout_behavior = .Inherit;
+    shell_child.stderr_behavior = .Inherit;
+
+    try shell_child.spawn();
+    const result = shell_child.wait() catch |err| {
+        jn_core.exitWithError("jn-cat: URL fetch failed: {s}", .{@errorName(err)});
+    };
+
+    switch (result) {
+        .Exited => |code| {
+            if (code != 0) {
+                // curl exit codes: 22 = HTTP error (4xx/5xx), 6 = couldn't resolve host
+                if (code == 22) {
+                    jn_core.exitWithError("jn-cat: HTTP error fetching URL: {s}", .{url});
+                } else if (code == 6) {
+                    jn_core.exitWithError("jn-cat: could not resolve host for URL: {s}", .{url});
+                } else {
+                    std.process.exit(code);
+                }
+            }
+        },
+        else => {
+            std.process.exit(1);
+        },
     }
 }
 
