@@ -1,5 +1,44 @@
 # JN Zig Refactor - Work Log
 
+## 2025-12-04: Phase 9 Orchestrator Complete
+
+### jn Orchestrator Implementation
+
+**Goal:** Implement the main `jn` command as a thin dispatcher.
+
+#### Completed
+
+**jn** (`tools/zig/jn/`):
+Orchestrator tool:
+- [x] Subcommand routing (cat → jn-cat, put → jn-put, etc.)
+- [x] Tool discovery (JN_HOME, development, user paths)
+- [x] Help aggregation (shows all available commands)
+- [x] Version reporting
+- [x] Argument passthrough to subcommands
+- [x] Exit code propagation from tools
+
+#### Test Results
+- jn: 2 unit tests passed
+- All 11 CLI tools build and test successfully
+- Manual verification:
+  - `jn --version` → `jn 0.1.0` ✓
+  - `jn --help` → Shows all commands ✓
+  - `jn cat /tmp/test.csv` → NDJSON output ✓
+  - `jn cat --help` → Shows jn-cat help ✓
+  - `jn xyz` → Error with helpful message ✓
+
+#### Files Created
+| File | Lines | Purpose |
+|------|-------|---------|
+| `tools/zig/jn/main.zig` | ~230 | Main orchestrator |
+
+#### Exit Criteria ✅
+- [x] `jn cat file.csv` works
+- [x] `jn --help` shows all commands
+- [x] `jn --version` reports correctly
+
+---
+
 ## 2025-12-04: Phase 8 Join & Merge Tools
 
 ### Join & Merge Tool Implementation
@@ -590,6 +629,8 @@ External libraries would add complexity without significant benefit for these.
 | Phase 5 CLI tools | **Done** |
 | Phase 6 plugin discovery | **Done** |
 | Phase 7 analysis tools | **Done** |
+| Phase 8 join/merge | **Done** |
+| Phase 9 orchestrator | **Done** |
 | Plugin system integration | **Done** (Zig binary support) |
 
 ---
