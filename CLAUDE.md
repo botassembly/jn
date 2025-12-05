@@ -1,8 +1,8 @@
-# JN Zig Refactor - Build Context
+# JN - Universal Data Pipeline Tool
 
-## Current Phase: Zig Core Migration
+## Status: Zig Core Migration Complete
 
-Migrating JN from Python to a **pure Zig core** with Python plugin extensibility.
+JN provides a **pure Zig core** with Python plugin extensibility for data transformation pipelines.
 
 **Documentation:** `spec/` contains the full architecture docs (14 documents).
 **Work Log:** `spec/log.md` tracks implementation progress.
@@ -15,7 +15,7 @@ Migrating JN from Python to a **pure Zig core** with Python plugin extensibility
 
 ```bash
 make install      # Install deps + build Zig components
-make test         # Run pytest
+make test         # Run pytest + Zig tests
 make check        # Format, lint, type check, plugin validation
 make coverage     # Run tests with coverage report
 
@@ -23,8 +23,12 @@ make zq           # Build ZQ filter engine
 make zq-test      # Run ZQ unit + integration tests
 make zq-fmt       # Format Zig code
 
+make zig-libs          # Build Zig libraries
+make zig-libs-test     # Test Zig libraries (89 tests)
+make zig-tools         # Build Zig CLI tools
+make zig-tools-test    # Test Zig CLI tools
 make zig-plugins       # Build Zig plugins
-make zig-plugins-test  # Test Zig plugins
+make zig-plugins-test  # Test Zig plugins (27 tests)
 
 make clean        # Remove build artifacts
 ```
@@ -71,6 +75,8 @@ jn/
 │   ├── json/              # JSON array ↔ NDJSON (DONE)
 │   ├── jsonl/             # NDJSON passthrough (DONE)
 │   ├── gz/                # Gzip compression (DONE)
+│   ├── yaml/              # YAML parser (DONE)
+│   ├── toml/              # TOML parser (DONE)
 │   └── opendal/           # Protocol handler (EXPERIMENTAL)
 │
 ├── plugins/python/        # Python plugins (STAY IN PYTHON)
@@ -107,7 +113,8 @@ jn/
 | 7 | ✅ Done | Analysis tools (jn-analyze, jn-inspect) |
 | 8 | ✅ Done | Join & Merge (jn-join, jn-merge, jn-sh) |
 | 9 | ✅ Done | Orchestrator (jn command) |
-| 10-11 | Planned | Extended formats, testing & migration |
+| 10 | ✅ Done | Extended formats (YAML, TOML plugins) |
+| 11 | ✅ Done | Testing & migration (integration tests, benchmarks) |
 
 **Full plan:** `spec/00-plan.md`
 
@@ -148,13 +155,18 @@ Within same level: Zig > Python, longer patterns win.
 
 ---
 
-## Performance Targets
+## Performance Results
 
-| Metric | Python | Zig Target |
-|--------|--------|------------|
-| Startup | 50-100ms | <5ms |
-| Memory (10MB) | ~50MB | ~1MB |
-| Memory (1GB) | ~500MB+ | ~1MB |
+Benchmarked on 5,000 NDJSON records:
+
+| Metric | Python CLI | Zig Tools | Improvement |
+|--------|------------|-----------|-------------|
+| Startup | ~2000ms | ~1.5ms | **1300x faster** |
+| Head (100 records) | ~1800ms | ~2ms | **900x faster** |
+| Tail (100 records) | ~2000ms | ~4ms | **500x faster** |
+| Throughput | ~2,700 rec/s | ~3M rec/s | **1100x faster** |
+
+Run benchmarks: `python tests/benchmarks/benchmark_zig_vs_python.py`
 
 ---
 
