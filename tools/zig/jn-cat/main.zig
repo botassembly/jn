@@ -434,17 +434,19 @@ fn handleDuckdbProfile(allocator: std.mem.Allocator, address: jn_address.Address
     }
     defer allocator.free(full_address);
 
-    // Set JN_PROJECT_DIR to the profile directory's parent (so duckdb_.py can find profiles)
-    // The profile_dir is like ".../profiles/duckdb/namespace", we need ".../profiles"
-    // Actually, duckdb_.py looks in JN_HOME/profiles/duckdb, so we need to set JN_HOME correctly
-    // Get the profiles root by going up from profile_dir
-    const profiles_root = std.fs.path.dirname(std.fs.path.dirname(profile_dir) orelse profile_dir) orelse profile_dir;
+    // Set JN_PROJECT_DIR to the project root (so duckdb_.py can find profiles)
+    // The profile_dir is like ".../profiles/duckdb/namespace"
+    // duckdb_.py looks in JN_PROJECT_DIR/profiles/duckdb, so we need to go up 3 levels:
+    //   namespace -> duckdb -> profiles -> project_root
+    const duckdb_dir = std.fs.path.dirname(profile_dir) orelse profile_dir; // .../profiles/duckdb
+    const profiles_dir = std.fs.path.dirname(duckdb_dir) orelse duckdb_dir; // .../profiles
+    const project_root = std.fs.path.dirname(profiles_dir) orelse profiles_dir; // ...
 
-    // Build shell command: JN_PROJECT_DIR=<profiles_root> uv run --script duckdb_.py --mode=read --path <address>
+    // Build shell command: JN_PROJECT_DIR=<project_root> uv run --script duckdb_.py --mode=read --path <address>
     const shell_cmd = std.fmt.allocPrint(
         allocator,
         "JN_PROJECT_DIR='{s}' uv run --script '{s}' --mode=read --path '{s}'",
-        .{ profiles_root, plugin_path, full_address },
+        .{ project_root, plugin_path, full_address },
     ) catch {
         jn_core.exitWithError("jn-cat: out of memory", .{});
     };
