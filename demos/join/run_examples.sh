@@ -7,10 +7,9 @@ DEMO_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$DEMO_DIR/../.." && pwd)"
 cd "$DEMO_DIR"
 
-# Use uv run for jn commands
-jn() {
-    uv run --project "$REPO_ROOT" jn "$@"
-}
+# Ensure JN_HOME is set for finding tools
+export JN_HOME="${JN_HOME:-$REPO_ROOT}"
+export PATH="$REPO_ROOT/tools/zig/jn/bin:$PATH"
 
 echo "=== JN Join Demo ==="
 echo ""
