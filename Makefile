@@ -132,10 +132,14 @@ zig-plugins: install-zig
 	mkdir -p plugins/zig/json/bin
 	mkdir -p plugins/zig/jsonl/bin
 	mkdir -p plugins/zig/gz/bin
+	mkdir -p plugins/zig/yaml/bin
+	mkdir -p plugins/zig/toml/bin
 	cd plugins/zig/csv && $(ZIG) build-exe -fllvm -O ReleaseFast $(PLUGIN_MODULES) -femit-bin=bin/csv
 	cd plugins/zig/json && $(ZIG) build-exe -fllvm -O ReleaseFast $(PLUGIN_MODULES) -femit-bin=bin/json
 	cd plugins/zig/jsonl && $(ZIG) build-exe -fllvm -O ReleaseFast $(PLUGIN_MODULES) -femit-bin=bin/jsonl
 	cd plugins/zig/gz && $(ZIG) build-exe -fllvm -O ReleaseFast $(PLUGIN_MODULES) -femit-bin=bin/gz
+	cd plugins/zig/yaml && $(ZIG) build-exe -fllvm -O ReleaseFast $(PLUGIN_MODULES) -femit-bin=bin/yaml
+	cd plugins/zig/toml && $(ZIG) build-exe -fllvm -O ReleaseFast $(PLUGIN_MODULES) -femit-bin=bin/toml
 	@echo "Zig plugins built successfully"
 
 # Build OpenDAL C library (optional; requires vendor/opendal)
@@ -165,6 +169,8 @@ zig-plugins-test: zig-plugins
 	cd plugins/zig/json && $(ZIG) test -fllvm $(PLUGIN_MODULES)
 	cd plugins/zig/jsonl && $(ZIG) test -fllvm $(PLUGIN_MODULES)
 	cd plugins/zig/gz && $(ZIG) test -fllvm $(PLUGIN_MODULES)
+	cd plugins/zig/yaml && $(ZIG) test -fllvm $(PLUGIN_MODULES)
+	cd plugins/zig/toml && $(ZIG) test -fllvm $(PLUGIN_MODULES)
 	@echo "All Zig plugin tests passed"
 
 publish:

@@ -107,7 +107,7 @@ def find_format_plugin(filepath: str, plugin_dir: Path, format_ext: str = None) 
         return None
 
     # Map extensions to plugin names
-    # Note: csv/json/jsonl are now Zig binary plugins, others remain Python
+    # Note: csv/json/jsonl/yaml/toml are now Zig binary plugins, others remain Python
     ext_to_plugin = {
         '.json': 'json',
         '.jsonl': 'jsonl',
@@ -115,9 +115,9 @@ def find_format_plugin(filepath: str, plugin_dir: Path, format_ext: str = None) 
         '.csv': 'csv',
         '.tsv': 'csv',
         '.txt': 'csv',
-        '.yaml': 'yaml_',
-        '.yml': 'yaml_',
-        '.toml': 'toml_',
+        '.yaml': 'yaml',
+        '.yml': 'yaml',
+        '.toml': 'toml',
         '.xlsx': 'xlsx_',
         '.xls': 'xlsx_',
         '.md': 'markdown_',

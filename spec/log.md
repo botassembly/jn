@@ -1,5 +1,68 @@
 # JN Zig Refactor - Work Log
 
+## 2025-12-05: Phase 10 Extended Formats
+
+### YAML and TOML Plugin Implementation
+
+**Goal:** Add Zig implementations for additional data formats.
+
+#### Completed
+
+**yaml** (`plugins/zig/yaml/`):
+YAML parser with full read/write support:
+- [x] Read mode: YAML → NDJSON (block and flow styles)
+- [x] Write mode: NDJSON → YAML
+- [x] Block arrays (- item)
+- [x] Block objects (key: value)
+- [x] Flow arrays ([a, b, c])
+- [x] Flow objects ({key: value})
+- [x] Quoted strings (single and double)
+- [x] Block scalars (| and >)
+- [x] Boolean, integer, float, null handling
+- [x] 8 unit tests passing
+
+**toml** (`plugins/zig/toml/`):
+TOML parser with full read/write support:
+- [x] Read mode: TOML → NDJSON
+- [x] Write mode: NDJSON → TOML
+- [x] Simple key-value pairs
+- [x] Tables ([section])
+- [x] Array of tables ([[items]])
+- [x] Inline tables ({key = value})
+- [x] Inline arrays [1, 2, 3]
+- [x] Multi-line basic strings
+- [x] Multi-line literal strings
+- [x] Boolean, integer, float handling
+- [x] 7 unit tests passing
+
+#### Test Results
+- yaml: 8 tests passed
+- toml: 7 tests passed
+- All 6 Zig plugins build and test successfully
+- Manual verification:
+  - YAML read: block/flow objects/arrays ✓
+  - TOML read: tables, arrays of tables ✓
+
+#### Files Created/Modified
+| File | Lines | Purpose |
+|------|-------|---------|
+| `plugins/zig/yaml/main.zig` | ~950 | YAML parser/writer |
+| `plugins/zig/toml/main.zig` | ~970 | TOML parser/writer |
+| `jn_home/plugins/protocols/glob_.py` | (modified) | Route .yaml/.yml/.toml to Zig plugins |
+| `Makefile` | (modified) | Added yaml/toml build targets |
+
+#### Technical Notes
+- Custom parsers (no external libraries) following existing plugin patterns
+- Zig 0.15.2 managed ArrayList/ObjectMap API changes handled
+- Explicit error sets required for recursive functions
+
+#### Exit Criteria ✅
+- [x] YAML plugin reads/writes correctly
+- [x] TOML plugin reads/writes correctly
+- [x] All unit tests pass
+
+---
+
 ## 2025-12-04: Phase 9 Orchestrator Complete
 
 ### jn Orchestrator Implementation
