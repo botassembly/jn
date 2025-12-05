@@ -285,20 +285,22 @@ const ParseError = error{
     UnsupportedFeature,
 };
 
-// Global error context for better error messages
-var error_context: struct {
+/// Error context for better error messages when parsing fails.
+/// Passed as an output parameter to avoid global mutable state.
+const ErrorContext = struct {
     expression: []const u8 = "",
     feature: []const u8 = "",
     suggestion: []const u8 = "",
-} = .{};
+};
 
-/// Check for jq features not supported by ZQ and provide helpful error messages
-fn checkUnsupportedFeatures(expr: []const u8) ParseError!void {
+/// Check for jq features not supported by ZQ and provide helpful error messages.
+/// The err_ctx output parameter receives error details if an unsupported feature is found.
+fn checkUnsupportedFeatures(expr: []const u8, err_ctx: *ErrorContext) ParseError!void {
     const trimmed = std.mem.trim(u8, expr, whitespace);
 
     // Check for variable declarations ($var)
     if (std.mem.indexOf(u8, trimmed, " as $")) |_| {
-        error_context = .{
+        err_ctx.* = .{
             .expression = trimmed,
             .feature = "variable binding (as $var)",
             .suggestion = "Use pipes instead: .items[] | select(.x > 0) | .name",
@@ -313,7 +315,7 @@ fn checkUnsupportedFeatures(expr: []const u8) ParseError!void {
             const next = trimmed[i + 1];
             // Check if it's a variable (letter or underscore after $)
             if ((next >= 'a' and next <= 'z') or (next >= 'A' and next <= 'Z') or next == '_') {
-                error_context = .{
+                err_ctx.* = .{
                     .expression = trimmed,
                     .feature = "variables ($var)",
                     .suggestion = "ZQ doesn't support variables. Restructure with pipes.",
@@ -327,7 +329,7 @@ fn checkUnsupportedFeatures(expr: []const u8) ParseError!void {
     const regex_funcs = [_][]const u8{ "test(", "match(", "capture(", "scan(", "splits(", "sub(", "gsub(" };
     for (regex_funcs) |func| {
         if (std.mem.indexOf(u8, trimmed, func)) |_| {
-            error_context = .{
+            err_ctx.* = .{
                 .expression = trimmed,
                 .feature = func[0 .. func.len - 1],
                 .suggestion = "Use contains(), startswith(), or endswith() instead",
@@ -338,7 +340,7 @@ fn checkUnsupportedFeatures(expr: []const u8) ParseError!void {
 
     // Check for module imports
     if (std.mem.startsWith(u8, trimmed, "import ") or std.mem.startsWith(u8, trimmed, "include ")) {
-        error_context = .{
+        err_ctx.* = .{
             .expression = trimmed,
             .feature = "module imports",
             .suggestion = "ZQ doesn't support modules. Use inline expressions.",
@@ -348,7 +350,7 @@ fn checkUnsupportedFeatures(expr: []const u8) ParseError!void {
 
     // Check for reduce
     if (std.mem.startsWith(u8, trimmed, "reduce ")) {
-        error_context = .{
+        err_ctx.* = .{
             .expression = trimmed,
             .feature = "reduce",
             .suggestion = "Use add, min, max, or group_by instead",
@@ -358,7 +360,7 @@ fn checkUnsupportedFeatures(expr: []const u8) ParseError!void {
 
     // Check for limit
     if (std.mem.startsWith(u8, trimmed, "limit(")) {
-        error_context = .{
+        err_ctx.* = .{
             .expression = trimmed,
             .feature = "limit()",
             .suggestion = "Use 'head -n N' after the pipeline: zq '.' | head -n 10",
@@ -370,7 +372,7 @@ fn checkUnsupportedFeatures(expr: []const u8) ParseError!void {
     if (std.mem.indexOf(u8, trimmed, "..")) |pos| {
         // Make sure it's not // (alternative operator)
         if (pos == 0 or trimmed[pos - 1] != '/') {
-            error_context = .{
+            err_ctx.* = .{
                 .expression = trimmed,
                 .feature = "recursive descent (..)",
                 .suggestion = "Use explicit paths instead: .items[].nested",
@@ -381,7 +383,7 @@ fn checkUnsupportedFeatures(expr: []const u8) ParseError!void {
 
     // Check for recurse/walk
     if (std.mem.indexOf(u8, trimmed, "recurse") != null or std.mem.indexOf(u8, trimmed, "walk(") != null) {
-        error_context = .{
+        err_ctx.* = .{
             .expression = trimmed,
             .feature = "recurse/walk",
             .suggestion = "Use explicit iteration: .items[] | .children[]",
@@ -393,7 +395,7 @@ fn checkUnsupportedFeatures(expr: []const u8) ParseError!void {
     const path_funcs = [_][]const u8{ "path(", "getpath(", "setpath(", "delpaths(" };
     for (path_funcs) |func| {
         if (std.mem.indexOf(u8, trimmed, func)) |_| {
-            error_context = .{
+            err_ctx.* = .{
                 .expression = trimmed,
                 .feature = func[0 .. func.len - 1],
                 .suggestion = "Use direct field access: .path.to.field",
@@ -404,7 +406,7 @@ fn checkUnsupportedFeatures(expr: []const u8) ParseError!void {
 
     // Check for debug/input functions
     if (std.mem.indexOf(u8, trimmed, "debug") != null) {
-        error_context = .{
+        err_ctx.* = .{
             .expression = trimmed,
             .feature = "debug",
             .suggestion = "ZQ doesn't have debug output. Use stderr redirection.",
@@ -413,7 +415,7 @@ fn checkUnsupportedFeatures(expr: []const u8) ParseError!void {
     }
 
     if (std.mem.eql(u8, trimmed, "input") or std.mem.eql(u8, trimmed, "inputs")) {
-        error_context = .{
+        err_ctx.* = .{
             .expression = trimmed,
             .feature = "input/inputs",
             .suggestion = "ZQ reads from stdin automatically. Just use '.'",
@@ -430,7 +432,7 @@ fn checkUnsupportedFeatures(expr: []const u8) ParseError!void {
         std.mem.indexOf(u8, trimmed, "@text") != null or
         std.mem.indexOf(u8, trimmed, "@sh") != null)
     {
-        error_context = .{
+        err_ctx.* = .{
             .expression = trimmed,
             .feature = "format strings (@base64, @uri, etc.)",
             .suggestion = "Use jn put or external tools for format conversion",
@@ -440,7 +442,7 @@ fn checkUnsupportedFeatures(expr: []const u8) ParseError!void {
 
     // Check for try-catch
     if (std.mem.indexOf(u8, trimmed, "try ") != null or std.mem.indexOf(u8, trimmed, " catch ") != null) {
-        error_context = .{
+        err_ctx.* = .{
             .expression = trimmed,
             .feature = "try-catch",
             .suggestion = "Use optional access (.field?) or alternative operator (//)",
@@ -450,7 +452,7 @@ fn checkUnsupportedFeatures(expr: []const u8) ParseError!void {
 
     // Check for def (function definitions)
     if (std.mem.startsWith(u8, trimmed, "def ")) {
-        error_context = .{
+        err_ctx.* = .{
             .expression = trimmed,
             .feature = "function definitions (def)",
             .suggestion = "ZQ doesn't support custom functions. Use pipes.",
@@ -459,11 +461,11 @@ fn checkUnsupportedFeatures(expr: []const u8) ParseError!void {
     }
 }
 
-fn parseExpr(allocator: std.mem.Allocator, expr: []const u8) ParseError!Expr {
+fn parseExprWithContext(allocator: std.mem.Allocator, expr: []const u8, err_ctx: *ErrorContext) ParseError!Expr {
     const trimmed = std.mem.trim(u8, expr, whitespace);
 
     // Check for unsupported jq features first
-    try checkUnsupportedFeatures(trimmed);
+    try checkUnsupportedFeatures(trimmed, err_ctx);
 
     // Check for parenthesized expression (grouping)
     // Must match balanced parens at start and end
@@ -476,7 +478,7 @@ fn parseExpr(allocator: std.mem.Allocator, expr: []const u8) ParseError!Expr {
         }
         // If the closing paren is at the end, this is a grouped expression
         if (end_idx == trimmed.len and depth == 0) {
-            return parseExpr(allocator, trimmed[1 .. trimmed.len - 1]);
+            return parseExprWithContext(allocator, trimmed[1 .. trimmed.len - 1], err_ctx);
         }
     }
 
@@ -505,9 +507,9 @@ fn parseExpr(allocator: std.mem.Allocator, expr: []const u8) ParseError!Expr {
 
             if (left_str.len > 0 and right_str.len > 0) {
                 const left = try allocator.create(Expr);
-                left.* = try parseExpr(allocator, left_str);
+                left.* = try parseExprWithContext(allocator, left_str, err_ctx);
                 const right = try allocator.create(Expr);
-                right.* = try parseExpr(allocator, right_str);
+                right.* = try parseExprWithContext(allocator, right_str, err_ctx);
                 return .{ .pipe = .{ .left = left, .right = right } };
             }
         }
@@ -533,9 +535,9 @@ fn parseExpr(allocator: std.mem.Allocator, expr: []const u8) ParseError!Expr {
 
             if (left_str.len > 0 and right_str.len > 0) {
                 const primary = try allocator.create(Expr);
-                primary.* = try parseExpr(allocator, left_str);
+                primary.* = try parseExprWithContext(allocator, left_str, err_ctx);
                 const fallback = try allocator.create(Expr);
-                fallback.* = try parseExpr(allocator, right_str);
+                fallback.* = try parseExprWithContext(allocator, right_str, err_ctx);
                 return .{ .alternative = .{ .primary = primary, .fallback = fallback } };
             }
         }
@@ -565,9 +567,9 @@ fn parseExpr(allocator: std.mem.Allocator, expr: []const u8) ParseError!Expr {
 
                 if (left_str.len > 0 and right_str.len > 0) {
                     const left = try allocator.create(Expr);
-                    left.* = try parseExpr(allocator, left_str);
+                    left.* = try parseExprWithContext(allocator, left_str, err_ctx);
                     const right = try allocator.create(Expr);
-                    right.* = try parseExpr(allocator, right_str);
+                    right.* = try parseExprWithContext(allocator, right_str, err_ctx);
                     return .{ .arithmetic = .{ .left = left, .op = op, .right = right } };
                 }
             }
@@ -604,9 +606,9 @@ fn parseExpr(allocator: std.mem.Allocator, expr: []const u8) ParseError!Expr {
 
                 if (left_str.len > 0 and right_str.len > 0) {
                     const left = try allocator.create(Expr);
-                    left.* = try parseExpr(allocator, left_str);
+                    left.* = try parseExprWithContext(allocator, left_str, err_ctx);
                     const right = try allocator.create(Expr);
-                    right.* = try parseExpr(allocator, right_str);
+                    right.* = try parseExprWithContext(allocator, right_str, err_ctx);
                     return .{ .arithmetic = .{ .left = left, .op = op, .right = right } };
                 }
             }
@@ -686,7 +688,7 @@ fn parseExpr(allocator: std.mem.Allocator, expr: []const u8) ParseError!Expr {
     if (std.mem.startsWith(u8, trimmed, "map(") and std.mem.endsWith(u8, trimmed, ")")) {
         const inner_str = trimmed[4 .. trimmed.len - 1];
         const inner = try allocator.create(Expr);
-        inner.* = try parseExpr(allocator, inner_str);
+        inner.* = try parseExprWithContext(allocator, inner_str, err_ctx);
         return .{ .map = .{ .inner = inner } };
     }
 
@@ -697,24 +699,24 @@ fn parseExpr(allocator: std.mem.Allocator, expr: []const u8) ParseError!Expr {
 
     // Sprint 03: Array literal [.x, .y, .z]
     if (trimmed[0] == '[' and trimmed[trimmed.len - 1] == ']') {
-        return try parseArrayLiteral(allocator, trimmed);
+        return try parseArrayLiteral(allocator, trimmed, err_ctx);
     }
 
     // If-then-else conditional
     if (std.mem.startsWith(u8, trimmed, "if ")) {
-        return try parseConditional(allocator, trimmed);
+        return try parseConditional(allocator, trimmed, err_ctx);
     }
 
     // Select expression
     if (std.mem.startsWith(u8, trimmed, "select(") and std.mem.endsWith(u8, trimmed, ")")) {
         const inner = trimmed[7 .. trimmed.len - 1];
-        const condition = try parseCondition(allocator, inner);
+        const condition = try parseCondition(allocator, inner, err_ctx);
         return .{ .select = condition };
     }
 
     // Object construction: {a: .x, b: .y}
     if (trimmed[0] == '{' and trimmed[trimmed.len - 1] == '}') {
-        return try parseObject(allocator, trimmed);
+        return try parseObject(allocator, trimmed, err_ctx);
     }
 
     // Field path with optional iteration: .foo or .foo.bar or .items[]
@@ -802,7 +804,13 @@ fn parseExpr(allocator: std.mem.Allocator, expr: []const u8) ParseError!Expr {
     return error.InvalidExpression;
 }
 
-fn parseConditional(allocator: std.mem.Allocator, expr: []const u8) ParseError!Expr {
+/// Convenience wrapper for tests - uses a dummy error context
+fn parseExpr(allocator: std.mem.Allocator, expr: []const u8) ParseError!Expr {
+    var dummy_ctx: ErrorContext = .{};
+    return parseExprWithContext(allocator, expr, &dummy_ctx);
+}
+
+fn parseConditional(allocator: std.mem.Allocator, expr: []const u8, err_ctx: *ErrorContext) ParseError!Expr {
     // Format: if <condition> then <expr> else <expr> end
     const trimmed = std.mem.trim(u8, expr, whitespace);
 
@@ -850,11 +858,11 @@ fn parseConditional(allocator: std.mem.Allocator, expr: []const u8) ParseError!E
     const then_str = std.mem.trim(u8, trimmed[then_pos.? + 5 .. else_pos.?], whitespace);
     const else_str = std.mem.trim(u8, trimmed[else_pos.? + 5 .. end_pos], whitespace);
 
-    const condition = try parseCondition(allocator, cond_str);
+    const condition = try parseCondition(allocator, cond_str, err_ctx);
     const then_branch = try allocator.create(Expr);
-    then_branch.* = try parseExpr(allocator, then_str);
+    then_branch.* = try parseExprWithContext(allocator, then_str, err_ctx);
     const else_branch = try allocator.create(Expr);
-    else_branch.* = try parseExpr(allocator, else_str);
+    else_branch.* = try parseExprWithContext(allocator, else_str, err_ctx);
 
     return .{ .conditional = .{
         .condition = condition,
@@ -863,7 +871,7 @@ fn parseConditional(allocator: std.mem.Allocator, expr: []const u8) ParseError!E
     } };
 }
 
-fn parseObject(allocator: std.mem.Allocator, expr: []const u8) ParseError!Expr {
+fn parseObject(allocator: std.mem.Allocator, expr: []const u8, err_ctx: *ErrorContext) ParseError!Expr {
     // Format: {key1: val1, key2: val2, ...}
     const inner = std.mem.trim(u8, expr[1 .. expr.len - 1], whitespace);
 
@@ -892,7 +900,7 @@ fn parseObject(allocator: std.mem.Allocator, expr: []const u8) ParseError!Expr {
         if ((c == ',' or at_end) and paren_depth == 0 and brace_depth == 0) {
             const field_str = std.mem.trim(u8, inner[start..i], whitespace);
             if (field_str.len > 0) {
-                const field = try parseObjectField(allocator, field_str);
+                const field = try parseObjectField(allocator, field_str, err_ctx);
                 try fields.append(allocator, field);
             }
             start = i + 1;
@@ -902,7 +910,7 @@ fn parseObject(allocator: std.mem.Allocator, expr: []const u8) ParseError!Expr {
     return .{ .object = .{ .fields = try fields.toOwnedSlice(allocator) } };
 }
 
-fn parseObjectField(allocator: std.mem.Allocator, field_str: []const u8) ParseError!ObjectField {
+fn parseObjectField(allocator: std.mem.Allocator, field_str: []const u8, err_ctx: *ErrorContext) ParseError!ObjectField {
     // Format: key: value or (expr): value or shorthand key
     const trimmed = std.mem.trim(u8, field_str, whitespace);
 
@@ -927,7 +935,7 @@ fn parseObjectField(allocator: std.mem.Allocator, field_str: []const u8) ParseEr
         if (key_part[0] == '(' and key_part[key_part.len - 1] == ')') {
             // Dynamic key: (.field)
             const key_expr = try allocator.create(Expr);
-            key_expr.* = try parseExpr(allocator, key_part[1 .. key_part.len - 1]);
+            key_expr.* = try parseExprWithContext(allocator, key_part[1 .. key_part.len - 1], err_ctx);
             key = .{ .dynamic = key_expr };
         } else if (key_part.len >= 2 and key_part[0] == '"' and key_part[key_part.len - 1] == '"') {
             // Quoted literal key: "foo" -> foo
@@ -938,19 +946,19 @@ fn parseObjectField(allocator: std.mem.Allocator, field_str: []const u8) ParseEr
         }
 
         const value = try allocator.create(Expr);
-        value.* = try parseExpr(allocator, val_part);
+        value.* = try parseExprWithContext(allocator, val_part, err_ctx);
 
         return ObjectField{ .key = key, .value = value };
     } else {
         // Shorthand: just "foo" means {foo: .foo}
         const value = try allocator.create(Expr);
         const field_path = try std.fmt.allocPrint(allocator, ".{s}", .{trimmed});
-        value.* = try parseExpr(allocator, field_path);
+        value.* = try parseExprWithContext(allocator, field_path, err_ctx);
         return ObjectField{ .key = .{ .literal = trimmed }, .value = value };
     }
 }
 
-fn parseCondition(allocator: std.mem.Allocator, expr: []const u8) ParseError!*Condition {
+fn parseCondition(allocator: std.mem.Allocator, expr: []const u8, err_ctx: *ErrorContext) ParseError!*Condition {
     const trimmed = std.mem.trim(u8, expr, whitespace);
 
     // Check for boolean operators (lowest precedence)
@@ -965,8 +973,8 @@ fn parseCondition(allocator: std.mem.Allocator, expr: []const u8) ParseError!*Co
         } else if (paren_depth == 0) {
             // Check for " and " (with spaces)
             if (i + 5 <= trimmed.len and std.mem.eql(u8, trimmed[i .. i + 5], " and ")) {
-                const left = try parseCondition(allocator, trimmed[0..i]);
-                const right = try parseCondition(allocator, trimmed[i + 5 ..]);
+                const left = try parseCondition(allocator, trimmed[0..i], err_ctx);
+                const right = try parseCondition(allocator, trimmed[i + 5 ..], err_ctx);
                 const cond = try allocator.create(Condition);
                 cond.* = .{ .compound = .{
                     .left = left,
@@ -977,8 +985,8 @@ fn parseCondition(allocator: std.mem.Allocator, expr: []const u8) ParseError!*Co
             }
             // Check for " or " (with spaces)
             if (i + 4 <= trimmed.len and std.mem.eql(u8, trimmed[i .. i + 4], " or ")) {
-                const left = try parseCondition(allocator, trimmed[0..i]);
-                const right = try parseCondition(allocator, trimmed[i + 4 ..]);
+                const left = try parseCondition(allocator, trimmed[0..i], err_ctx);
+                const right = try parseCondition(allocator, trimmed[i + 4 ..], err_ctx);
                 const cond = try allocator.create(Condition);
                 cond.* = .{ .compound = .{
                     .left = left,
@@ -992,7 +1000,7 @@ fn parseCondition(allocator: std.mem.Allocator, expr: []const u8) ParseError!*Co
 
     // Check for "not " prefix
     if (std.mem.startsWith(u8, trimmed, "not ")) {
-        const inner = try parseCondition(allocator, trimmed[4..]);
+        const inner = try parseCondition(allocator, trimmed[4..], err_ctx);
         const cond = try allocator.create(Condition);
         cond.* = .{ .negated = inner };
         return cond;
@@ -1000,11 +1008,11 @@ fn parseCondition(allocator: std.mem.Allocator, expr: []const u8) ParseError!*Co
 
     // Check for parenthesized expression
     if (trimmed[0] == '(' and trimmed[trimmed.len - 1] == ')') {
-        return parseCondition(allocator, trimmed[1 .. trimmed.len - 1]);
+        return parseCondition(allocator, trimmed[1 .. trimmed.len - 1], err_ctx);
     }
 
     // Simple condition
-    const simple = try parseSimpleCondition(allocator, trimmed);
+    const simple = try parseSimpleCondition(allocator, trimmed, err_ctx);
     const cond = try allocator.create(Condition);
     cond.* = .{ .simple = simple };
     return cond;
@@ -1037,7 +1045,7 @@ fn isSimplePath(expr: []const u8) bool {
     return true;
 }
 
-fn parseSimpleCondition(allocator: std.mem.Allocator, expr: []const u8) ParseError!SimpleCondition {
+fn parseSimpleCondition(allocator: std.mem.Allocator, expr: []const u8, err_ctx: *ErrorContext) ParseError!SimpleCondition {
     // Operators to check, in order of precedence (longer first)
     const operators = [_]struct { str: []const u8, op: CompareOp, len: usize }{
         .{ .str = " >= ", .op = .gte, .len = 4 },
@@ -1065,7 +1073,7 @@ fn parseSimpleCondition(allocator: std.mem.Allocator, expr: []const u8) ParseErr
             } else {
                 // Complex expression like (.revenue | tonumber)
                 const left_expr = try allocator.create(Expr);
-                left_expr.* = try parseExpr(allocator, left_str);
+                left_expr.* = try parseExprWithContext(allocator, left_str, err_ctx);
                 return SimpleCondition{
                     .left_expr = left_expr,
                     .op = op_info.op,
@@ -1085,7 +1093,7 @@ fn parseSimpleCondition(allocator: std.mem.Allocator, expr: []const u8) ParseErr
     } else {
         // Complex expression for truthy check
         const left_expr = try allocator.create(Expr);
-        left_expr.* = try parseExpr(allocator, expr);
+        left_expr.* = try parseExprWithContext(allocator, expr, err_ctx);
         return SimpleCondition{
             .left_expr = left_expr,
             .op = .exists,
@@ -1198,7 +1206,7 @@ fn parseByFunc(allocator: std.mem.Allocator, expr: []const u8) ParseError!?Expr 
     return null;
 }
 
-fn parseArrayLiteral(allocator: std.mem.Allocator, expr: []const u8) ParseError!Expr {
+fn parseArrayLiteral(allocator: std.mem.Allocator, expr: []const u8, err_ctx: *ErrorContext) ParseError!Expr {
     const inner = std.mem.trim(u8, expr[1 .. expr.len - 1], whitespace);
 
     if (inner.len == 0) {
@@ -1229,7 +1237,7 @@ fn parseArrayLiteral(allocator: std.mem.Allocator, expr: []const u8) ParseError!
             const elem_str = std.mem.trim(u8, inner[start..i], whitespace);
             if (elem_str.len > 0) {
                 const elem = try allocator.create(Expr);
-                elem.* = try parseExpr(allocator, elem_str);
+                elem.* = try parseExprWithContext(allocator, elem_str, err_ctx);
                 try elements.append(allocator, elem);
             }
             start = i + 1;
@@ -2916,12 +2924,15 @@ pub fn main() !void {
         std.process.exit(1);
     }
 
-    const expr = parseExpr(page_alloc, expr_arg.?) catch |err| {
+    // Local error context - avoids global mutable state for thread safety
+    var err_ctx: ErrorContext = .{};
+
+    const expr = parseExprWithContext(page_alloc, expr_arg.?, &err_ctx) catch |err| {
         switch (err) {
             error.UnsupportedFeature => {
-                std.debug.print("Error: Unsupported jq feature: {s}\n", .{error_context.feature});
-                std.debug.print("  Expression: {s}\n", .{error_context.expression});
-                std.debug.print("  Suggestion: {s}\n", .{error_context.suggestion});
+                std.debug.print("Error: Unsupported jq feature: {s}\n", .{err_ctx.feature});
+                std.debug.print("  Expression: {s}\n", .{err_ctx.expression});
+                std.debug.print("  Suggestion: {s}\n", .{err_ctx.suggestion});
             },
             error.InvalidExpression => {
                 std.debug.print("Error: Invalid expression: '{s}'\n", .{expr_arg.?});
@@ -3166,7 +3177,8 @@ test "eval condition and" {
     const json_true = "{\"active\":true,\"verified\":true}";
     const json_false = "{\"active\":true,\"verified\":false}";
 
-    const cond = try parseCondition(arena.allocator(), ".active and .verified");
+    var err_ctx: ErrorContext = .{};
+    const cond = try parseCondition(arena.allocator(), ".active and .verified", &err_ctx);
 
     const parsed_true = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json_true, .{});
     const parsed_false = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json_false, .{});
@@ -3183,7 +3195,8 @@ test "eval condition or" {
     const json_mod = "{\"admin\":false,\"moderator\":true}";
     const json_neither = "{\"admin\":false,\"moderator\":false}";
 
-    const cond = try parseCondition(arena.allocator(), ".admin or .moderator");
+    var err_ctx: ErrorContext = .{};
+    const cond = try parseCondition(arena.allocator(), ".admin or .moderator", &err_ctx);
 
     const parsed_admin = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json_admin, .{});
     const parsed_mod = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json_mod, .{});
@@ -3201,7 +3214,8 @@ test "eval condition not" {
     const json_deleted = "{\"deleted\":true}";
     const json_active = "{\"deleted\":false}";
 
-    const cond = try parseCondition(arena.allocator(), "not .deleted");
+    var err_ctx: ErrorContext = .{};
+    const cond = try parseCondition(arena.allocator(), "not .deleted", &err_ctx);
 
     const parsed_deleted = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json_deleted, .{});
     const parsed_active = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json_active, .{});

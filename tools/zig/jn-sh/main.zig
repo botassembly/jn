@@ -309,8 +309,12 @@ fn executeWithJc(allocator: std.mem.Allocator, cmd_str: []const u8, command: []c
 
         // Read all output (line by line, concatenate)
         while (jn_core.readLine(reader)) |line| {
-            output.appendSlice(allocator, line) catch {};
-            output.append(allocator, '\n') catch {};
+            output.appendSlice(allocator, line) catch |err| {
+                jn_core.exitWithError("jn-sh: out of memory: {s}", .{@errorName(err)});
+            };
+            output.append(allocator, '\n') catch |err| {
+                jn_core.exitWithError("jn-sh: out of memory: {s}", .{@errorName(err)});
+            };
         }
 
         // Parse JSON array
@@ -346,8 +350,22 @@ fn executeWithJc(allocator: std.mem.Allocator, cmd_str: []const u8, command: []c
         jn_core.exitWithError("jn-sh: wait failed: {s}", .{@errorName(err)});
     };
 
-    if (result.Exited != 0) {
-        std.process.exit(result.Exited);
+    // Properly handle all termination types to avoid undefined behavior
+    switch (result) {
+        .Exited => |code| {
+            if (code != 0) std.process.exit(code);
+        },
+        .Signal => |sig| {
+            // Exit with 128 + signal number (Unix convention)
+            std.process.exit(128 +| @as(u8, @truncate(sig)));
+        },
+        .Stopped => |sig| {
+            // Stopped has a u32 stop code, not an enum
+            std.process.exit(128 +| @as(u8, @truncate(sig)));
+        },
+        .Unknown => |code| {
+            std.process.exit(if (code != 0) 1 else 0);
+        },
     }
 }
 
@@ -389,8 +407,22 @@ fn executeRaw(allocator: std.mem.Allocator, cmd_str: []const u8) void {
         jn_core.exitWithError("jn-sh: wait failed: {s}", .{@errorName(err)});
     };
 
-    if (result.Exited != 0) {
-        std.process.exit(result.Exited);
+    // Properly handle all termination types to avoid undefined behavior
+    switch (result) {
+        .Exited => |code| {
+            if (code != 0) std.process.exit(code);
+        },
+        .Signal => |sig| {
+            // Exit with 128 + signal number (Unix convention)
+            std.process.exit(128 +| @as(u8, @truncate(sig)));
+        },
+        .Stopped => |sig| {
+            // Stopped has a u32 stop code, not an enum
+            std.process.exit(128 +| @as(u8, @truncate(sig)));
+        },
+        .Unknown => |code| {
+            std.process.exit(if (code != 0) 1 else 0);
+        },
     }
 }
 
