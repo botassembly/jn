@@ -409,9 +409,12 @@ fn handleUrl(allocator: std.mem.Allocator, address: jn_address.Address, args: *c
 fn handleHttpUrl(allocator: std.mem.Allocator, address: jn_address.Address, args: *const jn_cli.ArgParser) !void {
     const format = address.effectiveFormat() orelse "json"; // Default to JSON for HTTP
 
-    // Build the clean URL (protocol://path) without format hint
+    // Build the clean URL (protocol://path) with query string but without format hint
     const protocol = address.protocol.?;
-    const url = try std.fmt.allocPrint(allocator, "{s}://{s}", .{ protocol, address.path });
+    const url = if (address.query_string) |qs|
+        try std.fmt.allocPrint(allocator, "{s}://{s}?{s}", .{ protocol, address.path, qs })
+    else
+        try std.fmt.allocPrint(allocator, "{s}://{s}", .{ protocol, address.path });
     defer allocator.free(url);
 
     // Find format plugin
