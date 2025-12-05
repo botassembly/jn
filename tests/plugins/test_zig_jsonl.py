@@ -2,18 +2,20 @@
 
 import json
 import subprocess
+from pathlib import Path
 
 import pytest
 
-from src.jn.zig_builder import get_or_build_plugin
+
+PLUGIN_DIR = Path(__file__).parent.parent.parent / "plugins" / "zig" / "jsonl" / "bin"
 
 
 @pytest.fixture(scope="module")
 def jsonl_binary():
-    """Get or build the JSONL plugin binary."""
-    binary = get_or_build_plugin("jsonl")
-    if not binary:
-        pytest.skip("Zig JSONL binary not available (Zig compiler required)")
+    """Get the JSONL plugin binary."""
+    binary = PLUGIN_DIR / "jsonl"
+    if not binary.exists():
+        pytest.skip("JSONL plugin not built (run 'make zig-plugins')")
     return str(binary)
 
 
@@ -143,16 +145,3 @@ def test_write_passthrough(jsonl_binary):
     assert json.loads(lines[1])["name"] == "Carol"
 
 
-# Discovery tests
-
-
-def test_binary_plugin_discoverable(jsonl_binary):
-    """Binary plugin should be discoverable via discovery module."""
-    from src.jn.plugins.discovery import discover_zig_plugins_with_build
-
-    plugins = discover_zig_plugins_with_build()
-    assert "jsonl" in plugins
-    meta = plugins["jsonl"]
-    assert meta.is_binary is True
-    assert meta.role == "format"
-    assert any(".jsonl" in m for m in meta.matches)

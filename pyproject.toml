@@ -1,160 +1,16 @@
-[build-system]
-requires = ["hatchling>=1.21.0"]
-build-backend = "hatchling.build"
+# JN - Universal Data Pipeline Tool
+#
+# This file exists only to configure pytest for running Python-based tests.
+# JN itself is a Zig project - see Makefile for build instructions.
 
 [project]
-name = "jn-cli"
-description = "jn: plugin-based, universal data streaming system using JSONL/ND format."
-version = "0.0.0dev1"
-readme = "README.md"
-classifiers = [
-    "Development Status :: 3 - Alpha",
-    "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
-    "Operating System :: OS Independent",
-    "Topic :: Software Development :: Libraries :: Python Modules",
-    "Typing :: Typed",
-]
+name = "jn-tests"
+version = "0.1.0"
 requires-python = ">=3.11"
-license = {text = "MIT"}
-authors = [
-    { name = "Ian Maurer", email = "imaurer@gmail.com"}
-]
 dependencies = [
-    "click>=8.0.0",
-    "jc>=1.23.0",
-    "ruamel.yaml>=0.18.0",
-    "tabulate>=0.9.0",
-    "ziglang>=0.15.1",  # Cross-platform Zig compiler (0.15.1+ required for JN plugins)
+    "pytest>=7.0",
 ]
-
-[project.optional-dependencies]
-dev = [
-  "black>=23.0",
-  "pydantic>=2.6",
-  "import-linter>=1.12",
-  "mypy>=1.0",
-  "openpyxl>=3.1.0",
-  "pexpect>=4.8",
-  "pytest-asyncio>=0.21",
-  "pytest-cov>=4.1",
-  "pytest-flake8>=1.1",
-  "pytest>=7.0",
-  "ruff>=0.6.9",
-  "types-requests",
-]
-
-[project.scripts]
-jn = "jn.cli.main:main"
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/jn", "jn_home"]
-
-[tool.hatch.build.targets.wheel.force-include]
-# Bundle Zig sources for on-demand compilation
-"zq/src" = "jn_home/zig_src/zq"
-"plugins/zig" = "jn_home/zig_src/plugins/zig"
-"libs/zig" = "jn_home/zig_src/libs/zig"
-
-[tool.hatch.build.targets.sdist]
-include = [
-    "src/jn/**/*.py",
-    "jn_home/**/*",
-    "zq/src/**/*.zig",
-    "plugins/zig/**/*.zig",
-    "libs/zig/**/*",
-    "tests/**/*",
-    "pyproject.toml",
-    "README.md",
-    "Makefile",
-]
-
-[tool.hatch.build]
-include = [
-    "src/jn/**/*.py",
-    "jn_home/**/*.py",
-    "jn_home/**/*.jq",
-    "jn_home/**/*.json",
-]
-
-[tool.black]
-line-length = 79
-target-version = ['py310']
-
-[tool.ruff]
-line-length = 79
-target-version = "py310"
-
-[tool.ruff.lint]
-select = ["E","F","I","B","UP","SIM","S","RUF"]
-ignore = [
-  "S101",  # allow assert in tests
-  "B008",  # Typer Option/Argument patterns
-  "UP045", # Optional[...] ok in codebase
-  "UP035", # typing aliases ok for now
-  "UP006", # gradual typing modernizations
-  "UP037", # quoted annotations allowed
-  "B904",  # raise from not mandatory in CLI
-  "B010",  # setattr used intentionally
-  "E501",  # long lines in CLI definitions
-  "I001",  # import sort leniency for now
-]
-
-[tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S603","S607","S608","E501","F401"]
-"src/jn/util.py" = ["S602","S603","S607","S110","SIM105"]
-"src/jn/service.py" = ["S603"]
-"src/jn/service/pipeline.py" = ["S603"]
-"src/jn/profiles/service.py" = ["S603","S607"]
-"src/jn/drivers/curl.py" = ["S603"]
-"src/jn/drivers/exec.py" = ["S603"]
-"src/jn/drivers/shell.py" = ["S602"]
-"src/jn/cli/main.py" = ["E402"]
-"src/jn/commands/*.py" = ["S603"]
-"jn_home/plugins/filters/jq_.py" = ["S603","S607","S110"]
-
-[tool.mypy]
-python_version = "3.10"
-warn_unused_configs = true
-warn_redundant_casts = true
-warn_unused_ignores = true
-strict_optional = true
-disallow_untyped_defs = true
-disallow_incomplete_defs = true
-no_implicit_optional = true
-check_untyped_defs = true
-pretty = true
-exclude = ["tests/fixtures/"]
-plugins = ["pydantic.mypy"]
 
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
-
-[tool.coverage.run]
-branch = true
-parallel = true
-source = ["src/jn"]
-
-[tool.coverage.report]
-show_missing = true
-skip_covered = false
-exclude_lines = [
-    "^if __name__ == .__main__.:$"
-]
-
-[tool.coverage.html]
-directory = "coverage-html"
-
-[tool.coverage.xml]
-output = "coverage.xml"
-
-[tool.coverage.json]
-output = "coverage.json"
-
-[tool.coverage.lcov]
-output = "coverage.lcov"
