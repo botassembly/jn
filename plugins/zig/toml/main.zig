@@ -769,6 +769,26 @@ const TomlParser = struct {
                             self.pos += 3; // Will be incremented again below
                         }
                     },
+                    'U' => {
+                        // Unicode escape \UXXXXXXXX (8-digit for emoji etc)
+                        if (self.pos + 8 < self.source.len) {
+                            self.pos += 1;
+                            const hex = self.source[self.pos .. self.pos + 8];
+                            const cp = std.fmt.parseInt(u21, hex, 16) catch {
+                                self.error_message = "invalid unicode escape";
+                                result.deinit(self.allocator);
+                                return error.ParseError;
+                            };
+                            var utf8_buf: [4]u8 = undefined;
+                            const len = std.unicode.utf8Encode(cp, &utf8_buf) catch {
+                                self.error_message = "invalid unicode codepoint";
+                                result.deinit(self.allocator);
+                                return error.ParseError;
+                            };
+                            try result.appendSlice(self.allocator, utf8_buf[0..len]);
+                            self.pos += 7; // Will be incremented again below
+                        }
+                    },
                     else => {
                         try result.append(self.allocator, '\\');
                         try result.append(self.allocator, escaped);

@@ -814,8 +814,71 @@ const YamlParser = struct {
                     'n' => try result.append(self.allocator, '\n'),
                     'r' => try result.append(self.allocator, '\r'),
                     't' => try result.append(self.allocator, '\t'),
+                    'b' => try result.append(self.allocator, 0x08),
+                    'f' => try result.append(self.allocator, 0x0C),
+                    '0' => try result.append(self.allocator, 0),
                     '\\' => try result.append(self.allocator, '\\'),
                     '"' => try result.append(self.allocator, '"'),
+                    '/' => try result.append(self.allocator, '/'),
+                    'x' => {
+                        // \xXX - 2-digit hex
+                        if (self.pos + 2 < self.source.len) {
+                            self.pos += 1;
+                            const hex = self.source[self.pos .. self.pos + 2];
+                            if (std.fmt.parseInt(u8, hex, 16)) |byte| {
+                                try result.append(self.allocator, byte);
+                                self.pos += 1;
+                            } else |_| {
+                                try result.append(self.allocator, '\\');
+                                try result.append(self.allocator, 'x');
+                                continue;
+                            }
+                        }
+                    },
+                    'u' => {
+                        // \uXXXX - 4-digit unicode
+                        if (self.pos + 4 < self.source.len) {
+                            self.pos += 1;
+                            const hex = self.source[self.pos .. self.pos + 4];
+                            if (std.fmt.parseInt(u21, hex, 16)) |cp| {
+                                var utf8_buf: [4]u8 = undefined;
+                                if (std.unicode.utf8Encode(cp, &utf8_buf)) |len| {
+                                    try result.appendSlice(self.allocator, utf8_buf[0..len]);
+                                    self.pos += 3;
+                                } else |_| {
+                                    try result.append(self.allocator, '\\');
+                                    try result.append(self.allocator, 'u');
+                                    continue;
+                                }
+                            } else |_| {
+                                try result.append(self.allocator, '\\');
+                                try result.append(self.allocator, 'u');
+                                continue;
+                            }
+                        }
+                    },
+                    'U' => {
+                        // \UXXXXXXXX - 8-digit unicode
+                        if (self.pos + 8 < self.source.len) {
+                            self.pos += 1;
+                            const hex = self.source[self.pos .. self.pos + 8];
+                            if (std.fmt.parseInt(u21, hex, 16)) |cp| {
+                                var utf8_buf: [4]u8 = undefined;
+                                if (std.unicode.utf8Encode(cp, &utf8_buf)) |len| {
+                                    try result.appendSlice(self.allocator, utf8_buf[0..len]);
+                                    self.pos += 7;
+                                } else |_| {
+                                    try result.append(self.allocator, '\\');
+                                    try result.append(self.allocator, 'U');
+                                    continue;
+                                }
+                            } else |_| {
+                                try result.append(self.allocator, '\\');
+                                try result.append(self.allocator, 'U');
+                                continue;
+                            }
+                        }
+                    },
                     else => {
                         try result.append(self.allocator, '\\');
                         try result.append(self.allocator, escaped);
