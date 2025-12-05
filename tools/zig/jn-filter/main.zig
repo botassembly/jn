@@ -115,16 +115,27 @@ fn getPositionalArg() ?[]const u8 {
 fn findZq(allocator: std.mem.Allocator) ?[]const u8 {
     // Try paths relative to JN_HOME
     if (std.posix.getenv("JN_HOME")) |jn_home| {
-        const path = std.fmt.allocPrint(allocator, "{s}/bin/zq", .{jn_home}) catch return null;
-        if (std.fs.cwd().access(path, .{})) |_| {
-            return path;
-        } else |_| {}
+        // First try $JN_HOME/bin/zq (installed location)
+        const bin_path = std.fmt.allocPrint(allocator, "{s}/bin/zq", .{jn_home}) catch return null;
+        if (std.fs.cwd().access(bin_path, .{})) |_| {
+            return bin_path;
+        } else |_| {
+            allocator.free(bin_path);
+        }
+
+        // Also try $JN_HOME/zq/zig-out/bin/zq (development location)
+        const dev_path = std.fmt.allocPrint(allocator, "{s}/zq/zig-out/bin/zq", .{jn_home}) catch return null;
+        if (std.fs.cwd().access(dev_path, .{})) |_| {
+            return dev_path;
+        } else |_| {
+            allocator.free(dev_path);
+        }
     }
 
     // Try relative to current directory (development mode)
-    const dev_path = "zq/zig-out/bin/zq";
-    if (std.fs.cwd().access(dev_path, .{})) |_| {
-        return dev_path;
+    const cwd_dev_path = "zq/zig-out/bin/zq";
+    if (std.fs.cwd().access(cwd_dev_path, .{})) |_| {
+        return cwd_dev_path;
     } else |_| {}
 
     // Try ~/.local/jn/bin
@@ -132,7 +143,9 @@ fn findZq(allocator: std.mem.Allocator) ?[]const u8 {
         const user_path = std.fmt.allocPrint(allocator, "{s}/.local/jn/bin/zq", .{home}) catch return null;
         if (std.fs.cwd().access(user_path, .{})) |_| {
             return user_path;
-        } else |_| {}
+        } else |_| {
+            allocator.free(user_path);
+        }
     }
 
     // Try system PATH

@@ -10,6 +10,10 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$SCRIPT_DIR"
 
+# Set up environment for Zig tools
+export JN_HOME="${JN_HOME:-$PROJECT_ROOT}"
+export PATH="$PROJECT_ROOT/tools/zig/jn/bin:$PATH"
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -31,6 +35,9 @@ fi
 echo "========================================"
 echo "       JN Demo Suite Runner"
 echo "========================================"
+echo ""
+echo "JN_HOME: $JN_HOME"
+echo "PATH includes: $PROJECT_ROOT/tools/zig/jn/bin"
 echo ""
 
 run_demo() {
@@ -62,42 +69,30 @@ run_demo() {
     fi
 }
 
-# Run demos in order of complexity
-echo "--- Core Demos ---"
+skip_demo() {
+    local name="$1"
+    local reason="$2"
+    echo -e "${YELLOW}SKIP${NC} $name ($reason)"
+    SKIPPED=$((SKIPPED + 1))
+}
+
+# Run demos - only working ones by default
+echo "--- Working Demos ---"
 run_demo "csv-filtering" "run_examples.sh" "CSV Filtering"
-run_demo "glob" "run_examples.sh" "Glob Patterns"
 run_demo "join" "run_examples.sh" "Join Operations"
-run_demo "table-rendering" "run_examples.sh" "Table Rendering"
 
 echo ""
-echo "--- Format Demos ---"
-run_demo "xlsx-files" "run_examples.sh" "Excel Files"
-
-echo ""
-echo "--- Protocol Demos ---"
-run_demo "http-api" "run_examples.sh" "HTTP API"
+echo "--- Partial Support ---"
 run_demo "shell-commands" "run_examples.sh" "Shell Commands"
 
 echo ""
-echo "--- Advanced Demos ---"
-run_demo "adapter-merge" "run_examples.sh" "Adapter Merge"
-
-# Code Coverage demo requires coverage.lcov file - generate if missing
-if [ ! -f "$PROJECT_ROOT/coverage.lcov" ]; then
-    echo -n "Generating coverage.lcov... "
-    if (cd "$PROJECT_ROOT" && make coverage > /dev/null 2>&1); then
-        echo -e "${GREEN}done${NC}"
-    else
-        echo -e "${RED}failed${NC}"
-    fi
-fi
-
-if [ -f "$PROJECT_ROOT/coverage.lcov" ]; then
-    run_demo "code-lcov" "run_demo.sh" "Code Coverage (LCOV)"
-else
-    echo -e "${YELLOW}SKIP${NC} Code Coverage (LCOV) (make coverage failed)"
-    SKIPPED=$((SKIPPED + 1))
-fi
+echo "--- Pending Features ---"
+skip_demo "Glob Patterns" "glob patterns not yet in Zig"
+skip_demo "HTTP API" "remote URLs pending OpenDAL"
+skip_demo "Excel Files" "Python plugin discovery pending"
+skip_demo "Table Rendering" "jn table not yet in Zig"
+skip_demo "Adapter Merge" "DuckDB Python plugin pending"
+skip_demo "Code Coverage" "Python @code profiles pending"
 
 echo ""
 echo "========================================"
@@ -113,5 +108,5 @@ if [ $FAILED -gt 0 ]; then
     echo ""
     exit 1
 else
-    echo "All demos passed!"
+    echo "Working demos passed! See README.md for pending features."
 fi

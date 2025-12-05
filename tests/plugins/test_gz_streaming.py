@@ -1,18 +1,28 @@
-"""Streaming behavior tests for the gzip decompression plugin."""
+"""Streaming behavior tests for the Zig gzip plugin."""
 
-import os
 import subprocess
 import sys
 from pathlib import Path
 
 
+PLUGIN_DIR = Path(__file__).parent.parent.parent / "plugins" / "zig" / "gz" / "bin"
+
+
 def _gz_plugin_path() -> str:
-    # Repository-relative path to plugin script
-    return str(Path("jn_home/plugins/compression/gz_.py").resolve())
+    """Get path to Zig gz plugin binary."""
+    binary = PLUGIN_DIR / "gz"
+    if not binary.exists():
+        return None
+    return str(binary)
 
 
 def test_gz_streams_and_handles_broken_pipe(tmp_path: Path):
     """gz plugin should stream and exit cleanly when downstream closes."""
+    gz_binary = _gz_plugin_path()
+    if not gz_binary:
+        import pytest
+        pytest.skip("Zig gz plugin not built (run 'make zig-plugins')")
+
     # Producer: emit compressed bytes for a large payload
     producer = subprocess.Popen(
         [
@@ -27,9 +37,9 @@ def test_gz_streams_and_handles_broken_pipe(tmp_path: Path):
         stderr=subprocess.PIPE,
     )
 
-    # Decompressor: our plugin under test
+    # Decompressor: our Zig plugin under test
     gz_proc = subprocess.Popen(
-        [sys.executable, _gz_plugin_path(), "--mode", "raw"],
+        [gz_binary, "--mode=raw"],
         stdin=producer.stdout,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,

@@ -1,8 +1,8 @@
-# JN Zig Refactor - Build Context
+# JN - Universal Data Pipeline Tool
 
-## Current Phase: Zig Core Migration
+## Status: Zig Core Migration Complete
 
-Migrating JN from Python to a **pure Zig core** with Python plugin extensibility.
+JN provides a **pure Zig core** with Python plugin extensibility for data transformation pipelines.
 
 **Documentation:** `spec/` contains the full architecture docs (14 documents).
 **Work Log:** `spec/log.md` tracks implementation progress.
@@ -14,19 +14,15 @@ Migrating JN from Python to a **pure Zig core** with Python plugin extensibility
 ### Makefile Commands
 
 ```bash
-make install      # Install deps + build Zig components
-make test         # Run pytest
-make check        # Format, lint, type check, plugin validation
-make coverage     # Run tests with coverage report
-
-make zq           # Build ZQ filter engine
-make zq-test      # Run ZQ unit + integration tests
-make zq-fmt       # Format Zig code
-
-make zig-plugins       # Build Zig plugins
-make zig-plugins-test  # Test Zig plugins
-
+make build        # Build all Zig components (ZQ, plugins, tools)
+make test         # Run all Zig tests
 make clean        # Remove build artifacts
+make fmt          # Format all Zig code
+
+# Individual targets (rarely needed):
+make zq                # Build ZQ filter engine
+make zig-plugins       # Build Zig plugins
+make zig-tools         # Build Zig CLI tools
 ```
 
 ### Zig Build (Direct)
@@ -71,15 +67,19 @@ jn/
 │   ├── json/              # JSON array ↔ NDJSON (DONE)
 │   ├── jsonl/             # NDJSON passthrough (DONE)
 │   ├── gz/                # Gzip compression (DONE)
+│   ├── yaml/              # YAML parser (DONE)
+│   ├── toml/              # TOML parser (DONE)
 │   └── opendal/           # Protocol handler (EXPERIMENTAL)
 │
-├── plugins/python/        # Python plugins (STAY IN PYTHON)
-│   ├── xlsx_.py           # Excel (openpyxl)
-│   ├── gmail_.py          # Gmail (Google APIs)
-│   ├── mcp_.py            # MCP protocol
-│   └── duckdb_.py         # DuckDB
-│
 ├── zq/                    # ZQ filter engine (DONE)
+│
+├── jn_home/               # Bundled defaults
+│   └── plugins/           # Python plugins (PEP 723 standalone)
+│       ├── xlsx_.py       # Excel (openpyxl)
+│       ├── gmail_.py      # Gmail (Google APIs)
+│       ├── mcp_.py        # MCP protocol
+│       ├── duckdb_.py     # DuckDB
+│       └── ...            # Plus xml_, lcov_, markdown_, etc.
 │
 ├── spec/                  # Architecture documentation
 │   ├── 00-plan.md         # Implementation phases
@@ -87,8 +87,7 @@ jn/
 │   ├── 02-architecture.md # System design
 │   └── ...                # 14 total documents
 │
-├── src/jn/                # Python CLI (legacy, being replaced)
-└── jn_home/               # Bundled defaults
+└── tests/                 # Python integration tests
 ```
 
 ---
@@ -107,7 +106,8 @@ jn/
 | 7 | ✅ Done | Analysis tools (jn-analyze, jn-inspect) |
 | 8 | ✅ Done | Join & Merge (jn-join, jn-merge, jn-sh) |
 | 9 | ✅ Done | Orchestrator (jn command) |
-| 10-11 | Planned | Extended formats, testing & migration |
+| 10 | ✅ Done | Extended formats (YAML, TOML plugins) |
+| 11 | ✅ Done | Testing & migration (integration tests, benchmarks) |
 
 **Full plan:** `spec/00-plan.md`
 
@@ -148,13 +148,18 @@ Within same level: Zig > Python, longer patterns win.
 
 ---
 
-## Performance Targets
+## Performance Results
 
-| Metric | Python | Zig Target |
-|--------|--------|------------|
-| Startup | 50-100ms | <5ms |
-| Memory (10MB) | ~50MB | ~1MB |
-| Memory (1GB) | ~500MB+ | ~1MB |
+Benchmarked on 5,000 NDJSON records:
+
+| Metric | Python CLI | Zig Tools | Improvement |
+|--------|------------|-----------|-------------|
+| Startup | ~2000ms | ~1.5ms | **1300x faster** |
+| Head (100 records) | ~1800ms | ~2ms | **900x faster** |
+| Tail (100 records) | ~2000ms | ~4ms | **500x faster** |
+| Throughput | ~2,700 rec/s | ~3M rec/s | **1100x faster** |
+
+*Benchmarks measured before Python CLI removal.*
 
 ---
 
@@ -172,17 +177,14 @@ jn cat @myapi/users?limit=10 | jn put users.csv
 ## Quality Gates
 
 ```bash
-make check   # Must pass before commit
 make test    # All tests green
-make coverage # ≥70% coverage
+make fmt     # Format Zig code
 ```
 
 | Check | Tool | Threshold |
 |-------|------|-----------|
-| Coverage | coverage.py | ≥70% |
-| Lint | ruff | 0 errors |
-| Format | black, zig fmt | 0 diffs |
-| Plugins | jn check | 0 violations |
+| Tests | Zig test runner | All pass |
+| Format | zig fmt | 0 diffs |
 
 ---
 

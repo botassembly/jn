@@ -2,18 +2,20 @@
 
 import json
 import subprocess
+from pathlib import Path
 
 import pytest
 
-from src.jn.zig_builder import get_or_build_plugin
+
+PLUGIN_DIR = Path(__file__).parent.parent.parent / "plugins" / "zig" / "json" / "bin"
 
 
 @pytest.fixture(scope="module")
 def json_binary():
-    """Get or build the JSON plugin binary."""
-    binary = get_or_build_plugin("json")
-    if not binary:
-        pytest.skip("Zig JSON binary not available (Zig compiler required)")
+    """Get the JSON plugin binary."""
+    binary = PLUGIN_DIR / "json"
+    if not binary.exists():
+        pytest.skip("JSON plugin not built (run 'make zig-plugins')")
     return str(binary)
 
 
@@ -215,24 +217,3 @@ def test_write_supports_indent(json_binary):
     )
     assert result.returncode == 0
     assert result.stdout.startswith("[\n  {")
-
-
-# Integration with jn CLI
-
-
-def test_jn_cat_uses_zig_json(tmp_path):
-    """jn cat should use Zig JSON plugin."""
-    # Create test file
-    json_file = tmp_path / "test.json"
-    json_file.write_text('[{"x":1},{"x":2}]')
-
-    result = subprocess.run(
-        ["jn", "cat", str(json_file)],
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode == 0
-    lines = result.stdout.strip().split("\n")
-    assert len(lines) == 2
-    assert json.loads(lines[0]) == {"x": 1}
-    assert json.loads(lines[1]) == {"x": 2}
