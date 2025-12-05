@@ -548,15 +548,19 @@ Thin dispatcher:
 
 **Goal**: Enable Zig tools (jn-cat, jn-put) to invoke Python plugins, making all demos work.
 
-**Status**: ⏳ NOT STARTED
+**Status**: ⚠️ PARTIAL (7/10 demos working)
 
-**Problem Statement**:
-Phase 6 created discovery (metadata extraction) but not invocation. The Zig tools currently:
-- ❌ Only find Zig plugins at `$JN_HOME/plugins/zig/*/bin/*`
-- ❌ Cannot invoke Python plugins (xlsx, duckdb, table, xml, etc.)
-- ❌ Cannot route HTTP URLs to OpenDAL plugin
-- ❌ Cannot expand glob patterns
-- ❌ Cannot resolve @namespace/profile references
+**Completed** (commit 88ca9d0):
+- ✅ Python plugin invocation (xlsx, xml, table, markdown, lcov formats)
+- ✅ HTTP/HTTPS URL routing (via curl)
+- ✅ Cloud storage routing (S3, GCS, GDrive via OpenDAL)
+- ✅ Native glob expansion in jn-cat
+- ✅ `jn table` command
+- ✅ HTTP profile resolution (@namespace/name for HTTP profiles)
+
+**Remaining**:
+- ❌ DuckDB profile resolution (@namespace/name → duckdb_.py)
+- ❌ Code profile resolution (@code/* → code_.py)
 
 **Reference Docs**:
 - [05-plugin-system.md](05-plugin-system.md) - Plugin interface
@@ -641,38 +645,35 @@ Update jn-cat to handle `@namespace/name` addresses:
 - Determine if profile uses plugin (duckdb, http, code)
 - Invoke appropriate plugin with resolved parameters
 
-### Demo Coverage Target
+### Demo Coverage
 
-All demos must pass after Phase 12:
+| Demo | Status | Notes |
+|------|--------|-------|
+| csv-filtering | ✅ Working | |
+| join | ✅ Working | |
+| shell-commands | ✅ Working | Requires `jc` |
+| http-api | ✅ Working | Via curl |
+| glob | ✅ Working | Native Zig |
+| xlsx-files | ✅ Working | Python plugin |
+| table-rendering | ✅ Working | Python plugin |
+| code-lcov | ❌ Pending | Needs code_ profile resolution |
+| adapter-merge | ❌ Pending | Needs DuckDB profile resolution |
+| genomoncology | 📋 Example | Requires credentials |
 
-| Demo | Current | After Phase 12 |
-|------|---------|----------------|
-| csv-filtering | ✅ | ✅ |
-| join | ✅ | ✅ |
-| shell-commands | ✅ | ✅ |
-| http-api | ❌ | ✅ (URL routing) |
-| glob | ❌ | ✅ (glob expansion) |
-| xlsx-files | ❌ | ✅ (Python plugin) |
-| table-rendering | ❌ | ✅ (jn table) |
-| code-lcov | ❌ | ✅ (code_.py profile) |
-| adapter-merge | ❌ | ✅ (duckdb_.py profile) |
-| genomoncology | ❌ | ✅ (HTTP + profiles) |
+### Remaining Work
 
-### Implementation Priority
-
-1. **Python Plugin Invocation** - Highest priority, unblocks xlsx, table, xml
-2. **URL Routing** - Enables http-api, genomoncology demos
-3. **jn table Command** - Enables table-rendering demo
-4. **Glob Patterns** - Enables glob demo
-5. **Profile Resolution** - Enables code-lcov, adapter-merge demos
+To complete Phase 12:
+1. **DuckDB Profile Resolution** - Route `@namespace/name` to duckdb_.py when profile type is duckdb
+2. **Code Profile Resolution** - Route `@code/*` addresses to code_.py plugin
 
 ### Exit Criteria
-- [ ] `jn cat data.xlsx` works (Python xlsx plugin)
-- [ ] `jn cat https://api.github.com/...` works (HTTP)
-- [ ] `jn cat '**/*.json'` works (glob expansion)
-- [ ] `jn table` command works (table rendering)
-- [ ] `jn cat @code/functions` works (profile resolution)
-- [ ] All 10 demos pass in `./demos/run_all.sh`
+- [x] `jn cat data.xlsx` works (Python xlsx plugin)
+- [x] `jn cat https://api.github.com/...` works (HTTP)
+- [x] `jn cat '**/*.json'` works (glob expansion)
+- [x] `jn table` command works (table rendering)
+- [ ] `jn cat @genie/treatment` works (DuckDB profile resolution)
+- [ ] `jn cat @code/functions` works (code profile resolution)
+- [ ] All demos pass in `./demos/run_all.sh` (7/10 currently)
 
 ---
 
