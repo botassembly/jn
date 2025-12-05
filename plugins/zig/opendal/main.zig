@@ -3,19 +3,23 @@ const jn_core = @import("jn-core");
 const jn_cli = @import("jn-cli");
 const jn_plugin = @import("jn-plugin");
 
+// TODO: Replace with native OpenDAL Zig bindings when they mature
+// See: https://github.com/apache/opendal/tree/main/bindings/zig
+// Currently using C bindings for stability (Zig bindings are WIP/0.0.0)
 const c = @cImport({
     @cInclude("opendal.h");
 });
 
 const plugin_meta = jn_plugin.PluginMeta{
     .name = "opendal",
-    .version = "0.3.0",
+    .version = "0.4.0",
     .matches = &.{
         "^https?://.*",
         "^file://.*",
         "^s3://.*",
         "^gs://.*",
         "^gcs://.*",
+        "^gdrive://.*",
     },
     .role = .protocol,
     .modes = &.{ .raw },

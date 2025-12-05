@@ -5,7 +5,7 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     const exe = b.addExecutable(.{
-        .name = "opendal-test",
+        .name = "opendal",
         .root_source_file = b.path("main.zig"),
         .target = target,
         .optimize = optimize,
@@ -14,8 +14,8 @@ pub fn build(b: *std.Build) void {
     // Add OpenDAL C header path
     exe.addIncludePath(.{ .cwd_relative = "../../../vendor/opendal/bindings/c/include" });
 
-    // Link the OpenDAL C library
-    exe.addLibraryPath(.{ .cwd_relative = "../../../vendor/opendal/bindings/c/target/debug" });
+    // Link the OpenDAL C library (release build)
+    exe.addLibraryPath(.{ .cwd_relative = "../../../vendor/opendal/bindings/c/target/release" });
     exe.linkSystemLibrary("opendal_c");
 
     // Link C library (needed for C interop)
@@ -29,6 +29,6 @@ pub fn build(b: *std.Build) void {
     if (b.args) |args| {
         run_cmd.addArgs(args);
     }
-    const run_step = b.step("run", "Run the OpenDAL test");
+    const run_step = b.step("run", "Run the OpenDAL plugin");
     run_step.dependOn(&run_cmd.step);
 }

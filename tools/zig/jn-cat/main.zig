@@ -212,14 +212,23 @@ fn handleUrl(allocator: std.mem.Allocator, address: jn_address.Address, args: *c
         jn_core.exitWithError("jn-cat: URL has no protocol: {s}", .{address.raw});
     };
 
-    // For HTTP/HTTPS, use curl to fetch the data
+    // For HTTP/HTTPS, use curl (OpenDAL HTTP service doesn't work well with REST APIs)
     if (std.mem.eql(u8, protocol, "http") or std.mem.eql(u8, protocol, "https")) {
         try handleHttpUrl(allocator, address, args);
         return;
     }
 
-    // For S3, GCS, etc. - not yet supported without OpenDAL
-    jn_core.exitWithError("jn-cat: protocol '{s}' not yet supported (requires OpenDAL)\nAddress: {s}", .{ protocol, address.raw });
+    // For cloud storage (S3, GCS, GDrive), use OpenDAL plugin
+    if (std.mem.eql(u8, protocol, "s3") or
+        std.mem.eql(u8, protocol, "gs") or
+        std.mem.eql(u8, protocol, "gcs") or
+        std.mem.eql(u8, protocol, "gdrive"))
+    {
+        try handleOpenDalUrl(allocator, address, args);
+        return;
+    }
+
+    jn_core.exitWithError("jn-cat: protocol '{s}' not supported\nAddress: {s}", .{ protocol, address.raw });
 }
 
 /// Handle HTTP/HTTPS URL using curl
@@ -311,6 +320,90 @@ fn handleHttpUrl(allocator: std.mem.Allocator, address: jn_address.Address, args
                 } else {
                     std.process.exit(code);
                 }
+            }
+        },
+        else => {
+            std.process.exit(1);
+        },
+    }
+}
+
+/// Handle cloud storage URLs using OpenDAL plugin (s3://, gs://, gcs://, gdrive://)
+fn handleOpenDalUrl(allocator: std.mem.Allocator, address: jn_address.Address, args: *const jn_cli.ArgParser) !void {
+    const format = address.effectiveFormat() orelse "jsonl"; // Default to JSONL for cloud storage
+
+    // Find OpenDAL plugin
+    const opendal_path = findPlugin(allocator, "opendal") orelse {
+        jn_core.exitWithError("jn-cat: OpenDAL plugin not found\nHint: build with 'make zig-opendal'", .{});
+    };
+
+    // Find format plugin if needed
+    const format_path = findPlugin(allocator, format);
+
+    // Build format args
+    var format_args_buf: [64]u8 = undefined;
+    const format_args = buildFormatArgs(args, &format_args_buf);
+
+    // Build the shell command
+    // Set LD_LIBRARY_PATH for OpenDAL shared library
+    var shell_cmd: []const u8 = undefined;
+
+    // Get JN_HOME for library path
+    const jn_home = std.posix.getenv("JN_HOME") orelse ".";
+    const lib_path = try std.fmt.allocPrint(allocator, "{s}/vendor/opendal/bindings/c/target/release", .{jn_home});
+    defer allocator.free(lib_path);
+
+    if (address.compression != .none) {
+        const gz_path = findPlugin(allocator, "gz") orelse {
+            jn_core.exitWithError("jn-cat: compression plugin 'gz' not found", .{});
+        };
+
+        if (format_path) |fmt_path| {
+            shell_cmd = try std.fmt.allocPrint(
+                allocator,
+                "LD_LIBRARY_PATH='{s}' {s} '{s}' | {s} --mode=raw | {s} --mode=read{s}",
+                .{ lib_path, opendal_path, address.raw, gz_path, fmt_path, format_args },
+            );
+        } else {
+            shell_cmd = try std.fmt.allocPrint(
+                allocator,
+                "LD_LIBRARY_PATH='{s}' {s} '{s}' | {s} --mode=raw",
+                .{ lib_path, opendal_path, address.raw, gz_path },
+            );
+        }
+    } else if (format_path) |fmt_path| {
+        shell_cmd = try std.fmt.allocPrint(
+            allocator,
+            "LD_LIBRARY_PATH='{s}' {s} '{s}' | {s} --mode=read{s}",
+            .{ lib_path, opendal_path, address.raw, fmt_path, format_args },
+        );
+    } else if (std.mem.eql(u8, format, "jsonl") or std.mem.eql(u8, format, "ndjson")) {
+        shell_cmd = try std.fmt.allocPrint(
+            allocator,
+            "LD_LIBRARY_PATH='{s}' {s} '{s}'",
+            .{ lib_path, opendal_path, address.raw },
+        );
+    } else {
+        jn_core.exitWithError("jn-cat: format plugin '{s}' not found", .{format});
+    }
+    defer allocator.free(shell_cmd);
+
+    // Run via shell
+    const shell_argv: [3][]const u8 = .{ "/bin/sh", "-c", shell_cmd };
+    var shell_child = std.process.Child.init(&shell_argv, allocator);
+    shell_child.stdin_behavior = .Close;
+    shell_child.stdout_behavior = .Inherit;
+    shell_child.stderr_behavior = .Inherit;
+
+    try shell_child.spawn();
+    const result = shell_child.wait() catch |err| {
+        jn_core.exitWithError("jn-cat: OpenDAL execution failed: {s}", .{@errorName(err)});
+    };
+
+    switch (result) {
+        .Exited => |code| {
+            if (code != 0) {
+                std.process.exit(code);
             }
         },
         else => {
