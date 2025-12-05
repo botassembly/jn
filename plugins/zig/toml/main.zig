@@ -177,8 +177,16 @@ fn writeTomlObject(writer: anytype, obj: std.json.ObjectMap, prefix: []const u8)
             try writeTomlKey(writer, entry.key_ptr.*);
             try writer.writeAll("]\n");
 
-            // Write contents
-            var table_prefix_buf: [512]u8 = undefined;
+            // Write contents - build table prefix with bounds checking
+            var table_prefix_buf: [2048]u8 = undefined;
+            const separator_len: usize = if (prefix.len > 0) 1 else 0;
+            const required_len = prefix.len + separator_len + entry.key_ptr.len;
+
+            // Skip deeply nested tables that exceed buffer (defensive limit)
+            if (required_len > table_prefix_buf.len) {
+                continue;
+            }
+
             var table_prefix_len: usize = 0;
             if (prefix.len > 0) {
                 @memcpy(table_prefix_buf[0..prefix.len], prefix);
