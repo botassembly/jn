@@ -31,7 +31,7 @@ pub fn main() !void {
     // Write a test file
     const test_content = "Line 1: Hello from OpenDAL!\nLine 2: Streaming works!\nLine 3: JN can use this!\n";
     var bytes = c.opendal_bytes{
-        .data = @constCast(@ptrCast(test_content.ptr)),
+        .data = @ptrCast(@constCast(test_content.ptr)),
         .len = test_content.len,
         .capacity = test_content.len,
     };

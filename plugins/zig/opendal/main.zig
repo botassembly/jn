@@ -22,7 +22,7 @@ const plugin_meta = jn_plugin.PluginMeta{
         "^gdrive://.*",
     },
     .role = .protocol,
-    .modes = &.{ .raw },
+    .modes = &.{.raw},
     .supports_raw = true,
 };
 
