@@ -138,6 +138,27 @@ fn findZq(allocator: std.mem.Allocator) ?[]const u8 {
         return cwd_dev_path;
     } else |_| {}
 
+    // Try relative to executable's location
+    // Executable is at: /path/to/jn/tools/zig/jn-filter/bin/jn-filter
+    // ZQ is at: /path/to/jn/zq/zig-out/bin/zq
+    var exe_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    if (std.fs.selfExePath(&exe_path_buf)) |exe_path| {
+        // Go up 4 levels: bin -> jn-filter -> zig -> tools -> root
+        var dir = std.fs.path.dirname(exe_path);
+        var i: usize = 0;
+        while (i < 4 and dir != null) : (i += 1) {
+            dir = std.fs.path.dirname(dir.?);
+        }
+        if (dir) |root| {
+            const exe_rel_path = std.fmt.allocPrint(allocator, "{s}/zq/zig-out/bin/zq", .{root}) catch return null;
+            if (std.fs.cwd().access(exe_rel_path, .{})) |_| {
+                return exe_rel_path;
+            } else |_| {
+                allocator.free(exe_rel_path);
+            }
+        }
+    } else |_| {}
+
     // Try ~/.local/jn/bin
     if (std.posix.getenv("HOME")) |home| {
         const user_path = std.fmt.allocPrint(allocator, "{s}/.local/jn/bin/zq", .{home}) catch return null;

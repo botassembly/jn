@@ -88,9 +88,9 @@ run_demo "xlsx-files" "run_examples.sh" "Excel Files"
 run_demo "table-rendering" "run_examples.sh" "Table Rendering"
 
 echo ""
-echo "--- Features Requiring External Services ---"
-skip_demo "Adapter Merge" "requires DuckDB setup"
-skip_demo "Code Coverage" "requires code_ profile protocol"
+echo "--- Profile Protocol Demos ---"
+run_demo "adapter-merge" "run_examples.sh" "Adapter Merge"
+run_demo "code-lcov" "run_demo.sh" "Code Coverage"
 
 echo ""
 echo "========================================"
