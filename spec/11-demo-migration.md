@@ -12,18 +12,18 @@
 
 ## Current Demos Inventory
 
-| Demo | Purpose | Migration Status |
-|------|---------|------------------|
-| `csv-filtering/` | Core ETL: read CSV, filter, convert formats | Works as-is |
-| `http-api/` | Fetch from REST APIs, transform responses | Works as-is |
-| `join/` | Stream enrichment via hash join | Works as-is |
-| `glob/` | Process multiple files with glob patterns | Works as-is |
-| `shell-commands/` | Convert shell output to NDJSON via `jc` | Python plugin (stays) |
-| `table-rendering/` | Pretty-print NDJSON as ASCII tables | Works as-is |
-| `xlsx-files/` | Read/write Excel files | Python plugin (stays) |
-| `code-lcov/` | Analyze pytest coverage reports | Works as-is |
-| `adapter-merge/` | Profile-based data merging | Works as-is |
-| `genomoncology/` | Real-world HTTP profile example | Works as-is |
+| Demo | Purpose | Status |
+|------|---------|--------|
+| `csv-filtering/` | Core ETL: read CSV, filter, convert formats | ✅ Working |
+| `http-api/` | Fetch from REST APIs, transform responses | ✅ Working |
+| `join/` | Stream enrichment via hash join | ✅ Working |
+| `glob/` | Process multiple files with glob patterns | ✅ Working |
+| `shell-commands/` | Convert shell output to NDJSON via `jc` | ✅ Working (requires `jc`) |
+| `table-rendering/` | Pretty-print NDJSON as ASCII tables | ✅ Working |
+| `xlsx-files/` | Read/write Excel files | ✅ Working (Python plugin) |
+| `code-lcov/` | Analyze pytest coverage reports | ⚠️ Requires code_ profile |
+| `adapter-merge/` | Profile-based data merging | ⚠️ Requires DuckDB setup |
+| `genomoncology/` | Real-world HTTP profile example | 📋 Requires credentials |
 
 ---
 
@@ -53,7 +53,7 @@ jn cat orders.csv | jn join customers.csv --on customer_id
 
 ### csv-filtering/
 
-**Status**: Works as-is
+**Status**: ✅ Working
 
 Core demo showcasing:
 - `jn cat` reading CSV to NDJSON
@@ -61,22 +61,22 @@ Core demo showcasing:
 - `jn put` writing to various formats
 - `jn head` for early termination
 
-No changes needed. This is the golden path demo.
+Uses Zig CSV plugin. This is the golden path demo.
 
 ### http-api/
 
-**Status**: Works as-is
+**Status**: ✅ Working
 
 Demonstrates:
 - HTTP fetching with format hints (`~json`)
 - Response transformation
 - API data extraction
 
-The Zig HTTP plugin replaces Python HTTP, but the CLI interface is identical.
+Uses curl via jn-cat for HTTP URLs.
 
 ### join/
 
-**Status**: Works as-is
+**Status**: ✅ Working
 
 Demonstrates:
 - Hash join (`jn join`)
@@ -88,7 +88,7 @@ Reference: [09-joining-operations.md](09-joining-operations.md)
 
 ### glob/
 
-**Status**: Works as-is
+**Status**: ✅ Working
 
 Demonstrates:
 - Glob pattern expansion (`jn cat "*.csv"`)
@@ -97,31 +97,31 @@ Demonstrates:
 
 ### shell-commands/
 
-**Status**: Python plugin (stays in Python)
+**Status**: ✅ Working (requires `jc`)
 
 Demonstrates:
 - Shell command execution (`jn sh`)
 - `jc` integration for parsing
 - NDJSON output from CLI tools
 
-This uses Python's `jc` library. The shell plugin discovery and invocation is handled by the Zig orchestrator, but the plugin itself remains Python.
+Uses jn-sh tool with optional `jc` for structured parsing.
 
 **Reference**: [10-python-plugins.md](10-python-plugins.md)
 
 ### table-rendering/
 
-**Status**: Works as-is
+**Status**: ✅ Working
 
 Demonstrates:
 - Pretty printing (`jn table`)
 - Table formats (grid, github, fancy_grid)
 - Column width handling
 
-The Zig `jn-table` tool replaces Python's tabulate-based implementation.
+Uses Python's tabulate-based implementation via `table_.py` plugin.
 
 ### xlsx-files/
 
-**Status**: Python plugin (stays in Python)
+**Status**: ✅ Working (Python plugin)
 
 Demonstrates:
 - Excel file reading
@@ -134,7 +134,7 @@ The XLSX plugin requires `openpyxl` and stays in Python. Invocation is unchanged
 
 ### code-lcov/
 
-**Status**: Works as-is
+**Status**: ⚠️ Requires code_ profile protocol
 
 Demonstrates:
 - Coverage report analysis
@@ -143,7 +143,7 @@ Demonstrates:
 
 ### adapter-merge/
 
-**Status**: Works as-is
+**Status**: ⚠️ Requires DuckDB setup
 
 Demonstrates:
 - Profile-based configuration
@@ -152,7 +152,7 @@ Demonstrates:
 
 ### genomoncology/
 
-**Status**: Works as-is (requires credentials)
+**Status**: 📋 Requires credentials
 
 Demonstrates:
 - Real-world HTTP profile
