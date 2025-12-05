@@ -123,10 +123,25 @@ pub fn parse(input: []const u8) Address {
         .profile_name = null,
     };
 
-    // Empty or "-" is stdin
+    // Empty or "-" is stdin (may have ~format suffix)
     if (input.len == 0 or std.mem.eql(u8, input, "-")) {
         addr.address_type = .stdin;
         addr.path = "";
+        return addr;
+    }
+
+    // stdin with format override: -~format or -~format?params
+    if (input.len > 2 and input[0] == '-' and input[1] == '~') {
+        addr.address_type = .stdin;
+        addr.path = "";
+        // Extract format and optional query params from after -~
+        var rest = input[2..]; // Skip "-~"
+        if (std.mem.indexOf(u8, rest, "?")) |q_pos| {
+            addr.query_string = rest[q_pos + 1 ..];
+            addr.format_override = rest[0..q_pos];
+        } else {
+            addr.format_override = rest;
+        }
         return addr;
     }
 
@@ -364,6 +379,13 @@ test "parse stdin" {
 
     const addr2 = parse("");
     try std.testing.expectEqual(AddressType.stdin, addr2.address_type);
+}
+
+test "parse stdin with format override" {
+    const addr = parse("-~table");
+    try std.testing.expectEqual(AddressType.stdin, addr.address_type);
+    try std.testing.expectEqualStrings("", addr.path);
+    try std.testing.expectEqualStrings("table", addr.format_override.?);
 }
 
 test "parse URL" {

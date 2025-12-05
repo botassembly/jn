@@ -27,36 +27,36 @@ echo ""
 # Example 2: Fancy grid with Unicode box characters
 # Uses beautiful Unicode box-drawing for terminals that support it
 echo "2. Fancy grid with Unicode characters:"
-echo "$SAMPLE_DATA" | jn table -f fancy_grid
+echo "$SAMPLE_DATA" | jn table --tablefmt fancy_grid
 echo ""
 
 # Example 3: GitHub-flavored markdown
 # Perfect for README files and GitHub issues/PRs
 echo "3. GitHub markdown table (copy to README.md):"
-echo "$SAMPLE_DATA" | jn table -f github
+echo "$SAMPLE_DATA" | jn table --tablefmt github
 echo ""
 
 # Example 4: Simple format (minimal, clean)
 # No borders, just aligned columns
 echo "4. Simple format (minimal):"
-echo "$SAMPLE_DATA" | jn table -f simple
+echo "$SAMPLE_DATA" | jn table --tablefmt simple
 echo ""
 
 # Example 5: Pipe/markdown format
 # Standard markdown table syntax
 echo "5. Pipe/markdown format:"
-echo "$SAMPLE_DATA" | jn table -f pipe
+echo "$SAMPLE_DATA" | jn table --tablefmt pipe
 echo ""
 
 # Example 6: Column width control
 # Useful for wide data or narrow terminals
 echo "6. With max column width (30 chars):"
-echo '{"description":"This is a very long product description that would normally make the table too wide to read comfortably","name":"Product A"}' | jn table -w 30
+echo '{"description":"This is a very long product description that would normally make the table too wide to read comfortably","name":"Product A"}' | jn table --maxcolwidths 30
 echo ""
 
 # Example 7: Show row index numbers
 echo "7. With row index numbers:"
-echo "$SAMPLE_DATA" | jn table --index
+echo "$SAMPLE_DATA" | jn table --showindex
 echo ""
 
 # Example 8: Reading tables back to NDJSON (round-trip)
@@ -99,13 +99,13 @@ SMALL_DATA='{"a":1,"b":2}
 {"a":3,"b":4}'
 
 echo "    psql style:"
-echo "$SMALL_DATA" | jn table -f psql
+echo "$SMALL_DATA" | jn table --tablefmt psql
 echo ""
 echo "    rst (reStructuredText) style:"
-echo "$SMALL_DATA" | jn table -f rst
+echo "$SMALL_DATA" | jn table --tablefmt rst
 echo ""
 echo "    html style:"
-echo "$SMALL_DATA" | jn table -f html
+echo "$SMALL_DATA" | jn table --tablefmt html
 echo ""
 
 # Cleanup
@@ -115,8 +115,8 @@ echo "=== Demo Complete ==="
 echo ""
 echo "Key takeaways:"
 echo "  - Use 'jn table' for terminal output (clean syntax!)"
-echo "  - Use 'jn table -f github' for markdown documentation"
-echo "  - Use 'jn table -w N' to limit column width"
-echo "  - Use 'jn table --index' for row numbers"
+echo "  - Use 'jn table --tablefmt github' for markdown documentation"
+echo "  - Use 'jn table --maxcolwidths N' to limit column width"
+echo "  - Use 'jn table --showindex' for row numbers"
 echo "  - Tables can be parsed back to NDJSON with 'jn cat -~table'"
 echo "  - Always put tables LAST in pipeline (output is text, not NDJSON)"

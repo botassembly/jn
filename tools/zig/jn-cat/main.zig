@@ -28,6 +28,7 @@ const std = @import("std");
 const jn_core = @import("jn-core");
 const jn_cli = @import("jn-cli");
 const jn_address = @import("jn-address");
+const jn_profile = @import("jn-profile");
 
 const VERSION = "0.1.0";
 
@@ -70,7 +71,7 @@ pub fn main() !void {
             try handleUrl(allocator, address, &args);
         },
         .profile => {
-            jn_core.exitWithError("jn-cat: profile references not yet supported\nAddress: {s}", .{address_str});
+            try handleProfile(allocator, address, &args);
         },
         .glob => {
             try handleGlob(allocator, address, &args);
@@ -93,6 +94,10 @@ fn getPositionalArg() ?[]const u8 {
         }
         // Single dash is stdin
         if (std.mem.eql(u8, arg, "-")) {
+            return arg;
+        }
+        // -~format is stdin with format override
+        if (arg.len > 1 and arg[0] == '-' and arg[1] == '~') {
             return arg;
         }
     }
@@ -203,6 +208,175 @@ fn handleCompressedFile(allocator: std.mem.Allocator, address: jn_address.Addres
 
     if (result.Exited != 0) {
         std.process.exit(result.Exited);
+    }
+}
+
+/// Handle profile reference (@namespace/name)
+fn handleProfile(allocator: std.mem.Allocator, address: jn_address.Address, args: *const jn_cli.ArgParser) !void {
+    const namespace = address.profile_namespace orelse {
+        jn_core.exitWithError("jn-cat: profile reference requires namespace: @namespace/name\nAddress: {s}", .{address.raw});
+    };
+    const name = address.profile_name orelse {
+        jn_core.exitWithError("jn-cat: profile reference requires name: @namespace/name\nAddress: {s}", .{address.raw});
+    };
+
+    // Get profile directories
+    const profile_dirs = jn_profile.getProfileDirs(allocator, .{
+        .project_root = null, // TODO: detect project root
+        .home_dir = jn_profile.getHomeDir(),
+        .jn_home = jn_profile.getJnHome(),
+    }) catch {
+        jn_core.exitWithError("jn-cat: failed to get profile directories", .{});
+    };
+    defer {
+        for (profile_dirs) |d| allocator.free(d);
+        allocator.free(profile_dirs);
+    }
+
+    // Search for profile in each directory (http type for now)
+    // Profile path: <profile_dir>/http/<namespace>/<name>.json
+    var profile_file: ?[]const u8 = null;
+    var profile_dir: ?[]const u8 = null;
+
+    for (profile_dirs) |dir| {
+        const path = std.fmt.allocPrint(allocator, "{s}/http/{s}/{s}.json", .{ dir, namespace, name }) catch continue;
+        if (jn_profile.pathExists(path)) {
+            profile_file = path;
+            profile_dir = std.fmt.allocPrint(allocator, "{s}/http/{s}", .{ dir, namespace }) catch {
+                allocator.free(path);
+                continue;
+            };
+            break;
+        } else {
+            allocator.free(path);
+        }
+    }
+
+    if (profile_file == null or profile_dir == null) {
+        jn_core.exitWithError("jn-cat: profile not found: @{s}/{s}\nSearched: profiles/http/{s}/{s}.json", .{ namespace, name, namespace, name });
+    }
+    defer allocator.free(profile_file.?);
+    defer allocator.free(profile_dir.?);
+
+    // Load profile with hierarchical merge
+    const profile_path = std.fmt.allocPrint(allocator, "{s}.json", .{name}) catch {
+        jn_core.exitWithError("jn-cat: out of memory", .{});
+    };
+    defer allocator.free(profile_path);
+
+    var config = jn_profile.loadProfile(allocator, profile_dir.?, profile_path, true) catch |err| {
+        jn_core.exitWithError("jn-cat: failed to load profile @{s}/{s}: {s}", .{ namespace, name, @errorName(err) });
+    };
+    defer jn_profile.freeValue(allocator, config);
+
+    // Extract profile fields
+    const base_url = if (config.object.get("base_url")) |v| v.string else null;
+    const path_str = if (config.object.get("path")) |v| v.string else "";
+
+    if (base_url == null) {
+        jn_core.exitWithError("jn-cat: profile @{s}/{s} missing base_url", .{ namespace, name });
+    }
+
+    // Build full URL
+    var full_url: []const u8 = undefined;
+    if (path_str.len > 0) {
+        full_url = std.fmt.allocPrint(allocator, "{s}{s}", .{ base_url.?, path_str }) catch {
+            jn_core.exitWithError("jn-cat: out of memory", .{});
+        };
+    } else {
+        full_url = std.fmt.allocPrint(allocator, "{s}", .{base_url.?}) catch {
+            jn_core.exitWithError("jn-cat: out of memory", .{});
+        };
+    }
+    defer allocator.free(full_url);
+
+    // Add query parameters from address
+    var url_with_params: []const u8 = undefined;
+    if (address.query_string) |qs| {
+        url_with_params = std.fmt.allocPrint(allocator, "{s}?{s}", .{ full_url, qs }) catch {
+            jn_core.exitWithError("jn-cat: out of memory", .{});
+        };
+    } else {
+        url_with_params = std.fmt.allocPrint(allocator, "{s}", .{full_url}) catch {
+            jn_core.exitWithError("jn-cat: out of memory", .{});
+        };
+    }
+    defer allocator.free(url_with_params);
+
+    // Build headers from profile
+    var header_args: [512]u8 = undefined;
+    var header_len: usize = 0;
+
+    if (config.object.get("headers")) |headers_val| {
+        if (headers_val == .object) {
+            var iter = headers_val.object.iterator();
+            while (iter.next()) |entry| {
+                if (entry.value_ptr.* == .string) {
+                    const h = std.fmt.bufPrint(header_args[header_len..], " -H '{s}: {s}'", .{ entry.key_ptr.*, entry.value_ptr.string }) catch break;
+                    header_len += h.len;
+                }
+            }
+        }
+    }
+
+    // Get format (default to json for HTTP profiles)
+    const format = address.effectiveFormat() orelse "json";
+
+    // Find format plugin
+    const plugin_path = findPlugin(allocator, format);
+
+    // Build format args
+    var format_args_buf: [64]u8 = undefined;
+    const format_args = buildFormatArgs(args, &format_args_buf);
+
+    // Build curl command with headers
+    var shell_cmd: []const u8 = undefined;
+
+    if (plugin_path) |fmt_path| {
+        shell_cmd = std.fmt.allocPrint(
+            allocator,
+            "curl -sS -L -f{s} '{s}' | {s} --mode=read{s}",
+            .{ header_args[0..header_len], url_with_params, fmt_path, format_args },
+        ) catch {
+            jn_core.exitWithError("jn-cat: out of memory", .{});
+        };
+    } else if (std.mem.eql(u8, format, "jsonl") or std.mem.eql(u8, format, "ndjson") or std.mem.eql(u8, format, "json")) {
+        shell_cmd = std.fmt.allocPrint(
+            allocator,
+            "curl -sS -L -f{s} '{s}'",
+            .{ header_args[0..header_len], url_with_params },
+        ) catch {
+            jn_core.exitWithError("jn-cat: out of memory", .{});
+        };
+    } else {
+        jn_core.exitWithError("jn-cat: format plugin '{s}' not found", .{format});
+    }
+    defer allocator.free(shell_cmd);
+
+    // Run via shell
+    const shell_argv: [3][]const u8 = .{ "/bin/sh", "-c", shell_cmd };
+    var shell_child = std.process.Child.init(&shell_argv, allocator);
+    shell_child.stdin_behavior = .Close;
+    shell_child.stdout_behavior = .Inherit;
+    shell_child.stderr_behavior = .Inherit;
+
+    try shell_child.spawn();
+    const result = shell_child.wait() catch |err| {
+        jn_core.exitWithError("jn-cat: profile fetch failed: {s}", .{@errorName(err)});
+    };
+
+    switch (result) {
+        .Exited => |code| {
+            if (code != 0) {
+                if (code == 22) {
+                    jn_core.exitWithError("jn-cat: HTTP error fetching profile @{s}/{s}: {s}", .{ namespace, name, url_with_params });
+                }
+                std.process.exit(code);
+            }
+        },
+        else => {
+            std.process.exit(1);
+        },
     }
 }
 
@@ -334,12 +508,54 @@ fn handleGlob(allocator: std.mem.Allocator, address: jn_address.Address, args: *
     const format = address.effectiveFormat();
     const inject_meta = args.has("meta") or args.has("inject-meta");
 
-    // Use shell to expand glob and iterate files
-    // Build command: for f in <pattern>; do echo "$f"; done
-    const expand_cmd = try std.fmt.allocPrint(allocator, "for f in {s}; do [ -f \"$f\" ] && echo \"$f\"; done 2>/dev/null", .{pattern});
+    // Build shell command for glob expansion
+    // For ** patterns, use find; for simple globs, use bash globstar
+    var expand_cmd: []const u8 = undefined;
+
+    if (std.mem.indexOf(u8, pattern, "**") != null) {
+        // Use find for recursive patterns - convert ** to -name pattern
+        // Split pattern into base dir and file pattern
+        // e.g., "test_data/**/*.jsonl" -> find test_data -name "*.jsonl"
+        const last_slash = std.mem.lastIndexOf(u8, pattern, "/") orelse 0;
+        const base_dir = if (last_slash > 0) pattern[0..last_slash] else ".";
+        var file_pattern = pattern[last_slash + 1 ..];
+
+        // Strip **/ prefix from file pattern
+        while (std.mem.startsWith(u8, file_pattern, "**/")) {
+            file_pattern = file_pattern[3..];
+        }
+        if (std.mem.startsWith(u8, file_pattern, "**")) {
+            file_pattern = file_pattern[2..];
+        }
+
+        // Extract the base directory (before any **)
+        var dir_to_search = base_dir;
+        if (std.mem.indexOf(u8, base_dir, "**")) |double_star| {
+            dir_to_search = if (double_star > 0) base_dir[0 .. double_star - 1] else ".";
+        }
+
+        // Use find with -name pattern
+        expand_cmd = std.fmt.allocPrint(
+            allocator,
+            "find {s} -type f -name '{s}' 2>/dev/null | sort",
+            .{ dir_to_search, file_pattern },
+        ) catch {
+            jn_core.exitWithError("jn-cat: out of memory", .{});
+        };
+    } else {
+        // Simple glob - use bash with globstar
+        expand_cmd = std.fmt.allocPrint(
+            allocator,
+            "shopt -s nullglob; for f in {s}; do [ -f \"$f\" ] && echo \"$f\"; done",
+            .{pattern},
+        ) catch {
+            jn_core.exitWithError("jn-cat: out of memory", .{});
+        };
+    }
     defer allocator.free(expand_cmd);
 
-    const expand_argv: [3][]const u8 = .{ "/bin/sh", "-c", expand_cmd };
+    // Use bash for better glob support
+    const expand_argv: [3][]const u8 = .{ "/bin/bash", "-c", expand_cmd };
     var expand_child = std.process.Child.init(&expand_argv, allocator);
     expand_child.stdin_behavior = .Close;
     expand_child.stdout_behavior = .Pipe;
@@ -609,9 +825,22 @@ fn handleOpenDalUrl(allocator: std.mem.Allocator, address: jn_address.Address, a
 
 /// Spawn a format plugin to read a file
 fn spawnFormatPlugin(allocator: std.mem.Allocator, format: []const u8, file_path: ?[]const u8, args: *const jn_cli.ArgParser) !void {
-    const plugin_path = findPlugin(allocator, format) orelse {
+    const plugin_info = findPluginInfo(allocator, format) orelse {
         jn_core.exitWithError("jn-cat: format plugin '{s}' not found", .{format});
     };
+
+    // Build format args for shell command
+    var format_args_buf: [64]u8 = undefined;
+    const format_args = buildFormatArgs(args, &format_args_buf);
+
+    // Handle Python plugins via uv run --script
+    if (plugin_info.plugin_type == .python) {
+        try spawnPythonPlugin(allocator, plugin_info.path, "read", file_path, format_args);
+        return;
+    }
+
+    // Zig plugin handling
+    const plugin_path = plugin_info.path;
 
     // Build argument list (fixed array with max args)
     var argv_buf: [5][]const u8 = undefined;
@@ -646,10 +875,6 @@ fn spawnFormatPlugin(allocator: std.mem.Allocator, format: []const u8, file_path
         std.fs.cwd().access(path, .{}) catch |err| {
             jn_core.exitWithError("jn-cat: cannot open file '{s}': {s}", .{ path, @errorName(err) });
         };
-
-        // Build format args for shell command
-        var format_args_buf: [64]u8 = undefined;
-        const format_args = buildFormatArgs(args, &format_args_buf);
 
         // Use shell to pipe file into plugin with all args
         const shell_cmd = try std.fmt.allocPrint(allocator, "cat '{s}' | {s} --mode=read{s}", .{ path, plugin_path, format_args });
@@ -686,30 +911,148 @@ fn spawnFormatPlugin(allocator: std.mem.Allocator, format: []const u8, file_path
     }
 }
 
-/// Find a plugin by name
+/// Spawn a Python plugin via uv run --script
+fn spawnPythonPlugin(allocator: std.mem.Allocator, plugin_path: []const u8, mode: []const u8, file_path: ?[]const u8, extra_args: []const u8) !void {
+    var cmd_buf: [2048]u8 = undefined;
+    var cmd_len: usize = 0;
+
+    if (file_path) |path| {
+        // Pipe file into plugin: cat <file> | uv run --script <plugin> --mode=<mode> [args]
+        const base = std.fmt.bufPrint(cmd_buf[cmd_len..], "cat '{s}' | uv run --script '{s}' --mode={s}{s}", .{ path, plugin_path, mode, extra_args }) catch {
+            jn_core.exitWithError("jn-cat: command too long", .{});
+        };
+        cmd_len += base.len;
+    } else {
+        // Use stdin: uv run --script <plugin> --mode=<mode> [args]
+        const base = std.fmt.bufPrint(cmd_buf[cmd_len..], "uv run --script '{s}' --mode={s}{s}", .{ plugin_path, mode, extra_args }) catch {
+            jn_core.exitWithError("jn-cat: command too long", .{});
+        };
+        cmd_len += base.len;
+    }
+
+    const shell_cmd = cmd_buf[0..cmd_len];
+
+    // Run via shell
+    const shell_argv: [3][]const u8 = .{ "/bin/sh", "-c", shell_cmd };
+    var shell_child = std.process.Child.init(&shell_argv, allocator);
+    shell_child.stdin_behavior = if (file_path != null) .Close else .Inherit;
+    shell_child.stdout_behavior = .Inherit;
+    shell_child.stderr_behavior = .Inherit;
+
+    try shell_child.spawn();
+    const result = shell_child.wait() catch |err| {
+        jn_core.exitWithError("jn-cat: Python plugin execution failed: {s}", .{@errorName(err)});
+    };
+
+    switch (result) {
+        .Exited => |code| {
+            if (code != 0) {
+                std.process.exit(code);
+            }
+        },
+        else => {
+            std.process.exit(1);
+        },
+    }
+}
+
+/// Plugin type (Zig binary or Python script)
+const PluginType = enum { zig, python };
+
+/// Plugin info including path and type
+const PluginInfo = struct {
+    path: []const u8,
+    plugin_type: PluginType,
+};
+
+/// Format to Python plugin filename mapping
+const FORMAT_TO_PYTHON = [_]struct { format: []const u8, plugin: []const u8 }{
+    .{ .format = "xlsx", .plugin = "xlsx_.py" },
+    .{ .format = "xlsm", .plugin = "xlsx_.py" },
+    .{ .format = "md", .plugin = "markdown_.py" },
+    .{ .format = "markdown", .plugin = "markdown_.py" },
+    .{ .format = "xml", .plugin = "xml_.py" },
+    .{ .format = "lcov", .plugin = "lcov_.py" },
+    .{ .format = "info", .plugin = "lcov_.py" }, // .info is LCOV format
+    .{ .format = "table", .plugin = "table_.py" },
+};
+
+/// Find a plugin by name (returns Zig plugin path or null)
 fn findPlugin(allocator: std.mem.Allocator, name: []const u8) ?[]const u8 {
+    const info = findPluginInfo(allocator, name);
+    if (info) |i| {
+        if (i.plugin_type == .zig) {
+            return i.path;
+        }
+    }
+    return null;
+}
+
+/// Find a plugin by name, including Python plugins
+fn findPluginInfo(allocator: std.mem.Allocator, name: []const u8) ?PluginInfo {
+    // Try Zig plugins first (higher priority)
+
     // Try paths relative to JN_HOME
     if (std.posix.getenv("JN_HOME")) |jn_home| {
         const path = std.fmt.allocPrint(allocator, "{s}/plugins/zig/{s}/bin/{s}", .{ jn_home, name, name }) catch return null;
         if (std.fs.cwd().access(path, .{})) |_| {
-            return path;
-        } else |_| {}
+            return .{ .path = path, .plugin_type = .zig };
+        } else |_| {
+            allocator.free(path);
+        }
     }
 
     // Try relative to current directory (development mode)
     const dev_path = std.fmt.allocPrint(allocator, "plugins/zig/{s}/bin/{s}", .{ name, name }) catch return null;
     if (std.fs.cwd().access(dev_path, .{})) |_| {
-        return dev_path;
-    } else |_| {}
+        return .{ .path = dev_path, .plugin_type = .zig };
+    } else |_| {
+        allocator.free(dev_path);
+    }
 
     // Try ~/.local/jn/plugins
     if (std.posix.getenv("HOME")) |home| {
         const user_path = std.fmt.allocPrint(allocator, "{s}/.local/jn/plugins/zig/{s}/bin/{s}", .{ home, name, name }) catch return null;
         if (std.fs.cwd().access(user_path, .{})) |_| {
-            return user_path;
-        } else |_| {}
+            return .{ .path = user_path, .plugin_type = .zig };
+        } else |_| {
+            allocator.free(user_path);
+        }
     }
 
+    // Try Python plugins (lower priority)
+    if (findPythonPlugin(allocator, name)) |py_path| {
+        return .{ .path = py_path, .plugin_type = .python };
+    }
+
+    return null;
+}
+
+/// Find a Python plugin by format name
+fn findPythonPlugin(allocator: std.mem.Allocator, format: []const u8) ?[]const u8 {
+    // Map format to plugin filename
+    var plugin_name: ?[]const u8 = null;
+    for (FORMAT_TO_PYTHON) |mapping| {
+        if (std.mem.eql(u8, format, mapping.format)) {
+            plugin_name = mapping.plugin;
+            break;
+        }
+    }
+
+    if (plugin_name == null) return null;
+
+    const jn_home = std.posix.getenv("JN_HOME") orelse return null;
+
+    // Search in plugin subdirectories
+    const subdirs = [_][]const u8{ "formats", "protocols", "databases", "filters", "shell" };
+    for (subdirs) |subdir| {
+        const path = std.fmt.allocPrint(allocator, "{s}/jn_home/plugins/{s}/{s}", .{ jn_home, subdir, plugin_name.? }) catch continue;
+        if (std.fs.cwd().access(path, .{})) |_| {
+            return path;
+        } else |_| {
+            allocator.free(path);
+        }
+    }
     return null;
 }
 
