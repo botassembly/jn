@@ -802,11 +802,21 @@ const YamlParser = struct {
 
         while (self.pos < self.source.len) {
             const c = self.source[self.pos];
+
+            // Handle quote character
             if (c == quote) {
+                // In single-quoted strings, '' is an escaped single quote
+                if (quote == '\'' and self.pos + 1 < self.source.len and self.source[self.pos + 1] == '\'') {
+                    try result.append(self.allocator, '\'');
+                    self.pos += 2;
+                    continue;
+                }
+                // End of string
                 self.pos += 1;
                 break;
             }
 
+            // Double-quoted strings support backslash escapes
             if (c == '\\' and quote == '"' and self.pos + 1 < self.source.len) {
                 self.pos += 1;
                 const escaped = self.source[self.pos];
