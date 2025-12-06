@@ -155,21 +155,29 @@ fn handleFile(allocator: std.mem.Allocator, address: jn_address.Address, args: *
     try spawnFormatPlugin(allocator, format, address.path, args);
 }
 
-/// Build format plugin argument string for shell commands
-fn buildFormatArgs(args: *const jn_cli.ArgParser, buf: []u8) []const u8 {
-    var pos: usize = 0;
+/// Build format plugin argument string for shell commands.
+/// Returns allocated string that caller must free.
+/// SECURITY: All values are properly escaped to prevent shell injection.
+fn buildFormatArgs(allocator: std.mem.Allocator, args: *const jn_cli.ArgParser) []const u8 {
+    var result: std.ArrayListUnmanaged(u8) = .empty;
+    errdefer result.deinit(allocator);
 
     if (args.get("delimiter", null)) |delim| {
-        // Quote the delimiter value for shell safety
-        const written = std.fmt.bufPrint(buf[pos..], " --delimiter='{s}'", .{delim}) catch return buf[0..pos];
-        pos += written.len;
+        // SECURITY: Escape delimiter to prevent shell injection via single quotes
+        const escaped = jn_core.escapeForShellSingleQuote(allocator, delim) catch "";
+        defer if (escaped.len > 0 and escaped.ptr != delim.ptr) allocator.free(escaped);
+
+        if (escaped.len > 0) {
+            result.appendSlice(allocator, " --delimiter='") catch {};
+            result.appendSlice(allocator, escaped) catch {};
+            result.append(allocator, '\'') catch {};
+        }
     }
     if (args.has("no-header")) {
-        const written = std.fmt.bufPrint(buf[pos..], " --no-header", .{}) catch return buf[0..pos];
-        pos += written.len;
+        result.appendSlice(allocator, " --no-header") catch {};
     }
 
-    return buf[0..pos];
+    return result.toOwnedSlice(allocator) catch "";
 }
 
 /// Handle compressed file (spawn decompression + format pipeline)
@@ -198,9 +206,9 @@ fn handleCompressedFile(allocator: std.mem.Allocator, address: jn_address.Addres
         jn_core.exitWithError("jn-cat: format plugin '{s}' not found", .{format});
     };
 
-    // Build format args
-    var format_args_buf: [64]u8 = undefined;
-    const format_args = buildFormatArgs(args, &format_args_buf);
+    // Build format args (dynamically allocated, properly escaped)
+    const format_args = buildFormatArgs(allocator, args);
+    defer if (format_args.len > 0) allocator.free(format_args);
 
     // SECURITY: Escape the file path to prevent command injection via filenames
     // containing single quotes (e.g., "file'; rm -rf /; echo '")
@@ -578,9 +586,9 @@ fn handleHttpProfile(allocator: std.mem.Allocator, address: jn_address.Address, 
     // Find format plugin
     const plugin_path = findPlugin(allocator, format);
 
-    // Build format args
-    var format_args_buf: [64]u8 = undefined;
-    const format_args = buildFormatArgs(args, &format_args_buf);
+    // Build format args (dynamically allocated, properly escaped)
+    const format_args = buildFormatArgs(allocator, args);
+    defer if (format_args.len > 0) allocator.free(format_args);
 
     // SECURITY: Escape the URL to prevent command injection
     const escaped_url = try escapeShellPath(allocator, url_with_params);
@@ -677,9 +685,9 @@ fn handleHttpUrl(allocator: std.mem.Allocator, address: jn_address.Address, args
     // Find format plugin
     const plugin_path = findPlugin(allocator, format);
 
-    // Build format args
-    var format_args_buf: [64]u8 = undefined;
-    const format_args = buildFormatArgs(args, &format_args_buf);
+    // Build format args (dynamically allocated, properly escaped)
+    const format_args = buildFormatArgs(allocator, args);
+    defer if (format_args.len > 0) allocator.free(format_args);
 
     // Build header arg if provided
     // Note: Headers from --header arg could also contain quotes; escape them
@@ -886,9 +894,9 @@ fn processGlobFile(allocator: std.mem.Allocator, file_path: []const u8, format: 
     // Find format plugin
     const plugin_path = findPlugin(allocator, effective_format);
 
-    // Build format args
-    var format_args_buf: [64]u8 = undefined;
-    const format_args = buildFormatArgs(args, &format_args_buf);
+    // Build format args (dynamically allocated, properly escaped)
+    const format_args = buildFormatArgs(allocator, args);
+    defer if (format_args.len > 0) allocator.free(format_args);
 
     // SECURITY: Escape the file path to prevent command injection
     const escaped_file_path = try escapeShellPath(allocator, file_path);
@@ -1025,9 +1033,9 @@ fn handleOpenDalUrl(allocator: std.mem.Allocator, address: jn_address.Address, a
     // Find format plugin if needed
     const format_path = findPlugin(allocator, format);
 
-    // Build format args
-    var format_args_buf: [64]u8 = undefined;
-    const format_args = buildFormatArgs(args, &format_args_buf);
+    // Build format args (dynamically allocated, properly escaped)
+    const format_args = buildFormatArgs(allocator, args);
+    defer if (format_args.len > 0) allocator.free(format_args);
 
     // Build the shell command
     // Set LD_LIBRARY_PATH for OpenDAL shared library
@@ -1108,9 +1116,9 @@ fn spawnFormatPlugin(allocator: std.mem.Allocator, format: []const u8, file_path
         jn_core.exitWithError("jn-cat: format plugin '{s}' not found", .{format});
     };
 
-    // Build format args for shell command
-    var format_args_buf: [64]u8 = undefined;
-    const format_args = buildFormatArgs(args, &format_args_buf);
+    // Build format args (dynamically allocated, properly escaped)
+    const format_args = buildFormatArgs(allocator, args);
+    defer if (format_args.len > 0) allocator.free(format_args);
 
     // Handle Python plugins via uv run --script
     if (plugin_info.plugin_type == .python) {

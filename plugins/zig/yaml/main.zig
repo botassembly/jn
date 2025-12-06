@@ -712,7 +712,7 @@ const YamlParser = struct {
         const content_indent = self.currentIndent();
         if (content_indent == 0) return .{ .string = try self.allocator.dupe(u8, "") };
 
-        var result = std.ArrayList(u8){};
+        var result: std.ArrayListUnmanaged(u8) = .empty;
         defer result.deinit(self.allocator);
 
         var first_line = true;
@@ -839,7 +839,7 @@ const YamlParser = struct {
         const quote = self.source[self.pos];
         self.pos += 1;
 
-        var result = std.ArrayList(u8){};
+        var result: std.ArrayListUnmanaged(u8) = .empty;
         defer result.deinit(self.allocator);
 
         while (self.pos < self.source.len) {
