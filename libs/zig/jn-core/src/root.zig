@@ -12,6 +12,8 @@ pub const shell = @import("shell.zig");
 
 // Re-export main functions for convenience
 pub const readLine = reader.readLine;
+pub const readLineOrError = reader.readLineOrError;
+pub const ReadError = reader.ReadError;
 pub const stripCR = reader.stripCR;
 pub const handleWriteError = writer.handleWriteError;
 pub const flushWriter = writer.flushWriter;

@@ -206,13 +206,16 @@ fn matchSinglePattern(pattern: []const u8, address: []const u8) bool {
             suffix_start = 3; // Include the escaped dot
         }
 
-        const suffix = extractLiteralSuffix(pattern[suffix_start .. pattern.len - 1]);
+        // Use caller-provided buffer to avoid dangling pointer
+        var suffix_buf: [256]u8 = undefined;
+        const suffix = extractLiteralSuffix(pattern[suffix_start .. pattern.len - 1], &suffix_buf);
         return std.mem.endsWith(u8, address, suffix);
     }
 
     // Handle end anchor only: suffix$
     if (pattern[pattern.len - 1] == '$') {
-        const suffix = extractLiteralSuffix(pattern[0 .. pattern.len - 1]);
+        var suffix_buf: [256]u8 = undefined;
+        const suffix = extractLiteralSuffix(pattern[0 .. pattern.len - 1], &suffix_buf);
         return std.mem.endsWith(u8, address, suffix);
     }
 
@@ -245,27 +248,26 @@ fn extractLiteralPrefix(pattern: []const u8) []const u8 {
 
 /// Extract literal suffix from a regex-like pattern.
 /// Handles escaped characters like \. -> .
-fn extractLiteralSuffix(pattern: []const u8) []const u8 {
+/// Writes result to caller-provided buffer and returns a slice into it.
+fn extractLiteralSuffix(pattern: []const u8, out_buf: *[256]u8) []const u8 {
     // For suffix patterns like "\.csv" or ".csv", just unescape
-    var result: [256]u8 = undefined;
     var result_len: usize = 0;
     var i: usize = 0;
 
     while (i < pattern.len and result_len < 256) {
         if (pattern[i] == '\\' and i + 1 < pattern.len) {
             // Skip the backslash, include the next char
-            result[result_len] = pattern[i + 1];
+            out_buf[result_len] = pattern[i + 1];
             result_len += 1;
             i += 2;
         } else {
-            result[result_len] = pattern[i];
+            out_buf[result_len] = pattern[i];
             result_len += 1;
             i += 1;
         }
     }
 
-    // Return a view into a static buffer - this is safe for comparison
-    return result[0..result_len];
+    return out_buf[0..result_len];
 }
 
 /// Calculate plugin match score.
@@ -273,7 +275,7 @@ fn extractLiteralSuffix(pattern: []const u8) []const u8 {
 /// Higher score = better match:
 /// - Source priority: project(300), user(200), bundled(100)
 /// - Language: Zig(+10), Python(+0)
-/// - Pattern length (specificity)
+/// - Pattern length (specificity, capped to prevent overflow)
 fn calculateScore(plugin: discovery.PluginInfo, pattern_len: usize) i32 {
     var score: i32 = 0;
 
@@ -291,7 +293,9 @@ fn calculateScore(plugin: discovery.PluginInfo, pattern_len: usize) i32 {
     };
 
     // Pattern specificity (longer = more specific)
-    score += @as(i32, @intCast(pattern_len));
+    // Cap at 1000 to prevent overflow from maliciously long patterns
+    const bounded_len: i32 = @intCast(@min(pattern_len, 1000));
+    score += bounded_len;
 
     return score;
 }

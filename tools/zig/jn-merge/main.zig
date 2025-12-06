@@ -233,7 +233,10 @@ fn processViaJnCat(allocator: std.mem.Allocator, source: SourceSpec, config: *co
     }
 
     const result = child.wait() catch return false;
-    return result.Exited == 0;
+    return switch (result) {
+        .Exited => |code| code == 0,
+        .Signal, .Stopped, .Unknown => false,
+    };
 }
 
 /// Output a record with optional source metadata

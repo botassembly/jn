@@ -227,8 +227,10 @@ fn handleCompressedFile(allocator: std.mem.Allocator, address: jn_address.Addres
         jn_core.exitWithError("jn-cat: pipeline execution failed: {s}", .{@errorName(err)});
     };
 
-    if (result.Exited != 0) {
-        std.process.exit(result.Exited);
+    switch (result) {
+        .Exited => |code| if (code != 0) std.process.exit(code),
+        .Signal => |sig| std.process.exit(128 + @as(u8, @truncate(sig))),
+        .Stopped, .Unknown => std.process.exit(1),
     }
 }
 
@@ -544,21 +546,31 @@ fn handleHttpProfile(allocator: std.mem.Allocator, address: jn_address.Address, 
     }
     defer allocator.free(url_with_params);
 
-    // Build headers from profile
-    var header_args: [512]u8 = undefined;
-    var header_len: usize = 0;
+    // Build headers from profile with proper shell escaping
+    var header_list: std.ArrayListUnmanaged(u8) = .empty;
+    defer header_list.deinit(allocator);
 
     if (config.object.get("headers")) |headers_val| {
         if (headers_val == .object) {
             var iter = headers_val.object.iterator();
             while (iter.next()) |entry| {
                 if (entry.value_ptr.* == .string) {
-                    const h = std.fmt.bufPrint(header_args[header_len..], " -H '{s}: {s}'", .{ entry.key_ptr.*, entry.value_ptr.string }) catch break;
-                    header_len += h.len;
+                    // SECURITY: Escape header key and value to prevent command injection
+                    const escaped_key = escapeShellPath(allocator, entry.key_ptr.*) catch continue;
+                    defer if (escaped_key.ptr != entry.key_ptr.*.ptr) allocator.free(@constCast(escaped_key));
+                    const escaped_value = escapeShellPath(allocator, entry.value_ptr.string) catch continue;
+                    defer if (escaped_value.ptr != entry.value_ptr.string.ptr) allocator.free(@constCast(escaped_value));
+
+                    header_list.appendSlice(allocator, " -H '") catch continue;
+                    header_list.appendSlice(allocator, escaped_key) catch continue;
+                    header_list.appendSlice(allocator, ": ") catch continue;
+                    header_list.appendSlice(allocator, escaped_value) catch continue;
+                    header_list.append(allocator, '\'') catch continue;
                 }
             }
         }
     }
+    const header_args = header_list.items;
 
     // Get format (default to json for HTTP profiles)
     const format = address.effectiveFormat() orelse "json";
@@ -581,7 +593,7 @@ fn handleHttpProfile(allocator: std.mem.Allocator, address: jn_address.Address, 
         shell_cmd = std.fmt.allocPrint(
             allocator,
             "curl -sS -L -f{s} '{s}' | {s} --mode=read{s}",
-            .{ header_args[0..header_len], escaped_url, fmt_path, format_args },
+            .{ header_args, escaped_url, fmt_path, format_args },
         ) catch {
             jn_core.exitWithError("jn-cat: out of memory", .{});
         };
@@ -589,7 +601,7 @@ fn handleHttpProfile(allocator: std.mem.Allocator, address: jn_address.Address, 
         shell_cmd = std.fmt.allocPrint(
             allocator,
             "curl -sS -L -f{s} '{s}'",
-            .{ header_args[0..header_len], escaped_url },
+            .{ header_args, escaped_url },
         ) catch {
             jn_core.exitWithError("jn-cat: out of memory", .{});
         };
@@ -1157,8 +1169,10 @@ fn spawnFormatPlugin(allocator: std.mem.Allocator, format: []const u8, file_path
             jn_core.exitWithError("jn-cat: plugin execution failed: {s}", .{@errorName(err)});
         };
 
-        if (result.Exited != 0) {
-            std.process.exit(result.Exited);
+        switch (result) {
+            .Exited => |code| if (code != 0) std.process.exit(code),
+            .Signal => |sig| std.process.exit(128 + @as(u8, @truncate(sig))),
+            .Stopped, .Unknown => std.process.exit(1),
         }
     } else {
         // Use our stdin directly
@@ -1171,8 +1185,10 @@ fn spawnFormatPlugin(allocator: std.mem.Allocator, format: []const u8, file_path
             jn_core.exitWithError("jn-cat: plugin execution failed: {s}", .{@errorName(err)});
         };
 
-        if (result.Exited != 0) {
-            std.process.exit(result.Exited);
+        switch (result) {
+            .Exited => |code| if (code != 0) std.process.exit(code),
+            .Signal => |sig| std.process.exit(128 + @as(u8, @truncate(sig))),
+            .Stopped, .Unknown => std.process.exit(1),
         }
     }
 }
