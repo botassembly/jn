@@ -21,8 +21,10 @@ const Config = struct {
 /// attacks with maliciously crafted CSV files.
 const MAX_CSV_FIELDS: usize = 4096;
 
-/// Track if we've warned about field truncation (only warn once)
-var field_truncation_warned: bool = false;
+/// Warning state for field truncation (passed to avoid global mutable state)
+const TruncationWarningState = struct {
+    warned: bool = false,
+};
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -257,7 +259,8 @@ fn readMode(allocator: std.mem.Allocator, config: Config) !void {
             break :blk jn_core.stripCR(maybe_header.?);
         };
 
-        const field_count = parseCSVRowFast(header_line, delimiter, &field_starts, &field_ends);
+        // Note: null for warn_state since header parsing doesn't need truncation warnings
+        const field_count = parseCSVRowFast(header_line, delimiter, &field_starts, &field_ends, null);
         for (0..field_count) |i| {
             const field = unquoteField(header_line[field_starts[i]..field_ends[i]]);
             const duped = try allocator.dupe(u8, field);
@@ -269,6 +272,9 @@ fn readMode(allocator: std.mem.Allocator, config: Config) !void {
         }
     }
 
+    // Warning state for field truncation (local, not global)
+    var truncation_warn = TruncationWarningState{};
+
     // Helper to process a single data line
     const processLine = struct {
         fn f(
@@ -279,10 +285,11 @@ fn readMode(allocator: std.mem.Allocator, config: Config) !void {
             no_header: bool,
             starts: *[MAX_CSV_FIELDS]usize,
             ends: *[MAX_CSV_FIELDS]usize,
+            warn_state: *TruncationWarningState,
         ) void {
             if (line.len == 0) return;
 
-            const fc = parseCSVRowFast(line, delim, starts, ends);
+            const fc = parseCSVRowFast(line, delim, starts, ends, warn_state);
 
             w.writeByte('{') catch |err| jn_core.handleWriteError(err);
 
@@ -320,19 +327,19 @@ fn readMode(allocator: std.mem.Allocator, config: Config) !void {
 
     // Process buffered sample lines first
     for (sample_lines.items[data_start_idx..]) |line| {
-        processLine(writer, line, delimiter, &headers, config.no_header, &field_starts, &field_ends);
+        processLine(writer, line, delimiter, &headers, config.no_header, &field_starts, &field_ends, &truncation_warn);
     }
 
     // Continue reading from stdin
     while (jn_core.readLine(reader)) |line| {
         const clean_line = jn_core.stripCR(line);
-        processLine(writer, clean_line, delimiter, &headers, config.no_header, &field_starts, &field_ends);
+        processLine(writer, clean_line, delimiter, &headers, config.no_header, &field_starts, &field_ends, &truncation_warn);
     }
 
     jn_core.flushWriter(writer);
 }
 
-fn parseCSVRowFast(line: []const u8, delimiter: u8, starts: *[MAX_CSV_FIELDS]usize, ends: *[MAX_CSV_FIELDS]usize) usize {
+fn parseCSVRowFast(line: []const u8, delimiter: u8, starts: *[MAX_CSV_FIELDS]usize, ends: *[MAX_CSV_FIELDS]usize, warn_state: ?*TruncationWarningState) usize {
     var field_count: usize = 0;
     var i: usize = 0;
     var field_start: usize = 0;
@@ -368,15 +375,19 @@ fn parseCSVRowFast(line: []const u8, delimiter: u8, starts: *[MAX_CSV_FIELDS]usi
         truncated = true;
     }
 
-    // Warn once about field truncation
-    if (truncated and !field_truncation_warned) {
-        field_truncation_warned = true;
-        const stderr = std.fs.File.stderr();
-        _ = stderr.write("csv: warning: row has more than ") catch {};
-        var num_buf: [16]u8 = undefined;
-        const num_str = std.fmt.bufPrint(&num_buf, "{d}", .{MAX_CSV_FIELDS}) catch "4096";
-        _ = stderr.write(num_str) catch {};
-        _ = stderr.write(" fields, extra fields truncated\n") catch {};
+    // Warn once about field truncation (using passed state to avoid global mutable state)
+    if (truncated) {
+        if (warn_state) |ws| {
+            if (!ws.warned) {
+                ws.warned = true;
+                const stderr = std.fs.File.stderr();
+                _ = stderr.write("csv: warning: row has more than ") catch {};
+                var num_buf: [16]u8 = undefined;
+                const num_str = std.fmt.bufPrint(&num_buf, "{d}", .{MAX_CSV_FIELDS}) catch "4096";
+                _ = stderr.write(num_str) catch {};
+                _ = stderr.write(" fields, extra fields truncated\n") catch {};
+            }
+        }
     }
 
     return field_count;

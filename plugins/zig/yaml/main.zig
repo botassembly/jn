@@ -595,6 +595,13 @@ const YamlParser = struct {
 
     fn parseBlockArray(self: *Self, base_indent: usize) ParseError!std.json.Value {
         var arr = std.json.Array.init(self.allocator);
+        errdefer {
+            // Clean up already-parsed values on error to prevent memory leaks
+            for (arr.items) |item| {
+                self.freeValueRecursive(item);
+            }
+            arr.deinit();
+        }
 
         while (self.pos < self.source.len) {
             const current_indent = self.currentIndent();
@@ -626,6 +633,15 @@ const YamlParser = struct {
 
     fn parseBlockObject(self: *Self, base_indent: usize) ParseError!std.json.Value {
         var obj = std.json.ObjectMap.init(self.allocator);
+        errdefer {
+            // Clean up already-parsed key-value pairs on error to prevent memory leaks
+            var iter = obj.iterator();
+            while (iter.next()) |entry| {
+                self.allocator.free(entry.key_ptr.*);
+                self.freeValueRecursive(entry.value_ptr.*);
+            }
+            obj.deinit();
+        }
 
         while (self.pos < self.source.len) {
             const current_indent = self.currentIndent();
@@ -646,6 +662,7 @@ const YamlParser = struct {
 
             const key_raw = std.mem.trim(u8, self.source[key_start..self.pos], " \t");
             const key = try self.unquoteKey(key_raw);
+            errdefer self.allocator.free(key); // Free key if value parsing fails
 
             self.pos += 1; // skip :
             self.skipInlineWhitespace();

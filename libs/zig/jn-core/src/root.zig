@@ -8,6 +8,7 @@ pub const reader = @import("reader.zig");
 pub const writer = @import("writer.zig");
 pub const json = @import("json.zig");
 pub const errors = @import("errors.zig");
+pub const shell = @import("shell.zig");
 
 // Re-export main functions for convenience
 pub const readLine = reader.readLine;
@@ -27,6 +28,10 @@ pub const writeJsonLine = json.writeJsonLine;
 // Buffer size constants
 pub const STDIN_BUFFER_SIZE = reader.DEFAULT_BUFFER_SIZE;
 pub const STDOUT_BUFFER_SIZE = writer.DEFAULT_BUFFER_SIZE;
+
+// Shell utilities
+pub const escapeForShellSingleQuote = shell.escapeForShellSingleQuote;
+pub const isSafeForShellSingleQuote = shell.isSafeForShellSingleQuote;
 
 test {
     @import("std").testing.refAllDecls(@This());
