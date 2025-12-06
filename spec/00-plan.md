@@ -548,19 +548,17 @@ Thin dispatcher:
 
 **Goal**: Enable Zig tools (jn-cat, jn-put) to invoke Python plugins, making all demos work.
 
-**Status**: ⚠️ PARTIAL (7/10 demos working)
+**Status**: ✅ COMPLETE (9/10 demos working, 1 requires credentials)
 
-**Completed** (commit 88ca9d0):
+**Completed**:
 - ✅ Python plugin invocation (xlsx, xml, table, markdown, lcov formats)
 - ✅ HTTP/HTTPS URL routing (via curl)
 - ✅ Cloud storage routing (S3, GCS, GDrive via OpenDAL)
 - ✅ Native glob expansion in jn-cat
 - ✅ `jn table` command
 - ✅ HTTP profile resolution (@namespace/name for HTTP profiles)
-
-**Remaining**:
-- ❌ DuckDB profile resolution (@namespace/name → duckdb_.py)
-- ❌ Code profile resolution (@code/* → code_.py)
+- ✅ DuckDB profile resolution (@namespace/name → duckdb_.py)
+- ✅ Code profile resolution (@code/* → code_.py)
 
 **Reference Docs**:
 - [05-plugin-system.md](05-plugin-system.md) - Plugin interface
@@ -656,24 +654,18 @@ Update jn-cat to handle `@namespace/name` addresses:
 | glob | ✅ Working | Native Zig |
 | xlsx-files | ✅ Working | Python plugin |
 | table-rendering | ✅ Working | Python plugin |
-| code-lcov | ❌ Pending | Needs code_ profile resolution |
-| adapter-merge | ❌ Pending | Needs DuckDB profile resolution |
+| code-lcov | ✅ Working | @code profiles |
+| adapter-merge | ✅ Working | DuckDB profiles |
 | genomoncology | 📋 Example | Requires credentials |
 
-### Remaining Work
-
-To complete Phase 12:
-1. **DuckDB Profile Resolution** - Route `@namespace/name` to duckdb_.py when profile type is duckdb
-2. **Code Profile Resolution** - Route `@code/*` addresses to code_.py plugin
-
-### Exit Criteria
+### Exit Criteria ✅
 - [x] `jn cat data.xlsx` works (Python xlsx plugin)
 - [x] `jn cat https://api.github.com/...` works (HTTP)
 - [x] `jn cat '**/*.json'` works (glob expansion)
 - [x] `jn table` command works (table rendering)
-- [ ] `jn cat @genie/treatment` works (DuckDB profile resolution)
-- [ ] `jn cat @code/functions` works (code profile resolution)
-- [ ] All demos pass in `./demos/run_all.sh` (7/10 currently)
+- [x] `jn cat @genie/treatment` works (DuckDB profile resolution)
+- [x] `jn cat @code/functions` works (code profile resolution)
+- [x] All demos pass (9/10 working, 1 requires credentials)
 
 ---
 
