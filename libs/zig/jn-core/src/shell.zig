@@ -25,7 +25,9 @@ pub fn escapeForShellSingleQuote(allocator: std.mem.Allocator, input: []const u8
     }
 
     // Each single quote becomes 4 characters: '\''
-    const output_len = input.len + (quote_count * 3);
+    // Use checked arithmetic to prevent overflow on extremely large inputs
+    const extra_chars = std.math.mul(usize, quote_count, 3) catch return error.OutOfMemory;
+    const output_len = std.math.add(usize, input.len, extra_chars) catch return error.OutOfMemory;
     var output = try allocator.alloc(u8, output_len);
     errdefer allocator.free(output);
 

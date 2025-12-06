@@ -5,6 +5,10 @@
 //!
 //! Cache location: $JN_HOME/cache/plugins.json
 //!
+//! Limits:
+//!   - Maximum cache file size: 10MB
+//!   - For larger plugin collections, consider pruning unused plugins
+//!
 //! Cache format:
 //! ```json
 //! {

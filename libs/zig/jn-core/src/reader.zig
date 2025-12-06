@@ -2,6 +2,10 @@
 //!
 //! Provides line-reading utilities compatible with Zig 0.15.1 and 0.15.2.
 //! Uses the same patterns as existing JN plugins.
+//!
+//! Thread Safety: These utilities are NOT thread-safe. Each reader instance
+//! should be used by a single thread. JN tools are single-threaded by design,
+//! using OS pipes for concurrency between processes.
 
 const std = @import("std");
 const builtin = @import("builtin");

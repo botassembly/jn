@@ -290,23 +290,24 @@ pub fn loadProfile(
 
     // Load the specific profile file
     var profile_json = try parseJsonFile(allocator, full_path);
-    errdefer profile_json.deinit();
+    defer profile_json.deinit(); // Always clean up the parsed profile
 
     // Merge _meta.json files (from root to leaf) with profile
     var result = std.json.Value{ .object = std.json.ObjectMap.init(allocator) };
+    errdefer freeValue(allocator, result); // Clean up on error
 
     // Apply metas in reverse order (root first)
     var i: usize = metas.items.len;
     while (i > 0) {
         i -= 1;
         const merged = try deepMerge(allocator, result, metas.items[i].value);
-        result.object.deinit();
+        freeValue(allocator, result);
         result = merged;
     }
 
     // Finally merge with the profile itself
     const final = try deepMerge(allocator, result, profile_json.value);
-    result.object.deinit();
+    freeValue(allocator, result);
     result = final;
 
     // Apply environment variable substitution if requested

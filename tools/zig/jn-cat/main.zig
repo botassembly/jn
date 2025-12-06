@@ -1038,6 +1038,11 @@ fn handleOpenDalUrl(allocator: std.mem.Allocator, address: jn_address.Address, a
     const lib_path = try std.fmt.allocPrint(allocator, "{s}/vendor/opendal/bindings/c/target/release", .{jn_home});
     defer allocator.free(lib_path);
 
+    // SECURITY: Escape address.raw to prevent shell injection via malicious URLs
+    const escaped_address = try escapeShellPath(allocator, address.raw);
+    const needs_free = escaped_address.ptr != address.raw.ptr;
+    defer if (needs_free) allocator.free(@constCast(escaped_address));
+
     if (address.compression != .none) {
         const gz_path = findPlugin(allocator, "gz") orelse {
             jn_core.exitWithError("jn-cat: compression plugin 'gz' not found", .{});
@@ -1047,26 +1052,26 @@ fn handleOpenDalUrl(allocator: std.mem.Allocator, address: jn_address.Address, a
             shell_cmd = try std.fmt.allocPrint(
                 allocator,
                 "LD_LIBRARY_PATH='{s}' {s} '{s}' | {s} --mode=raw | {s} --mode=read{s}",
-                .{ lib_path, opendal_path, address.raw, gz_path, fmt_path, format_args },
+                .{ lib_path, opendal_path, escaped_address, gz_path, fmt_path, format_args },
             );
         } else {
             shell_cmd = try std.fmt.allocPrint(
                 allocator,
                 "LD_LIBRARY_PATH='{s}' {s} '{s}' | {s} --mode=raw",
-                .{ lib_path, opendal_path, address.raw, gz_path },
+                .{ lib_path, opendal_path, escaped_address, gz_path },
             );
         }
     } else if (format_path) |fmt_path| {
         shell_cmd = try std.fmt.allocPrint(
             allocator,
             "LD_LIBRARY_PATH='{s}' {s} '{s}' | {s} --mode=read{s}",
-            .{ lib_path, opendal_path, address.raw, fmt_path, format_args },
+            .{ lib_path, opendal_path, escaped_address, fmt_path, format_args },
         );
     } else if (std.mem.eql(u8, format, "jsonl") or std.mem.eql(u8, format, "ndjson")) {
         shell_cmd = try std.fmt.allocPrint(
             allocator,
             "LD_LIBRARY_PATH='{s}' {s} '{s}'",
-            .{ lib_path, opendal_path, address.raw },
+            .{ lib_path, opendal_path, escaped_address },
         );
     } else {
         jn_core.exitWithError("jn-cat: format plugin '{s}' not found", .{format});
