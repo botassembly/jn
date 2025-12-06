@@ -271,24 +271,37 @@ fn getPositionalArg(index: usize) ?[]const u8 {
 /// List available profiles
 fn listProfiles(allocator: std.mem.Allocator, type_filter: ?[]const u8, json_format: bool) void {
     var profiles: std.ArrayListUnmanaged(ProfileInfo) = .empty;
-    defer profiles.deinit(allocator);
+    defer {
+        // Free allocated strings in each ProfileInfo to avoid memory leak
+        for (profiles.items) |p| {
+            allocator.free(p.name);
+            allocator.free(p.path);
+        }
+        profiles.deinit(allocator);
+    }
 
     // Get profile directories
     const home = std.posix.getenv("HOME");
     const jn_home = std.posix.getenv("JN_HOME");
 
+    // Build base paths - track allocated ones for cleanup
+    const user_base: ?[]const u8 = if (home) |h|
+        std.fmt.allocPrint(allocator, "{s}/.local/jn/profiles", .{h}) catch null
+    else
+        null;
+    defer if (user_base) |ub| allocator.free(ub);
+
+    const bundled_base: ?[]const u8 = if (jn_home) |jh|
+        std.fmt.allocPrint(allocator, "{s}/profiles", .{jh}) catch null
+    else
+        null;
+    defer if (bundled_base) |bb| allocator.free(bb);
+
     // Scan each source
     const sources = [_]struct { name: []const u8, base: ?[]const u8 }{
         .{ .name = "project", .base = ".jn/profiles" },
-        .{ .name = "user", .base = if (home) |h| blk: {
-            const path = std.fmt.allocPrint(allocator, "{s}/.local/jn/profiles", .{h}) catch break :blk null;
-            break :blk path;
-        } else null },
-        .{ .name = "bundled", .base = if (jn_home) |jh|
-        blk: {
-            const path = std.fmt.allocPrint(allocator, "{s}/profiles", .{jh}) catch break :blk null;
-            break :blk path;
-        } else null },
+        .{ .name = "user", .base = user_base },
+        .{ .name = "bundled", .base = bundled_base },
     };
 
     for (sources) |source| {

@@ -57,7 +57,8 @@ pub fn main() !void {
     }
 
     // Read all lines into circular buffer
-    var ring_buffer: [MAX_LINES][]u8 = undefined;
+    // Initialize to empty slices to avoid undefined behavior if logic has bugs
+    var ring_buffer: [MAX_LINES][]u8 = .{&[_]u8{}} ** MAX_LINES;
     var ring_pos: usize = 0;
     var ring_count: usize = 0;
 

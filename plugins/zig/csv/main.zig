@@ -17,6 +17,13 @@ const Config = struct {
     no_header: bool = false,
 };
 
+/// Maximum number of fields per CSV row. This limit prevents buffer overflow
+/// attacks with maliciously crafted CSV files.
+const MAX_CSV_FIELDS: usize = 4096;
+
+/// Track if we've warned about field truncation (only warn once)
+var field_truncation_warned: bool = false;
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -199,8 +206,8 @@ fn readMode(allocator: std.mem.Allocator, config: Config) !void {
     var stdout_wrapper = std.fs.File.stdout().writer(&stdout_buf);
     const writer = &stdout_wrapper.interface;
 
-    var field_starts: [1024]usize = undefined;
-    var field_ends: [1024]usize = undefined;
+    var field_starts: [MAX_CSV_FIELDS]usize = undefined;
+    var field_ends: [MAX_CSV_FIELDS]usize = undefined;
 
     // Buffer for sample lines when auto-detecting
     var sample_lines: std.ArrayListUnmanaged([]const u8) = .empty;
@@ -270,8 +277,8 @@ fn readMode(allocator: std.mem.Allocator, config: Config) !void {
             delim: u8,
             hdrs: *std.ArrayListUnmanaged([]const u8),
             no_header: bool,
-            starts: *[1024]usize,
-            ends: *[1024]usize,
+            starts: *[MAX_CSV_FIELDS]usize,
+            ends: *[MAX_CSV_FIELDS]usize,
         ) void {
             if (line.len == 0) return;
 
@@ -325,11 +332,12 @@ fn readMode(allocator: std.mem.Allocator, config: Config) !void {
     jn_core.flushWriter(writer);
 }
 
-fn parseCSVRowFast(line: []const u8, delimiter: u8, starts: *[1024]usize, ends: *[1024]usize) usize {
+fn parseCSVRowFast(line: []const u8, delimiter: u8, starts: *[MAX_CSV_FIELDS]usize, ends: *[MAX_CSV_FIELDS]usize) usize {
     var field_count: usize = 0;
     var i: usize = 0;
     var field_start: usize = 0;
     var in_quotes = false;
+    var truncated = false;
 
     while (i < line.len) : (i += 1) {
         const c = line[i];
@@ -341,19 +349,34 @@ fn parseCSVRowFast(line: []const u8, delimiter: u8, starts: *[1024]usize, ends: 
             }
             in_quotes = !in_quotes;
         } else if (c == delimiter and !in_quotes) {
-            if (field_count < 1024) {
+            if (field_count < MAX_CSV_FIELDS) {
                 starts[field_count] = field_start;
                 ends[field_count] = i;
                 field_count += 1;
+            } else {
+                truncated = true;
             }
             field_start = i + 1;
         }
     }
 
-    if (field_count < 1024) {
+    if (field_count < MAX_CSV_FIELDS) {
         starts[field_count] = field_start;
         ends[field_count] = line.len;
         field_count += 1;
+    } else {
+        truncated = true;
+    }
+
+    // Warn once about field truncation
+    if (truncated and !field_truncation_warned) {
+        field_truncation_warned = true;
+        const stderr = std.fs.File.stderr();
+        _ = stderr.write("csv: warning: row has more than ") catch {};
+        var num_buf: [16]u8 = undefined;
+        const num_str = std.fmt.bufPrint(&num_buf, "{d}", .{MAX_CSV_FIELDS}) catch "4096";
+        _ = stderr.write(num_str) catch {};
+        _ = stderr.write(" fields, extra fields truncated\n") catch {};
     }
 
     return field_count;

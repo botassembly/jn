@@ -91,8 +91,24 @@ pub fn main() !void {
         jn_core.exitWithError("jn-filter: zq execution failed: {s}", .{@errorName(err)});
     };
 
-    if (result.Exited != 0) {
-        std.process.exit(result.Exited);
+    // Properly handle all termination types to avoid undefined behavior
+    switch (result) {
+        .Exited => |code| {
+            if (code != 0) {
+                std.process.exit(code);
+            }
+        },
+        .Signal => |sig| {
+            // Exit with 128 + signal number (Unix convention)
+            std.process.exit(128 +| @as(u8, @truncate(sig)));
+        },
+        .Stopped => |sig| {
+            // Stopped has a u32 stop code, not an enum
+            std.process.exit(128 +| @as(u8, @truncate(sig)));
+        },
+        .Unknown => |code| {
+            std.process.exit(if (code != 0) 1 else 0);
+        },
     }
 }
 

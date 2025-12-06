@@ -133,10 +133,9 @@ fn loadViaJnCat(allocator: std.mem.Allocator, path: []const u8, key_field: []con
         jn_core.exitWithError("jn-join: jn-cat not found", .{});
     };
 
-    const shell_cmd = try std.fmt.allocPrint(allocator, "{s} '{s}'", .{ jn_cat_path, path });
-    defer allocator.free(shell_cmd);
-
-    const argv: [3][]const u8 = .{ "/bin/sh", "-c", shell_cmd };
+    // Use direct exec instead of shell to avoid command injection vulnerabilities.
+    // The path is passed as a direct argument, not through shell interpolation.
+    const argv: [2][]const u8 = .{ jn_cat_path, path };
     var child = std.process.Child.init(&argv, allocator);
     child.stdin_behavior = .Close;
     child.stdout_behavior = .Pipe;
@@ -177,10 +176,13 @@ fn addToMap(allocator: std.mem.Allocator, line: []const u8, key_field: []const u
 }
 
 fn stringifyKey(allocator: std.mem.Allocator, value: std.json.Value) ![]u8 {
-    var buf: [1024]u8 = undefined;
-    var stream = std.io.fixedBufferStream(&buf);
-    jn_core.writeJsonValue(stream.writer(), value) catch {};
-    return try allocator.dupe(u8, stream.getWritten());
+    // Use dynamic allocation for keys that may be arbitrarily long (e.g., long strings)
+    var result: std.ArrayListUnmanaged(u8) = .empty;
+    errdefer result.deinit(allocator);
+    jn_core.writeJsonValue(result.writer(allocator), value) catch |err| {
+        return err;
+    };
+    return try result.toOwnedSlice(allocator);
 }
 
 fn processLeftSource(allocator: std.mem.Allocator, config: *const JoinConfig, right_map: *RightRecords) !void {
@@ -219,10 +221,15 @@ fn processLeftSource(allocator: std.mem.Allocator, config: *const JoinConfig, ri
             continue;
         };
 
-        var key_buf: [1024]u8 = undefined;
-        var key_stream = std.io.fixedBufferStream(&key_buf);
-        jn_core.writeJsonValue(key_stream.writer(), key_value) catch {};
-        const key_str = key_stream.getWritten();
+        // Use dynamic allocation for keys to handle arbitrarily long values
+        const key_str = stringifyKey(allocator, key_value) catch {
+            if (!config.inner_join) {
+                writer.writeAll(line) catch |err| jn_core.handleWriteError(err);
+                writer.writeByte('\n') catch |err| jn_core.handleWriteError(err);
+            }
+            continue;
+        };
+        defer allocator.free(key_str);
 
         if (right_map.get(key_str)) |right_records| {
             // Output one merged record per match
@@ -244,10 +251,10 @@ fn outputMerged(allocator: std.mem.Allocator, left: std.json.Value, right_line: 
 
     if (right_parsed.value != .object) return;
 
-    // Build merged output
-    var out_buf: [64 * 1024]u8 = undefined;
-    var stream = std.io.fixedBufferStream(&out_buf);
-    const w = stream.writer();
+    // Build merged output using dynamic allocation for arbitrarily large records
+    var out_buf: std.ArrayListUnmanaged(u8) = .empty;
+    defer out_buf.deinit(allocator);
+    const w = out_buf.writer(allocator);
 
     w.writeByte('{') catch return;
 
@@ -276,7 +283,7 @@ fn outputMerged(allocator: std.mem.Allocator, left: std.json.Value, right_line: 
 
     w.writeByte('}') catch return;
 
-    writer.writeAll(stream.getWritten()) catch |err| jn_core.handleWriteError(err);
+    writer.writeAll(out_buf.items) catch |err| jn_core.handleWriteError(err);
     writer.writeByte('\n') catch |err| jn_core.handleWriteError(err);
 }
 

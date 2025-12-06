@@ -11,6 +11,9 @@ const plugin_meta = jn_plugin.PluginMeta{
     .modes = &.{ .read, .write },
 };
 
+/// Maximum input size (100MB default). This prevents OOM on extremely large files.
+const DEFAULT_MAX_INPUT_SIZE: usize = 100 * 1024 * 1024;
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -59,6 +62,10 @@ fn readMode(allocator: std.mem.Allocator) !void {
     defer input.deinit(allocator);
 
     while (jn_core.readLine(reader)) |line| {
+        // Check size limit to prevent OOM on maliciously large input
+        if (input.items.len + line.len > DEFAULT_MAX_INPUT_SIZE) {
+            jn_core.exitWithError("yaml: input exceeds maximum size of {d}MB", .{DEFAULT_MAX_INPUT_SIZE / (1024 * 1024)});
+        }
         try input.appendSlice(allocator, line);
         try input.append(allocator, '\n');
     }
@@ -479,6 +486,13 @@ const YamlParser = struct {
     fn parseFlowArray(self: *Self) ParseError!std.json.Value {
         self.pos += 1; // skip [
         var arr = std.json.Array.init(self.allocator);
+        errdefer {
+            // Clean up already-parsed values on error to prevent memory leaks
+            for (arr.items) |item| {
+                self.freeValueRecursive(item);
+            }
+            arr.deinit();
+        }
 
         self.skipWhitespace();
 
@@ -501,11 +515,21 @@ const YamlParser = struct {
     fn parseFlowObject(self: *Self) ParseError!std.json.Value {
         self.pos += 1; // skip {
         var obj = std.json.ObjectMap.init(self.allocator);
+        errdefer {
+            // Clean up already-parsed key-value pairs on error to prevent memory leaks
+            var iter = obj.iterator();
+            while (iter.next()) |entry| {
+                self.allocator.free(entry.key_ptr.*);
+                self.freeValueRecursive(entry.value_ptr.*);
+            }
+            obj.deinit();
+        }
 
         self.skipWhitespace();
 
         while (self.pos < self.source.len and self.source[self.pos] != '}') {
             const key = try self.parseFlowKey();
+            errdefer self.allocator.free(key); // Free key if value parsing fails
             self.skipWhitespace();
 
             if (self.pos < self.source.len and self.source[self.pos] == ':') {
