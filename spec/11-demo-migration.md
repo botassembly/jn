@@ -21,8 +21,8 @@
 | `shell-commands/` | Convert shell output to NDJSON via `jc` | ✅ Working (requires `jc`) |
 | `table-rendering/` | Pretty-print NDJSON as ASCII tables | ✅ Working |
 | `xlsx-files/` | Read/write Excel files | ✅ Working (Python plugin) |
-| `code-lcov/` | Analyze pytest coverage reports | ⚠️ Requires code_ profile |
-| `adapter-merge/` | Profile-based data merging | ⚠️ Requires DuckDB setup |
+| `code-lcov/` | Analyze code files via @code profiles | ✅ Working |
+| `adapter-merge/` | Profile-based data merging with DuckDB | ✅ Working |
 | `genomoncology/` | Real-world HTTP profile example | 📋 Requires credentials |
 
 ---

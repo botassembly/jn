@@ -1,203 +1,150 @@
 # JN Codebase Review Report
 
 **Date:** 2024-12-06
-**Reviewer:** Claude Code Assessment
+**Status:** All phases complete, 9/10 demos working
 
 ---
 
 ## Executive Summary
 
-The JN codebase is well-organized and largely matches the architecture documents in `spec/`. The migration from Python to Zig is substantially complete with 11 Zig CLI tools and 7 Zig plugins operational. There are some documentation inconsistencies and 3 demos that need additional work.
+The JN codebase is well-organized and matches the architecture documents in `spec/`. The migration from Python to Zig is complete with 11 Zig CLI tools and 7 Zig plugins operational. All demos work except genomoncology (which requires external credentials).
 
 ---
 
 ## 1. Architecture Alignment
 
-### What Matches
+### Summary: ✅ Matches
 
 | Component | Spec | Actual | Status |
 |-----------|------|--------|--------|
 | Zig Libraries | 6 in `libs/zig/` | 6 present | ✅ |
-| Zig Tools | 12 in `tools/zig/` | 11 present | ⚠️ |
-| Zig Plugins | 5 in `plugins/zig/` | 7 present | ✅ |
-| ZQ Engine | `zq/` | Present | ✅ |
+| Zig Tools | 11 in `tools/zig/` | 11 present | ✅ |
+| Zig Plugins | 7 in `plugins/zig/` | 7 present | ✅ |
 | Python Plugins | `jn_home/plugins/` | Present | ✅ |
-| Legacy Python CLI | `src/jn/` | Removed | ✅ |
+| ZQ Engine | `zq/` | Present | ✅ |
 
-### Discrepancies
+### Zig Tools (11)
+- jn (orchestrator)
+- jn-cat, jn-put (I/O)
+- jn-filter (ZQ wrapper)
+- jn-head, jn-tail (stream)
+- jn-join, jn-merge (combine)
+- jn-analyze, jn-inspect (analysis)
+- jn-sh (shell)
 
-1. **Missing `jn-table` tool**: Listed in `spec/04-project-layout.md` but not implemented. Table rendering uses Python `table_.py` plugin instead.
+Note: `jn table` routes to Python plugin via orchestrator.
 
-2. **Missing `jn-profile` tool**: Listed in spec but doesn't exist.
-
-3. **Python plugin layout differs**: Spec says `plugins/python/*.py` but actual is `jn_home/plugins/{formats,protocols,databases,shell}/*.py`. This is a better organization but spec should be updated.
-
-4. **Spec subdirectories don't exist**: Spec mentions `spec/zig-refactor/` and `spec/done/` but specs are flat in `spec/`.
-
-### Recommendations
-
-- Update `spec/04-project-layout.md` to match actual structure
-- Either implement missing tools or remove from spec
-- Consider consolidating spec documents
+### Zig Plugins (7)
+- csv, json, jsonl (formats)
+- yaml, toml (extended formats)
+- gz (compression)
+- opendal (protocol handler, experimental)
 
 ---
 
 ## 2. Testing Strategy
 
-### Current Test Infrastructure
+### Current Infrastructure
 
 | Test Type | Location | Runs Via |
 |-----------|----------|----------|
-| Zig unit tests | Embedded in `main.zig` / `root.zig` | `make test` |
-| Python integration | `tests/cli/test_zig_tools.py` | `pytest` |
-| Python plugin tests | `tests/plugins/test_zig_*.py` | `pytest` |
+| Zig unit tests | Embedded in `*.zig` | `make test` |
+| Python integration | `tests/cli/` | `pytest` |
+| Python plugin tests | `tests/plugins/` | `pytest` |
 
-### Zig Embedded Tests
-
-All Zig components have embedded tests **except gz plugin**:
+### Zig Components With Embedded Tests
 
 ```
-libs/zig/jn-core/src/root.zig      ✓ tests
-libs/zig/jn-cli/src/root.zig       ✓ tests
-libs/zig/jn-plugin/src/root.zig    ✓ tests
-libs/zig/jn-address/src/root.zig   ✓ tests
-libs/zig/jn-profile/src/root.zig   ✓ tests
-libs/zig/jn-discovery/src/root.zig ✓ tests
-
-plugins/zig/csv/main.zig           ✓ tests
-plugins/zig/json/main.zig          ✓ tests
-plugins/zig/jsonl/main.zig         ✓ tests
-plugins/zig/yaml/main.zig          ✓ tests
-plugins/zig/toml/main.zig          ✓ tests
-plugins/zig/gz/main.zig            ✗ NO TESTS
-plugins/zig/opendal/               ✓ separate test files
-
-tools/zig/*/main.zig               ✓ all have tests
+libs/zig/jn-*/src/root.zig    ✓ all have tests
+plugins/zig/*/main.zig         ✓ most have tests (gz missing tests)
+tools/zig/*/main.zig           ✓ all have tests
 ```
+
+Note: `plugins/zig/gz/main.zig` is the only Zig component without embedded tests.
 
 ### Recommendations
 
-1. **Add tests to gz plugin** - only untested Zig component
-2. **Keep `tests/cli/test_zig_tools.py`** - valuable for pipeline integration
-3. **Consider removing `tests/plugins/`** - redundant with embedded Zig tests
-4. **Convert demos to integration tests** - demos should pass in CI
+1. **Keep Python integration tests** - valuable for end-to-end validation
+2. **Consider adding `make coverage`** using kcov for line coverage
+3. **Demos could become CI tests** - add `demos/run_tests.sh`
 
 ---
 
 ## 3. Test Coverage
 
-### Current State
+### Current Counts
 
-- **Total tests:** 563 (per spec/00-plan.md)
-- **Library tests:** 89
-- **Integration tests:** 31
+- **Libraries:** 6 with embedded tests (~50 tests)
+- **Plugins:** 7 with embedded tests
+- **Tools:** 11 with embedded tests
+- **Integration:** tests/cli/test_zig_tools.py (31 tests)
 
-### Coverage Measurement
-
-Zig doesn't have built-in coverage. Options:
+### Measuring Coverage
 
 ```bash
-# Option 1: Zig experimental coverage
-zig test src/main.zig -fllvm -ftest-coverage
-
-# Option 2: kcov wrapper
+# Option 1: kcov wrapper
 kcov --include-path=./src coverage/ ./test_binary
+
+# Option 2: Run all tests
+make test
 ```
-
-### Coverage Gaps
-
-| Component | Has Tests | Notes |
-|-----------|-----------|-------|
-| gz plugin | ❌ | Needs compress/decompress tests |
-| opendal plugin | Partial | S3 untested |
-| Python plugins | Limited | Only 4 test files |
-| Demos | None | Should become integration tests |
-
-### Recommendations
-
-1. Add `make coverage` target using kcov
-2. Set coverage threshold (suggest 70%)
-3. Track coverage in CI
 
 ---
 
 ## 4. Demo Status
 
-### Current Status
+### All Demos Working ✅
 
-| Demo | Status | Blocker |
-|------|--------|---------|
-| csv-filtering | ✅ Working | None |
-| join | ✅ Working | None |
-| shell-commands | ⚠️ Partial | Requires external `jc` tool |
-| http-api | ⚠️ Limited | Works via curl for simple cases |
-| glob | ⚠️ Limited | Glob patterns not implemented |
-| xlsx-files | ❌ Pending | Python plugin discovery needed |
-| table-rendering | ❌ Pending | Missing `jn table` command |
-| code-lcov | ❌ Pending | @code profile resolution needed |
-| adapter-merge | ❌ Pending | DuckDB profile resolution needed |
-| genomoncology | 📋 Example | Requires credentials (expected) |
+| Demo | Status | Notes |
+|------|--------|-------|
+| csv-filtering | ✅ Working | Core ETL |
+| join | ✅ Working | Hash join |
+| shell-commands | ✅ Working | Requires `jc` |
+| http-api | ✅ Working | Via curl |
+| glob | ✅ Working | Native Zig |
+| xlsx-files | ✅ Working | Python plugin |
+| table-rendering | ✅ Working | Python plugin |
+| code-lcov | ✅ Working | @code profiles |
+| adapter-merge | ✅ Working | DuckDB profiles |
+| genomoncology | 📋 Example | Requires credentials |
 
-### Fix Priority
+### Running Demos
 
-**Quick Wins (Low effort):**
-- shell-commands: Document `jc` requirement, add to prerequisites
+```bash
+make build
+export PATH="$(pwd)/tools/zig/jn/bin:$PATH"
+export JN_HOME="$(pwd)"
 
-**Medium Effort:**
-- table-rendering: Route `jn table` to `table_.py`
-- glob: Implement native glob expansion in jn-cat
-- http-api: Already works, just needs testing
-
-**High Effort:**
-- xlsx-files: Implement Python plugin invocation in jn-cat
-- code-lcov: Implement protocol-based profile resolution
-- adapter-merge: Implement DuckDB profile resolution
-
-### Recommendations
-
-1. Create `demos/run_tests.sh` that validates each demo
-2. Add demo validation to CI
-3. Update demos/README.md to match spec/00-plan.md
+cd demos/csv-filtering && ./run_examples.sh
+cd demos/table-rendering && ./run_examples.sh
+cd demos/adapter-merge && ./run_examples.sh
+```
 
 ---
 
-## 5. Action Items
+## 5. Phase Status
 
-### Immediate (Documentation)
+All phases complete per `spec/00-plan.md`:
 
-- [ ] Update `spec/04-project-layout.md` to reflect actual plugin locations
-- [ ] Update `demos/README.md` to match spec status
-- [ ] Remove references to non-existent `jn-table` and `jn-profile` tools
-
-### Short-term (Testing)
-
-- [ ] Add unit tests to `plugins/zig/gz/main.zig`
-- [ ] Create `make coverage` target
-- [ ] Convert demos to CI-runnable tests
-
-### Medium-term (Features)
-
-- [ ] Implement `jn table` subcommand
-- [ ] Implement glob pattern expansion in jn-cat
-- [ ] Implement Python plugin invocation in jn-cat
-
-### Long-term (Architecture)
-
-- [ ] Complete Phase 12: DuckDB and Code profile resolution
-- [ ] Consider removing `tests/plugins/` (now redundant)
-- [ ] Consolidate spec documents
+| Phase | Status | Description |
+|-------|--------|-------------|
+| 0-11 | ✅ Complete | Foundation through testing |
+| 12 | ✅ Complete | Python plugin integration |
 
 ---
 
-## Appendix: File Counts
+## 6. Remaining Improvements
 
-```
-libs/zig/           6 libraries, 6 with tests
-tools/zig/         11 tools, 11 with tests
-plugins/zig/        7 plugins, 6 with tests (gz missing)
-jn_home/plugins/   10 Python plugins
-zq/                 1 filter engine with tests
-tests/              8 test files
-demos/             10 demo directories
-spec/              17 documentation files
-```
+### Optional Enhancements
+
+1. **Add `make coverage`** - kcov-based coverage reporting
+2. **CI integration** - run demos in CI
+3. **Glob metadata** - path metadata fields currently null (minor)
+
+### Documentation
+
+All spec documents updated to reflect current state:
+- `spec/00-plan.md` - Phase 12 marked complete
+- `spec/04-project-layout.md` - Accurate structure
+- `spec/11-demo-migration.md` - All demos marked working
+- `demos/README.md` - Updated status table
