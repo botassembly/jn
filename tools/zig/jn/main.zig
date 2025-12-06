@@ -288,29 +288,47 @@ fn findPythonPlugin(allocator: std.mem.Allocator, name: []const u8) ?[]const u8 
     return null;
 }
 
+/// Escape a path for use in single-quoted shell arguments.
+/// SECURITY: This prevents command injection via paths containing single quotes.
+fn escapeShellPath(allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
+    if (jn_core.isSafeForShellSingleQuote(path)) {
+        return path;
+    }
+    return jn_core.escapeForShellSingleQuote(allocator, path);
+}
+
 /// Run a Python plugin using uv run --script
 fn runPythonPlugin(allocator: std.mem.Allocator, plugin_name: []const u8, default_mode: []const u8, remaining_args: std.process.ArgIterator) !void {
     const plugin_path = findPythonPlugin(allocator, plugin_name) orelse {
         jn_core.exitWithError("jn: Python plugin '{s}' not found\nHint: check JN_HOME/jn_home/plugins/", .{plugin_name});
     };
 
-    // Build shell command: uv run --script <plugin> <mode> [extra args...]
-    var cmd_buf: [2048]u8 = undefined;
-    var cmd_len: usize = 0;
+    // SECURITY: Escape the plugin path to prevent command injection
+    const escaped_plugin_path = try escapeShellPath(allocator, plugin_path);
+    defer if (escaped_plugin_path.ptr != plugin_path.ptr) allocator.free(@constCast(escaped_plugin_path));
 
-    const base = std.fmt.bufPrint(cmd_buf[cmd_len..], "uv run --script '{s}' {s}", .{ plugin_path, default_mode }) catch {
-        jn_core.exitWithError("jn: command too long", .{});
-    };
-    cmd_len += base.len;
+    // Build shell command with dynamic allocation to handle escaped args
+    var cmd_parts: std.ArrayListUnmanaged(u8) = .empty;
+    defer cmd_parts.deinit(allocator);
 
-    // Collect remaining arguments
+    // Add base command
+    try cmd_parts.appendSlice(allocator, "uv run --script '");
+    try cmd_parts.appendSlice(allocator, escaped_plugin_path);
+    try cmd_parts.appendSlice(allocator, "' ");
+    try cmd_parts.appendSlice(allocator, default_mode);
+
+    // Collect and escape remaining arguments
     var args_copy = remaining_args;
     while (args_copy.next()) |arg| {
-        const added = std.fmt.bufPrint(cmd_buf[cmd_len..], " '{s}'", .{arg}) catch break;
-        cmd_len += added.len;
+        // SECURITY: Escape each argument to prevent command injection
+        const escaped_arg = try escapeShellPath(allocator, arg);
+        defer if (escaped_arg.ptr != arg.ptr) allocator.free(@constCast(escaped_arg));
+        try cmd_parts.appendSlice(allocator, " '");
+        try cmd_parts.appendSlice(allocator, escaped_arg);
+        try cmd_parts.append(allocator, '\'');
     }
 
-    const shell_cmd = cmd_buf[0..cmd_len];
+    const shell_cmd = cmd_parts.items;
 
     // Run via shell
     const shell_argv: [3][]const u8 = .{ "/bin/sh", "-c", shell_cmd };
