@@ -11,8 +11,6 @@ pub const DEFAULT_BUFFER_SIZE = 64 * 1024;
 
 /// Possible errors when reading lines
 pub const ReadError = error{
-    /// End of stream reached (not an error, just EOF)
-    EndOfStream,
     /// Input line exceeds buffer capacity
     StreamTooLong,
     /// I/O error during read
@@ -93,12 +91,15 @@ pub fn readLineOrError(reader: anytype) ReadError!?[]const u8 {
 pub fn readLineRawOrError(reader: anytype) ReadError!?[]u8 {
     // Zig 0.15.2+ uses takeDelimiter, earlier versions use takeDelimiterExclusive
     if (comptime builtin.zig_version.order(.{ .major = 0, .minor = 15, .patch = 2 }) != .lt) {
+        // 0.15.2+: takeDelimiter returns null on EOF
         return reader.takeDelimiter('\n') catch |err| {
             return mapReaderError(err);
         };
     } else {
-        return reader.takeDelimiterExclusive('\n') catch |err| {
-            return mapReaderError(err);
+        // Pre-0.15.2: takeDelimiterExclusive throws EndOfStream on EOF
+        return reader.takeDelimiterExclusive('\n') catch |err| switch (err) {
+            error.EndOfStream => return null,
+            else => return mapReaderError(err),
         };
     }
 }
@@ -106,7 +107,6 @@ pub fn readLineRawOrError(reader: anytype) ReadError!?[]u8 {
 /// Map reader errors to our ReadError type
 fn mapReaderError(err: anyerror) ReadError {
     return switch (err) {
-        error.EndOfStream => error.EndOfStream,
         error.StreamTooLong => error.StreamTooLong,
         error.InputOutput => error.InputOutput,
         error.Interrupted => error.Interrupted,
