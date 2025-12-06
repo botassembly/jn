@@ -201,8 +201,10 @@ fn spawnFormatPlugin(allocator: std.mem.Allocator, format: []const u8, file_path
         jn_core.exitWithError("jn-put: plugin execution failed: {s}", .{@errorName(err)});
     };
 
-    if (result.Exited != 0) {
-        std.process.exit(result.Exited);
+    switch (result) {
+        .Exited => |code| if (code != 0) std.process.exit(code),
+        .Signal => |sig| std.process.exit(128 + @as(u8, @truncate(sig))),
+        .Stopped, .Unknown => std.process.exit(1),
     }
 }
 
@@ -271,8 +273,10 @@ fn spawnFormatPluginToFile(allocator: std.mem.Allocator, format: []const u8, fil
         jn_core.exitWithError("jn-put: plugin execution failed: {s}", .{@errorName(err)});
     };
 
-    if (result.Exited != 0) {
-        std.process.exit(result.Exited);
+    switch (result) {
+        .Exited => |code| if (code != 0) std.process.exit(code),
+        .Signal => |sig| std.process.exit(128 + @as(u8, @truncate(sig))),
+        .Stopped, .Unknown => std.process.exit(1),
     }
 }
 

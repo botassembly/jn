@@ -74,12 +74,18 @@ fn resolveExpression(expr: []const u8) []const u8 {
 ///
 /// Only substitutes in string values. Arrays and objects are traversed.
 /// The input JSON value is modified in place (string pointers are replaced).
+///
+/// IMPORTANT: The allocator must be the same one used to allocate the original
+/// strings in the JSON value (e.g., from cloneValue or deepMerge). The old
+/// strings are freed before being replaced with substituted versions.
 pub fn substituteJsonValue(allocator: std.mem.Allocator, value: *std.json.Value) !void {
     switch (value.*) {
         .string => |s| {
             // Only substitute if the string contains ${
             if (std.mem.indexOf(u8, s, "${") != null) {
                 const substituted = try substitute(allocator, s);
+                // Free the old string before replacing (it was allocated with the same allocator)
+                allocator.free(s);
                 value.* = .{ .string = substituted };
             }
         },

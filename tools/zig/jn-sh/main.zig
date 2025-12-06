@@ -48,7 +48,10 @@ fn isJcInstalled() bool {
         return false;
     };
 
-    jc_available = (result.Exited == 0);
+    jc_available = switch (result) {
+        .Exited => |code| code == 0,
+        .Signal, .Stopped, .Unknown => false,
+    };
     return jc_available.?;
 }
 

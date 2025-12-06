@@ -9,14 +9,35 @@ const builtin = @import("builtin");
 /// Default buffer size for stdin (64KB)
 pub const DEFAULT_BUFFER_SIZE = 64 * 1024;
 
+/// Possible errors when reading lines
+pub const ReadError = error{
+    /// Input line exceeds buffer capacity
+    StreamTooLong,
+    /// I/O error during read
+    InputOutput,
+    /// Read operation was interrupted (can be retried)
+    Interrupted,
+    /// Connection reset by peer
+    ConnectionResetByPeer,
+    /// Connection timed out
+    ConnectionTimedOut,
+    /// Broken pipe
+    BrokenPipe,
+    /// Not open for reading
+    NotOpenForReading,
+    /// Unexpected error
+    Unexpected,
+};
+
 /// Read a line from a buffered reader.
 ///
 /// Compatible with Zig 0.15.1 and 0.15.2 API differences.
 /// Returns the line content without the trailing newline, or null at EOF.
 /// Strips trailing carriage return (\r) for Windows compatibility.
 ///
-/// On read errors (other than EOF), prints an error message to stderr
-/// and exits with code 1.
+/// WARNING: On read errors (other than EOF), this function prints an error
+/// message to stderr and EXITS with code 1. For library usage where you need
+/// proper error handling, use `readLineOrError` instead.
 ///
 /// Example:
 /// ```zig
@@ -36,7 +57,69 @@ pub fn readLine(reader: anytype) ?[]const u8 {
     return null;
 }
 
+/// Read a line from a buffered reader with proper error handling.
+///
+/// Unlike `readLine`, this function returns errors instead of exiting,
+/// making it suitable for library usage and contexts where graceful
+/// error handling is needed.
+///
+/// Returns:
+/// - The line content without trailing newline/CR on success
+/// - null at EOF (end of stream)
+/// - An error for I/O failures
+///
+/// Example:
+/// ```zig
+/// while (true) {
+///     const line = readLineOrError(rdr) catch |err| {
+///         // Handle error appropriately
+///         return err;
+///     };
+///     if (line == null) break; // EOF
+///     // process line
+/// }
+/// ```
+pub fn readLineOrError(reader: anytype) ReadError!?[]const u8 {
+    const maybe_line = readLineRawOrError(reader) catch |err| return err;
+    if (maybe_line) |line| {
+        return stripCR(line);
+    }
+    return null;
+}
+
+/// Read a line without stripping carriage return, with proper error handling.
+pub fn readLineRawOrError(reader: anytype) ReadError!?[]u8 {
+    // Zig 0.15.2+ uses takeDelimiter, earlier versions use takeDelimiterExclusive
+    if (comptime builtin.zig_version.order(.{ .major = 0, .minor = 15, .patch = 2 }) != .lt) {
+        // 0.15.2+: takeDelimiter returns null on EOF
+        return reader.takeDelimiter('\n') catch |err| {
+            return mapReaderError(err);
+        };
+    } else {
+        // Pre-0.15.2: takeDelimiterExclusive throws EndOfStream on EOF
+        return reader.takeDelimiterExclusive('\n') catch |err| switch (err) {
+            error.EndOfStream => return null,
+            else => return mapReaderError(err),
+        };
+    }
+}
+
+/// Map reader errors to our ReadError type
+fn mapReaderError(err: anyerror) ReadError {
+    return switch (err) {
+        error.StreamTooLong => error.StreamTooLong,
+        error.InputOutput => error.InputOutput,
+        error.Interrupted => error.Interrupted,
+        error.ConnectionResetByPeer => error.ConnectionResetByPeer,
+        error.ConnectionTimedOut => error.ConnectionTimedOut,
+        error.BrokenPipe => error.BrokenPipe,
+        error.NotOpenForReading => error.NotOpenForReading,
+        else => error.Unexpected,
+    };
+}
+
 /// Read a line without stripping carriage return.
+/// WARNING: Exits on error. Use `readLineRawOrError` for proper error handling.
 pub fn readLineRaw(reader: anytype) ?[]u8 {
     // Zig 0.15.2+ uses takeDelimiter, earlier versions use takeDelimiterExclusive
     if (comptime builtin.zig_version.order(.{ .major = 0, .minor = 15, .patch = 2 }) != .lt) {
