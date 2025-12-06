@@ -58,7 +58,8 @@ fn readMode(allocator: std.mem.Allocator) !void {
     const writer = &stdout_wrapper.interface;
 
     // Read all input into memory (YAML requires full document for indentation)
-    var input = std.ArrayList(u8){};
+    // Use ArrayListUnmanaged for explicit allocator passing (clearer ownership)
+    var input: std.ArrayListUnmanaged(u8) = .empty;
     defer input.deinit(allocator);
 
     while (jn_core.readLine(reader)) |line| {

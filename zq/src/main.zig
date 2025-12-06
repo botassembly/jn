@@ -2217,6 +2217,12 @@ fn evalBuiltin(allocator: std.mem.Allocator, kind: BuiltinKind, value: std.json.
         .fabs => {
             switch (value) {
                 .integer => |i| {
+                    // Handle minInt(i64) specially to avoid overflow
+                    // since -minInt(i64) cannot be represented as i64
+                    if (i == std.math.minInt(i64)) {
+                        // Return as float since the absolute value exceeds i64 max
+                        return try EvalResult.single(allocator, .{ .float = @as(f64, @floatFromInt(std.math.maxInt(i64))) + 1.0 });
+                    }
                     const abs_val = if (i < 0) -i else i;
                     return try EvalResult.single(allocator, .{ .integer = abs_val });
                 },
@@ -2539,17 +2545,20 @@ fn evalByFunc(allocator: std.mem.Allocator, bf: ByFuncExpr, value: std.json.Valu
             switch (bf.kind) {
                 .group_by => {
                     // Group by the path value
+                    // Use type-prefixed keys to prevent collisions between different types
+                    // e.g., string "1" vs integer 1 should group separately
                     var groups = std.StringHashMap(std.ArrayListUnmanaged(std.json.Value)).init(allocator);
 
                     for (arr.items) |item| {
                         const key_val = getPath(item, bf.path) orelse continue;
                         var key_str: []const u8 = undefined;
                         switch (key_val) {
-                            .string => |s| key_str = s,
-                            .integer => |i| key_str = try std.fmt.allocPrint(allocator, "{d}", .{i}),
-                            .float => |f| key_str = try std.fmt.allocPrint(allocator, "{d}", .{f}),
-                            .bool => |b| key_str = if (b) "true" else "false",
-                            .null => key_str = "null",
+                            // Prefix with type indicator to prevent hash collisions
+                            .string => |s| key_str = try std.fmt.allocPrint(allocator, "s:{s}", .{s}),
+                            .integer => |i| key_str = try std.fmt.allocPrint(allocator, "i:{d}", .{i}),
+                            .float => |f| key_str = try std.fmt.allocPrint(allocator, "f:{d}", .{f}),
+                            .bool => |b| key_str = if (b) "b:true" else "b:false",
+                            .null => key_str = "n:null",
                             else => continue,
                         }
 
@@ -2595,11 +2604,12 @@ fn evalByFunc(allocator: std.mem.Allocator, bf: ByFuncExpr, value: std.json.Valu
                         const key_val = getPath(item, bf.path) orelse continue;
                         var key_str: []const u8 = undefined;
                         switch (key_val) {
-                            .string => |s| key_str = s,
-                            .integer => |i| key_str = try std.fmt.allocPrint(allocator, "{d}", .{i}),
-                            .float => |f| key_str = try std.fmt.allocPrint(allocator, "{d}", .{f}),
-                            .bool => |b| key_str = if (b) "true" else "false",
-                            .null => key_str = "null",
+                            // Prefix with type indicator to prevent hash collisions
+                            .string => |s| key_str = try std.fmt.allocPrint(allocator, "s:{s}", .{s}),
+                            .integer => |i| key_str = try std.fmt.allocPrint(allocator, "i:{d}", .{i}),
+                            .float => |f| key_str = try std.fmt.allocPrint(allocator, "f:{d}", .{f}),
+                            .bool => |b| key_str = if (b) "b:true" else "b:false",
+                            .null => key_str = "n:null",
                             else => continue,
                         }
 

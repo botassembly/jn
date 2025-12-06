@@ -2,6 +2,10 @@
 //!
 //! Provides writing utilities with proper BrokenPipe handling.
 //! Uses the same patterns as existing JN plugins.
+//!
+//! Thread Safety: These utilities are NOT thread-safe. Each writer instance
+//! should be used by a single thread. JN tools are single-threaded by design,
+//! using OS pipes for concurrency between processes.
 
 const std = @import("std");
 

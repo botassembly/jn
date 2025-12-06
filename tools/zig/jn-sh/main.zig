@@ -22,7 +22,12 @@ const jn_cli = @import("jn-cli");
 
 const VERSION = "0.1.0";
 
-/// Cached result for jc availability check
+/// Maximum command line length (POSIX ARG_MAX is typically 128KB-2MB)
+const MAX_CMD_LEN: usize = 8192;
+
+/// Cached result for jc availability check.
+/// Thread Safety: This tool is single-threaded. The cache may have benign
+/// races if used in a multi-threaded context, but the result is always correct.
 var jc_available: ?bool = null;
 
 /// Check if jc is installed (cached)
@@ -167,26 +172,43 @@ pub fn main() !void {
     const command_name = cmd_parts.items[0];
 
     // Build command string for shell using fixed buffer
-    var cmd_buf: [8192]u8 = undefined;
+    var cmd_buf: [MAX_CMD_LEN]u8 = undefined;
     var cmd_stream = std.io.fixedBufferStream(&cmd_buf);
     const cmd_writer = cmd_stream.writer();
 
+    var cmd_overflow = false;
     for (cmd_parts.items, 0..) |part, i| {
-        if (i > 0) cmd_writer.writeByte(' ') catch {};
+        if (i > 0) cmd_writer.writeByte(' ') catch {
+            cmd_overflow = true;
+        };
         // Quote if contains spaces or special chars
         if (needsQuoting(part)) {
-            cmd_writer.writeByte('\'') catch {};
+            cmd_writer.writeByte('\'') catch {
+                cmd_overflow = true;
+            };
             for (part) |c| {
                 if (c == '\'') {
-                    cmd_writer.writeAll("'\\''") catch {};
+                    cmd_writer.writeAll("'\\''") catch {
+                        cmd_overflow = true;
+                    };
                 } else {
-                    cmd_writer.writeByte(c) catch {};
+                    cmd_writer.writeByte(c) catch {
+                        cmd_overflow = true;
+                    };
                 }
             }
-            cmd_writer.writeByte('\'') catch {};
+            cmd_writer.writeByte('\'') catch {
+                cmd_overflow = true;
+            };
         } else {
-            cmd_writer.writeAll(part) catch {};
+            cmd_writer.writeAll(part) catch {
+                cmd_overflow = true;
+            };
         }
+    }
+
+    if (cmd_overflow) {
+        jn_core.exitWithError("jn-sh: command line too long (max {d} bytes)", .{MAX_CMD_LEN});
     }
 
     const cmd_str = cmd_stream.getWritten();
