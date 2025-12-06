@@ -70,3 +70,37 @@ fn compressMode() !void {
 
     jn_core.flushWriter(writer);
 }
+
+// Tests
+test "manifest contains plugin name" {
+    var buf: [256]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buf);
+    try jn_plugin.outputManifest(fbs.writer(), plugin_meta);
+    const output = fbs.getWritten();
+    try std.testing.expect(std.mem.indexOf(u8, output, "\"gz\"") != null);
+}
+
+test "manifest contains compression role" {
+    var buf: [256]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buf);
+    try jn_plugin.outputManifest(fbs.writer(), plugin_meta);
+    const output = fbs.getWritten();
+    try std.testing.expect(std.mem.indexOf(u8, output, "\"compression\"") != null);
+}
+
+test "manifest contains gz pattern" {
+    var buf: [256]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buf);
+    try jn_plugin.outputManifest(fbs.writer(), plugin_meta);
+    const output = fbs.getWritten();
+    try std.testing.expect(std.mem.indexOf(u8, output, ".gz") != null);
+}
+
+test "manifest supports raw mode" {
+    try std.testing.expect(plugin_meta.supports_raw);
+}
+
+test "plugin version is valid" {
+    try std.testing.expect(plugin_meta.version.len > 0);
+    try std.testing.expect(std.mem.startsWith(u8, plugin_meta.version, "0."));
+}

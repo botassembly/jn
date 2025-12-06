@@ -56,11 +56,9 @@ Note: `jn table` routes to Python plugin via orchestrator.
 
 ```
 libs/zig/jn-*/src/root.zig    ✓ all have tests
-plugins/zig/*/main.zig         ✓ most have tests (gz missing tests)
+plugins/zig/*/main.zig         ✓ all have tests
 tools/zig/*/main.zig           ✓ all have tests
 ```
-
-Note: `plugins/zig/gz/main.zig` is the only Zig component without embedded tests.
 
 ### Recommendations
 
