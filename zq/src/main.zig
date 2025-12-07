@@ -919,8 +919,8 @@ fn parseObject(allocator: std.mem.Allocator, expr: []const u8, err_ctx: *ErrorCo
 
     // Split by comma (respecting nesting)
     var start: usize = 0;
-    var paren_depth: i32 = 0;
-    var brace_depth: i32 = 0;
+    var paren_depth: u32 = 0;
+    var brace_depth: u32 = 0;
     var i: usize = 0;
 
     while (i <= inner.len) : (i += 1) {
@@ -928,9 +928,9 @@ fn parseObject(allocator: std.mem.Allocator, expr: []const u8, err_ctx: *ErrorCo
         const c = if (at_end) ',' else inner[i];
 
         if (c == '(') paren_depth += 1;
-        if (c == ')') paren_depth -= 1;
+        if (c == ')') paren_depth -|= 1; // Saturating subtraction for safety
         if (c == '{') brace_depth += 1;
-        if (c == '}') brace_depth -= 1;
+        if (c == '}') brace_depth -|= 1; // Saturating subtraction for safety
 
         if ((c == ',' or at_end) and paren_depth == 0 and brace_depth == 0) {
             const field_str = std.mem.trim(u8, inner[start..i], whitespace);
@@ -951,11 +951,11 @@ fn parseObjectField(allocator: std.mem.Allocator, field_str: []const u8, err_ctx
 
     // Find colon (respecting parentheses)
     var colon_pos: ?usize = null;
-    var paren_depth: i32 = 0;
+    var paren_depth: u32 = 0;
     var i: usize = 0;
     while (i < trimmed.len) : (i += 1) {
         if (trimmed[i] == '(') paren_depth += 1;
-        if (trimmed[i] == ')') paren_depth -= 1;
+        if (trimmed[i] == ')') paren_depth -|= 1; // Saturating subtraction for safety
         if (trimmed[i] == ':' and paren_depth == 0) {
             colon_pos = i;
             break;
@@ -998,13 +998,13 @@ fn parseCondition(allocator: std.mem.Allocator, expr: []const u8, err_ctx: *Erro
 
     // Check for boolean operators (lowest precedence)
     // Find "and" or "or" not inside parentheses
-    var paren_depth: i32 = 0;
+    var paren_depth: u32 = 0;
     var i: usize = 0;
     while (i < trimmed.len) : (i += 1) {
         if (trimmed[i] == '(') {
             paren_depth += 1;
         } else if (trimmed[i] == ')') {
-            paren_depth -= 1;
+            paren_depth -|= 1; // Saturating subtraction for safety
         } else if (paren_depth == 0) {
             // Check for " and " (with spaces)
             if (i + 5 <= trimmed.len and std.mem.eql(u8, trimmed[i .. i + 5], " and ")) {
@@ -1055,13 +1055,13 @@ fn parseCondition(allocator: std.mem.Allocator, expr: []const u8, err_ctx: *Erro
 
 /// Find operator position outside parentheses
 fn findOperatorOutsideParens(str: []const u8, op: []const u8) ?usize {
-    var paren_depth: i32 = 0;
+    var paren_depth: u32 = 0;
     var i: usize = 0;
     while (i + op.len <= str.len) : (i += 1) {
         if (str[i] == '(') {
             paren_depth += 1;
         } else if (str[i] == ')') {
-            paren_depth -= 1;
+            paren_depth -|= 1; // Saturating subtraction for safety
         } else if (paren_depth == 0 and std.mem.eql(u8, str[i .. i + op.len], op)) {
             return i;
         }
@@ -1253,9 +1253,9 @@ fn parseArrayLiteral(allocator: std.mem.Allocator, expr: []const u8, err_ctx: *E
 
     // Split by comma (respecting nesting)
     var start: usize = 0;
-    var paren_depth: i32 = 0;
-    var brace_depth: i32 = 0;
-    var bracket_depth: i32 = 0;
+    var paren_depth: u32 = 0;
+    var brace_depth: u32 = 0;
+    var bracket_depth: u32 = 0;
     var i: usize = 0;
 
     while (i <= inner.len) : (i += 1) {
@@ -1263,11 +1263,11 @@ fn parseArrayLiteral(allocator: std.mem.Allocator, expr: []const u8, err_ctx: *E
         const c = if (at_end) ',' else inner[i];
 
         if (c == '(') paren_depth += 1;
-        if (c == ')') paren_depth -= 1;
+        if (c == ')') paren_depth -|= 1; // Saturating subtraction for safety
         if (c == '{') brace_depth += 1;
-        if (c == '}') brace_depth -= 1;
+        if (c == '}') brace_depth -|= 1; // Saturating subtraction for safety
         if (c == '[') bracket_depth += 1;
-        if (c == ']') bracket_depth -= 1;
+        if (c == ']') bracket_depth -|= 1; // Saturating subtraction for safety
 
         if ((c == ',' or at_end) and paren_depth == 0 and brace_depth == 0 and bracket_depth == 0) {
             const elem_str = std.mem.trim(u8, inner[start..i], whitespace);
