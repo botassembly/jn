@@ -34,6 +34,7 @@ pub const STDOUT_BUFFER_SIZE = writer.DEFAULT_BUFFER_SIZE;
 // Shell utilities
 pub const escapeForShellSingleQuote = shell.escapeForShellSingleQuote;
 pub const isSafeForShellSingleQuote = shell.isSafeForShellSingleQuote;
+pub const isGlobPatternSafe = shell.isGlobPatternSafe;
 
 test {
     @import("std").testing.refAllDecls(@This());

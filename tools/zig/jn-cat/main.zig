@@ -828,14 +828,16 @@ fn handleGlob(allocator: std.mem.Allocator, address: jn_address.Address, args: *
         };
     } else {
         // Simple glob - use bash with globstar
-        // SECURITY: Escape pattern to prevent shell injection
-        const escaped_pattern = try escapeShellPath(allocator, pattern);
-        defer if (escaped_pattern.ptr != pattern.ptr) allocator.free(@constCast(escaped_pattern));
+        // SECURITY: Validate pattern contains only safe characters for unquoted glob expansion
+        // We cannot quote the pattern (glob chars wouldn't expand), so we must reject unsafe patterns
+        if (!jn_core.isGlobPatternSafe(pattern)) {
+            jn_core.exitWithError("jn-cat: glob pattern contains unsafe characters: {s}", .{pattern});
+        }
 
         expand_cmd = std.fmt.allocPrint(
             allocator,
-            "shopt -s nullglob; for f in '{s}'; do [ -f \"$f\" ] && echo \"$f\"; done",
-            .{escaped_pattern},
+            "shopt -s nullglob; for f in {s}; do [ -f \"$f\" ] && echo \"$f\"; done",
+            .{pattern},
         ) catch {
             jn_core.exitWithError("jn-cat: out of memory", .{});
         };

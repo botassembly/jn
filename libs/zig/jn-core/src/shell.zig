@@ -58,6 +58,40 @@ pub fn isSafeForShellSingleQuote(input: []const u8) bool {
     return true;
 }
 
+/// Check if a glob pattern is safe to use unquoted in a shell.
+///
+/// Glob patterns need special handling because they must be unquoted for
+/// bash to expand wildcards (*,?,[]), but we must reject shell injection
+/// characters.
+///
+/// Allowed characters:
+///   - Alphanumeric (a-z, A-Z, 0-9)
+///   - Path separators and common file chars: / . - _ (space)
+///   - Glob wildcards: * ? [ ]
+///
+/// Rejected (shell injection risk):
+///   - Command separators: ; | & \n \r
+///   - Substitution: $ ` ( ) { }
+///   - Redirection: < >
+///   - Quotes/escapes: ' " \
+///   - Other special: ! # ~
+pub fn isGlobPatternSafe(pattern: []const u8) bool {
+    for (pattern) |c| {
+        const is_safe = switch (c) {
+            // Alphanumeric
+            'a'...'z', 'A'...'Z', '0'...'9' => true,
+            // Safe path characters
+            '/', '.', '-', '_', ' ' => true,
+            // Glob metacharacters (need to be unquoted for expansion)
+            '*', '?', '[', ']' => true,
+            // Everything else is potentially dangerous
+            else => false,
+        };
+        if (!is_safe) return false;
+    }
+    return true;
+}
+
 /// Format a shell command with properly escaped arguments.
 ///
 /// This is a convenience function that escapes all arguments and builds
@@ -117,4 +151,31 @@ test "isSafeForShellSingleQuote returns true for safe strings" {
 test "isSafeForShellSingleQuote returns false for unsafe strings" {
     try std.testing.expect(!isSafeForShellSingleQuote("file's name"));
     try std.testing.expect(!isSafeForShellSingleQuote("'quoted'"));
+}
+
+test "isGlobPatternSafe allows valid globs" {
+    try std.testing.expect(isGlobPatternSafe("*.json"));
+    try std.testing.expect(isGlobPatternSafe("data/*.csv"));
+    try std.testing.expect(isGlobPatternSafe("**/*.txt"));
+    try std.testing.expect(isGlobPatternSafe("file[0-9].log"));
+    try std.testing.expect(isGlobPatternSafe("path/to/file.json"));
+    try std.testing.expect(isGlobPatternSafe("file with spaces.txt"));
+    try std.testing.expect(isGlobPatternSafe("file-name_123.json"));
+}
+
+test "isGlobPatternSafe rejects injection attempts" {
+    // Command separators
+    try std.testing.expect(!isGlobPatternSafe("*.json; rm -rf /"));
+    try std.testing.expect(!isGlobPatternSafe("*.json | cat /etc/passwd"));
+    try std.testing.expect(!isGlobPatternSafe("*.json && evil"));
+    // Substitution
+    try std.testing.expect(!isGlobPatternSafe("$(whoami).json"));
+    try std.testing.expect(!isGlobPatternSafe("`whoami`.json"));
+    try std.testing.expect(!isGlobPatternSafe("${HOME}/*.json"));
+    // Quotes
+    try std.testing.expect(!isGlobPatternSafe("'*.json'"));
+    try std.testing.expect(!isGlobPatternSafe("\"*.json\""));
+    // Redirection
+    try std.testing.expect(!isGlobPatternSafe("*.json > /tmp/x"));
+    try std.testing.expect(!isGlobPatternSafe("*.json < /etc/passwd"));
 }
