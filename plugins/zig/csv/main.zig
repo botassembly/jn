@@ -485,19 +485,25 @@ fn unquoteField(allocator: std.mem.Allocator, field: []const u8, needs_free: *bo
 
     // Need to unescape - build new string replacing "" with "
     var result: std.ArrayListUnmanaged(u8) = .empty;
+    // Track if we need to cleanup on OOM - can't use errdefer with non-error return
+    var cleanup_on_oom = true;
+    defer if (cleanup_on_oom) result.deinit(allocator);
+
     i = 0;
     while (i < inner.len) {
         if (i + 1 < inner.len and inner[i] == '"' and inner[i + 1] == '"') {
-            result.append(allocator, '"') catch return inner; // Fallback on OOM
+            result.append(allocator, '"') catch return inner; // Fallback on OOM, defer handles cleanup
             i += 2;
         } else {
-            result.append(allocator, inner[i]) catch return inner; // Fallback on OOM
+            result.append(allocator, inner[i]) catch return inner; // Fallback on OOM, defer handles cleanup
             i += 1;
         }
     }
 
+    const owned = result.toOwnedSlice(allocator) catch return inner; // Fallback on OOM, defer handles cleanup
+    cleanup_on_oom = false; // Success - caller owns the memory now
     needs_free.* = true;
-    return result.toOwnedSlice(allocator) catch inner; // Fallback on OOM
+    return owned;
 }
 
 fn writeMode(allocator: std.mem.Allocator, config: Config) !void {
