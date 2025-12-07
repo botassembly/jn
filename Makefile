@@ -1,4 +1,4 @@
-.PHONY: all build test clean install-zig zq zq-test zig-plugins zig-plugins-test zig-libs zig-libs-test zig-tools zig-tools-test fmt
+.PHONY: all build test clean install-zig install-python-deps zq zq-test zig-plugins zig-plugins-test zig-libs zig-libs-test zig-tools zig-tools-test fmt
 
 # Zig configuration
 ZIG_VERSION := 0.15.2
@@ -36,7 +36,7 @@ JN_MODULES := --dep jn-core \
 
 all: build
 
-build: install-zig zq zig-plugins zig-tools
+build: install-zig install-python-deps zq zig-plugins zig-tools
 	@echo ""
 	@echo "Build complete! Add to PATH:"
 	@echo "  export PATH=\"$(PWD)/tools/zig/jn/bin:\$$PATH\""
@@ -69,6 +69,23 @@ install-zig:
 		echo "Zig installed to $(ZIG_LOCAL)"; \
 	fi
 	@$(ZIG) version
+
+# =============================================================================
+# Python dependencies (for jn-sh shell command parsing)
+# =============================================================================
+
+install-python-deps:
+	@echo "Installing Python dependencies..."
+	@if command -v uv >/dev/null 2>&1; then \
+		uv pip install --system jc 2>/dev/null || uv pip install jc; \
+	elif command -v pip3 >/dev/null 2>&1; then \
+		pip3 install --user jc; \
+	elif command -v pip >/dev/null 2>&1; then \
+		pip install --user jc; \
+	else \
+		echo "Warning: No pip/uv found. Install jc manually: pip install jc"; \
+	fi
+	@echo "Python dependencies installed."
 
 # =============================================================================
 # ZQ filter engine

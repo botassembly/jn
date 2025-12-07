@@ -237,7 +237,7 @@ fn handleCompressedFile(allocator: std.mem.Allocator, address: jn_address.Addres
 
     switch (result) {
         .Exited => |code| if (code != 0) std.process.exit(code),
-        .Signal => |sig| std.process.exit(128 + @as(u8, @truncate(sig))),
+        .Signal => |sig| std.process.exit(128 +| @as(u8, @intCast(@min(sig, 127)))),
         .Stopped, .Unknown => std.process.exit(1),
     }
 }
@@ -812,16 +812,28 @@ fn handleGlob(allocator: std.mem.Allocator, address: jn_address.Address, args: *
             dir_to_search = if (double_star > 0) base_dir[0 .. double_star - 1] else ".";
         }
 
+        // SECURITY: Escape directory and file pattern to prevent shell injection
+        const escaped_dir = try escapeShellPath(allocator, dir_to_search);
+        defer if (escaped_dir.ptr != dir_to_search.ptr) allocator.free(@constCast(escaped_dir));
+        const escaped_file_pattern = try escapeShellPath(allocator, file_pattern);
+        defer if (escaped_file_pattern.ptr != file_pattern.ptr) allocator.free(@constCast(escaped_file_pattern));
+
         // Use find with -name pattern
         expand_cmd = std.fmt.allocPrint(
             allocator,
-            "find {s} -type f -name '{s}' 2>/dev/null | sort",
-            .{ dir_to_search, file_pattern },
+            "find '{s}' -type f -name '{s}' 2>/dev/null | sort",
+            .{ escaped_dir, escaped_file_pattern },
         ) catch {
             jn_core.exitWithError("jn-cat: out of memory", .{});
         };
     } else {
         // Simple glob - use bash with globstar
+        // SECURITY: Validate pattern contains only safe characters for unquoted glob expansion
+        // We cannot quote the pattern (glob chars wouldn't expand), so we must reject unsafe patterns
+        if (!jn_core.isGlobPatternSafe(pattern)) {
+            jn_core.exitWithError("jn-cat: glob pattern contains unsafe characters: {s}", .{pattern});
+        }
+
         expand_cmd = std.fmt.allocPrint(
             allocator,
             "shopt -s nullglob; for f in {s}; do [ -f \"$f\" ] && echo \"$f\"; done",
@@ -1184,7 +1196,7 @@ fn spawnFormatPlugin(allocator: std.mem.Allocator, format: []const u8, file_path
 
         switch (result) {
             .Exited => |code| if (code != 0) std.process.exit(code),
-            .Signal => |sig| std.process.exit(128 + @as(u8, @truncate(sig))),
+            .Signal => |sig| std.process.exit(128 +| @as(u8, @intCast(@min(sig, 127)))),
             .Stopped, .Unknown => std.process.exit(1),
         }
     } else {
@@ -1200,7 +1212,7 @@ fn spawnFormatPlugin(allocator: std.mem.Allocator, format: []const u8, file_path
 
         switch (result) {
             .Exited => |code| if (code != 0) std.process.exit(code),
-            .Signal => |sig| std.process.exit(128 + @as(u8, @truncate(sig))),
+            .Signal => |sig| std.process.exit(128 +| @as(u8, @intCast(@min(sig, 127)))),
             .Stopped, .Unknown => std.process.exit(1),
         }
     }

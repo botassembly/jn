@@ -229,6 +229,7 @@ const StrFuncKind = enum {
     ltrimstr, // ltrimstr("prefix")
     rtrimstr, // rtrimstr("suffix")
     has, // has("key")
+    @"test", // test("pattern") - regex-like matching
 };
 
 const StrFuncExpr = struct {
@@ -325,14 +326,14 @@ fn checkUnsupportedFeatures(expr: []const u8, err_ctx: *ErrorContext) ParseError
         }
     }
 
-    // Check for regex functions
-    const regex_funcs = [_][]const u8{ "test(", "match(", "capture(", "scan(", "splits(", "sub(", "gsub(" };
+    // Check for regex functions (test() is supported with basic patterns)
+    const regex_funcs = [_][]const u8{ "match(", "capture(", "scan(", "splits(", "sub(", "gsub(" };
     for (regex_funcs) |func| {
         if (std.mem.indexOf(u8, trimmed, func)) |_| {
             err_ctx.* = .{
                 .expression = trimmed,
                 .feature = func[0 .. func.len - 1],
-                .suggestion = "Use contains(), startswith(), or endswith() instead",
+                .suggestion = "Use test(), contains(), startswith(), or endswith() instead",
             };
             return error.UnsupportedFeature;
         }
@@ -881,6 +882,19 @@ fn parseObject(allocator: std.mem.Allocator, expr: []const u8, err_ctx: *ErrorCo
     }
 
     var fields: std.ArrayListUnmanaged(ObjectField) = .empty;
+    // Clean up allocated fields on error
+    errdefer {
+        for (fields.items) |field| {
+            // Free the value expression
+            allocator.destroy(field.value);
+            // Free dynamic key expression if present
+            switch (field.key) {
+                .dynamic => |key_expr| allocator.destroy(key_expr),
+                .literal => {},
+            }
+        }
+        fields.deinit(allocator);
+    }
 
     // Split by comma (respecting nesting)
     var start: usize = 0;
@@ -1163,6 +1177,7 @@ fn parseStrFunc(allocator: std.mem.Allocator, expr: []const u8) ParseError!?Expr
         .{ .name = "ltrimstr", .kind = .ltrimstr },
         .{ .name = "rtrimstr", .kind = .rtrimstr },
         .{ .name = "has", .kind = .has },
+        .{ .name = "test", .kind = .@"test" },
     };
 
     for (funcs) |func| {
@@ -2380,7 +2395,7 @@ fn evalArithmetic(allocator: std.mem.Allocator, arith: ArithmeticExpr, value: st
         .sub => left_num - right_num,
         .mul => left_num * right_num,
         .div => if (right_num != 0) left_num / right_num else return EvalResult.empty(allocator),
-        .mod => @mod(left_num, right_num),
+        .mod => if (right_num != 0) @mod(left_num, right_num) else return EvalResult.empty(allocator),
     };
 
     // Return integer if both inputs were integers and result is whole
@@ -2519,6 +2534,42 @@ fn evalStrFunc(allocator: std.mem.Allocator, sf: StrFuncExpr, value: std.json.Va
                     }
                 },
                 else => return try EvalResult.single(allocator, .{ .bool = false }),
+            }
+        },
+        .@"test" => {
+            // Simplified regex matching supporting:
+            // - ^pattern  : starts with
+            // - pattern$  : ends with
+            // - ^pattern$ : exact match
+            // - pattern   : contains (default)
+            switch (value) {
+                .string => |s| {
+                    const pattern = sf.arg;
+                    const starts_anchor = pattern.len > 0 and pattern[0] == '^';
+                    const ends_anchor = pattern.len > 0 and pattern[pattern.len - 1] == '$';
+
+                    // Extract the literal part (without anchors)
+                    var literal = pattern;
+                    if (starts_anchor) literal = literal[1..];
+                    if (ends_anchor and literal.len > 0) literal = literal[0 .. literal.len - 1];
+
+                    const matches = if (starts_anchor and ends_anchor) blk: {
+                        // Exact match: ^pattern$
+                        break :blk std.mem.eql(u8, s, literal);
+                    } else if (starts_anchor) blk: {
+                        // Starts with: ^pattern
+                        break :blk std.mem.startsWith(u8, s, literal);
+                    } else if (ends_anchor) blk: {
+                        // Ends with: pattern$
+                        break :blk std.mem.endsWith(u8, s, literal);
+                    } else blk: {
+                        // Contains: pattern (default)
+                        break :blk std.mem.indexOf(u8, s, literal) != null;
+                    };
+
+                    return try EvalResult.single(allocator, .{ .bool = matches });
+                },
+                else => return EvalResult.empty(allocator),
             }
         },
     }
@@ -2844,6 +2895,7 @@ fn printUsage() void {
         \\  startswith("s")    Test string prefix
         \\  endswith("s")      Test string suffix
         \\  contains("s")      Test substring
+        \\  test("pattern")    Regex-like match (^start, end$, ^exact$)
         \\  ltrimstr("s")      Remove prefix
         \\  rtrimstr("s")      Remove suffix
         \\
@@ -4098,4 +4150,83 @@ test "eval from_entries k_v form" {
     try std.testing.expectEqual(@as(usize, 1), result.values.len);
     const obj = result.values[0].object;
     try std.testing.expectEqual(@as(i64, 1), obj.get("x").?.integer);
+}
+
+test "parse test" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const expr = try parseExpr(arena.allocator(), "test(\"^hello\")");
+    try std.testing.expect(expr == .str_func);
+    try std.testing.expect(expr.str_func.kind == .@"test");
+    try std.testing.expectEqualStrings("^hello", expr.str_func.arg);
+}
+
+test "eval test contains" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "\"hello world\"";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    const expr = try parseExpr(arena.allocator(), "test(\"wor\")");
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    try std.testing.expect(result.values[0].bool);
+}
+
+test "eval test starts with" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "\"hello world\"";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    const expr = try parseExpr(arena.allocator(), "test(\"^hello\")");
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    try std.testing.expect(result.values[0].bool);
+}
+
+test "eval test ends with" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "\"hello world\"";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    const expr = try parseExpr(arena.allocator(), "test(\"world$\")");
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    try std.testing.expect(result.values[0].bool);
+}
+
+test "eval test exact match" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "\"hello\"";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    const expr = try parseExpr(arena.allocator(), "test(\"^hello$\")");
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    try std.testing.expect(result.values[0].bool);
+}
+
+test "eval test no match" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "\"hello world\"";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    const expr = try parseExpr(arena.allocator(), "test(\"^world\")");
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    try std.testing.expect(!result.values[0].bool);
 }
