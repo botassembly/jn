@@ -881,10 +881,15 @@ const YamlParser = struct {
                                 try result.append(self.allocator, byte);
                                 self.pos += 1;
                             } else |_| {
+                                // Invalid hex - treat as literal \x
                                 try result.append(self.allocator, '\\');
                                 try result.append(self.allocator, 'x');
                                 continue;
                             }
+                        } else {
+                            // Not enough characters - treat as literal \x
+                            try result.append(self.allocator, '\\');
+                            try result.append(self.allocator, 'x');
                         }
                     },
                     'u' => {
@@ -898,15 +903,21 @@ const YamlParser = struct {
                                     try result.appendSlice(self.allocator, utf8_buf[0..len]);
                                     self.pos += 3;
                                 } else |_| {
+                                    // Invalid codepoint - treat as literal \u
                                     try result.append(self.allocator, '\\');
                                     try result.append(self.allocator, 'u');
                                     continue;
                                 }
                             } else |_| {
+                                // Invalid hex - treat as literal \u
                                 try result.append(self.allocator, '\\');
                                 try result.append(self.allocator, 'u');
                                 continue;
                             }
+                        } else {
+                            // Not enough characters - treat as literal \u
+                            try result.append(self.allocator, '\\');
+                            try result.append(self.allocator, 'u');
                         }
                     },
                     'U' => {
@@ -920,15 +931,21 @@ const YamlParser = struct {
                                     try result.appendSlice(self.allocator, utf8_buf[0..len]);
                                     self.pos += 7;
                                 } else |_| {
+                                    // Invalid codepoint - treat as literal \U
                                     try result.append(self.allocator, '\\');
                                     try result.append(self.allocator, 'U');
                                     continue;
                                 }
                             } else |_| {
+                                // Invalid hex - treat as literal \U
                                 try result.append(self.allocator, '\\');
                                 try result.append(self.allocator, 'U');
                                 continue;
                             }
+                        } else {
+                            // Not enough characters - treat as literal \U
+                            try result.append(self.allocator, '\\');
+                            try result.append(self.allocator, 'U');
                         }
                     },
                     else => {
@@ -1127,4 +1144,24 @@ test "needsQuoting detects reserved words" {
     try std.testing.expect(needsQuoting("no"));
     try std.testing.expect(!needsQuoting("hello"));
     try std.testing.expect(!needsQuoting("world"));
+}
+
+test "parse escape sequences in double quoted strings" {
+    const allocator = std.testing.allocator;
+
+    // Test \x escape
+    var parser1 = YamlParser.init(allocator, "\"\\x41\\x42\"\n");
+    defer parser1.deinit();
+    const v1 = try parser1.parseDocument();
+    defer parser1.freeValue(v1);
+    try std.testing.expect(v1 == .string);
+    try std.testing.expectEqualStrings("AB", v1.string);
+
+    // Test incomplete \x is preserved literally
+    var parser2 = YamlParser.init(allocator, "\"test\\x\"\n");
+    defer parser2.deinit();
+    const v2 = try parser2.parseDocument();
+    defer parser2.freeValue(v2);
+    try std.testing.expect(v2 == .string);
+    try std.testing.expectEqualStrings("test\\x", v2.string);
 }
