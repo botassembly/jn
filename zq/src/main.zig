@@ -881,6 +881,19 @@ fn parseObject(allocator: std.mem.Allocator, expr: []const u8, err_ctx: *ErrorCo
     }
 
     var fields: std.ArrayListUnmanaged(ObjectField) = .empty;
+    // Clean up allocated fields on error
+    errdefer {
+        for (fields.items) |field| {
+            // Free the value expression
+            allocator.destroy(field.value);
+            // Free dynamic key expression if present
+            switch (field.key) {
+                .dynamic => |key_expr| allocator.destroy(key_expr),
+                .literal => {},
+            }
+        }
+        fields.deinit(allocator);
+    }
 
     // Split by comma (respecting nesting)
     var start: usize = 0;
@@ -2380,7 +2393,7 @@ fn evalArithmetic(allocator: std.mem.Allocator, arith: ArithmeticExpr, value: st
         .sub => left_num - right_num,
         .mul => left_num * right_num,
         .div => if (right_num != 0) left_num / right_num else return EvalResult.empty(allocator),
-        .mod => @mod(left_num, right_num),
+        .mod => if (right_num != 0) @mod(left_num, right_num) else return EvalResult.empty(allocator),
     };
 
     // Return integer if both inputs were integers and result is whole
