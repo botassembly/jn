@@ -286,12 +286,18 @@ const ParseError = error{
     UnsupportedFeature,
 };
 
+/// Maximum recursion depth for expression parsing to prevent stack overflow
+/// from maliciously crafted deeply nested expressions
+const MAX_PARSE_DEPTH: u32 = 100;
+
 /// Error context for better error messages when parsing fails.
 /// Passed as an output parameter to avoid global mutable state.
 const ErrorContext = struct {
     expression: []const u8 = "",
     feature: []const u8 = "",
     suggestion: []const u8 = "",
+    /// Current parsing recursion depth
+    depth: u32 = 0,
 };
 
 /// Check for jq features not supported by ZQ and provide helpful error messages.
@@ -463,6 +469,19 @@ fn checkUnsupportedFeatures(expr: []const u8, err_ctx: *ErrorContext) ParseError
 }
 
 fn parseExprWithContext(allocator: std.mem.Allocator, expr: []const u8, err_ctx: *ErrorContext) ParseError!Expr {
+    // Check recursion depth to prevent stack overflow from deeply nested expressions
+    err_ctx.depth += 1;
+    defer err_ctx.depth -= 1;
+    if (err_ctx.depth > MAX_PARSE_DEPTH) {
+        err_ctx.* = .{
+            .expression = expr,
+            .feature = "expression nesting too deep",
+            .suggestion = "Simplify the expression or break it into smaller parts",
+            .depth = err_ctx.depth,
+        };
+        return error.UnsupportedFeature;
+    }
+
     const trimmed = std.mem.trim(u8, expr, whitespace);
 
     // Check for unsupported jq features first
@@ -485,19 +504,20 @@ fn parseExprWithContext(allocator: std.mem.Allocator, expr: []const u8, err_ctx:
 
     // Check for pipe operator first (lowest precedence)
     // Need to find " | " not inside parentheses or braces
-    var paren_depth: i32 = 0;
-    var brace_depth: i32 = 0;
+    // Using u32 with saturating ops to avoid underflow with malformed input
+    var paren_depth: u32 = 0;
+    var brace_depth: u32 = 0;
     var i: usize = 0;
     while (i < trimmed.len) : (i += 1) {
         const c = trimmed[i];
         if (c == '(') {
             paren_depth += 1;
         } else if (c == ')') {
-            paren_depth -= 1;
+            paren_depth -|= 1; // Saturating subtraction
         } else if (c == '{') {
             brace_depth += 1;
         } else if (c == '}') {
-            brace_depth -= 1;
+            brace_depth -|= 1; // Saturating subtraction
         } else if (c == '|' and paren_depth == 0 and brace_depth == 0) {
             // Check it's not // (alternative operator)
             if (i + 1 < trimmed.len and trimmed[i + 1] == '/') continue;
@@ -525,11 +545,11 @@ fn parseExprWithContext(allocator: std.mem.Allocator, expr: []const u8, err_ctx:
         if (c == '(') {
             paren_depth += 1;
         } else if (c == ')') {
-            paren_depth -= 1;
+            paren_depth -|= 1;
         } else if (c == '{') {
             brace_depth += 1;
         } else if (c == '}') {
-            brace_depth -= 1;
+            brace_depth -|= 1;
         } else if (c == '/' and trimmed[i + 1] == '/' and paren_depth == 0 and brace_depth == 0) {
             const left_str = std.mem.trim(u8, trimmed[0..i], whitespace);
             const right_str = std.mem.trim(u8, trimmed[i + 2 ..], whitespace);
@@ -554,11 +574,11 @@ fn parseExprWithContext(allocator: std.mem.Allocator, expr: []const u8, err_ctx:
         if (c == '(') {
             paren_depth += 1;
         } else if (c == ')') {
-            paren_depth -= 1;
+            paren_depth -|= 1;
         } else if (c == '{') {
             brace_depth += 1;
         } else if (c == '}') {
-            brace_depth -= 1;
+            brace_depth -|= 1;
         } else if (paren_depth == 0 and brace_depth == 0) {
             // Check for " + " or " - " (with spaces to avoid confusion with select comparisons)
             if (i > 0 and trimmed[i] == ' ' and (trimmed[i + 1] == '+' or trimmed[i + 1] == '-') and i + 2 < trimmed.len and trimmed[i + 2] == ' ') {
@@ -586,11 +606,11 @@ fn parseExprWithContext(allocator: std.mem.Allocator, expr: []const u8, err_ctx:
         if (c == '(') {
             paren_depth += 1;
         } else if (c == ')') {
-            paren_depth -= 1;
+            paren_depth -|= 1;
         } else if (c == '{') {
             brace_depth += 1;
         } else if (c == '}') {
-            brace_depth -= 1;
+            brace_depth -|= 1;
         } else if (paren_depth == 0 and brace_depth == 0) {
             if (i > 0 and trimmed[i] == ' ' and (trimmed[i + 1] == '*' or trimmed[i + 1] == '/' or trimmed[i + 1] == '%') and i + 2 < trimmed.len and trimmed[i + 2] == ' ') {
                 // Make sure it's not // (already handled)
@@ -816,12 +836,13 @@ fn parseConditional(allocator: std.mem.Allocator, expr: []const u8, err_ctx: *Er
     const trimmed = std.mem.trim(u8, expr, whitespace);
 
     // Find "then" keyword
+    // Using u32 with saturating ops to avoid underflow with malformed input
     var then_pos: ?usize = null;
-    var paren_depth: i32 = 0;
+    var paren_depth: u32 = 0;
     var i: usize = 3; // Skip "if "
     while (i + 4 < trimmed.len) : (i += 1) {
         if (trimmed[i] == '(') paren_depth += 1;
-        if (trimmed[i] == ')') paren_depth -= 1;
+        if (trimmed[i] == ')') paren_depth -|= 1;
         if (paren_depth == 0 and std.mem.eql(u8, trimmed[i .. i + 5], " then")) {
             then_pos = i;
             break;
@@ -836,7 +857,7 @@ fn parseConditional(allocator: std.mem.Allocator, expr: []const u8, err_ctx: *Er
     paren_depth = 0;
     while (i + 4 < trimmed.len) : (i += 1) {
         if (trimmed[i] == '(') paren_depth += 1;
-        if (trimmed[i] == ')') paren_depth -= 1;
+        if (trimmed[i] == ')') paren_depth -|= 1;
         if (paren_depth == 0 and std.mem.eql(u8, trimmed[i .. i + 5], " else")) {
             else_pos = i;
             break;
@@ -1298,12 +1319,15 @@ fn getIndex(value: std.json.Value, index: i64) ?std.json.Value {
             const len = arr.items.len;
             if (len == 0) return null;
 
-            const actual_idx: usize = if (index < 0)
-                if (@as(usize, @intCast(-index)) <= len)
-                    len - @as(usize, @intCast(-index))
+            const actual_idx: usize = if (index < 0) blk: {
+                // Handle MIN_I64 specially to avoid overflow when negating
+                // MIN_I64 is so large negative that no array could have that index
+                const neg_index = std.math.negate(index) catch return null;
+                if (@as(usize, @intCast(neg_index)) <= len)
+                    break :blk len - @as(usize, @intCast(neg_index))
                 else
-                    return null
-            else if (@as(usize, @intCast(index)) < len)
+                    return null;
+            } else if (@as(usize, @intCast(index)) < len)
                 @as(usize, @intCast(index))
             else
                 return null;
@@ -1327,8 +1351,9 @@ fn getSlice(allocator: std.mem.Allocator, value: std.json.Value, slice: SliceExp
             var start_idx: usize = 0;
             if (slice.start) |s| {
                 if (s < 0) {
-                    const neg: usize = @intCast(-s);
-                    start_idx = if (neg <= len) len - neg else 0;
+                    // Handle MIN_I64 specially to avoid overflow when negating
+                    const neg = std.math.negate(s) catch 0;
+                    start_idx = if (@as(usize, @intCast(neg)) <= len) len - @as(usize, @intCast(neg)) else 0;
                 } else {
                     start_idx = @min(@as(usize, @intCast(s)), len);
                 }
@@ -1338,8 +1363,9 @@ fn getSlice(allocator: std.mem.Allocator, value: std.json.Value, slice: SliceExp
             var end_idx: usize = len;
             if (slice.end) |e| {
                 if (e < 0) {
-                    const neg: usize = @intCast(-e);
-                    end_idx = if (neg <= len) len - neg else 0;
+                    // Handle MIN_I64 specially to avoid overflow when negating
+                    const neg = std.math.negate(e) catch 0;
+                    end_idx = if (@as(usize, @intCast(neg)) <= len) len - @as(usize, @intCast(neg)) else 0;
                 } else {
                     end_idx = @min(@as(usize, @intCast(e)), len);
                 }
@@ -1720,12 +1746,14 @@ fn evalDel(allocator: std.mem.Allocator, del_expr: DelExpr, value: std.json.Valu
                                 .array => |arr| {
                                     var new_arr = std.json.Array.init(allocator);
                                     const len = arr.items.len;
-                                    const actual_idx: ?usize = if (idx < 0)
-                                        if (@as(usize, @intCast(-idx)) <= len)
-                                            len - @as(usize, @intCast(-idx))
+                                    // Handle MIN_I64 specially to avoid overflow when negating
+                                    const actual_idx: ?usize = if (idx < 0) blk: {
+                                        const neg_idx = std.math.negate(idx) catch break :blk null;
+                                        if (@as(usize, @intCast(neg_idx)) <= len)
+                                            break :blk len - @as(usize, @intCast(neg_idx))
                                         else
-                                            null
-                                    else if (@as(usize, @intCast(idx)) < len)
+                                            break :blk null;
+                                    } else if (@as(usize, @intCast(idx)) < len)
                                         @as(usize, @intCast(idx))
                                     else
                                         null;
@@ -1984,13 +2012,27 @@ fn evalBuiltin(allocator: std.mem.Allocator, kind: BuiltinKind, value: std.json.
         .unique => {
             switch (value) {
                 .array => |arr| {
-                    var result_list: std.ArrayListUnmanaged(std.json.Value) = .empty;
-                    outer: for (arr.items) |item| {
-                        for (result_list.items) |existing| {
-                            if (jsonEqual(item, existing)) continue :outer;
-                        }
-                        try result_list.append(allocator, item);
+                    if (arr.items.len == 0) {
+                        return try EvalResult.single(allocator, .{ .array = .{ .items = &.{}, .capacity = 0, .allocator = allocator } });
                     }
+
+                    // O(n log n) implementation: sort then remove consecutive duplicates
+                    // This matches jq's behavior where unique returns sorted output
+                    var sorted = try allocator.dupe(std.json.Value, arr.items);
+                    std.mem.sort(std.json.Value, sorted, {}, jsonLessThan);
+
+                    // Linear pass to remove consecutive duplicates
+                    var result_list: std.ArrayListUnmanaged(std.json.Value) = .empty;
+                    try result_list.append(allocator, sorted[0]);
+                    for (sorted[1..]) |item| {
+                        if (!jsonEqual(item, result_list.items[result_list.items.len - 1])) {
+                            try result_list.append(allocator, item);
+                        }
+                    }
+
+                    // Free the temporary sorted array
+                    allocator.free(sorted);
+
                     const result_slice = try result_list.toOwnedSlice(allocator);
                     return try EvalResult.single(allocator, .{ .array = .{ .items = result_slice, .capacity = result_slice.len, .allocator = allocator } });
                 },
@@ -3144,6 +3186,34 @@ test "parse path" {
     try std.testing.expectEqual(@as(usize, 3), expr.path.parts.len);
 }
 
+test "parse depth limit prevents stack overflow" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    // Create a deeply nested expression that exceeds MAX_PARSE_DEPTH
+    // Each parenthesis pair adds one level of recursion
+    // Buffer needs: (depth) open parens + 1 dot + (depth) close parens
+    const depth = MAX_PARSE_DEPTH + 5;
+    var deeply_nested: [depth * 2 + 1]u8 = undefined;
+    var pos: usize = 0;
+    for (0..depth) |_| {
+        deeply_nested[pos] = '(';
+        pos += 1;
+    }
+    deeply_nested[pos] = '.';
+    pos += 1;
+    for (0..depth) |_| {
+        deeply_nested[pos] = ')';
+        pos += 1;
+    }
+
+    // Should return error.UnsupportedFeature (not stack overflow)
+    var err_ctx: ErrorContext = .{};
+    const result = parseExprWithContext(arena.allocator(), deeply_nested[0..pos], &err_ctx);
+    try std.testing.expectError(error.UnsupportedFeature, result);
+    try std.testing.expectEqualStrings("expression nesting too deep", err_ctx.feature);
+}
+
 test "parse select gt" {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
@@ -3327,6 +3397,20 @@ test "getIndex out of bounds" {
 
     try std.testing.expect(getIndex(parsed.value, 10) == null);
     try std.testing.expect(getIndex(parsed.value, -10) == null);
+}
+
+test "getIndex MIN_I64 does not overflow" {
+    // MIN_I64 negation would overflow - this tests the safety check
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "[1,2,3]";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    // std.math.minInt(i64) is -9223372036854775808
+    // Negating it would overflow since max i64 is 9223372036854775807
+    // This should return null, not crash
+    try std.testing.expect(getIndex(parsed.value, std.math.minInt(i64)) == null);
 }
 
 // ============================================================================

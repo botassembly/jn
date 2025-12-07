@@ -85,7 +85,7 @@ fn streamUrl(allocator: std.mem.Allocator, uri: std.Uri, args: jn_cli.ArgParser)
 
     if (std.mem.eql(u8, service, "http")) {
         c.opendal_operator_options_set(options, "endpoint", endpoint);
-        applyDefaultHeaders(options, args) catch {};
+        applyDefaultHeaders(allocator, options, args) catch {};
     } else if (std.mem.eql(u8, service, "fs")) {
         const trimmed = trimLeadingSlash(path);
         c.opendal_operator_options_set(options, "root", "/");
@@ -198,20 +198,21 @@ fn getenvOrFallback(allocator: std.mem.Allocator, key: []const u8, fallback: []c
     }
 }
 
-fn applyDefaultHeaders(options: [*c]c.struct_opendal_operator_options, args: jn_cli.ArgParser) !void {
+fn applyDefaultHeaders(allocator: std.mem.Allocator, options: [*c]c.struct_opendal_operator_options, args: jn_cli.ArgParser) !void {
     if (args.get("headers", null)) |raw| {
         // Expect JSON object from CLI
-        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-        defer arena.deinit();
-        const parsed = std.json.parseFromSlice(std.json.Value, arena.allocator(), raw, .{}) catch return;
+        // NOTE: Strings passed to opendal_operator_options_set must outlive the
+        // operator, so we intentionally don't free them (they live until process exit).
+        const parsed = std.json.parseFromSlice(std.json.Value, allocator, raw, .{}) catch return;
+        // Don't defer deinit - the parsed strings need to stay alive
         if (parsed.value != .object) return;
         var iter = parsed.value.object.iterator();
         while (iter.next()) |entry| {
-            const key = try std.fmt.allocPrint(arena.allocator(), "default_headers.{s}", .{entry.key_ptr.*});
-            const key_z = try toZ(arena.allocator(), key);
+            const key = try std.fmt.allocPrint(allocator, "default_headers.{s}", .{entry.key_ptr.*});
+            const key_z = try toZ(allocator, key);
             switch (entry.value_ptr.*) {
                 .string => |v| {
-                    const val_z = try toZ(arena.allocator(), v);
+                    const val_z = try toZ(allocator, v);
                     c.opendal_operator_options_set(options, key_z, val_z);
                 },
                 else => {},
