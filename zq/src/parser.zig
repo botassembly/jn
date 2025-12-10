@@ -1025,3 +1025,364 @@ fn parseArrayLiteral(allocator: std.mem.Allocator, expr: []const u8, err_ctx: *E
 
     return .{ .array = .{ .elements = try elements.toOwnedSlice(allocator) } };
 }
+
+// ============================================================================
+// Parser Tests
+// ============================================================================
+
+test "parse identity" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), ".", &err_ctx);
+    try std.testing.expect(expr == .identity);
+}
+
+test "parse field" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), ".name", &err_ctx);
+    try std.testing.expect(expr == .field);
+    try std.testing.expectEqualStrings("name", expr.field.name);
+}
+
+test "parse path" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), ".foo.bar.baz", &err_ctx);
+    try std.testing.expect(expr == .path);
+    try std.testing.expectEqual(@as(usize, 3), expr.path.parts.len);
+}
+
+test "parse depth limit prevents stack overflow" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    // Create a deeply nested expression that exceeds MAX_PARSE_DEPTH
+    const depth = MAX_PARSE_DEPTH + 5;
+    var deeply_nested: [depth * 2 + 1]u8 = undefined;
+    var pos: usize = 0;
+    for (0..depth) |_| {
+        deeply_nested[pos] = '(';
+        pos += 1;
+    }
+    deeply_nested[pos] = '.';
+    pos += 1;
+    for (0..depth) |_| {
+        deeply_nested[pos] = ')';
+        pos += 1;
+    }
+
+    var err_ctx: ErrorContext = .{};
+    const result = parseExprWithContext(arena.allocator(), deeply_nested[0..pos], &err_ctx);
+    try std.testing.expectError(error.UnsupportedFeature, result);
+    try std.testing.expectEqualStrings("expression nesting too deep", err_ctx.feature);
+}
+
+test "parse select gt" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), "select(.id > 50000)", &err_ctx);
+    try std.testing.expect(expr == .select);
+    try std.testing.expect(expr.select.* == .simple);
+    try std.testing.expect(expr.select.simple.op == .gt);
+    try std.testing.expect(expr.select.simple.value.int == 50000);
+}
+
+test "parse select gte" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), "select(.age >= 18)", &err_ctx);
+    try std.testing.expect(expr == .select);
+    try std.testing.expect(expr.select.simple.op == .gte);
+    try std.testing.expect(expr.select.simple.value.int == 18);
+}
+
+test "parse select lte" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), "select(.score <= 100)", &err_ctx);
+    try std.testing.expect(expr == .select);
+    try std.testing.expect(expr.select.simple.op == .lte);
+    try std.testing.expect(expr.select.simple.value.int == 100);
+}
+
+test "parse select and" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), "select(.active and .verified)", &err_ctx);
+    try std.testing.expect(expr == .select);
+    try std.testing.expect(expr.select.* == .compound);
+    try std.testing.expect(expr.select.compound.op == .and_op);
+}
+
+test "parse select or" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), "select(.admin or .moderator)", &err_ctx);
+    try std.testing.expect(expr == .select);
+    try std.testing.expect(expr.select.* == .compound);
+    try std.testing.expect(expr.select.compound.op == .or_op);
+}
+
+test "parse select not" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), "select(not .deleted)", &err_ctx);
+    try std.testing.expect(expr == .select);
+    try std.testing.expect(expr.select.* == .negated);
+}
+
+test "parse iterate" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), ".[]", &err_ctx);
+    try std.testing.expect(expr == .iterate);
+    try std.testing.expectEqual(@as(usize, 0), expr.iterate.path.len);
+}
+
+test "parse iterate nested" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), ".items[]", &err_ctx);
+    try std.testing.expect(expr == .iterate);
+    try std.testing.expectEqual(@as(usize, 1), expr.iterate.path.len);
+}
+
+test "parse array index" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), ".items[0]", &err_ctx);
+    try std.testing.expect(expr == .field);
+    try std.testing.expect(expr.field.index != null);
+    try std.testing.expectEqual(@as(i64, 0), expr.field.index.?.single);
+}
+
+test "parse negative array index" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), ".items[-1]", &err_ctx);
+    try std.testing.expect(expr == .field);
+    try std.testing.expect(expr.field.index != null);
+    try std.testing.expectEqual(@as(i64, -1), expr.field.index.?.single);
+}
+
+test "parse pipe" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), ".x | tonumber", &err_ctx);
+    try std.testing.expect(expr == .pipe);
+}
+
+test "parse object literal" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), "{a: .x, b: .y}", &err_ctx);
+    try std.testing.expect(expr == .object);
+    try std.testing.expectEqual(@as(usize, 2), expr.object.fields.len);
+}
+
+test "parse alternative" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), ".x // .y", &err_ctx);
+    try std.testing.expect(expr == .alternative);
+}
+
+test "parse conditional" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), "if .x > 5 then .a else .b end", &err_ctx);
+    try std.testing.expect(expr == .conditional);
+}
+
+test "parse arithmetic add" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), ".x + .y", &err_ctx);
+    try std.testing.expect(expr == .arithmetic);
+    try std.testing.expect(expr.arithmetic.op == .add);
+}
+
+test "parse builtin tonumber" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), "tonumber", &err_ctx);
+    try std.testing.expect(expr == .builtin);
+    try std.testing.expect(expr.builtin.kind == .tonumber);
+}
+
+test "parse literal string" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), "\"hello\"", &err_ctx);
+    try std.testing.expect(expr == .literal);
+    try std.testing.expect(expr.literal == .string);
+    try std.testing.expectEqualStrings("hello", expr.literal.string);
+}
+
+test "parse literal number" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), "42", &err_ctx);
+    try std.testing.expect(expr == .literal);
+    try std.testing.expect(expr.literal == .integer);
+    try std.testing.expectEqual(@as(i64, 42), expr.literal.integer);
+}
+
+test "parse split" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), "split(\",\")", &err_ctx);
+    try std.testing.expect(expr == .str_func);
+    try std.testing.expect(expr.str_func.kind == .split);
+    try std.testing.expectEqualStrings(",", expr.str_func.arg);
+}
+
+test "parse map" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), "map(.name)", &err_ctx);
+    try std.testing.expect(expr == .map);
+}
+
+test "parse sort_by" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), "sort_by(.age)", &err_ctx);
+    try std.testing.expect(expr == .by_func);
+    try std.testing.expect(expr.by_func.kind == .sort_by);
+}
+
+test "parse array literal" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), "[.x, .y]", &err_ctx);
+    try std.testing.expect(expr == .array);
+    try std.testing.expectEqual(@as(usize, 2), expr.array.elements.len);
+}
+
+test "parse slice" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), ".[2:5]", &err_ctx);
+    try std.testing.expect(expr == .path);
+    try std.testing.expect(expr.path.index != null);
+    try std.testing.expect(expr.path.index.? == .slice);
+    try std.testing.expectEqual(@as(?i64, 2), expr.path.index.?.slice.start);
+    try std.testing.expectEqual(@as(?i64, 5), expr.path.index.?.slice.end);
+}
+
+test "parse slice unbounded start" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), ".[:5]", &err_ctx);
+    try std.testing.expect(expr == .path);
+    try std.testing.expect(expr.path.index.?.slice.start == null);
+    try std.testing.expectEqual(@as(?i64, 5), expr.path.index.?.slice.end);
+}
+
+test "parse slice unbounded end" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), ".[3:]", &err_ctx);
+    try std.testing.expect(expr == .path);
+    try std.testing.expectEqual(@as(?i64, 3), expr.path.index.?.slice.start);
+    try std.testing.expect(expr.path.index.?.slice.end == null);
+}
+
+test "parse optional" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), ".foo?", &err_ctx);
+    try std.testing.expect(expr == .field);
+    try std.testing.expect(expr.field.optional);
+    try std.testing.expectEqualStrings("foo", expr.field.name);
+}
+
+test "parse has" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), "has(\"x\")", &err_ctx);
+    try std.testing.expect(expr == .str_func);
+    try std.testing.expect(expr.str_func.kind == .has);
+    try std.testing.expectEqualStrings("x", expr.str_func.arg);
+}
+
+test "parse del" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), "del(.x)", &err_ctx);
+    try std.testing.expect(expr == .del);
+    try std.testing.expectEqual(@as(usize, 1), expr.del.paths.len);
+    try std.testing.expectEqualStrings("x", expr.del.paths[0]);
+}
+
+test "parse del array index" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), "del(.arr[0])", &err_ctx);
+    try std.testing.expect(expr == .del);
+    try std.testing.expectEqual(@as(usize, 1), expr.del.paths.len);
+    try std.testing.expectEqualStrings("arr", expr.del.paths[0]);
+    try std.testing.expectEqual(@as(?i64, 0), expr.del.index);
+}
+
+test "parse to_entries" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), "to_entries", &err_ctx);
+    try std.testing.expect(expr == .builtin);
+    try std.testing.expect(expr.builtin.kind == .to_entries);
+}
+
+test "parse from_entries" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), "from_entries", &err_ctx);
+    try std.testing.expect(expr == .builtin);
+    try std.testing.expect(expr.builtin.kind == .from_entries);
+}
+
+test "parse test" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), "test(\"^hello\")", &err_ctx);
+    try std.testing.expect(expr == .str_func);
+    try std.testing.expect(expr.str_func.kind == .@"test");
+    try std.testing.expectEqualStrings("^hello", expr.str_func.arg);
+}

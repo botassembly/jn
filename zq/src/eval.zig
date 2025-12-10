@@ -1478,3 +1478,523 @@ fn evalArrayLiteral(allocator: std.mem.Allocator, arr_expr: ArrayExpr, value: st
     const result_slice = try result_list.toOwnedSlice(allocator);
     return try EvalResult.single(allocator, .{ .array = .{ .items = result_slice, .capacity = result_slice.len, .allocator = allocator } });
 }
+
+// ============================================================================
+// Evaluator Tests
+// ============================================================================
+
+const parser = @import("parser.zig");
+const parseExprWithContext = parser.parseExprWithContext;
+const parseCondition = parser.parseCondition;
+const ErrorContext = types.ErrorContext;
+
+test "eval condition and" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json_true = "{\"active\":true,\"verified\":true}";
+    const json_false = "{\"active\":true,\"verified\":false}";
+
+    var err_ctx: ErrorContext = .{};
+    const cond = try parseCondition(arena.allocator(), ".active and .verified", &err_ctx);
+
+    const parsed_true = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json_true, .{});
+    const parsed_false = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json_false, .{});
+
+    try std.testing.expect(evalCondition(arena.allocator(), cond, parsed_true.value));
+    try std.testing.expect(!evalCondition(arena.allocator(), cond, parsed_false.value));
+}
+
+test "eval condition or" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json_admin = "{\"admin\":true,\"moderator\":false}";
+    const json_mod = "{\"admin\":false,\"moderator\":true}";
+    const json_neither = "{\"admin\":false,\"moderator\":false}";
+
+    var err_ctx: ErrorContext = .{};
+    const cond = try parseCondition(arena.allocator(), ".admin or .moderator", &err_ctx);
+
+    const parsed_admin = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json_admin, .{});
+    const parsed_mod = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json_mod, .{});
+    const parsed_neither = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json_neither, .{});
+
+    try std.testing.expect(evalCondition(arena.allocator(), cond, parsed_admin.value));
+    try std.testing.expect(evalCondition(arena.allocator(), cond, parsed_mod.value));
+    try std.testing.expect(!evalCondition(arena.allocator(), cond, parsed_neither.value));
+}
+
+test "eval condition not" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json_deleted = "{\"deleted\":true}";
+    const json_active = "{\"deleted\":false}";
+
+    var err_ctx: ErrorContext = .{};
+    const cond = try parseCondition(arena.allocator(), "not .deleted", &err_ctx);
+
+    const parsed_deleted = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json_deleted, .{});
+    const parsed_active = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json_active, .{});
+
+    try std.testing.expect(!evalCondition(arena.allocator(), cond, parsed_deleted.value));
+    try std.testing.expect(evalCondition(arena.allocator(), cond, parsed_active.value));
+}
+
+test "getIndex positive" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "[1,2,3,4,5]";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    const first = getIndex(parsed.value, 0);
+    try std.testing.expect(first != null);
+    try std.testing.expectEqual(@as(i64, 1), first.?.integer);
+
+    const third = getIndex(parsed.value, 2);
+    try std.testing.expect(third != null);
+    try std.testing.expectEqual(@as(i64, 3), third.?.integer);
+}
+
+test "getIndex negative" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "[1,2,3,4,5]";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    const last = getIndex(parsed.value, -1);
+    try std.testing.expect(last != null);
+    try std.testing.expectEqual(@as(i64, 5), last.?.integer);
+
+    const second_last = getIndex(parsed.value, -2);
+    try std.testing.expect(second_last != null);
+    try std.testing.expectEqual(@as(i64, 4), second_last.?.integer);
+}
+
+test "getIndex out of bounds" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "[1,2,3]";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    try std.testing.expect(getIndex(parsed.value, 10) == null);
+    try std.testing.expect(getIndex(parsed.value, -10) == null);
+}
+
+test "getIndex MIN_I64 does not overflow" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "[1,2,3]";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    // std.math.minInt(i64) is -9223372036854775808
+    // Negating it would overflow since max i64 is 9223372036854775807
+    // This should return null, not crash
+    try std.testing.expect(getIndex(parsed.value, std.math.minInt(i64)) == null);
+}
+
+test "eval pipe" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "{\"x\":\"42\"}";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), ".x | tonumber", &err_ctx);
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    try std.testing.expectEqual(@as(i64, 42), result.values[0].integer);
+}
+
+test "eval object construction" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "{\"x\":1,\"y\":2}";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), "{a: .x, b: .y}", &err_ctx);
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    try std.testing.expect(result.values[0] == .object);
+    try std.testing.expectEqual(@as(i64, 1), result.values[0].object.get("a").?.integer);
+    try std.testing.expectEqual(@as(i64, 2), result.values[0].object.get("b").?.integer);
+}
+
+test "eval alternative with null" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "{\"x\":null,\"y\":1}";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), ".x // .y", &err_ctx);
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    try std.testing.expectEqual(@as(i64, 1), result.values[0].integer);
+}
+
+test "eval arithmetic" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "{\"a\":10,\"b\":3}";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), ".a + .b", &err_ctx);
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    try std.testing.expectEqual(@as(i64, 13), result.values[0].integer);
+}
+
+test "eval string concatenation" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "{\"a\":\"foo\",\"b\":\"bar\"}";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), ".a + .b", &err_ctx);
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    try std.testing.expectEqualStrings("foobar", result.values[0].string);
+}
+
+test "eval conditional true" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "{\"x\":10}";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), "if .x > 5 then .x else .y end", &err_ctx);
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    try std.testing.expectEqual(@as(i64, 10), result.values[0].integer);
+}
+
+test "eval type function" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "{\"x\":1}";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), "type", &err_ctx);
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    try std.testing.expectEqualStrings("object", result.values[0].string);
+}
+
+test "eval length function" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "\"hello\"";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), "length", &err_ctx);
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    try std.testing.expectEqual(@as(i64, 5), result.values[0].integer);
+}
+
+test "eval slice" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "{\"items\":[0,1,2,3,4,5,6]}";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), ".items[2:5]", &err_ctx);
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    const arr = result.values[0].array;
+    try std.testing.expectEqual(@as(usize, 3), arr.items.len);
+    try std.testing.expectEqual(@as(i64, 2), arr.items[0].integer);
+    try std.testing.expectEqual(@as(i64, 3), arr.items[1].integer);
+    try std.testing.expectEqual(@as(i64, 4), arr.items[2].integer);
+}
+
+test "eval slice negative" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "{\"items\":[0,1,2,3]}";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), ".items[-2:]", &err_ctx);
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    const arr = result.values[0].array;
+    try std.testing.expectEqual(@as(usize, 2), arr.items.len);
+    try std.testing.expectEqual(@as(i64, 2), arr.items[0].integer);
+    try std.testing.expectEqual(@as(i64, 3), arr.items[1].integer);
+}
+
+test "eval has true" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "{\"x\":1}";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), "has(\"x\")", &err_ctx);
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    try std.testing.expect(result.values[0].bool);
+}
+
+test "eval has false" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "{\"x\":1}";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), "has(\"y\")", &err_ctx);
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    try std.testing.expect(!result.values[0].bool);
+}
+
+test "eval has null value" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "{\"x\":null}";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), "has(\"x\")", &err_ctx);
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    try std.testing.expect(result.values[0].bool); // key exists even if null
+}
+
+test "eval del" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "{\"x\":1,\"y\":2}";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), "del(.x)", &err_ctx);
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    const obj = result.values[0].object;
+    try std.testing.expect(obj.get("x") == null);
+    try std.testing.expect(obj.get("y") != null);
+}
+
+test "eval del missing key" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "{\"x\":1}";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), "del(.z)", &err_ctx);
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    const obj = result.values[0].object;
+    try std.testing.expect(obj.get("x") != null); // x still there
+}
+
+test "eval del array index" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "{\"arr\":[1,2,3]}";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), "del(.arr[0])", &err_ctx);
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    const obj = result.values[0].object;
+    const arr = obj.get("arr").?.array;
+    try std.testing.expectEqual(@as(usize, 2), arr.items.len);
+    try std.testing.expectEqual(@as(i64, 2), arr.items[0].integer);
+    try std.testing.expectEqual(@as(i64, 3), arr.items[1].integer);
+}
+
+test "eval del array negative index" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "{\"arr\":[1,2,3]}";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), "del(.arr[-1])", &err_ctx);
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    const obj = result.values[0].object;
+    const arr = obj.get("arr").?.array;
+    try std.testing.expectEqual(@as(usize, 2), arr.items.len);
+    try std.testing.expectEqual(@as(i64, 1), arr.items[0].integer);
+    try std.testing.expectEqual(@as(i64, 2), arr.items[1].integer);
+}
+
+test "eval to_entries" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "{\"a\":1,\"b\":2}";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), "to_entries", &err_ctx);
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    const arr = result.values[0].array;
+    try std.testing.expectEqual(@as(usize, 2), arr.items.len);
+    try std.testing.expect(arr.items[0].object.get("key") != null);
+    try std.testing.expect(arr.items[0].object.get("value") != null);
+}
+
+test "eval from_entries" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "[{\"key\":\"x\",\"value\":1},{\"key\":\"y\",\"value\":2}]";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), "from_entries", &err_ctx);
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    const obj = result.values[0].object;
+    try std.testing.expectEqual(@as(i64, 1), obj.get("x").?.integer);
+    try std.testing.expectEqual(@as(i64, 2), obj.get("y").?.integer);
+}
+
+test "eval from_entries k_v form" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "[{\"k\":\"x\",\"v\":1}]";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), "from_entries", &err_ctx);
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    const obj = result.values[0].object;
+    try std.testing.expectEqual(@as(i64, 1), obj.get("x").?.integer);
+}
+
+test "eval test contains" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "\"hello world\"";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), "test(\"wor\")", &err_ctx);
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    try std.testing.expect(result.values[0].bool);
+}
+
+test "eval test starts with" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "\"hello world\"";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), "test(\"^hello\")", &err_ctx);
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    try std.testing.expect(result.values[0].bool);
+}
+
+test "eval test ends with" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "\"hello world\"";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), "test(\"world$\")", &err_ctx);
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    try std.testing.expect(result.values[0].bool);
+}
+
+test "eval test exact match" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "\"hello\"";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), "test(\"^hello$\")", &err_ctx);
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    try std.testing.expect(result.values[0].bool);
+}
+
+test "eval test no match" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const json = "\"hello world\"";
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena.allocator(), json, .{});
+
+    var err_ctx: ErrorContext = .{};
+    const expr = try parseExprWithContext(arena.allocator(), "test(\"^world\")", &err_ctx);
+    const result = try evalExpr(arena.allocator(), &expr, parsed.value);
+
+    try std.testing.expectEqual(@as(usize, 1), result.values.len);
+    try std.testing.expect(!result.values[0].bool);
+}
