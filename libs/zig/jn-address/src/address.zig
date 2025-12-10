@@ -10,6 +10,34 @@
 //!   - data/*.csv            -> Glob
 //!   - data.txt~csv          -> File, format=csv (override)
 //!   - file.csv?delimiter=;  -> File with params
+//!
+//! ## Design Decision: Zero-Allocation Parsing
+//!
+//! The `parse()` function returns an Address struct with slices that point
+//! directly into the input string. It does NOT allocate any memory.
+//! This is INTENTIONAL for performance:
+//!
+//! 1. **Hot path optimization**: Address parsing happens on every pipeline
+//!    invocation. Zero allocation means zero overhead.
+//!
+//! 2. **Caller controls lifetime**: The caller knows how long the input
+//!    string lives and can manage memory appropriately.
+//!
+//! 3. **Composability**: Parsed addresses can be passed around without
+//!    ownership transfer concerns.
+//!
+//! **Important**: The returned Address is only valid while the input string
+//! is valid. If you need the address to outlive the input, copy the relevant
+//! slices using an allocator.
+//!
+//! Example of safe usage:
+//! ```zig
+//! // input lives for duration of function
+//! const addr = parse(input);
+//! // use addr.path, addr.format_override, etc. while input is valid
+//! ```
+//!
+//! See also: spec/01-vision.md ("Simple Over Clever")
 
 const std = @import("std");
 

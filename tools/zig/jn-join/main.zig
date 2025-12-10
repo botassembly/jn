@@ -17,6 +17,25 @@
 //!   cat orders.csv | jn-join customers.csv --on customer_id
 //!   cat orders.csv | jn-join customers.csv --left-key cust_id --right-key id
 //!   cat orders.csv | jn-join customers.csv --on customer_id --inner
+//!
+//! ## Design Decision: Silent Skipping of Malformed Records
+//!
+//! This tool silently skips records that fail JSON parsing rather than failing
+//! the entire pipeline. This is INTENTIONAL for streaming data pipelines:
+//!
+//! 1. **Resilience**: A single malformed record in a 10GB file shouldn't crash
+//!    the entire join operation. Skip it and continue.
+//!
+//! 2. **Streaming philosophy**: JN processes data line-by-line. Each line is
+//!    independent. Bad lines are skipped, good lines flow through.
+//!
+//! 3. **Practical data quality**: Real-world data often has occasional corruption.
+//!    Pipelines should be robust to this.
+//!
+//! For strict validation, use a separate validation step before the join.
+//! Future enhancement: Add --strict flag or warning counter for visibility.
+//!
+//! See also: spec/08-streaming-backpressure.md
 
 const std = @import("std");
 const jn_core = @import("jn-core");

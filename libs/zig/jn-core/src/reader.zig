@@ -6,6 +6,29 @@
 //! Thread Safety: These utilities are NOT thread-safe. Each reader instance
 //! should be used by a single thread. JN tools are single-threaded by design,
 //! using OS pipes for concurrency between processes.
+//!
+//! ## Design Decision: Exit-on-Error Pattern
+//!
+//! Functions like `readLine` and `readLineRaw` call `std.process.exit(1)` on
+//! errors rather than returning them. This is INTENTIONAL and correct for JN's
+//! architecture:
+//!
+//! 1. **Process-per-tool model**: Each JN tool runs as a short-lived subprocess.
+//!    Exit codes are the standard error communication mechanism (see spec/02-architecture.md).
+//!
+//! 2. **OS cleanup**: When a process exits, the OS reclaims all memory, closes
+//!    all file handles, and cleans up all resources. No manual cleanup needed.
+//!
+//! 3. **Pipeline integration**: Exit code 1 signals "general error" to the
+//!    orchestrator. The orchestrator reports which stage failed.
+//!
+//! 4. **Simplicity**: For CLI tools, exit-on-error eliminates error propagation
+//!    boilerplate while ensuring errors are always reported.
+//!
+//! For library contexts requiring proper error handling, use `readLineOrError`
+//! and `readLineRawOrError` instead.
+//!
+//! See also: spec/01-vision.md ("Simple Over Clever"), spec/02-architecture.md ("Error Handling")
 
 const std = @import("std");
 const builtin = @import("builtin");
