@@ -10,6 +10,26 @@ const c = @cImport({
     @cInclude("opendal.h");
 });
 
+// ## Design Decision: Process-Lifetime Allocations
+//
+// This plugin allocates strings (e.g., for bucket names, endpoints, credentials)
+// that are passed to the OpenDAL C API and are intentionally NOT freed before
+// process exit. This is CORRECT for JN's architecture:
+//
+// 1. **Short-lived process**: This plugin runs as a subprocess, streams data,
+//    then exits. The OS reclaims all memory on exit.
+//
+// 2. **C API lifetime requirements**: Strings passed to opendal_operator_options_set
+//    must remain valid for the lifetime of the operator. Rather than tracking
+//    complex lifetimes, we let them live until process exit.
+//
+// 3. **Simplicity**: Avoiding manual free() for these strings eliminates a class
+//    of use-after-free bugs with no practical downside for CLI tools.
+//
+// This would be a memory leak in a long-running server, but JN tools are
+// designed as short-lived pipeline stages. See spec/02-architecture.md.
+//
+
 const plugin_meta = jn_plugin.PluginMeta{
     .name = "opendal",
     .version = "0.4.0",

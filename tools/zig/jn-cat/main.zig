@@ -42,6 +42,21 @@ fn escapeShellPath(allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
     return jn_core.escapeForShellSingleQuote(allocator, path);
 }
 
+/// Check if a string is safe for use as an HTTP header key or value.
+/// SECURITY: Rejects strings containing CR (\r) or LF (\n) characters to prevent
+/// HTTP header injection attacks. Header injection could allow attackers to:
+/// - Add arbitrary headers (e.g., Set-Cookie for session fixation)
+/// - Inject response body content (HTTP response splitting)
+/// - Bypass security controls
+///
+/// Returns true if the string is safe, false if it contains CR/LF.
+fn isValidHttpHeaderValue(value: []const u8) bool {
+    for (value) |c| {
+        if (c == '\r' or c == '\n') return false;
+    }
+    return true;
+}
+
 /// Build a shell command with properly escaped arguments.
 /// All paths should be passed through escapeShellPath before inclusion.
 fn buildShellCommand(allocator: std.mem.Allocator, comptime fmt: []const u8, args: anytype) ![]u8 {
@@ -572,6 +587,13 @@ fn handleHttpProfile(allocator: std.mem.Allocator, address: jn_address.Address, 
             var iter = headers_val.object.iterator();
             while (iter.next()) |entry| {
                 if (entry.value_ptr.* == .string) {
+                    // SECURITY: Validate header key and value to prevent HTTP header injection
+                    // (CR/LF characters could allow injecting additional headers or response splitting)
+                    if (!isValidHttpHeaderValue(entry.key_ptr.*) or !isValidHttpHeaderValue(entry.value_ptr.string)) {
+                        std.debug.print("jn-cat: warning: skipping header with invalid characters (CR/LF not allowed)\n", .{});
+                        continue;
+                    }
+
                     // SECURITY: Escape header key and value to prevent command injection
                     const escaped_key = escapeShellPath(allocator, entry.key_ptr.*) catch continue;
                     defer if (escaped_key.ptr != entry.key_ptr.*.ptr) allocator.free(@constCast(escaped_key));

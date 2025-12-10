@@ -207,6 +207,27 @@ pub fn freeValue(allocator: std.mem.Allocator, value: std.json.Value) void {
 }
 
 /// Clone a JSON value (deep copy)
+///
+/// ## Design Decision: Error Path Cleanup
+///
+/// The errdefer on array/object containers (new_arr.deinit(), new_obj.deinit())
+/// frees the container but not already-cloned items. This is ACCEPTABLE because:
+///
+/// 1. **Profile loading is startup-only**: Profiles are loaded once at tool startup.
+///    If cloning fails, the tool exits with an error anyway.
+///
+/// 2. **Errors are fatal**: In JN's process-per-tool model, profile load errors
+///    cause immediate exit. The OS reclaims all memory on exit.
+///
+/// 3. **Complexity tradeoff**: Adding cleanup loops for already-cloned items
+///    would significantly complicate the code for a scenario that (a) rarely
+///    happens, and (b) results in process exit anyway.
+///
+/// For library usage where profiles might be loaded/retried multiple times,
+/// use freeValue() to clean up on error paths, or use an arena allocator
+/// that can be reset/freed atomically.
+///
+/// See also: freeValue() for proper cleanup of successfully cloned values.
 pub fn cloneValue(allocator: std.mem.Allocator, value: std.json.Value) !std.json.Value {
     return switch (value) {
         .null => .null,
