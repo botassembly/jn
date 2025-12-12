@@ -201,7 +201,8 @@ fn toZ(allocator: std.mem.Allocator, bytes: []const u8) ![:0]u8 {
 }
 
 fn componentToRawAlloc(allocator: std.mem.Allocator, comp: std.Uri.Component) ![]const u8 {
-    return try comp.toRawMaybeAlloc(allocator);
+    // Always allocate to avoid freeing borrowed slices returned by toRawMaybeAlloc.
+    return try comp.toRaw(allocator);
 }
 
 fn trimLeadingSlash(path: [:0]const u8) [:0]const u8 {
