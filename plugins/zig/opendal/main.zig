@@ -96,11 +96,9 @@ fn streamUrl(allocator: std.mem.Allocator, uri: std.Uri, args: jn_cli.ArgParser)
 
     const endpoint = buildEndpointZ(allocator, uri) catch
         jn_core.exitWithError("opendal: failed to build endpoint", .{});
-    defer allocator.free(endpoint);
 
     const path = buildObjectPathZ(allocator, uri) catch
         jn_core.exitWithError("opendal: failed to build path", .{});
-    defer allocator.free(path);
     var object_path: [:0]const u8 = path;
 
     if (std.mem.eql(u8, service, "http")) {
@@ -112,10 +110,9 @@ fn streamUrl(allocator: std.mem.Allocator, uri: std.Uri, args: jn_cli.ArgParser)
         object_path = trimmed;
     } else if (std.mem.eql(u8, service, "s3")) {
         const bucket_comp = uri.host orelse jn_core.exitWithError("opendal: missing bucket in s3 URL", .{});
-        const bucket = componentToRawAlloc(allocator, bucket_comp) catch
+        const bucket = bucketZ(allocator, bucket_comp) catch
             jn_core.exitWithError("opendal: failed to parse bucket", .{});
-        c.opendal_operator_options_set(options, "bucket", toZ(allocator, bucket) catch
-            jn_core.exitWithError("opendal: alloc bucket", .{}));
+        c.opendal_operator_options_set(options, "bucket", bucket);
         c.opendal_operator_options_set(options, "region", getenvOrFallback(allocator, "AWS_REGION", "us-east-1") catch
             jn_core.exitWithError("opendal: alloc region", .{}));
         if (std.process.getEnvVarOwned(allocator, "AWS_ENDPOINT_URL")) |endpoint_url| {
@@ -136,10 +133,9 @@ fn streamUrl(allocator: std.mem.Allocator, uri: std.Uri, args: jn_cli.ArgParser)
         object_path = trimLeadingSlash(path);
     } else if (std.mem.eql(u8, service, "gcs")) {
         const bucket_comp = uri.host orelse jn_core.exitWithError("opendal: missing bucket in gcs URL", .{});
-        const bucket = componentToRawAlloc(allocator, bucket_comp) catch
+        const bucket = bucketZ(allocator, bucket_comp) catch
             jn_core.exitWithError("opendal: failed to parse bucket", .{});
-        c.opendal_operator_options_set(options, "bucket", toZ(allocator, bucket) catch
-            jn_core.exitWithError("opendal: alloc bucket", .{}));
+        c.opendal_operator_options_set(options, "bucket", bucket);
         if (std.process.getEnvVarOwned(allocator, "GOOGLE_APPLICATION_CREDENTIALS")) |cred_path| {
             defer allocator.free(cred_path);
             c.opendal_operator_options_set(options, "credential_path", toZ(allocator, cred_path) catch
@@ -176,23 +172,28 @@ fn streamUrl(allocator: std.mem.Allocator, uri: std.Uri, args: jn_cli.ArgParser)
 fn buildEndpointZ(allocator: std.mem.Allocator, uri: std.Uri) ![:0]u8 {
     // For http(s): scheme://host[:port]
     if (uri.host) |host_comp| {
-        const host = try componentToRawAlloc(allocator, host_comp);
-        if (uri.port) |port| {
-            return try toZ(allocator, try std.fmt.allocPrint(allocator, "{s}://{s}:{d}", .{ uri.scheme, host, port }));
-        }
-        return try toZ(allocator, try std.fmt.allocPrint(allocator, "{s}://{s}", .{ uri.scheme, host }));
+        return blk: {
+            const host = try componentToRawAlloc(allocator, host_comp);
+            defer allocator.free(host);
+            if (uri.port) |port| {
+                break :blk try std.fmt.allocPrintZ(allocator, "{s}://{s}:{d}", .{ uri.scheme, host, port });
+            }
+            break :blk try std.fmt.allocPrintZ(allocator, "{s}://{s}", .{ uri.scheme, host });
+        };
     }
     // For file: endpoint unused; return empty string
-    return try toZ(allocator, try std.fmt.allocPrint(allocator, "", .{}));
+    return try std.fmt.allocPrintZ(allocator, "", .{});
 }
 
 fn buildObjectPathZ(allocator: std.mem.Allocator, uri: std.Uri) ![:0]u8 {
-    const path_part = try componentToRawAlloc(allocator, uri.path);
+    var path_part = try componentToRawAlloc(allocator, uri.path);
+    defer allocator.free(path_part);
     if (uri.query) |q_comp| {
         const query = try componentToRawAlloc(allocator, q_comp);
-        return try toZ(allocator, try std.fmt.allocPrint(allocator, "{s}?{s}", .{ path_part, query }));
+        defer allocator.free(query);
+        return try std.fmt.allocPrintZ(allocator, "{s}?{s}", .{ path_part, query });
     }
-    return try toZ(allocator, try std.fmt.allocPrint(allocator, "{s}", .{path_part}));
+    return try std.fmt.allocPrintZ(allocator, "{s}", .{path_part});
 }
 
 fn toZ(allocator: std.mem.Allocator, bytes: []const u8) ![:0]u8 {
@@ -200,7 +201,8 @@ fn toZ(allocator: std.mem.Allocator, bytes: []const u8) ![:0]u8 {
 }
 
 fn componentToRawAlloc(allocator: std.mem.Allocator, comp: std.Uri.Component) ![]const u8 {
-    return try comp.toRawMaybeAlloc(allocator);
+    // Always allocate to avoid freeing borrowed slices returned by toRawMaybeAlloc.
+    return try comp.toRaw(allocator);
 }
 
 fn trimLeadingSlash(path: [:0]const u8) [:0]const u8 {
@@ -212,10 +214,19 @@ fn trimLeadingSlash(path: [:0]const u8) [:0]const u8 {
 
 fn getenvOrFallback(allocator: std.mem.Allocator, key: []const u8, fallback: []const u8) ![:0]u8 {
     if (std.process.getEnvVarOwned(allocator, key)) |val| {
+        defer allocator.free(val);
         return toZ(allocator, val);
     } else |_| {
         return toZ(allocator, fallback);
     }
+}
+
+fn bucketZ(allocator: std.mem.Allocator, comp: std.Uri.Component) ![:0]u8 {
+    return blk: {
+        const raw = try componentToRawAlloc(allocator, comp);
+        defer allocator.free(raw);
+        break :blk try toZ(allocator, raw);
+    };
 }
 
 fn applyDefaultHeaders(allocator: std.mem.Allocator, options: [*c]c.struct_opendal_operator_options, args: jn_cli.ArgParser) !void {
