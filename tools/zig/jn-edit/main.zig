@@ -20,7 +20,6 @@
 
 const std = @import("std");
 const jn_core = @import("jn-core");
-const jn_cli = @import("jn-cli");
 
 const VERSION = "0.1.0";
 const MAX_EDITS = 64;
