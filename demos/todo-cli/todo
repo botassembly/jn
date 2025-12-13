@@ -1,0 +1,926 @@
+#!/bin/bash
+#
+# todo - A feature-rich todo CLI powered by jn
+#
+# Usage:
+#   todo add "Buy groceries"           Add a new todo
+#   todo add -p high "Urgent task"     Add with priority (high/med/low)
+#   todo add -d 2024-12-25 "Gift"      Add with due date
+#   todo list                          List all todos
+#   todo done <id>                     Mark todo as complete
+#   todo skip <id>                     Mark todo as skipped
+#   todo edit <id> "New text"          Edit todo text
+#   todo rm <id>                       Remove a todo
+#   todo clear                         Remove all completed/skipped todos
+#   todo count                         Show counts by status
+#   todo search <term>                 Search todos by text
+#   todo note <id> "Note text"         Add a note to a todo
+#   todo tag <id>                      Show tags on a todo
+#   todo list @work                    Filter by @mention tag
+#   todo list #urgent                  Filter by #hashtag
+#   todo due                           Show overdue and upcoming todos
+#   todo export [md|csv]               Export todos to markdown or CSV
+#   todo undo                          Undo last destructive operation
+#
+# Data is stored in .todo.jsonl in the current directory.
+# Schema: {"id":1,"text":"...","status":"pending","priority":"med",
+#          "due":"2024-12-25","tags":["@work","#urgent"],"notes":[],"created":"..."}
+#
+# Dependencies: jn-edit, zq (from the jn toolkit)
+#
+
+set -e
+
+# -----------------------------------------------------------------------------
+# Configuration
+# -----------------------------------------------------------------------------
+
+TODO_FILE=".todo.jsonl"
+BACKUP_FILE=".todo.jsonl.bak"
+
+# ANSI colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+MAGENTA='\033[0;35m'
+CYAN='\033[0;36m'
+DIM='\033[2m'
+BOLD='\033[1m'
+RESET='\033[0m'
+
+# -----------------------------------------------------------------------------
+# Setup: Find jn tools
+# -----------------------------------------------------------------------------
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if command -v jn-edit &> /dev/null && command -v zq &> /dev/null; then
+    JN_EDIT="jn-edit"
+    ZQ="zq"
+else
+    # Try relative path from demos directory
+    if [[ -d "$SCRIPT_DIR/../../tools/zig" ]]; then
+        TOOLS_DIR="$SCRIPT_DIR/../../tools/zig"
+        ZQ_DIR="$SCRIPT_DIR/../../zq/zig-out/bin"
+        export PATH="$ZQ_DIR:$TOOLS_DIR/jn-edit/bin:$PATH"
+        JN_EDIT="jn-edit"
+        ZQ="zq"
+    else
+        echo "Error: jn tools not found. Please install jn or run 'make build'." >&2
+        exit 1
+    fi
+fi
+
+# Verify tools exist
+if ! command -v $JN_EDIT &> /dev/null; then
+    echo "Error: jn-edit not found" >&2
+    exit 1
+fi
+if ! command -v $ZQ &> /dev/null; then
+    echo "Error: zq not found" >&2
+    exit 1
+fi
+
+# -----------------------------------------------------------------------------
+# Helper Functions
+# -----------------------------------------------------------------------------
+
+# Get the next available ID
+next_id() {
+    if [[ ! -f "$TODO_FILE" ]] || [[ ! -s "$TODO_FILE" ]]; then
+        echo 1
+        return
+    fi
+
+    local max_id
+    max_id=$($ZQ -s -c 'max_by(.id) | .id' < "$TODO_FILE" 2>/dev/null | tr -d '\n')
+
+    if [[ -z "$max_id" ]] || [[ "$max_id" == "null" ]] || ! [[ "$max_id" =~ ^[0-9]+$ ]]; then
+        echo 1
+    else
+        echo $((max_id + 1))
+    fi
+}
+
+# Create backup before destructive operations
+backup() {
+    if [[ -f "$TODO_FILE" ]]; then
+        cp "$TODO_FILE" "$BACKUP_FILE"
+    fi
+}
+
+# Format priority for display
+format_priority() {
+    local priority="$1"
+    case "$priority" in
+        high|h|0)
+            echo -e "${RED}!!!${RESET}"
+            ;;
+        med|m|1)
+            echo -e "${YELLOW}!! ${RESET}"
+            ;;
+        low|l|2)
+            echo -e "${DIM}!  ${RESET}"
+            ;;
+        *)
+            echo "   "
+            ;;
+    esac
+}
+
+# Check if a date is overdue
+is_overdue() {
+    local due="$1"
+    if [[ -z "$due" ]] || [[ "$due" == "null" ]]; then
+        return 1
+    fi
+    local today
+    today=$(date +%Y-%m-%d)
+    [[ "$due" < "$today" ]]
+}
+
+# Check if due within N days
+is_due_soon() {
+    local due="$1"
+    local days="${2:-3}"
+    if [[ -z "$due" ]] || [[ "$due" == "null" ]]; then
+        return 1
+    fi
+    local today future
+    today=$(date +%Y-%m-%d)
+    future=$(date -d "+${days} days" +%Y-%m-%d 2>/dev/null || date -v+${days}d +%Y-%m-%d 2>/dev/null || echo "2099-12-31")
+    # String comparison for dates in YYYY-MM-DD format
+    if [[ "$due" > "$today" && "$due" < "$future" ]] || [[ "$due" == "$future" ]]; then
+        return 0
+    fi
+    return 1
+}
+
+# Format due date for display
+format_due() {
+    local due="$1"
+    local status="$2"
+    if [[ -z "$due" ]] || [[ "$due" == "null" ]]; then
+        echo ""
+        return
+    fi
+    if [[ "$status" != "pending" ]]; then
+        echo -e " ${DIM}[${due}]${RESET}"
+    elif is_overdue "$due"; then
+        echo -e " ${RED}[OVERDUE: ${due}]${RESET}"
+    elif is_due_soon "$due"; then
+        echo -e " ${YELLOW}[due: ${due}]${RESET}"
+    else
+        echo -e " ${DIM}[${due}]${RESET}"
+    fi
+}
+
+# Format a todo for display
+format_todo() {
+    local id="$1"
+    local text="$2"
+    local status="$3"
+    local priority="${4:-}"
+    local due="${5:-}"
+    local notes_count="${6:-0}"
+
+    local status_icon
+    local text_style=""
+    local pri_display
+
+    case "$status" in
+        done)
+            status_icon="${GREEN}✓${RESET}"
+            text_style="${DIM}"
+            ;;
+        skipped)
+            status_icon="${YELLOW}⊘${RESET}"
+            text_style="${DIM}"
+            ;;
+        *)
+            status_icon="${BLUE}○${RESET}"
+            ;;
+    esac
+
+    pri_display=$(format_priority "$priority")
+    local due_display
+    due_display=$(format_due "$due" "$status")
+
+    local notes_indicator=""
+    if [[ "$notes_count" -gt 0 ]]; then
+        notes_indicator=" ${CYAN}[${notes_count} note(s)]${RESET}"
+    fi
+
+    printf "  %b %b${DIM}%3s${RESET}  %b%s${RESET}%b%b\n" \
+        "$status_icon" "$pri_display" "$id" "$text_style" "$text" "$due_display" "$notes_indicator"
+}
+
+# Ensure todo file exists
+ensure_file() {
+    if [[ ! -f "$TODO_FILE" ]]; then
+        touch "$TODO_FILE"
+    fi
+}
+
+# Check if a todo with given ID exists
+todo_exists() {
+    local id="$1"
+    if [[ ! -f "$TODO_FILE" ]] || [[ ! -s "$TODO_FILE" ]]; then
+        return 1
+    fi
+    $ZQ -c "select(.id == $id)" < "$TODO_FILE" 2>/dev/null | grep -q .
+}
+
+# Extract tags from text (@mentions and #hashtags)
+extract_tags() {
+    local text="$1"
+    # Extract @mentions and #hashtags, output as JSON array
+    echo "$text" | grep -oE '(@[a-zA-Z0-9_]+|#[a-zA-Z0-9_]+)' | sort -u | \
+        awk 'BEGIN{printf "["} NR>1{printf ","} {printf "\"%s\"", $0} END{printf "]"}'
+}
+
+# Update a todo by ID with jn-edit
+update_todo() {
+    local id="$1"
+    shift
+    local edits=("$@")
+
+    local temp_file
+    temp_file=$(mktemp)
+    while IFS= read -r line; do
+        if [[ -n "$line" ]]; then
+            local line_id
+            line_id=$(echo "$line" | $ZQ -c '.id' 2>/dev/null | tr -d '\n')
+            if [[ "$line_id" == "$id" ]]; then
+                local result="$line"
+                for edit in "${edits[@]}"; do
+                    result=$(echo "$result" | $JN_EDIT "$edit")
+                done
+                echo "$result"
+            else
+                echo "$line"
+            fi
+        fi
+    done < "$TODO_FILE" > "$temp_file"
+    mv "$temp_file" "$TODO_FILE"
+}
+
+# -----------------------------------------------------------------------------
+# Commands
+# -----------------------------------------------------------------------------
+
+cmd_add() {
+    local priority=""
+    local due=""
+    local text=""
+
+    # Parse options
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -p|--priority)
+                priority="$2"
+                shift 2
+                ;;
+            -d|--due)
+                due="$2"
+                shift 2
+                ;;
+            *)
+                if [[ -z "$text" ]]; then
+                    text="$1"
+                else
+                    text="$text $1"
+                fi
+                shift
+                ;;
+        esac
+    done
+
+    if [[ -z "$text" ]]; then
+        echo "Usage: todo add [-p high|med|low] [-d YYYY-MM-DD] \"task description\"" >&2
+        exit 1
+    fi
+
+    # Normalize priority
+    case "$priority" in
+        high|h|0) priority="high" ;;
+        med|m|1|"") priority="med" ;;
+        low|l|2) priority="low" ;;
+        *)
+            echo "Invalid priority: $priority (use high, med, low)" >&2
+            exit 1
+            ;;
+    esac
+
+    ensure_file
+
+    local id
+    id=$(next_id)
+    local created
+    created=$(date -Iseconds 2>/dev/null || date +%Y-%m-%dT%H:%M:%S)
+
+    # Extract tags from text
+    local tags
+    tags=$(extract_tags "$text")
+    if [[ "$tags" == "[]" ]] || [[ -z "$tags" ]]; then
+        tags="[]"
+    fi
+
+    # Build the todo JSON
+    local json='{"id":'"$id"',"text":"'"${text//\"/\\\"}"'","status":"pending","priority":"'"$priority"'","tags":'"$tags"',"notes":[],"created":"'"$created"'"}'
+
+    # Add due date if provided
+    if [[ -n "$due" ]]; then
+        json=$(echo "$json" | $JN_EDIT .due="$due")
+    fi
+
+    echo "$json" >> "$TODO_FILE"
+
+    local due_msg=""
+    if [[ -n "$due" ]]; then
+        due_msg=" (due: $due)"
+    fi
+    echo -e "${GREEN}Added${RESET} todo #$id [$priority]: $text$due_msg"
+}
+
+cmd_list() {
+    local filter="${1:-all}"
+
+    if [[ ! -f "$TODO_FILE" ]] || [[ ! -s "$TODO_FILE" ]]; then
+        echo -e "${DIM}No todos yet. Add one with: todo add \"task\"${RESET}"
+        return
+    fi
+
+    local filter_expr=""
+    local header=""
+
+    # Check if filtering by tag
+    if [[ "$filter" == @* ]] || [[ "$filter" == \#* ]]; then
+        local tag="$filter"
+        # Use join + contains since zq doesn't support array containment directly
+        filter_expr="select(.tags | join(\",\") | contains(\"$tag\"))"
+        header="Todos tagged $tag:"
+    else
+        case "$filter" in
+            pending|p)
+                filter_expr='select(.status == "pending")'
+                header="Pending todos:"
+                ;;
+            done|d)
+                filter_expr='select(.status == "done")'
+                header="Completed todos:"
+                ;;
+            skipped|s)
+                filter_expr='select(.status == "skipped")'
+                header="Skipped todos:"
+                ;;
+            high|h)
+                filter_expr='select(.priority == "high")'
+                header="High priority todos:"
+                ;;
+            *)
+                filter_expr='.'
+                header="All todos:"
+                ;;
+        esac
+    fi
+
+    echo -e "${BOLD}$header${RESET}"
+    echo ""
+
+    local count=0
+    while IFS= read -r line; do
+        if [[ -n "$line" ]]; then
+            local id text status priority due notes_count
+            id=$(echo "$line" | $ZQ -c '.id' 2>/dev/null | tr -d '\n')
+            text=$(echo "$line" | $ZQ -r '.text' 2>/dev/null | tr -d '\n')
+            status=$(echo "$line" | $ZQ -r '.status' 2>/dev/null | tr -d '\n')
+            priority=$(echo "$line" | $ZQ -r '.priority' 2>/dev/null | tr -d '\n')
+            due=$(echo "$line" | $ZQ -r '.due' 2>/dev/null | tr -d '\n')
+            notes_count=$(echo "$line" | $ZQ -c '.notes | length' 2>/dev/null | tr -d '\n')
+            format_todo "$id" "$text" "$status" "$priority" "$due" "$notes_count"
+            count=$((count + 1))
+        fi
+    done < <($ZQ -c "$filter_expr" < "$TODO_FILE" 2>/dev/null)
+
+    if [[ $count -eq 0 ]]; then
+        echo -e "  ${DIM}(none)${RESET}"
+    fi
+    echo ""
+}
+
+cmd_count() {
+    if [[ ! -f "$TODO_FILE" ]] || [[ ! -s "$TODO_FILE" ]]; then
+        echo "0 total (0 pending, 0 done, 0 skipped)"
+        return
+    fi
+
+    local total pending done_count skipped
+    total=$(wc -l < "$TODO_FILE" | tr -d ' ')
+    pending=$($ZQ -c 'select(.status == "pending")' < "$TODO_FILE" 2>/dev/null | wc -l | tr -d ' ')
+    done_count=$($ZQ -c 'select(.status == "done")' < "$TODO_FILE" 2>/dev/null | wc -l | tr -d ' ')
+    skipped=$($ZQ -c 'select(.status == "skipped")' < "$TODO_FILE" 2>/dev/null | wc -l | tr -d ' ')
+
+    local overdue=0
+    if [[ -f "$TODO_FILE" ]]; then
+        local today
+        today=$(date +%Y-%m-%d)
+        overdue=$($ZQ -c "select(.status == \"pending\") | select(.due != null) | select(.due < \"$today\")" < "$TODO_FILE" 2>/dev/null | wc -l | tr -d ' ')
+    fi
+
+    echo -e "${BOLD}$total${RESET} total: ${BLUE}$pending pending${RESET}, ${GREEN}$done_count done${RESET}, ${YELLOW}$skipped skipped${RESET}"
+    if [[ "$overdue" -gt 0 ]]; then
+        echo -e "  ${RED}⚠ $overdue overdue${RESET}"
+    fi
+}
+
+cmd_search() {
+    local term="$1"
+    if [[ -z "$term" ]]; then
+        echo "Usage: todo search <term>" >&2
+        exit 1
+    fi
+
+    if [[ ! -f "$TODO_FILE" ]] || [[ ! -s "$TODO_FILE" ]]; then
+        echo -e "${DIM}No todos to search.${RESET}"
+        return
+    fi
+
+    echo -e "${BOLD}Search results for \"$term\":${RESET}"
+    echo ""
+
+    local count=0
+    while IFS= read -r line; do
+        if [[ -n "$line" ]]; then
+            local text
+            text=$(echo "$line" | $ZQ -r '.text' 2>/dev/null)
+            # Case-insensitive search
+            if echo "$text" | grep -qi "$term"; then
+                local id status priority due notes_count
+                id=$(echo "$line" | $ZQ -c '.id' 2>/dev/null | tr -d '\n')
+                status=$(echo "$line" | $ZQ -r '.status' 2>/dev/null | tr -d '\n')
+                priority=$(echo "$line" | $ZQ -r '.priority' 2>/dev/null | tr -d '\n')
+                due=$(echo "$line" | $ZQ -r '.due' 2>/dev/null | tr -d '\n')
+                notes_count=$(echo "$line" | $ZQ -c '.notes | length' 2>/dev/null | tr -d '\n')
+                format_todo "$id" "$text" "$status" "$priority" "$due" "$notes_count"
+                count=$((count + 1))
+            fi
+        fi
+    done < "$TODO_FILE"
+
+    if [[ $count -eq 0 ]]; then
+        echo -e "  ${DIM}No matches found.${RESET}"
+    fi
+    echo ""
+}
+
+cmd_done() {
+    local id="$1"
+    if [[ -z "$id" ]] || ! [[ "$id" =~ ^[0-9]+$ ]]; then
+        echo "Usage: todo done <id>" >&2
+        exit 1
+    fi
+
+    if ! todo_exists "$id"; then
+        echo -e "${RED}Error:${RESET} Todo #$id not found" >&2
+        exit 1
+    fi
+
+    backup
+    update_todo "$id" ".status=done"
+    echo -e "${GREEN}✓${RESET} Marked todo #$id as done"
+}
+
+cmd_skip() {
+    local id="$1"
+    if [[ -z "$id" ]] || ! [[ "$id" =~ ^[0-9]+$ ]]; then
+        echo "Usage: todo skip <id>" >&2
+        exit 1
+    fi
+
+    if ! todo_exists "$id"; then
+        echo -e "${RED}Error:${RESET} Todo #$id not found" >&2
+        exit 1
+    fi
+
+    backup
+    update_todo "$id" ".status=skipped"
+    echo -e "${YELLOW}⊘${RESET} Marked todo #$id as skipped"
+}
+
+cmd_edit() {
+    local id="$1"
+    shift
+    local new_text="$*"
+
+    if [[ -z "$id" ]] || ! [[ "$id" =~ ^[0-9]+$ ]]; then
+        echo "Usage: todo edit <id> \"new text\"" >&2
+        exit 1
+    fi
+
+    if [[ -z "$new_text" ]]; then
+        echo "Usage: todo edit <id> \"new text\"" >&2
+        exit 1
+    fi
+
+    if ! todo_exists "$id"; then
+        echo -e "${RED}Error:${RESET} Todo #$id not found" >&2
+        exit 1
+    fi
+
+    # Re-extract tags from new text
+    local tags
+    tags=$(extract_tags "$new_text")
+
+    backup
+    local temp_file
+    temp_file=$(mktemp)
+    while IFS= read -r line; do
+        if [[ -n "$line" ]]; then
+            local line_id
+            line_id=$(echo "$line" | $ZQ -c '.id' 2>/dev/null | tr -d '\n')
+            if [[ "$line_id" == "$id" ]]; then
+                local result
+                result=$(echo "$line" | $JN_EDIT .text="$new_text")
+                # Update tags
+                result=$(echo "$result" | $JN_EDIT .tags:="$tags")
+                echo "$result"
+            else
+                echo "$line"
+            fi
+        fi
+    done < "$TODO_FILE" > "$temp_file"
+    mv "$temp_file" "$TODO_FILE"
+
+    echo -e "${BLUE}Edited${RESET} todo #$id: $new_text"
+}
+
+cmd_note() {
+    local id="$1"
+    shift
+    local note_text="$*"
+
+    if [[ -z "$id" ]] || ! [[ "$id" =~ ^[0-9]+$ ]]; then
+        echo "Usage: todo note <id> \"note text\"" >&2
+        exit 1
+    fi
+
+    if [[ -z "$note_text" ]]; then
+        # Show notes if no text provided
+        if ! todo_exists "$id"; then
+            echo -e "${RED}Error:${RESET} Todo #$id not found" >&2
+            exit 1
+        fi
+
+        echo -e "${BOLD}Notes for todo #$id:${RESET}"
+        local notes
+        notes=$($ZQ -c "select(.id == $id) | .notes" < "$TODO_FILE" 2>/dev/null)
+        if [[ "$notes" == "[]" ]] || [[ -z "$notes" ]]; then
+            echo -e "  ${DIM}(no notes)${RESET}"
+        else
+            local i=1
+            echo "$notes" | $ZQ -r '.[]' 2>/dev/null | while read -r note; do
+                echo -e "  ${DIM}$i.${RESET} $note"
+                i=$((i + 1))
+            done
+        fi
+        return
+    fi
+
+    if ! todo_exists "$id"; then
+        echo -e "${RED}Error:${RESET} Todo #$id not found" >&2
+        exit 1
+    fi
+
+    backup
+
+    # Append note to the notes array
+    local temp_file
+    temp_file=$(mktemp)
+    while IFS= read -r line; do
+        if [[ -n "$line" ]]; then
+            local line_id
+            line_id=$(echo "$line" | $ZQ -c '.id' 2>/dev/null | tr -d '\n')
+            if [[ "$line_id" == "$id" ]]; then
+                local result
+                result=$(echo "$line" | $JN_EDIT --append .notes "$note_text")
+                echo "$result"
+            else
+                echo "$line"
+            fi
+        fi
+    done < "$TODO_FILE" > "$temp_file"
+    mv "$temp_file" "$TODO_FILE"
+
+    echo -e "${CYAN}Added note${RESET} to todo #$id"
+}
+
+cmd_tag() {
+    local id="$1"
+    if [[ -z "$id" ]] || ! [[ "$id" =~ ^[0-9]+$ ]]; then
+        echo "Usage: todo tag <id>" >&2
+        exit 1
+    fi
+
+    if ! todo_exists "$id"; then
+        echo -e "${RED}Error:${RESET} Todo #$id not found" >&2
+        exit 1
+    fi
+
+    local tags
+    tags=$($ZQ -c "select(.id == $id) | .tags" < "$TODO_FILE" 2>/dev/null)
+
+    if [[ "$tags" == "[]" ]] || [[ -z "$tags" ]] || [[ "$tags" == "null" ]]; then
+        echo -e "Todo #$id has ${DIM}no tags${RESET}"
+    else
+        echo -e "Todo #$id tags: ${MAGENTA}$(echo "$tags" | $ZQ -r 'join(", ")' 2>/dev/null)${RESET}"
+    fi
+}
+
+cmd_due() {
+    if [[ ! -f "$TODO_FILE" ]] || [[ ! -s "$TODO_FILE" ]]; then
+        echo -e "${DIM}No todos with due dates.${RESET}"
+        return
+    fi
+
+    local today
+    today=$(date +%Y-%m-%d)
+
+    echo -e "${BOLD}${RED}Overdue:${RESET}"
+    local overdue_count=0
+    while IFS= read -r line; do
+        if [[ -n "$line" ]]; then
+            local id text status priority due notes_count
+            id=$(echo "$line" | $ZQ -c '.id' 2>/dev/null | tr -d '\n')
+            text=$(echo "$line" | $ZQ -r '.text' 2>/dev/null | tr -d '\n')
+            status=$(echo "$line" | $ZQ -r '.status' 2>/dev/null | tr -d '\n')
+            priority=$(echo "$line" | $ZQ -r '.priority' 2>/dev/null | tr -d '\n')
+            due=$(echo "$line" | $ZQ -r '.due' 2>/dev/null | tr -d '\n')
+            notes_count=$(echo "$line" | $ZQ -c '.notes | length' 2>/dev/null | tr -d '\n')
+            format_todo "$id" "$text" "$status" "$priority" "$due" "$notes_count"
+            overdue_count=$((overdue_count + 1))
+        fi
+    done < <($ZQ -c "select(.status == \"pending\") | select(.due != null) | select(.due < \"$today\")" < "$TODO_FILE" 2>/dev/null)
+    if [[ $overdue_count -eq 0 ]]; then
+        echo -e "  ${DIM}(none)${RESET}"
+    fi
+
+    echo ""
+    echo -e "${BOLD}${YELLOW}Due soon (next 7 days):${RESET}"
+    local future
+    future=$(date -d "+7 days" +%Y-%m-%d 2>/dev/null || date -v+7d +%Y-%m-%d 2>/dev/null)
+    local soon_count=0
+    while IFS= read -r line; do
+        if [[ -n "$line" ]]; then
+            local id text status priority due notes_count
+            id=$(echo "$line" | $ZQ -c '.id' 2>/dev/null | tr -d '\n')
+            text=$(echo "$line" | $ZQ -r '.text' 2>/dev/null | tr -d '\n')
+            status=$(echo "$line" | $ZQ -r '.status' 2>/dev/null | tr -d '\n')
+            priority=$(echo "$line" | $ZQ -r '.priority' 2>/dev/null | tr -d '\n')
+            due=$(echo "$line" | $ZQ -r '.due' 2>/dev/null | tr -d '\n')
+            notes_count=$(echo "$line" | $ZQ -c '.notes | length' 2>/dev/null | tr -d '\n')
+            format_todo "$id" "$text" "$status" "$priority" "$due" "$notes_count"
+            soon_count=$((soon_count + 1))
+        fi
+    done < <($ZQ -c "select(.status == \"pending\") | select(.due != null) | select(.due >= \"$today\") | select(.due <= \"$future\")" < "$TODO_FILE" 2>/dev/null)
+    if [[ $soon_count -eq 0 ]]; then
+        echo -e "  ${DIM}(none)${RESET}"
+    fi
+    echo ""
+}
+
+cmd_rm() {
+    local id="$1"
+    if [[ -z "$id" ]] || ! [[ "$id" =~ ^[0-9]+$ ]]; then
+        echo "Usage: todo rm <id>" >&2
+        exit 1
+    fi
+
+    if ! todo_exists "$id"; then
+        echo -e "${RED}Error:${RESET} Todo #$id not found" >&2
+        exit 1
+    fi
+
+    backup
+
+    local temp_file
+    temp_file=$(mktemp)
+    $ZQ -c "select(.id != $id)" < "$TODO_FILE" 2>/dev/null > "$temp_file"
+    mv "$temp_file" "$TODO_FILE"
+
+    echo -e "${RED}Removed${RESET} todo #$id"
+}
+
+cmd_clear() {
+    if [[ ! -f "$TODO_FILE" ]] || [[ ! -s "$TODO_FILE" ]]; then
+        echo "No todos to clear."
+        return
+    fi
+
+    backup
+
+    local temp_file
+    temp_file=$(mktemp)
+    $ZQ -c 'select(.status == "pending")' < "$TODO_FILE" 2>/dev/null > "$temp_file"
+    mv "$temp_file" "$TODO_FILE"
+
+    echo -e "${GREEN}Cleared${RESET} completed and skipped todos"
+}
+
+cmd_undo() {
+    if [[ ! -f "$BACKUP_FILE" ]]; then
+        echo -e "${RED}Error:${RESET} No backup available to restore" >&2
+        exit 1
+    fi
+
+    cp "$BACKUP_FILE" "$TODO_FILE"
+    echo -e "${GREEN}Restored${RESET} from backup"
+}
+
+cmd_export() {
+    local format="${1:-md}"
+
+    if [[ ! -f "$TODO_FILE" ]] || [[ ! -s "$TODO_FILE" ]]; then
+        echo -e "${DIM}No todos to export.${RESET}" >&2
+        return
+    fi
+
+    case "$format" in
+        md|markdown)
+            echo "# Todo List"
+            echo ""
+            echo "## Pending"
+            $ZQ -c 'select(.status == "pending")' < "$TODO_FILE" 2>/dev/null | while read -r line; do
+                local text priority due
+                text=$(echo "$line" | $ZQ -r '.text' 2>/dev/null)
+                priority=$(echo "$line" | $ZQ -r '.priority' 2>/dev/null)
+                due=$(echo "$line" | $ZQ -r '.due' 2>/dev/null)
+                local pri_mark=""
+                [[ "$priority" == "high" ]] && pri_mark=" 🔴"
+                [[ "$priority" == "low" ]] && pri_mark=" 🟢"
+                local due_mark=""
+                [[ -n "$due" && "$due" != "null" ]] && due_mark=" (due: $due)"
+                echo "- [ ] $text$pri_mark$due_mark"
+            done
+            echo ""
+            echo "## Done"
+            $ZQ -c 'select(.status == "done")' < "$TODO_FILE" 2>/dev/null | while read -r line; do
+                local text
+                text=$(echo "$line" | $ZQ -r '.text' 2>/dev/null)
+                echo "- [x] $text"
+            done
+            echo ""
+            echo "## Skipped"
+            $ZQ -c 'select(.status == "skipped")' < "$TODO_FILE" 2>/dev/null | while read -r line; do
+                local text
+                text=$(echo "$line" | $ZQ -r '.text' 2>/dev/null)
+                echo "- [~] $text"
+            done
+            ;;
+        csv)
+            echo "id,text,status,priority,due,tags,notes_count,created"
+            while read -r line; do
+                local id text status priority due tags notes_count created
+                id=$(echo "$line" | $ZQ -c '.id' 2>/dev/null | tr -d '\n')
+                text=$(echo "$line" | $ZQ -r '.text' 2>/dev/null | tr -d '\n')
+                status=$(echo "$line" | $ZQ -r '.status' 2>/dev/null | tr -d '\n')
+                priority=$(echo "$line" | $ZQ -r '.priority' 2>/dev/null | tr -d '\n')
+                due=$(echo "$line" | $ZQ -r '.due' 2>/dev/null | tr -d '\n')
+                tags=$(echo "$line" | $ZQ -r '.tags | join(";")' 2>/dev/null | tr -d '\n')
+                notes_count=$(echo "$line" | $ZQ -c '.notes | length' 2>/dev/null | tr -d '\n')
+                created=$(echo "$line" | $ZQ -r '.created' 2>/dev/null | tr -d '\n')
+                # Escape text for CSV
+                text="${text//\"/\"\"}"
+                echo "$id,\"$text\",$status,$priority,$due,\"$tags\",$notes_count,$created"
+            done < "$TODO_FILE"
+            ;;
+        *)
+            echo "Unknown format: $format (use md or csv)" >&2
+            exit 1
+            ;;
+    esac
+}
+
+cmd_help() {
+    cat << 'EOF'
+todo - A feature-rich todo CLI powered by jn
+
+Usage:
+  todo                              List all todos
+  todo add "task"                   Add a new todo
+  todo add -p high "urgent task"    Add with priority (high/med/low)
+  todo add -d 2024-12-25 "task"     Add with due date
+  todo done <id>                    Mark todo as complete
+  todo skip <id>                    Mark todo as skipped
+  todo edit <id> "new text"         Edit todo text
+  todo note <id> "note"             Add note to a todo
+  todo note <id>                    View notes on a todo
+  todo tag <id>                     Show tags on a todo
+  todo rm <id>                      Remove a todo
+  todo clear                        Remove completed/skipped todos
+  todo count                        Show counts by status
+  todo search <term>                Search todos by text
+  todo due                          Show overdue and upcoming todos
+  todo export [md|csv]              Export todos
+  todo undo                         Restore from backup
+  todo list [pending|done|skipped]  Filter by status
+  todo list @mention                Filter by @mention tag
+  todo list #hashtag                Filter by #hashtag
+
+Priority levels:
+  high (!!!)  - Urgent/blocking tasks
+  med  (!!)   - Normal priority (default)
+  low  (!)    - Nice-to-have tasks
+
+Examples:
+  todo add "Buy groceries"
+  todo add -p high "Fix production bug"
+  todo add -d 2024-12-25 "Buy gifts for @family #holiday"
+  todo done 1
+  todo note 2 "Waiting for API response"
+  todo list @work
+  todo list #urgent
+  todo search groceries
+  todo export md > TODO.md
+
+Data stored in .todo.jsonl (NDJSON format).
+Backup stored in .todo.jsonl.bak (restored with 'todo undo').
+Powered by jn-edit and zq.
+EOF
+}
+
+# -----------------------------------------------------------------------------
+# Main
+# -----------------------------------------------------------------------------
+
+case "${1:-list}" in
+    add|a)
+        shift
+        cmd_add "$@"
+        ;;
+    list|ls|l)
+        shift 2>/dev/null || true
+        cmd_list "$@"
+        ;;
+    done|complete|c)
+        shift
+        cmd_done "$@"
+        ;;
+    skip|s)
+        shift
+        cmd_skip "$@"
+        ;;
+    edit|e)
+        shift
+        cmd_edit "$@"
+        ;;
+    note|n)
+        shift
+        cmd_note "$@"
+        ;;
+    tag|t)
+        shift
+        cmd_tag "$@"
+        ;;
+    rm|remove|delete)
+        shift
+        cmd_rm "$@"
+        ;;
+    clear)
+        cmd_clear
+        ;;
+    count)
+        cmd_count
+        ;;
+    search)
+        shift
+        cmd_search "$@"
+        ;;
+    due)
+        cmd_due
+        ;;
+    export)
+        shift
+        cmd_export "$@"
+        ;;
+    undo)
+        cmd_undo
+        ;;
+    help|--help|-h)
+        cmd_help
+        ;;
+    *)
+        # If arg looks like a number, try to mark as done
+        if [[ "$1" =~ ^[0-9]+$ ]]; then
+            cmd_done "$1"
+        # If arg looks like a tag, list by tag
+        elif [[ "$1" == @* ]] || [[ "$1" == \#* ]]; then
+            cmd_list "$1"
+        else
+            echo "Unknown command: $1" >&2
+            echo "Run 'todo help' for usage." >&2
+            exit 1
+        fi
+        ;;
+esac
