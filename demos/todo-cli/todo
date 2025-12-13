@@ -1,0 +1,429 @@
+#!/bin/bash
+#
+# todo - A simple todo CLI powered by jn
+#
+# Usage:
+#   todo add "Buy groceries"     Add a new todo
+#   todo list                    List all todos (or: todo, todo ls)
+#   todo done <id>               Mark todo as complete
+#   todo skip <id>               Mark todo as skipped
+#   todo edit <id> "New text"    Edit todo text
+#   todo rm <id>                 Remove a todo
+#   todo clear                   Remove all completed/skipped todos
+#
+# Data is stored in .todo.jsonl in the current directory.
+# Each todo is a JSON object: {"id":1,"text":"...","status":"pending","created":"..."}
+#
+# Dependencies: jn-edit, jn-filter/zq (from the jn toolkit)
+#
+
+set -e
+
+# -----------------------------------------------------------------------------
+# Configuration
+# -----------------------------------------------------------------------------
+
+TODO_FILE=".todo.jsonl"
+
+# ANSI colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+DIM='\033[2m'
+BOLD='\033[1m'
+RESET='\033[0m'
+
+# -----------------------------------------------------------------------------
+# Setup: Find jn tools
+# -----------------------------------------------------------------------------
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if command -v jn-edit &> /dev/null && command -v zq &> /dev/null; then
+    JN_EDIT="jn-edit"
+    ZQ="zq"
+else
+    # Try relative path from demos directory
+    if [[ -d "$SCRIPT_DIR/../../tools/zig" ]]; then
+        TOOLS_DIR="$SCRIPT_DIR/../../tools/zig"
+        ZQ_DIR="$SCRIPT_DIR/../../zq/zig-out/bin"
+        export PATH="$ZQ_DIR:$TOOLS_DIR/jn-edit/bin:$PATH"
+        JN_EDIT="jn-edit"
+        ZQ="zq"
+    else
+        echo "Error: jn tools not found. Please install jn or run 'make build'." >&2
+        exit 1
+    fi
+fi
+
+# Verify tools exist
+if ! command -v $JN_EDIT &> /dev/null; then
+    echo "Error: jn-edit not found" >&2
+    exit 1
+fi
+if ! command -v $ZQ &> /dev/null; then
+    echo "Error: zq not found" >&2
+    exit 1
+fi
+
+# -----------------------------------------------------------------------------
+# Helper Functions
+# -----------------------------------------------------------------------------
+
+# Get the next available ID
+next_id() {
+    if [[ ! -f "$TODO_FILE" ]] || [[ ! -s "$TODO_FILE" ]]; then
+        echo 1
+        return
+    fi
+
+    # Get max ID using zq (slurp mode required for aggregation), add 1
+    local max_id
+    max_id=$($ZQ -s -c 'max_by(.id) | .id' < "$TODO_FILE" 2>/dev/null | tr -d '\n')
+
+    if [[ -z "$max_id" ]] || [[ "$max_id" == "null" ]] || ! [[ "$max_id" =~ ^[0-9]+$ ]]; then
+        echo 1
+    else
+        echo $((max_id + 1))
+    fi
+}
+
+# Format a todo for display
+format_todo() {
+    local id="$1"
+    local text="$2"
+    local status="$3"
+
+    local status_icon
+    local text_style=""
+
+    case "$status" in
+        done)
+            status_icon="${GREEN}✓${RESET}"
+            text_style="${DIM}"
+            ;;
+        skipped)
+            status_icon="${YELLOW}⊘${RESET}"
+            text_style="${DIM}"
+            ;;
+        *)
+            status_icon="${BLUE}○${RESET}"
+            ;;
+    esac
+
+    printf "  %b ${DIM}%3s${RESET}  %b%s${RESET}\n" "$status_icon" "$id" "$text_style" "$text"
+}
+
+# Ensure todo file exists
+ensure_file() {
+    if [[ ! -f "$TODO_FILE" ]]; then
+        touch "$TODO_FILE"
+    fi
+}
+
+# Check if a todo with given ID exists
+todo_exists() {
+    local id="$1"
+    if [[ ! -f "$TODO_FILE" ]] || [[ ! -s "$TODO_FILE" ]]; then
+        return 1
+    fi
+    $ZQ -c "select(.id == $id)" < "$TODO_FILE" 2>/dev/null | grep -q .
+}
+
+# -----------------------------------------------------------------------------
+# Commands
+# -----------------------------------------------------------------------------
+
+cmd_add() {
+    local text="$*"
+    if [[ -z "$text" ]]; then
+        echo "Usage: todo add \"task description\"" >&2
+        exit 1
+    fi
+
+    ensure_file
+
+    local id
+    id=$(next_id)
+    local created
+    created=$(date -Iseconds 2>/dev/null || date +%Y-%m-%dT%H:%M:%S)
+
+    # Create new todo using jn-edit to build the JSON
+    echo '{}' | $JN_EDIT \
+        .id:="$id" \
+        .text="$text" \
+        .status=pending \
+        .created="$created" \
+        >> "$TODO_FILE"
+
+    echo -e "${GREEN}Added${RESET} todo #$id: $text"
+}
+
+cmd_list() {
+    local filter="${1:-all}"
+
+    if [[ ! -f "$TODO_FILE" ]] || [[ ! -s "$TODO_FILE" ]]; then
+        echo -e "${DIM}No todos yet. Add one with: todo add \"task\"${RESET}"
+        return
+    fi
+
+    local filter_expr=""
+    local header=""
+
+    case "$filter" in
+        pending|p)
+            filter_expr='select(.status == "pending")'
+            header="Pending todos:"
+            ;;
+        done|d)
+            filter_expr='select(.status == "done")'
+            header="Completed todos:"
+            ;;
+        skipped|s)
+            filter_expr='select(.status == "skipped")'
+            header="Skipped todos:"
+            ;;
+        *)
+            filter_expr='.'
+            header="All todos:"
+            ;;
+    esac
+
+    echo -e "${BOLD}$header${RESET}"
+    echo ""
+
+    local count=0
+    while IFS= read -r line; do
+        if [[ -n "$line" ]]; then
+            local id text status
+            id=$(echo "$line" | $ZQ -c '.id' 2>/dev/null | tr -d '\n')
+            text=$(echo "$line" | $ZQ -r '.text' 2>/dev/null | tr -d '\n')
+            status=$(echo "$line" | $ZQ -r '.status' 2>/dev/null | tr -d '\n')
+            format_todo "$id" "$text" "$status"
+            count=$((count + 1))
+        fi
+    done < <($ZQ -c "$filter_expr" < "$TODO_FILE" 2>/dev/null)
+
+    if [[ $count -eq 0 ]]; then
+        echo -e "  ${DIM}(none)${RESET}"
+    fi
+    echo ""
+}
+
+cmd_done() {
+    local id="$1"
+    if [[ -z "$id" ]] || ! [[ "$id" =~ ^[0-9]+$ ]]; then
+        echo "Usage: todo done <id>" >&2
+        exit 1
+    fi
+
+    if ! todo_exists "$id"; then
+        echo -e "${RED}Error:${RESET} Todo #$id not found" >&2
+        exit 1
+    fi
+
+    # Update the todo status
+    local temp_file
+    temp_file=$(mktemp)
+    while IFS= read -r line; do
+        if [[ -n "$line" ]]; then
+            local line_id
+            line_id=$(echo "$line" | $ZQ -c '.id' 2>/dev/null | tr -d '\n')
+            if [[ "$line_id" == "$id" ]]; then
+                # Use command substitution to avoid buffering race
+                local result
+                result=$(echo "$line" | $JN_EDIT .status=done)
+                echo "$result"
+            else
+                echo "$line"
+            fi
+        fi
+    done < "$TODO_FILE" > "$temp_file"
+    mv "$temp_file" "$TODO_FILE"
+
+    echo -e "${GREEN}✓${RESET} Marked todo #$id as done"
+}
+
+cmd_skip() {
+    local id="$1"
+    if [[ -z "$id" ]] || ! [[ "$id" =~ ^[0-9]+$ ]]; then
+        echo "Usage: todo skip <id>" >&2
+        exit 1
+    fi
+
+    if ! todo_exists "$id"; then
+        echo -e "${RED}Error:${RESET} Todo #$id not found" >&2
+        exit 1
+    fi
+
+    local temp_file
+    temp_file=$(mktemp)
+    while IFS= read -r line; do
+        if [[ -n "$line" ]]; then
+            local line_id
+            line_id=$(echo "$line" | $ZQ -c '.id' 2>/dev/null | tr -d '\n')
+            if [[ "$line_id" == "$id" ]]; then
+                local result
+                result=$(echo "$line" | $JN_EDIT .status=skipped)
+                echo "$result"
+            else
+                echo "$line"
+            fi
+        fi
+    done < "$TODO_FILE" > "$temp_file"
+    mv "$temp_file" "$TODO_FILE"
+
+    echo -e "${YELLOW}⊘${RESET} Marked todo #$id as skipped"
+}
+
+cmd_edit() {
+    local id="$1"
+    shift
+    local new_text="$*"
+
+    if [[ -z "$id" ]] || ! [[ "$id" =~ ^[0-9]+$ ]]; then
+        echo "Usage: todo edit <id> \"new text\"" >&2
+        exit 1
+    fi
+
+    if [[ -z "$new_text" ]]; then
+        echo "Usage: todo edit <id> \"new text\"" >&2
+        exit 1
+    fi
+
+    if ! todo_exists "$id"; then
+        echo -e "${RED}Error:${RESET} Todo #$id not found" >&2
+        exit 1
+    fi
+
+    local temp_file
+    temp_file=$(mktemp)
+    while IFS= read -r line; do
+        if [[ -n "$line" ]]; then
+            local line_id
+            line_id=$(echo "$line" | $ZQ -c '.id' 2>/dev/null | tr -d '\n')
+            if [[ "$line_id" == "$id" ]]; then
+                local result
+                result=$(echo "$line" | $JN_EDIT .text="$new_text")
+                echo "$result"
+            else
+                echo "$line"
+            fi
+        fi
+    done < "$TODO_FILE" > "$temp_file"
+    mv "$temp_file" "$TODO_FILE"
+
+    echo -e "${BLUE}Edited${RESET} todo #$id: $new_text"
+}
+
+cmd_rm() {
+    local id="$1"
+    if [[ -z "$id" ]] || ! [[ "$id" =~ ^[0-9]+$ ]]; then
+        echo "Usage: todo rm <id>" >&2
+        exit 1
+    fi
+
+    if ! todo_exists "$id"; then
+        echo -e "${RED}Error:${RESET} Todo #$id not found" >&2
+        exit 1
+    fi
+
+    # Filter out the todo with this ID
+    local temp_file
+    temp_file=$(mktemp)
+    $ZQ -c "select(.id != $id)" < "$TODO_FILE" 2>/dev/null > "$temp_file"
+    mv "$temp_file" "$TODO_FILE"
+
+    echo -e "${RED}Removed${RESET} todo #$id"
+}
+
+cmd_clear() {
+    if [[ ! -f "$TODO_FILE" ]] || [[ ! -s "$TODO_FILE" ]]; then
+        echo "No todos to clear."
+        return
+    fi
+
+    # Keep only pending todos
+    local temp_file
+    temp_file=$(mktemp)
+    $ZQ -c 'select(.status == "pending")' < "$TODO_FILE" 2>/dev/null > "$temp_file"
+    mv "$temp_file" "$TODO_FILE"
+
+    echo -e "${GREEN}Cleared${RESET} completed and skipped todos"
+}
+
+cmd_help() {
+    cat << 'EOF'
+todo - A simple todo CLI powered by jn
+
+Usage:
+  todo                          List all todos
+  todo add "task description"   Add a new todo
+  todo done <id>                Mark todo as complete
+  todo skip <id>                Mark todo as skipped
+  todo edit <id> "new text"     Edit todo text
+  todo rm <id>                  Remove a todo
+  todo clear                    Remove completed/skipped todos
+  todo list [pending|done|skipped]  Filter by status
+
+Examples:
+  todo add "Buy groceries"
+  todo add "Review pull request"
+  todo done 1
+  todo skip 2
+  todo edit 1 "Buy organic groceries"
+  todo list pending
+  todo clear
+
+Data is stored in .todo.jsonl (NDJSON format).
+Powered by jn-edit and zq.
+EOF
+}
+
+# -----------------------------------------------------------------------------
+# Main
+# -----------------------------------------------------------------------------
+
+case "${1:-list}" in
+    add|a)
+        shift
+        cmd_add "$@"
+        ;;
+    list|ls|l)
+        shift 2>/dev/null || true
+        cmd_list "$@"
+        ;;
+    done|d|complete|c)
+        shift
+        cmd_done "$@"
+        ;;
+    skip|s)
+        shift
+        cmd_skip "$@"
+        ;;
+    edit|e)
+        shift
+        cmd_edit "$@"
+        ;;
+    rm|remove|delete)
+        shift
+        cmd_rm "$@"
+        ;;
+    clear)
+        cmd_clear
+        ;;
+    help|--help|-h)
+        cmd_help
+        ;;
+    *)
+        # If arg looks like a number, try to mark as done
+        if [[ "$1" =~ ^[0-9]+$ ]]; then
+            cmd_done "$1"
+        else
+            echo "Unknown command: $1" >&2
+            echo "Run 'todo help' for usage." >&2
+            exit 1
+        fi
+        ;;
+esac
