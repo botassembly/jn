@@ -1,0 +1,4 @@
+{"id": 1, "name": "Alice", "role": "admin", "active": true}
+{"id": 2, "name": "Bob", "role": "user", "active": false}
+{"id": 3, "name": "Carol", "role": "user", "active": true}
+{"id": 4, "name": "Dave", "role": "guest", "active": false}

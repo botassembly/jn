@@ -155,6 +155,7 @@ zig-tools: install-zig
 	mkdir -p tools/zig/jn-filter/bin tools/zig/jn-head/bin tools/zig/jn-tail/bin
 	mkdir -p tools/zig/jn-analyze/bin tools/zig/jn-inspect/bin
 	mkdir -p tools/zig/jn-join/bin tools/zig/jn-merge/bin tools/zig/jn-sh/bin
+	mkdir -p tools/zig/jn-edit/bin
 	cd tools/zig/jn-cat && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-cat
 	cd tools/zig/jn-put && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-put
 	cd tools/zig/jn-filter && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-filter
@@ -165,6 +166,7 @@ zig-tools: install-zig
 	cd tools/zig/jn-join && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-join
 	cd tools/zig/jn-merge && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-merge
 	cd tools/zig/jn-sh && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-sh
+	cd tools/zig/jn-edit && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-edit
 	cd tools/zig/jn && $(ZIG) build-exe -fllvm -O ReleaseFast $(JN_MODULES) -femit-bin=bin/jn
 
 zig-tools-test: zig-tools
@@ -179,6 +181,7 @@ zig-tools-test: zig-tools
 	cd tools/zig/jn-join && $(ZIG) test -fllvm $(TOOL_MODULES)
 	cd tools/zig/jn-merge && $(ZIG) test -fllvm $(TOOL_MODULES)
 	cd tools/zig/jn-sh && $(ZIG) test -fllvm $(TOOL_MODULES)
+	cd tools/zig/jn-edit && $(ZIG) test -fllvm $(TOOL_MODULES)
 	cd tools/zig/jn && $(ZIG) test -fllvm $(JN_MODULES)
 	@echo "  tools: OK"
 
