@@ -104,13 +104,12 @@
 # 3. RECOVERABLE - A corrupt line doesn't invalidate the whole file
 # 4. APPENDABLE - Just append a line, no need to parse/rewrite
 #
-# Converting pretty JSON to NDJSON:
+# The jn ecosystem uses NDJSON as the universal interchange format.
+# Use `jn cat` to convert any format (JSON, CSV, YAML) to NDJSON:
 #
-#   # Multi-line object -> single line
-#   cat pretty.json | jq -c '.'
-#
-#   # JSON array -> NDJSON stream
-#   cat array.json | jq -c '.[]'
+#   jn cat data.json      # Pretty JSON -> NDJSON
+#   jn cat data.csv       # CSV -> NDJSON
+#   jn cat data.yaml      # YAML -> NDJSON
 #
 # =============================================================================
 
@@ -118,27 +117,32 @@ set -e
 cd "$(dirname "$0")"
 
 # -----------------------------------------------------------------------------
-# SETUP: Locate jn-edit binary
+# SETUP: Configure PATH for jn tools
 # -----------------------------------------------------------------------------
-# Try the local build first, fall back to PATH for installed version
+# The demo uses relative paths to the build output. In production, these
+# would be installed to a standard location on PATH.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-JN_EDIT="${SCRIPT_DIR}/../../tools/zig/jn-edit/bin/jn-edit"
-if [ ! -x "$JN_EDIT" ]; then
-    JN_EDIT="jn-edit"
+TOOLS_DIR="${SCRIPT_DIR}/../../tools/zig"
+PLUGINS_DIR="${SCRIPT_DIR}/../../plugins/zig"
+
+# Add jn tools and plugins to PATH
+export PATH="${TOOLS_DIR}/jn/bin:${TOOLS_DIR}/jn-cat/bin:${TOOLS_DIR}/jn-edit/bin:$PATH"
+export PATH="${PLUGINS_DIR}/json/bin:${PLUGINS_DIR}/jsonl/bin:$PATH"
+
+# Set JN_HOME for plugin discovery
+export JN_HOME="${SCRIPT_DIR}/../../jn_home"
+
+# Verify tools are available
+if ! command -v jn &> /dev/null; then
+    echo "ERROR: jn not found. Run 'make build' first."
+    exit 1
 fi
 
-# -----------------------------------------------------------------------------
-# HELPER: Convert pretty-printed JSON to NDJSON
-# -----------------------------------------------------------------------------
-# jn-edit expects NDJSON input. This helper collapses multi-line JSON
-# into a single line suitable for processing.
-#
-# For production use, prefer: jq -c '.' or store data as NDJSON
-
-to_ndjson() {
-    tr -d '\n' | sed 's/  */ /g'
-}
+if ! command -v jn-edit &> /dev/null; then
+    echo "ERROR: jn-edit not found. Run 'make build' first."
+    exit 1
+fi
 
 # =============================================================================
 echo "=============================================================================
@@ -170,11 +174,14 @@ echo ""
 # ---------------------------------------------------------------------------
 # The value after = is treated as a string literal.
 # No quotes needed - the tool handles JSON string escaping.
+#
+# Note: We use `jn cat` to read the JSON file and output NDJSON.
+# This is the idiomatic jn way - jn cat handles format conversion.
 
 echo "EXAMPLE 1.1: Set a string value"
-echo "Command: jn-edit .name=Bob"
+echo "Command: jn cat sample.json | jn-edit .name=Bob"
 echo "Result:"
-cat sample.json | to_ndjson | $JN_EDIT .name=Bob
+jn cat sample.json | jn-edit .name=Bob
 echo ""
 echo ""
 
@@ -187,10 +194,10 @@ echo ""
 # Without :=, the value 25 would become the STRING "25", not the NUMBER 25
 
 echo "EXAMPLE 1.2: Set a numeric value"
-echo "Command: jn-edit .age:=25"
+echo "Command: jn cat sample.json | jn-edit .age:=25"
 echo "Note: := means 'raw JSON value', not string"
 echo "Result:"
-cat sample.json | to_ndjson | $JN_EDIT .age:=25
+jn cat sample.json | jn-edit .age:=25
 echo ""
 echo ""
 
@@ -199,9 +206,9 @@ echo ""
 # ---------------------------------------------------------------------------
 
 echo "EXAMPLE 1.3: Set a boolean value"
-echo "Command: jn-edit .active:=false"
+echo "Command: jn cat sample.json | jn-edit .active:=false"
 echo "Result:"
-cat sample.json | to_ndjson | $JN_EDIT .active:=false
+jn cat sample.json | jn-edit .active:=false
 echo ""
 echo ""
 
@@ -212,9 +219,9 @@ echo ""
 # If intermediate objects don't exist, they're created.
 
 echo "EXAMPLE 1.4: Set a nested field"
-echo "Command: jn-edit .profile.location=Boston"
+echo "Command: jn cat sample.json | jn-edit .profile.location=Boston"
 echo "Result:"
-cat sample.json | to_ndjson | $JN_EDIT .profile.location=Boston
+jn cat sample.json | jn-edit .profile.location=Boston
 echo ""
 echo ""
 
@@ -225,9 +232,9 @@ echo ""
 # All edits are applied to each record in order.
 
 echo "EXAMPLE 1.5: Multiple edits in one command"
-echo "Command: jn-edit .name=Charlie .age:=35 .profile.location=LA"
+echo "Command: jn cat sample.json | jn-edit .name=Charlie .age:=35 .profile.location=LA"
 echo "Result:"
-cat sample.json | to_ndjson | $JN_EDIT .name=Charlie .age:=35 .profile.location=LA
+jn cat sample.json | jn-edit .name=Charlie .age:=35 .profile.location=LA
 echo ""
 echo ""
 
@@ -238,10 +245,10 @@ echo ""
 # the array is automatically extended with null values.
 
 echo "EXAMPLE 1.6: Set an array element by index"
-echo "Command: jn-edit '.tags[0]=engineer'"
+echo "Command: jn cat sample.json | jn-edit '.tags[0]=engineer'"
 echo "Note: Quotes needed to prevent shell glob expansion of []"
 echo "Result:"
-cat sample.json | to_ndjson | $JN_EDIT '.tags[0]=engineer'
+jn cat sample.json | jn-edit '.tags[0]=engineer'
 echo ""
 echo ""
 
@@ -252,10 +259,10 @@ echo ""
 # To delete a field, use --del (see Part 2).
 
 echo "EXAMPLE 1.7: Set a field to null"
-echo "Command: jn-edit .email:=null"
+echo "Command: jn cat sample.json | jn-edit .email:=null"
 echo "Note: This sets to null, NOT deletes. Use --del to delete."
 echo "Result:"
-cat sample.json | to_ndjson | $JN_EDIT .email:=null
+jn cat sample.json | jn-edit .email:=null
 echo ""
 echo ""
 
@@ -280,9 +287,9 @@ echo ""
 # ---------------------------------------------------------------------------
 
 echo "EXAMPLE 2.1: Delete a field"
-echo "Command: jn-edit --del .email"
+echo "Command: jn cat sample.json | jn-edit --del .email"
 echo "Result:"
-cat sample.json | to_ndjson | $JN_EDIT --del .email
+jn cat sample.json | jn-edit --del .email
 echo ""
 echo ""
 
@@ -291,9 +298,9 @@ echo ""
 # ---------------------------------------------------------------------------
 
 echo "EXAMPLE 2.2: Delete a nested field"
-echo "Command: jn-edit --del .profile.bio"
+echo "Command: jn cat sample.json | jn-edit --del .profile.bio"
 echo "Result:"
-cat sample.json | to_ndjson | $JN_EDIT --del .profile.bio
+jn cat sample.json | jn-edit --del .profile.bio
 echo ""
 echo ""
 
@@ -302,9 +309,9 @@ echo ""
 # ---------------------------------------------------------------------------
 
 echo "EXAMPLE 2.3: Delete multiple fields"
-echo "Command: jn-edit --del .email --del .settings"
+echo "Command: jn cat sample.json | jn-edit --del .email --del .settings"
 echo "Result:"
-cat sample.json | to_ndjson | $JN_EDIT --del .email --del .settings
+jn cat sample.json | jn-edit --del .email --del .settings
 echo ""
 echo ""
 
@@ -314,9 +321,9 @@ echo ""
 # Order matters: operations are applied left-to-right
 
 echo "EXAMPLE 2.4: Combine set and delete"
-echo "Command: jn-edit .name=Bob --del .email"
+echo "Command: jn cat sample.json | jn-edit .name=Bob --del .email"
 echo "Result:"
-cat sample.json | to_ndjson | $JN_EDIT .name=Bob --del .email
+jn cat sample.json | jn-edit .name=Bob --del .email
 echo ""
 echo ""
 
@@ -345,9 +352,9 @@ echo ""
 # ---------------------------------------------------------------------------
 
 echo 'EXAMPLE 3.1: Merge a partial object'
-echo 'Command: jn-edit --merge '\''{"name": "Eve", "age": 28}'\'
+echo 'Command: jn cat sample.json | jn-edit --merge '\''{"name": "Eve", "age": 28}'\'
 echo "Result:"
-cat sample.json | to_ndjson | $JN_EDIT --merge '{"name": "Eve", "age": 28}'
+jn cat sample.json | jn-edit --merge '{"name": "Eve", "age": 28}'
 echo ""
 echo ""
 
@@ -358,10 +365,10 @@ echo ""
 # profile object, only updating the bio field while preserving location, etc.
 
 echo 'EXAMPLE 3.2: Merge nested objects (recursive)'
-echo 'Command: jn-edit --merge '\''{"profile": {"bio": "Designer"}}'\'
+echo 'Command: jn cat sample.json | jn-edit --merge '\''{"profile": {"bio": "Designer"}}'\'
 echo "Note: Only bio is changed; location and social are preserved"
 echo "Result:"
-cat sample.json | to_ndjson | $JN_EDIT --merge '{"profile": {"bio": "Designer"}}'
+jn cat sample.json | jn-edit --merge '{"profile": {"bio": "Designer"}}'
 echo ""
 echo ""
 
@@ -370,9 +377,9 @@ echo ""
 # ---------------------------------------------------------------------------
 
 echo 'EXAMPLE 3.3: Add new fields via merge'
-echo 'Command: jn-edit --merge '\''{"newField": "hello", "count": 42}'\'
+echo 'Command: jn cat sample.json | jn-edit --merge '\''{"newField": "hello", "count": 42}'\'
 echo "Result:"
-cat sample.json | to_ndjson | $JN_EDIT --merge '{"newField": "hello", "count": 42}'
+jn cat sample.json | jn-edit --merge '{"newField": "hello", "count": 42}'
 echo ""
 echo ""
 
@@ -395,11 +402,11 @@ echo ""
 # ---------------------------------------------------------------------------
 
 echo "EXAMPLE 4.1: Append to an array"
-echo "Command: jn-edit --append .tags moderator"
+echo "Command: jn cat sample.json | jn-edit --append .tags moderator"
 echo "Before: [\"developer\", \"admin\"]"
 echo "After:  [\"developer\", \"admin\", \"moderator\"]"
 echo "Result:"
-cat sample.json | to_ndjson | $JN_EDIT --append .tags moderator
+jn cat sample.json | jn-edit --append .tags moderator
 echo ""
 echo ""
 
@@ -408,11 +415,11 @@ echo ""
 # ---------------------------------------------------------------------------
 
 echo "EXAMPLE 4.2: Prepend to an array"
-echo "Command: jn-edit --prepend .tags owner"
+echo "Command: jn cat sample.json | jn-edit --prepend .tags owner"
 echo "Before: [\"developer\", \"admin\"]"
 echo "After:  [\"owner\", \"developer\", \"admin\"]"
 echo "Result:"
-cat sample.json | to_ndjson | $JN_EDIT --prepend .tags owner
+jn cat sample.json | jn-edit --prepend .tags owner
 echo ""
 echo ""
 
@@ -427,6 +434,9 @@ echo ""
 #   - Log file transformations
 #   - API response post-processing
 #   - ETL pipelines
+#
+# The users.ndjson file is already in NDJSON format, so we can pipe
+# it directly to jn-edit (or use `jn cat` which passes NDJSON through).
 
 echo "-----------------------------------------------------------------------------"
 echo "PART 5: NDJSON Stream Editing (Batch Processing)"
@@ -444,9 +454,9 @@ echo ""
 # ---------------------------------------------------------------------------
 
 echo "EXAMPLE 5.1: Edit all records in a stream"
-echo "Command: cat users.ndjson | jn-edit .active:=true"
+echo "Command: jn cat users.ndjson | jn-edit .active:=true"
 echo "Result:"
-cat users.ndjson | $JN_EDIT .active:=true
+jn cat users.ndjson | jn-edit .active:=true
 echo ""
 echo ""
 
@@ -455,9 +465,9 @@ echo ""
 # ---------------------------------------------------------------------------
 
 echo "EXAMPLE 5.2: Add a new field to all records"
-echo "Command: cat users.ndjson | jn-edit .verified:=false"
+echo "Command: jn cat users.ndjson | jn-edit .verified:=false"
 echo "Result:"
-cat users.ndjson | $JN_EDIT .verified:=false
+jn cat users.ndjson | jn-edit .verified:=false
 echo ""
 echo ""
 
@@ -466,9 +476,9 @@ echo ""
 # ---------------------------------------------------------------------------
 
 echo "EXAMPLE 5.3: Remove a field from all records"
-echo "Command: cat users.ndjson | jn-edit --del .role"
+echo "Command: jn cat users.ndjson | jn-edit --del .role"
 echo "Result:"
-cat users.ndjson | $JN_EDIT --del .role
+jn cat users.ndjson | jn-edit --del .role
 echo ""
 echo ""
 
@@ -495,7 +505,7 @@ echo ""
 echo "EXAMPLE 6.1: Create nested path from empty object"
 echo "Command: echo '{}' | jn-edit .new.nested.path=value"
 echo "Result:"
-echo '{}' | $JN_EDIT .new.nested.path=value
+echo '{}' | jn-edit .new.nested.path=value
 echo ""
 echo ""
 
@@ -506,7 +516,7 @@ echo ""
 echo "EXAMPLE 6.2: Build deep structure from scratch"
 echo "Command: echo '{}' | jn-edit .user.profile.settings.theme=dark"
 echo "Result:"
-echo '{}' | $JN_EDIT .user.profile.settings.theme=dark
+echo '{}' | jn-edit .user.profile.settings.theme=dark
 echo ""
 echo ""
 
@@ -527,10 +537,10 @@ echo ""
 echo "PATTERN 7.1: In-place file editing"
 echo ""
 echo "  # Safe pattern with backup:"
-echo "  jn-edit .version=2.0 < config.json > config.json.new && mv config.json.new config.json"
+echo "  jn cat config.json | jn-edit .version=2.0 > config.json.new && mv config.json.new config.json"
 echo ""
 echo "  # With sponge (from moreutils):"
-echo "  cat config.json | jn-edit .version=2.0 | sponge config.json"
+echo "  jn cat config.json | jn-edit .version=2.0 | sponge config.json"
 echo ""
 echo ""
 
@@ -542,21 +552,26 @@ echo ""
 echo "PATTERN 7.2: Conditional editing"
 echo ""
 echo "  # Edit only admin users:"
-echo "  cat users.ndjson | jn filter 'select(.role == \"admin\")' | jn-edit .privileged:=true"
+echo "  jn cat users.ndjson | jn filter 'select(.role == \"admin\")' | jn-edit .privileged:=true"
 echo ""
 echo ""
 
 # ---------------------------------------------------------------------------
-# Pattern: Pipeline composition
+# Pattern: Pipeline composition - the jn way
 # ---------------------------------------------------------------------------
+# The jn ecosystem is built around NDJSON pipelines.
+# Each tool does one thing well and composes with others.
 
-echo "PATTERN 7.3: Pipeline composition"
+echo "PATTERN 7.3: Pipeline composition (the jn way)"
 echo ""
 echo "  # Read CSV, add timestamp, write JSON:"
 echo "  jn cat data.csv | jn-edit .imported_at=\"\$(date -Iseconds)\" | jn put output.json"
 echo ""
 echo "  # Fetch API, transform, store:"
 echo "  jn cat 'https://api.example.com/users~json' | jn-edit .source=api | jn put users.ndjson"
+echo ""
+echo "  # Read any format, edit, write any format:"
+echo "  jn cat input.yaml | jn-edit .processed:=true | jn put output.csv"
 echo ""
 echo ""
 
@@ -565,6 +580,7 @@ echo "==========================================================================
 Demo Complete
 
 Key Takeaways:
+- Use \`jn cat\` to read any format as NDJSON
 - Use .path=value for strings, .path:=value for JSON types
 - Use --del for explicit deletion (not null)
 - Use --merge for bulk nested updates
