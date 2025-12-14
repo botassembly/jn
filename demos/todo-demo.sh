@@ -57,9 +57,9 @@ demo "List all todos" "$TODO list"
 # -----------------------------------------------------------------------------
 # FILTERING
 # -----------------------------------------------------------------------------
-demo "Filter by priority" "$TODO list --priority high"
+demo "Filter by priority" "$TODO list high"
 
-demo "Filter by tag" "$TODO list --tag '@work'"
+demo "Filter by tag" "$TODO list @work"
 
 demo "Search by text" "$TODO search 'bug'"
 
@@ -115,7 +115,7 @@ demo "List shows subtasks indented" "$TODO list"
 # -----------------------------------------------------------------------------
 demo "Add notes to a task" "$TODO note 2 'Check error handling edge cases'"
 
-demo "View task notes" "$TODO notes 2"
+demo "View task notes" "$TODO note 2"
 
 # -----------------------------------------------------------------------------
 # WORKFLOW COMMANDS
