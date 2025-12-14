@@ -6,6 +6,7 @@ JN provides a **pure Zig core** with Python plugin extensibility for data transf
 
 **Documentation:** `spec/` contains the full architecture docs (14 documents).
 **Work Log:** `spec/log.md` tracks implementation progress.
+**Installation:** See `INSTALL.md` for end-user installation instructions.
 
 ---
 
@@ -16,6 +17,7 @@ JN provides a **pure Zig core** with Python plugin extensibility for data transf
 ```bash
 make build        # Build all Zig components (ZQ, plugins, tools)
 make test         # Run all Zig tests
+make check        # Validate build with integration tests
 make clean        # Remove build artifacts
 make fmt          # Format all Zig code
 
@@ -206,6 +208,108 @@ make fmt     # Format Zig code
 | `11-demo-migration.md` | Demo inventory |
 | `12-testing-strategy.md` | Outside-in testing |
 | `13-code-quality.md` | Coverage, linting |
+
+---
+
+## Agent Bootstrapping Guide
+
+When starting work on this codebase, use the release build to speed up development.
+
+### Quick Start for Agents
+
+```bash
+# 1. Download and extract the latest release
+curl -LO https://github.com/botassembly/jn/releases/latest/download/jn-linux-x86_64.tar.gz
+mkdir -p /tmp/jn-release
+tar -xzf jn-linux-x86_64.tar.gz -C /tmp/jn-release --strip-components=1
+
+# 2. Set up environment to use release binaries
+export JN_HOME="/tmp/jn-release"
+export PATH="$JN_HOME/bin:$PATH"
+
+# 3. Verify it works
+jn --version
+echo '{"test":1}' | jn filter '.'
+```
+
+### Why Use the Release Build?
+
+Building from source takes 2-3 minutes and rebuilds 20+ tools. Using release binaries:
+
+- **Instant testing**: Test changes without rebuilding everything
+- **Plugin availability**: All plugins (csv, json, yaml, etc.) are pre-built
+- **Tool discovery works**: Tools find each other via `$JN_HOME/bin/`
+
+### Development Workflow
+
+**When modifying a single tool:**
+
+```bash
+# Use release for all dependencies
+export JN_HOME="/tmp/jn-release"
+export PATH="$JN_HOME/bin:$PATH"
+
+# Rebuild only the tool you're changing
+cd tools/zig/jn-cat
+zig build-exe -fllvm -O ReleaseFast \
+  --dep jn-core --dep jn-cli --dep jn-address --dep jn-profile \
+  -Mroot=main.zig \
+  -Mjn-core=../../../libs/zig/jn-core/src/root.zig \
+  -Mjn-cli=../../../libs/zig/jn-cli/src/root.zig \
+  -Mjn-address=../../../libs/zig/jn-address/src/root.zig \
+  -Mjn-profile=../../../libs/zig/jn-profile/src/root.zig \
+  -femit-bin=bin/jn-cat
+
+# Test immediately - uses release plugins
+./bin/jn-cat test.csv
+```
+
+**When doing full validation:**
+
+```bash
+# Run full build and test
+make test
+
+# Run integration checks
+make check
+```
+
+### Validating Your Changes
+
+Always run these before committing:
+
+```bash
+make test      # Unit tests for all components
+make check     # Integration tests with real data
+make fmt       # Format code (run if fmt fails in CI)
+```
+
+### Release Build Layout
+
+The release uses a flat `bin/` directory:
+
+```
+$JN_HOME/
+├── bin/
+│   ├── jn, jn-cat, jn-put, ...  # All tools
+│   ├── csv, json, yaml, ...     # All plugins
+│   └── zq                        # Filter engine
+└── jn_home/
+    └── plugins/                  # Python plugins only
+```
+
+Tools discover plugins/tools in this order:
+1. `$JN_HOME/bin/{name}` (release layout)
+2. Sibling executables (same directory)
+3. `plugins/zig/{name}/bin/{name}` (development layout)
+4. `~/.local/jn/bin/{name}` (user install)
+
+### CLI Argument Notes
+
+Short options require `=` syntax:
+- `jn head --lines=5` works
+- `jn head -n=5` works
+- `jn head -n 5` does NOT work (space-separated)
 
 ---
 

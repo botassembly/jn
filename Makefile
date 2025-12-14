@@ -1,4 +1,4 @@
-.PHONY: all build test clean install-zig install-python-deps zq zq-test zig-plugins zig-plugins-test zig-libs zig-libs-test zig-tools zig-tools-test fmt
+.PHONY: all build test check clean install-zig install-python-deps zq zq-test zig-plugins zig-plugins-test zig-libs zig-libs-test zig-tools zig-tools-test fmt
 
 # Zig configuration
 ZIG_VERSION := 0.15.2
@@ -44,6 +44,27 @@ build: install-zig install-python-deps zq zig-plugins zig-tools
 test: build zig-libs-test zig-plugins-test zig-tools-test zq-test
 	@echo ""
 	@echo "All tests passed!"
+
+check: build
+	@echo "Running integration checks..."
+	@export JN_HOME="$(PWD)" && export PATH="$(PWD)/tools/zig/jn/bin:$$PATH" && \
+	echo "  Checking jn version..." && \
+	./tools/zig/jn/bin/jn --version && \
+	echo "  Checking CSV read..." && \
+	echo 'name,age\nAlice,30\nBob,25' | ./tools/zig/jn-cat/bin/jn-cat -~csv > /dev/null && \
+	echo "  Checking JSON output..." && \
+	echo '{"test":1}' | ./tools/zig/jn-filter/bin/jn-filter '.' > /dev/null && \
+	echo "  Checking head..." && \
+	echo '{"n":1}\n{"n":2}\n{"n":3}' | ./tools/zig/jn-head/bin/jn-head --lines=2 > /dev/null && \
+	echo "  Checking tail..." && \
+	echo '{"n":1}\n{"n":2}\n{"n":3}' | ./tools/zig/jn-tail/bin/jn-tail --lines=2 > /dev/null && \
+	echo "  Checking merge..." && \
+	echo '{"a":1}' > /tmp/jn_check_a.jsonl && \
+	echo '{"b":2}' > /tmp/jn_check_b.jsonl && \
+	./tools/zig/jn-merge/bin/jn-merge /tmp/jn_check_a.jsonl /tmp/jn_check_b.jsonl > /dev/null && \
+	rm -f /tmp/jn_check_a.jsonl /tmp/jn_check_b.jsonl && \
+	echo "" && \
+	echo "All integration checks passed!"
 
 clean:
 	rm -rf zq/zig-out
