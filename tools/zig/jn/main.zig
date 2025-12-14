@@ -16,6 +16,7 @@
 //!   join       Join two NDJSON sources (jn-join)
 //!   merge      Concatenate multiple sources (jn-merge)
 //!   sh         Execute shell commands as NDJSON (jn-sh)
+//!   tool       Run a JN utility tool (jn tool <name>)
 //!
 //! Options:
 //!   --help, -h       Show this help
@@ -82,6 +83,12 @@ pub fn main() !void {
     // Handle special Python-based commands
     if (std.mem.eql(u8, first_arg, "table")) {
         try runPythonPlugin(allocator, "table_.py", "--mode=write", args);
+        return;
+    }
+
+    // Handle 'tool' command for user utility tools
+    if (std.mem.eql(u8, first_arg, "tool")) {
+        try runUserTool(allocator, args);
         return;
     }
 
@@ -288,6 +295,167 @@ fn findPythonPlugin(allocator: std.mem.Allocator, name: []const u8) ?[]const u8 
     return null;
 }
 
+/// Find a user tool by name in jn_home/tools/
+fn findUserTool(allocator: std.mem.Allocator, name: []const u8) ?[]const u8 {
+    // Try JN_HOME first
+    if (std.posix.getenv("JN_HOME")) |jn_home| {
+        const path = std.fmt.allocPrint(allocator, "{s}/jn_home/tools/{s}", .{ jn_home, name }) catch return null;
+        if (std.fs.cwd().access(path, .{})) |_| {
+            return path;
+        } else |_| {
+            allocator.free(path);
+        }
+    }
+
+    // Try relative to current directory (development mode)
+    const dev_path = std.fmt.allocPrint(allocator, "jn_home/tools/{s}", .{name}) catch return null;
+    if (std.fs.cwd().access(dev_path, .{})) |_| {
+        return dev_path;
+    } else |_| {
+        allocator.free(dev_path);
+    }
+
+    // Try relative to executable's location
+    var exe_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    if (std.fs.selfExePath(&exe_path_buf)) |exe_path| {
+        // Go up 4 levels: bin -> jn -> zig -> tools -> root
+        var dir = std.fs.path.dirname(exe_path);
+        var i: usize = 0;
+        while (i < 4 and dir != null) : (i += 1) {
+            dir = std.fs.path.dirname(dir.?);
+        }
+        if (dir) |root| {
+            const path = std.fmt.allocPrint(allocator, "{s}/jn_home/tools/{s}", .{ root, name }) catch return null;
+            if (std.fs.cwd().access(path, .{})) |_| {
+                return path;
+            } else |_| {
+                allocator.free(path);
+            }
+        }
+    } else |_| {}
+
+    // Try ~/.local/jn/tools (user installation)
+    if (std.posix.getenv("HOME")) |home| {
+        const user_path = std.fmt.allocPrint(allocator, "{s}/.local/jn/tools/{s}", .{ home, name }) catch return null;
+        if (std.fs.cwd().access(user_path, .{})) |_| {
+            return user_path;
+        } else |_| {
+            allocator.free(user_path);
+        }
+    }
+
+    return null;
+}
+
+/// Run a user tool from jn_home/tools/
+fn runUserTool(allocator: std.mem.Allocator, args: std.process.ArgIterator) !void {
+    var args_copy = args;
+
+    // Get tool name
+    const tool_name = args_copy.next() orelse {
+        printToolUsage();
+        return;
+    };
+
+    // Handle --help
+    if (std.mem.eql(u8, tool_name, "--help") or std.mem.eql(u8, tool_name, "-h")) {
+        printToolUsage();
+        return;
+    }
+
+    // Find the tool
+    const tool_path = findUserTool(allocator, tool_name) orelse {
+        jn_core.exitWithError("jn tool: '{s}' not found\nHint: check jn_home/tools/ or ~/.local/jn/tools/", .{tool_name});
+    };
+
+    // Count remaining arguments
+    var arg_count: usize = 1; // tool path
+    var temp_args = args_copy;
+    while (temp_args.next()) |_| {
+        arg_count += 1;
+    }
+
+    // Allocate argv
+    var argv = allocator.alloc([]const u8, arg_count) catch {
+        jn_core.exitWithError("jn tool: out of memory", .{});
+    };
+    defer allocator.free(argv);
+
+    argv[0] = tool_path;
+
+    // Fill remaining args
+    var args_refill = args;
+    _ = args_refill.next(); // Skip tool name
+    var idx: usize = 1;
+    while (args_refill.next()) |arg| {
+        argv[idx] = arg;
+        idx += 1;
+    }
+
+    // Execute the tool
+    var child = std.process.Child.init(argv, allocator);
+    child.stdin_behavior = .Inherit;
+    child.stdout_behavior = .Inherit;
+    child.stderr_behavior = .Inherit;
+
+    child.spawn() catch |err| {
+        jn_core.exitWithError("jn tool: failed to execute '{s}': {s}", .{ tool_name, @errorName(err) });
+    };
+
+    const result = child.wait() catch |err| {
+        jn_core.exitWithError("jn tool: failed to wait for '{s}': {s}", .{ tool_name, @errorName(err) });
+    };
+
+    // Exit with the tool's exit code
+    switch (result) {
+        .Exited => |code| {
+            if (code != 0) {
+                std.process.exit(code);
+            }
+        },
+        .Signal => |sig| {
+            const sig_u8: u8 = @truncate(sig);
+            std.process.exit(128 +| sig_u8);
+        },
+        .Stopped => |sig| {
+            const sig_u8: u8 = @truncate(sig);
+            std.process.exit(128 +| sig_u8);
+        },
+        .Unknown => |val| {
+            std.process.exit(@truncate(val));
+        },
+    }
+}
+
+/// Print tool subcommand usage
+fn printToolUsage() void {
+    const usage =
+        \\jn tool - Run JN utility tools
+        \\
+        \\Usage: jn tool <name> [args...]
+        \\
+        \\Tools are standalone utilities that leverage JN's NDJSON infrastructure.
+        \\They are located in jn_home/tools/ or ~/.local/jn/tools/
+        \\
+        \\Available tools:
+        \\  todo       Task management with dependencies
+        \\
+        \\Examples:
+        \\  jn tool todo list
+        \\  jn tool todo add "Fix bug" -p high
+        \\  jn tool todo ready
+        \\
+        \\Create an alias for convenience:
+        \\  alias todo="jn tool todo"
+        \\
+    ;
+    var buf: [1024]u8 = undefined;
+    var stdout_wrapper = std.fs.File.stdout().writer(&buf);
+    const stdout = &stdout_wrapper.interface;
+    stdout.writeAll(usage) catch {};
+    jn_core.flushWriter(stdout);
+}
+
 /// Escape a path for use in single-quoted shell arguments.
 /// SECURITY: This prevents command injection via paths containing single quotes.
 fn escapeShellPath(allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
@@ -382,6 +550,7 @@ fn printUsage() void {
         \\  merge      Concatenate multiple sources
         \\  sh         Execute shell commands as NDJSON
         \\  table      Format NDJSON as table (via Python)
+        \\  tool       Run utility tools (jn tool <name>)
         \\
         \\Options:
         \\  --help, -h     Show this help

@@ -41,3 +41,11 @@ tools/zig/*/bin/
 zq/zig-out/
 zq/.zig-cache/
 .zig-cache/
+
+# Todo CLI test data
+demos/todo-cli/.todo.jsonl
+demos/todo-cli/.todo.jsonl.bak
+
+# Test data files
+.todo.jsonl
+.todo.jsonl.bak
