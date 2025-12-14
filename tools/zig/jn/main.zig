@@ -31,7 +31,11 @@
 const std = @import("std");
 const jn_core = @import("jn-core");
 
-const VERSION = "0.1.0";
+/// Version embedded at compile time from version.txt
+const VERSION = blk: {
+    const raw = @embedFile("version.txt");
+    break :blk std.mem.trimRight(u8, raw, &.{ '\n', '\r', ' ' });
+};
 
 /// Known subcommands and their descriptions
 const Command = struct {
@@ -76,6 +80,12 @@ pub fn main() !void {
 
     // Handle --version
     if (std.mem.eql(u8, first_arg, "--version")) {
+        printVersion();
+        return;
+    }
+
+    // Handle 'version' subcommand (alternative to --version)
+    if (std.mem.eql(u8, first_arg, "version")) {
         printVersion();
         return;
     }
@@ -551,6 +561,7 @@ fn printUsage() void {
         \\  sh         Execute shell commands as NDJSON
         \\  table      Format NDJSON as table (via Python)
         \\  tool       Run utility tools (jn tool <name>)
+        \\  version    Show version
         \\
         \\Options:
         \\  --help, -h     Show this help
