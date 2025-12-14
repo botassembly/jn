@@ -15,6 +15,7 @@ JN provides a **pure Zig core** with Python plugin extensibility for data transf
 ### Makefile Commands
 
 ```bash
+make bootstrap    # Download latest release for fast development
 make build        # Build all Zig components (ZQ, plugins, tools)
 make test         # Run all Zig tests
 make check        # Validate build with integration tests
@@ -218,16 +219,19 @@ When starting work on this codebase, use the release build to speed up developme
 ### Quick Start for Agents
 
 ```bash
-# 1. Download and extract the latest release
-curl -LO https://github.com/botassembly/jn/releases/latest/download/jn-linux-x86_64.tar.gz
-mkdir -p /tmp/jn-release
-tar -xzf jn-linux-x86_64.tar.gz -C /tmp/jn-release --strip-components=1
-
-# 2. Set up environment to use release binaries
+# Option 1: Use the bootstrap script (recommended)
+make bootstrap
 export JN_HOME="/tmp/jn-release"
 export PATH="$JN_HOME/bin:$PATH"
 
-# 3. Verify it works
+# Option 2: Manual download
+curl -LO https://github.com/botassembly/jn/releases/latest/download/jn-linux-x86_64.tar.gz
+mkdir -p /tmp/jn-release
+tar -xzf jn-linux-x86_64.tar.gz -C /tmp/jn-release --strip-components=1
+export JN_HOME="/tmp/jn-release"
+export PATH="$JN_HOME/bin:$PATH"
+
+# Verify it works
 jn --version
 echo '{"test":1}' | jn filter '.'
 ```

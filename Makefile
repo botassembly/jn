@@ -1,4 +1,4 @@
-.PHONY: all build test check clean install-zig install-python-deps zq zq-test zig-plugins zig-plugins-test zig-libs zig-libs-test zig-tools zig-tools-test fmt
+.PHONY: all build test check clean install-zig install-python-deps zq zq-test zig-plugins zig-plugins-test zig-libs zig-libs-test zig-tools zig-tools-test fmt bootstrap
 
 # Zig configuration
 ZIG_VERSION := 0.15.2
@@ -215,3 +215,14 @@ fmt: install-zig
 	$(ZIG) fmt libs/zig/
 	$(ZIG) fmt tools/zig/
 	$(ZIG) fmt plugins/zig/
+
+# =============================================================================
+# Bootstrap (download release for fast development)
+# =============================================================================
+
+bootstrap:
+	@./scripts/bootstrap-release.sh /tmp/jn-release
+	@echo ""
+	@echo "Quick start:"
+	@echo "  export JN_HOME=/tmp/jn-release"
+	@echo "  export PATH=\"\$$JN_HOME/bin:\$$PATH\""
