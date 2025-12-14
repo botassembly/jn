@@ -10,32 +10,7 @@ permissions:
 
 jobs:
   build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            target: x86_64-linux
-            zig_target: x86_64-linux
-            ext: ""
-          - os: ubuntu-latest
-            target: aarch64-linux
-            zig_target: aarch64-linux
-            ext: ""
-          - os: macos-latest
-            target: x86_64-macos
-            zig_target: x86_64-macos
-            ext: ""
-          - os: macos-latest
-            target: aarch64-macos
-            zig_target: aarch64-macos
-            ext: ""
-          - os: windows-latest
-            target: x86_64-windows
-            zig_target: x86_64-windows
-            ext: ".exe"
-
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -64,12 +39,11 @@ jobs:
           JN_ADDRESS="-Mjn-address=../../../libs/zig/jn-address/src/root.zig"
           JN_PROFILE="-Mjn-profile=../../../libs/zig/jn-profile/src/root.zig"
 
-          TOOL_MODULES="--dep jn-core --dep jn-cli --dep jn-address --dep jn-profile -Mroot=main.zig $JN_CORE $JN_CLI $JN_ADDRESS $JN_PROFILE"
-          PLUGIN_MODULES="--dep jn-core --dep jn-cli --dep jn-plugin -Mroot=main.zig $JN_CORE $JN_CLI $JN_PLUGIN"
-          JN_MODULES="--dep jn-core -Mroot=main.zig $JN_CORE"
+          TOOL_MODULES="--dep jn-core --dep jn-cli --dep jn-address --dep jn-profile -Mroot=./main.zig $JN_CORE $JN_CLI $JN_ADDRESS $JN_PROFILE"
+          PLUGIN_MODULES="--dep jn-core --dep jn-cli --dep jn-plugin -Mroot=./main.zig $JN_CORE $JN_CLI $JN_PLUGIN"
+          JN_MODULES="--dep jn-core -Mroot=./main.zig $JN_CORE"
 
-          TARGET="-target ${{ matrix.zig_target }}"
-          EXT="${{ matrix.ext }}"
+          TARGET="-target x86_64-linux"
 
           # Create output directory
           mkdir -p dist/bin
@@ -77,28 +51,28 @@ jobs:
           # Build jn orchestrator
           echo "Building jn..."
           cd tools/zig/jn
-          zig build-exe main.zig -fllvm -O ReleaseFast $TARGET $JN_MODULES -femit-bin=../../../dist/bin/jn${EXT}
+          zig build-exe -fllvm -O ReleaseFast $TARGET $JN_MODULES -femit-bin=../../../dist/bin/jn
           cd ../../..
 
           # Build CLI tools
           for tool in jn-cat jn-put jn-filter jn-head jn-tail jn-analyze jn-inspect jn-join jn-merge jn-sh jn-edit; do
             echo "Building $tool..."
             cd tools/zig/$tool
-            zig build-exe main.zig -fllvm -O ReleaseFast $TARGET $TOOL_MODULES -femit-bin=../../../dist/bin/${tool}${EXT}
+            zig build-exe -fllvm -O ReleaseFast $TARGET $TOOL_MODULES -femit-bin=../../../dist/bin/${tool}
             cd ../../..
           done
 
           # Build ZQ
           echo "Building zq..."
           cd zq
-          zig build-exe src/main.zig -fllvm -O ReleaseFast $TARGET -femit-bin=../dist/bin/zq${EXT}
+          zig build-exe src/main.zig -fllvm -O ReleaseFast $TARGET -femit-bin=../dist/bin/zq
           cd ..
 
           # Build plugins
           for plugin in csv json jsonl gz yaml toml; do
             echo "Building $plugin plugin..."
             cd plugins/zig/$plugin
-            zig build-exe main.zig -fllvm -O ReleaseFast $TARGET $PLUGIN_MODULES -femit-bin=../../../dist/bin/${plugin}${EXT}
+            zig build-exe -fllvm -O ReleaseFast $TARGET $PLUGIN_MODULES -femit-bin=../../../dist/bin/${plugin}
             cd ../../..
           done
 
@@ -106,10 +80,9 @@ jobs:
           ls -la dist/bin/
 
       - name: Package release
-        shell: bash
         run: |
           VERSION=${{ steps.version.outputs.version }}
-          ARCHIVE="jn-${VERSION}-${{ matrix.target }}"
+          ARCHIVE="jn-${VERSION}-x86_64-linux"
 
           mkdir -p release/$ARCHIVE
 
@@ -121,21 +94,15 @@ jobs:
 
           # Create archive
           cd release
-          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            7z a ${ARCHIVE}.zip $ARCHIVE
-          else
-            tar -czf ${ARCHIVE}.tar.gz $ARCHIVE
-          fi
+          tar -czf ${ARCHIVE}.tar.gz $ARCHIVE
 
           ls -la
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: jn-${{ matrix.target }}
-          path: |
-            release/*.tar.gz
-            release/*.zip
+          name: jn-x86_64-linux
+          path: release/*.tar.gz
           if-no-files-found: error
 
   release:
@@ -151,7 +118,7 @@ jobs:
       - name: Collect release files
         run: |
           mkdir -p release
-          find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" \) -exec cp {} release/ \;
+          find artifacts -type f -name "*.tar.gz" -exec cp {} release/ \;
           ls -la release/
 
       - name: Create GitHub Release
