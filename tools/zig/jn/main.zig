@@ -207,6 +207,19 @@ fn findTool(allocator: std.mem.Allocator, name: []const u8) ?[]const u8 {
         }
     }
 
+    // Try sibling to executable (flat bin/ layout: all tools in same directory)
+    var exe_buf: [std.fs.max_path_bytes]u8 = undefined;
+    if (std.fs.selfExePath(&exe_buf)) |exe_path| {
+        if (std.fs.path.dirname(exe_path)) |exe_dir| {
+            const sibling_path = std.fmt.allocPrint(allocator, "{s}/{s}", .{ exe_dir, name }) catch return null;
+            if (std.fs.cwd().access(sibling_path, .{})) |_| {
+                return sibling_path;
+            } else |_| {
+                allocator.free(sibling_path);
+            }
+        }
+    } else |_| {}
+
     // Try relative to current directory (development mode)
     const dev_path = std.fmt.allocPrint(allocator, "tools/zig/{s}/bin/{s}", .{ name, name }) catch return null;
     if (std.fs.cwd().access(dev_path, .{})) |_| {
