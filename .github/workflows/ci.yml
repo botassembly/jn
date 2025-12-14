@@ -1,8 +1,6 @@
 name: CI
 
 on:
-  push:
-    branches: ["**"]
   pull_request:
     branches: ["**"]
 
@@ -28,7 +26,7 @@ jobs:
 
       - name: Install and run tests
         run: |
-          uv run --isolated --python=3.11 --extra dev pytest -q
+          uv run --isolated --python=3.11 pytest -q
 
       - name: Build Zig plugins
         run: |
