@@ -14,16 +14,16 @@ curl -LO https://github.com/botassembly/jn/releases/latest/download/jn-linux-x86
 mkdir -p ~/.local/jn
 tar -xzf jn-linux-x86_64.tar.gz -C ~/.local/jn --strip-components=1
 
-# Add to shell config (bash)
-echo 'export JN_HOME="$HOME/.local/jn"' >> ~/.bashrc
-echo 'export PATH="$JN_HOME/bin:$PATH"' >> ~/.bashrc
+# Add to PATH (bash)
+echo 'export PATH="$HOME/.local/jn/bin:$PATH"' >> ~/.bashrc
 source ~/.bashrc
 
 # Or for zsh
-echo 'export JN_HOME="$HOME/.local/jn"' >> ~/.zshrc
-echo 'export PATH="$JN_HOME/bin:$PATH"' >> ~/.zshrc
+echo 'export PATH="$HOME/.local/jn/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
 ```
+
+**Note:** `JN_HOME` is not required. JN automatically discovers tools and plugins relative to the executable.
 
 ## Verify Installation
 
@@ -39,9 +39,9 @@ echo 'name,age
 Alice,30
 Bob,25' | jn cat -~csv
 
-# Convert CSV to JSON array
-echo 'name,age
-Alice,30' | jn cat -~csv | jn put output.json~json
+# Use the todo tool
+jn tool todo add "My first task"
+jn tool todo list
 ```
 
 ## What's Included
@@ -65,7 +65,9 @@ jn/
 │   ├── zq                  # Filter engine
 │   └── csv, json, jsonl, gz, yaml, toml  # Format plugins
 └── jn_home/
-    └── plugins/            # Python plugins (xlsx, gmail, duckdb, etc.)
+    ├── tools/              # Utility tools (todo, etc.)
+    ├── plugins/            # Python plugins (xlsx, gmail, duckdb, etc.)
+    └── profiles/           # Profile definitions
 ```
 
 ## Python Plugins (Optional)
@@ -90,15 +92,28 @@ For development or building from source:
 git clone https://github.com/botassembly/jn.git
 cd jn
 
-# Build everything (downloads Zig automatically if needed)
-make build
+# Build and create distribution (downloads Zig automatically)
+make bootstrap
 
-# Run tests
-make test
+# Activate jn in your current shell
+source dist/activate.sh
 
-# Add development build to PATH
-export JN_HOME="$(pwd)"
-export PATH="$(pwd)/tools/zig/jn/bin:$PATH"
+# Verify
+jn --version
+jn tool todo --help
+```
+
+The `make bootstrap` command:
+1. Downloads Zig if needed
+2. Builds all tools and plugins
+3. Creates a `dist/` directory with release layout
+4. Generates `dist/activate.sh` for easy PATH setup
+
+For development, you can also run individual targets:
+```bash
+make build    # Build tools/plugins in development layout
+make test     # Run all tests
+make dist     # Create release layout in dist/
 ```
 
 ## Upgrading
@@ -123,19 +138,23 @@ jn --version
 rm -rf ~/.local/jn
 
 # Remove from shell config
-# Edit ~/.bashrc or ~/.zshrc and remove the JN_HOME and PATH lines
+# Edit ~/.bashrc or ~/.zshrc and remove the PATH line
 ```
 
 ## Troubleshooting
 
 **Command not found**
-- Ensure `$JN_HOME/bin` is in your PATH
+- Ensure `~/.local/jn/bin` is in your PATH
 - Run `source ~/.bashrc` or start a new terminal
 
 **Plugin not found**
-- Check that `$JN_HOME` is set correctly: `echo $JN_HOME`
-- Verify plugins exist: `ls $JN_HOME/bin/csv`
+- Plugins are discovered relative to the `jn` binary
+- Verify the installation: `ls ~/.local/jn/bin/csv`
 
 **Python plugin errors**
 - Install uv: `curl -LsSf https://astral.sh/uv/install.sh | sh`
 - Check Python is available: `python3 --version`
+
+**Tool not found (jn tool ...)**
+- Tools are in `jn_home/tools/` relative to the binary
+- Verify: `ls ~/.local/jn/jn_home/tools/`

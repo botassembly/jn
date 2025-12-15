@@ -1,4 +1,4 @@
-.PHONY: all build test check clean install-zig install-python-deps zq zq-test zig-plugins zig-plugins-test zig-libs zig-libs-test zig-tools zig-tools-test fmt bootstrap
+.PHONY: all build test check clean install-zig install-python-deps zq zq-test zig-plugins zig-plugins-test zig-libs zig-libs-test zig-tools zig-tools-test fmt dist bootstrap bootstrap-release
 
 # Zig configuration
 ZIG_VERSION := 0.15.2
@@ -209,12 +209,53 @@ fmt: install-zig
 	$(ZIG) fmt plugins/zig/
 
 # =============================================================================
-# Bootstrap (download release for fast development)
+# Distribution build (release layout in dist/)
 # =============================================================================
 
-bootstrap:
+dist: build
+	@echo "Creating distribution in dist/..."
+	@rm -rf dist
+	@mkdir -p dist/bin
+	@# Copy all tools
+	@cp tools/zig/jn/bin/jn dist/bin/
+	@for t in $(TOOLS); do cp tools/zig/$$t/bin/$$t dist/bin/; done
+	@# Copy ZQ
+	@cp zq/zig-out/bin/zq dist/bin/
+	@# Copy plugins
+	@for p in $(PLUGINS); do cp plugins/zig/$$p/bin/$$p dist/bin/; done
+	@# Copy jn_home (tools, plugins, profiles)
+	@cp -r jn_home dist/
+	@# Create activate script
+	@echo '#!/bin/bash' > dist/activate.sh
+	@echo '# Source this file to add jn to your PATH' >> dist/activate.sh
+	@echo 'export PATH="$$(cd "$$(dirname "$${BASH_SOURCE[0]}")" && pwd)/bin:$$PATH"' >> dist/activate.sh
+	@chmod +x dist/activate.sh
+	@echo ""
+	@echo "Distribution created in dist/"
+	@echo ""
+	@echo "To use jn, run:"
+	@echo "  source dist/activate.sh"
+	@echo ""
+	@echo "Or add to PATH manually:"
+	@echo "  export PATH=\"$(PWD)/dist/bin:\$$PATH\""
+
+# =============================================================================
+# Bootstrap (build from source or download release)
+# =============================================================================
+
+bootstrap: dist
+	@echo ""
+	@echo "=== Bootstrap Complete ==="
+	@echo ""
+	@echo "To activate jn in your current shell:"
+	@echo "  source dist/activate.sh"
+	@echo ""
+	@echo "Verify it works:"
+	@echo "  jn --version"
+	@echo "  jn tool todo --help"
+
+bootstrap-release:
 	@./scripts/bootstrap-release.sh /tmp/jn-release
 	@echo ""
 	@echo "Quick start:"
-	@echo "  export JN_HOME=/tmp/jn-release"
-	@echo "  export PATH=\"\$$JN_HOME/bin:\$$PATH\""
+	@echo "  export PATH=\"/tmp/jn-release/bin:\$$PATH\""

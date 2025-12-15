@@ -15,12 +15,16 @@ JN provides a **pure Zig core** with Python plugin extensibility for data transf
 ### Makefile Commands
 
 ```bash
-make bootstrap    # Download latest release for fast development
+make bootstrap    # Build from source and create dist/ (then: source dist/activate.sh)
 make build        # Build all Zig components (ZQ, plugins, tools)
 make test         # Run all Zig tests
 make check        # Validate build with integration tests
+make dist         # Create release layout in dist/
 make clean        # Remove build artifacts
 make fmt          # Format all Zig code
+
+# Alternative bootstrap (downloads pre-built release):
+make bootstrap-release   # Download release to /tmp/jn-release
 
 # Individual targets (rarely needed):
 make zq                # Build ZQ filter engine
@@ -214,58 +218,50 @@ make fmt     # Format Zig code
 
 ## Agent Bootstrapping Guide
 
-When starting work on this codebase, use the release build to speed up development.
+When starting work on this codebase, bootstrap the environment first.
 
 ### Quick Start for Agents
 
 ```bash
-# Option 1: Use the bootstrap script (recommended)
+# Build from source and activate (recommended)
 make bootstrap
-export JN_HOME="/tmp/jn-release"
-export PATH="$JN_HOME/bin:$PATH"
-
-# Option 2: Manual download
-curl -LO https://github.com/botassembly/jn/releases/latest/download/jn-linux-x86_64.tar.gz
-mkdir -p /tmp/jn-release
-tar -xzf jn-linux-x86_64.tar.gz -C /tmp/jn-release --strip-components=1
-export JN_HOME="/tmp/jn-release"
-export PATH="$JN_HOME/bin:$PATH"
+source dist/activate.sh
 
 # Verify it works
 jn --version
+jn tool todo --help
 echo '{"test":1}' | jn filter '.'
 ```
 
-### Why Use the Release Build?
+That's it! The `source dist/activate.sh` command adds `dist/bin/` to your PATH.
 
-Building from source takes 2-3 minutes and rebuilds 20+ tools. Using release binaries:
+### Alternative: Download Pre-built Release
 
-- **Instant testing**: Test changes without rebuilding everything
-- **Plugin availability**: All plugins (csv, json, yaml, etc.) are pre-built
-- **Tool discovery works**: Tools find each other via `$JN_HOME/bin/`
+If you want to skip building (faster for quick testing):
+
+```bash
+make bootstrap-release
+export PATH="/tmp/jn-release/bin:$PATH"
+```
+
+**Note:** `JN_HOME` is not required. JN automatically discovers tools and plugins relative to the executable.
 
 ### Development Workflow
 
 **When modifying a single tool:**
 
 ```bash
-# Use release for all dependencies
-export JN_HOME="/tmp/jn-release"
-export PATH="$JN_HOME/bin:$PATH"
+# Make sure jn is available
+source dist/activate.sh
 
 # Rebuild only the tool you're changing
-cd tools/zig/jn-cat
-zig build-exe -fllvm -O ReleaseFast \
-  --dep jn-core --dep jn-cli --dep jn-address --dep jn-profile \
-  -Mroot=main.zig \
-  -Mjn-core=../../../libs/zig/jn-core/src/root.zig \
-  -Mjn-cli=../../../libs/zig/jn-cli/src/root.zig \
-  -Mjn-address=../../../libs/zig/jn-address/src/root.zig \
-  -Mjn-profile=../../../libs/zig/jn-profile/src/root.zig \
-  -femit-bin=bin/jn-cat
+make tool-jn-cat
 
-# Test immediately - uses release plugins
-./bin/jn-cat test.csv
+# Copy to dist for testing
+cp tools/zig/jn-cat/bin/jn-cat dist/bin/
+
+# Test immediately
+echo 'a,b\n1,2' | jn cat -~csv
 ```
 
 **When doing full validation:**
@@ -276,6 +272,9 @@ make test
 
 # Run integration checks
 make check
+
+# Rebuild dist/ with all changes
+make dist
 ```
 
 ### Validating Your Changes
@@ -288,25 +287,28 @@ make check     # Integration tests with real data
 make fmt       # Format code (run if fmt fails in CI)
 ```
 
-### Release Build Layout
+### Distribution Layout
 
-The release uses a flat `bin/` directory:
+The `dist/` directory (created by `make dist` or `make bootstrap`) uses a flat layout:
 
 ```
-$JN_HOME/
+dist/
 ├── bin/
 │   ├── jn, jn-cat, jn-put, ...  # All tools
 │   ├── csv, json, yaml, ...     # All plugins
 │   └── zq                        # Filter engine
-└── jn_home/
-    └── plugins/                  # Python plugins only
+├── jn_home/
+│   ├── tools/                    # Utility tools (todo, etc.)
+│   ├── plugins/                  # Python plugins
+│   └── profiles/                 # Profile definitions
+└── activate.sh                   # Source this to add bin/ to PATH
 ```
 
-Tools discover plugins/tools in this order:
-1. `$JN_HOME/bin/{name}` (release layout)
-2. Sibling executables (same directory)
-3. `plugins/zig/{name}/bin/{name}` (development layout)
-4. `~/.local/jn/bin/{name}` (user install)
+Tools discover plugins/tools relative to the executable:
+1. Sibling executables in same `bin/` directory
+2. `../jn_home/tools/` and `../jn_home/plugins/` (release layout)
+3. Development paths (4 levels up from `tools/zig/*/bin/`)
+4. `~/.local/jn/` (user install)
 
 ### CLI Argument Notes
 
