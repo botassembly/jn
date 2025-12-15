@@ -1,127 +1,118 @@
-# ZQ Functions Inventory
-# Format: function_name    description (max 60 chars)
+# ZQ Functions Inventory (Definitive)
+# Format: function                description (max 60 chars)
 
 # === GENERATORS: DATE/TIME ===
-day                 Current day of month (1-31)
-epoch               Unix timestamp in seconds
-epoch_ms            Unix timestamp in milliseconds
-hour                Current hour (0-23)
-minute              Current minute (0-59)
-month               Current month (1-12)
-now                 ISO 8601 timestamp (UTC)
-second              Current second (0-59)
-time                Time only (HH:MM:SS)
-today               Date only (YYYY-MM-DD)
-week                ISO week number (1-53)
-weekday             Day of week name (Sunday, Monday, etc.)
-weekday_num         Day of week number (0=Sunday, 6=Saturday)
-year                Current year
+day                               Current day of month (1-31)
+epoch                             Unix timestamp in seconds
+epoch_ms                          Unix timestamp in milliseconds
+hour                              Current hour (0-23)
+minute                            Current minute (0-59)
+month                             Current month (1-12)
+now                               ISO 8601 timestamp (UTC)
+second                            Current second (0-59)
+time                              Time only (HH:MM:SS)
+today                             Date only (YYYY-MM-DD)
+week                              ISO week number (1-53)
+weekday                           Day of week name (Sunday, Monday, etc.)
+weekday_num                       Day of week number (0=Sunday, 6=Saturday)
+year                              Current year
 
 # === GENERATORS: IDs ===
-nanoid              NanoID, 21 chars, URL-safe
-shortid             Base62 ID, 8 chars, human-friendly
-sid                 Base62 ID, 6 chars, super short
-ulid                ULID, 26 chars, time-sortable
-uuid                UUID v4, 36 chars, random
-uuid7               UUID v7, 36 chars, time-sortable
-xid                 XID, 20 chars, compact and sortable
+nanoid                            NanoID, 21 chars, URL-safe
+shortid                           Base62 ID, 8 chars, human-friendly
+sid                               Base62 ID, 6 chars, super short
+ulid                              ULID, 26 chars, time-sortable
+uuid                              UUID v4, 36 chars, random
+uuid7                             UUID v7, 36 chars, time-sortable
+xid                               XID, 20 chars, compact and sortable
 
 # === GENERATORS: RANDOM ===
-randbool            Random boolean (true/false)
-random              Random float between 0.0 and 1.0
+choice                            Random element from input array
+choice(a,b,...)                   Random element from argument list
+random                            Random float between 0.0 and 1.0
+randint(n)                        Random integer from 0 to n
+randint(min,max)                  Random integer from min to max
 
 # === GENERATORS: SEQUENCE ===
-rownum              Row number in stream (alias for seq)
-seq                 Incrementing counter, resets each run
+seq                               Incrementing counter, resets each run
+
+# === TYPE COERCION ===
+bool                              Coerce to boolean, null if invalid
+float                             Coerce to float, null if invalid
+int                               Coerce to integer, null if invalid
+str                               Coerce to string (alias for tostring)
 
 # === TRANSFORMS: NUMERIC ===
-abs                 Absolute value
-decr                Subtract 1 from number
-double              Multiply number by 2
-half                Divide number by 2
-incr                Add 1 to number
-negate              Flip sign of number
-toggle              Flip boolean value
+abs                               Absolute value
+decr                              Subtract 1 from number
+decr(n)                           Subtract n from number
+incr                              Add 1 to number
+incr(n)                           Add n to number
+mult(n)                           Multiply number by n
+negate                            Flip sign of number
+toggle                            Flip boolean value
 
 # === TRANSFORMS: STRING ===
-chomp               Remove trailing newline
-ltrim               Remove leading whitespace
-rtrim               Remove trailing whitespace
-squeeze             Collapse multiple spaces to single space
-trim                Remove leading and trailing whitespace
+append(str)                       Append string to end
+ltrim                             Remove leading whitespace
+prepend(str)                      Prepend string to beginning
+rtrim                             Remove trailing whitespace
+trim                              Remove leading and trailing whitespace
 
 # === TRANSFORMS: STRING SPLITTING ===
-chars               Split string into array of characters
-lines               Split string into array by newlines
-words               Split string into array by whitespace
+chars                             Split string into array of characters
+lines                             Split string into array by newlines
+words                             Split string into array by whitespace
 
-# === TRANSFORMS: SLUG/URL ===
-slugify             Convert to URL-safe slug (lowercase, dashes)
-
-# === ENCODING: BASE ===
-base64              Encode string to base64
-base64d             Decode base64 to string
-hex                 Encode string to hexadecimal
-unhex               Decode hexadecimal to string
-
-# === ENCODING: URL ===
-urldecode           Decode URL-encoded string
-urlencode           Encode string for URL
+# === TRANSFORMS: SLUG ===
+slugify                           Convert to URL-safe slug (lowercase, dashes)
 
 # === ENCODING: HASH ===
-crc32               CRC32 checksum (8 hex chars)
-md5                 MD5 hash (32 hex chars)
-sha1                SHA1 hash (40 hex chars)
-sha256              SHA256 hash (64 hex chars)
+crc32                             CRC32 checksum (8 hex chars)
+md5                               MD5 hash (32 hex chars)
+sha1                              SHA1 hash (40 hex chars)
+sha256                            SHA256 hash (64 hex chars)
 
 # === CASE ===
-camelcase           Convert to camelCase
-capitalize          Uppercase first letter only
-kebabcase           Convert to kebab-case
-pascalcase          Convert to PascalCase
-screamcase          Convert to SCREAMING_SNAKE_CASE
-snakecase           Convert to snake_case
-titlecase           Uppercase first letter of each word
+camelcase                         Convert to camelCase
+capitalize                        Uppercase first letter only
+kebabcase                         Convert to kebab-case
+pascalcase                        Convert to PascalCase
+screamcase                        Convert to SCREAMING_SNAKE_CASE
+snakecase                         Convert to snake_case
+titlecase                         Uppercase first letter of each word
 
 # === PREDICATES ===
-blank               True if null, empty string, array, or object
-defined             True if not null
-empty               True if string/array/object has zero length
-numeric             True if number or numeric string
-present             True if not blank (opposite of blank)
+empty                             True if string/array/object has zero length
 
 # === MATH: BASIC ===
-ceil                Round up to nearest integer
-exp                 Exponential (e^x)
-floor               Round down to nearest integer
-ln                  Natural logarithm
-log10               Base-10 logarithm
-log2                Base-2 logarithm
-round               Round to nearest integer
-sqrt                Square root
+ceil                              Round up to nearest integer
+exp                               Exponential (e^x)
+floor                             Round down to nearest integer
+ln                                Natural logarithm
+log10                             Base-10 logarithm
+log2                              Base-2 logarithm
+round                             Round to nearest integer
+sqrt                              Square root
 
 # === MATH: TRIGONOMETRY ===
-acos                Arc cosine (radians)
-asin                Arc sine (radians)
-atan                Arc tangent (radians)
-cos                 Cosine (radians)
-sin                 Sine (radians)
-tan                 Tangent (radians)
+acos                              Arc cosine (radians)
+asin                              Arc sine (radians)
+atan                              Arc tangent (radians)
+cos                               Cosine (radians)
+sin                               Sine (radians)
+tan                               Tangent (radians)
 
 # === PARAMETRIC: STRING ===
-default(val)        Use val if input is null
-lpad(n,c)           Left pad to length n with char c
-repeat(n)           Repeat string n times
-replace(old,new)    Replace all occurrences of old with new
-rpad(n,c)           Right pad to length n with char c
-substr(start,len)   Extract substring from start for len chars
-truncate(n)         Truncate string to n characters
+default(val)                      Use val if input is null
+lpad(n,char)                      Left pad to length n with char
+repeat(n)                         Repeat string n times
+replace(old,new)                  Replace all occurrences of old with new
+rpad(n,char)                      Right pad to length n with char
+substr(start,len)                 Extract substring from start for len chars
+truncate(n)                       Truncate string to n characters
 
 # === PARAMETRIC: NUMERIC ===
-clamp(min,max)      Constrain number to range [min,max]
-pow(n)              Raise to power n
-randint(min,max)    Random integer in range [min,max]
-roundto(n)          Round to n decimal places
-
-# === PARAMETRIC: HASH ===
-hash(n)             Hash truncated to first n characters
+clamp(min,max)                    Constrain number to range [min,max]
+pow(n)                            Raise to power n
+roundto(n)                        Round to n decimal places
