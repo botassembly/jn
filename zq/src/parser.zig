@@ -421,6 +421,18 @@ pub fn parseExprWithContext(allocator: std.mem.Allocator, expr: []const u8, err_
     if (std.mem.eql(u8, trimmed, "ceil")) return .{ .builtin = .{ .kind = .ceil } };
     if (std.mem.eql(u8, trimmed, "round")) return .{ .builtin = .{ .kind = .round } };
     if (std.mem.eql(u8, trimmed, "fabs")) return .{ .builtin = .{ .kind = .fabs } };
+    // Sprint 06: Generator functions - Date/Time
+    if (std.mem.eql(u8, trimmed, "now")) return .{ .builtin = .{ .kind = .now } };
+    if (std.mem.eql(u8, trimmed, "today")) return .{ .builtin = .{ .kind = .today } };
+    if (std.mem.eql(u8, trimmed, "epoch")) return .{ .builtin = .{ .kind = .epoch } };
+    if (std.mem.eql(u8, trimmed, "epoch_ms")) return .{ .builtin = .{ .kind = .epoch_ms } };
+    // Sprint 06: Generator functions - IDs
+    if (std.mem.eql(u8, trimmed, "uuid")) return .{ .builtin = .{ .kind = .uuid } };
+    if (std.mem.eql(u8, trimmed, "shortid")) return .{ .builtin = .{ .kind = .shortid } };
+    if (std.mem.eql(u8, trimmed, "sid")) return .{ .builtin = .{ .kind = .sid } };
+    // Sprint 06: Generator functions - Random/Sequence
+    if (std.mem.eql(u8, trimmed, "random")) return .{ .builtin = .{ .kind = .random } };
+    if (std.mem.eql(u8, trimmed, "seq")) return .{ .builtin = .{ .kind = .seq } };
 
     if (std.mem.startsWith(u8, trimmed, "del(") and std.mem.endsWith(u8, trimmed, ")")) {
         const inner_str = trimmed[4 .. trimmed.len - 1];

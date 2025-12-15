@@ -143,6 +143,18 @@ pub const BuiltinKind = enum {
     ceil,
     round,
     fabs,
+    // Generator functions - Date/Time (Sprint 06)
+    now, // ISO 8601 timestamp (UTC)
+    today, // Date only (YYYY-MM-DD)
+    epoch, // Unix timestamp in seconds
+    epoch_ms, // Unix timestamp in milliseconds
+    // Generator functions - IDs (Sprint 06)
+    uuid, // UUID v4
+    shortid, // Base62 8-char ID
+    sid, // Base62 6-char ID
+    // Generator functions - Random/Sequence (Sprint 06)
+    random, // Random float 0.0-1.0
+    seq, // Incrementing counter
 };
 
 pub const BuiltinExpr = struct {

@@ -1004,7 +1004,130 @@ fn evalBuiltin(allocator: std.mem.Allocator, kind: BuiltinKind, value: std.json.
                 else => return EvalResult.empty(allocator),
             }
         },
+        // Sprint 06: Generator functions - Date/Time
+        .now => {
+            // ISO 8601 timestamp in UTC: "2024-12-15T17:30:00Z"
+            const timestamp = std.time.timestamp();
+            const epoch_seconds = @as(u64, @intCast(timestamp));
+            const epoch_day = epoch_seconds / 86400;
+            const day_seconds = epoch_seconds % 86400;
+            const hours = day_seconds / 3600;
+            const minutes = (day_seconds % 3600) / 60;
+            const seconds = day_seconds % 60;
+
+            // Calculate year, month, day from epoch day
+            const ymd = epochDayToYmd(epoch_day);
+
+            const str = try std.fmt.allocPrint(allocator, "{d:0>4}-{d:0>2}-{d:0>2}T{d:0>2}:{d:0>2}:{d:0>2}Z", .{
+                ymd.year, ymd.month, ymd.day, hours, minutes, seconds,
+            });
+            return try EvalResult.single(allocator, .{ .string = str });
+        },
+        .today => {
+            // Date only: "2024-12-15"
+            const timestamp = std.time.timestamp();
+            const epoch_seconds = @as(u64, @intCast(timestamp));
+            const epoch_day = epoch_seconds / 86400;
+            const ymd = epochDayToYmd(epoch_day);
+
+            const str = try std.fmt.allocPrint(allocator, "{d:0>4}-{d:0>2}-{d:0>2}", .{
+                ymd.year, ymd.month, ymd.day,
+            });
+            return try EvalResult.single(allocator, .{ .string = str });
+        },
+        .epoch => {
+            // Unix timestamp in seconds
+            const timestamp = std.time.timestamp();
+            return try EvalResult.single(allocator, .{ .integer = timestamp });
+        },
+        .epoch_ms => {
+            // Unix timestamp in milliseconds
+            const timestamp_ns = std.time.nanoTimestamp();
+            const timestamp_ms: i64 = @intCast(@divFloor(timestamp_ns, std.time.ns_per_ms));
+            return try EvalResult.single(allocator, .{ .integer = timestamp_ms });
+        },
+        // Sprint 06: Generator functions - IDs
+        .uuid => {
+            // UUID v4 (random): "550e8400-e29b-41d4-a716-446655440000"
+            var bytes: [16]u8 = undefined;
+            std.crypto.random.bytes(&bytes);
+            // Set version 4 and variant bits
+            bytes[6] = (bytes[6] & 0x0f) | 0x40; // Version 4
+            bytes[8] = (bytes[8] & 0x3f) | 0x80; // Variant 1
+
+            const str = try std.fmt.allocPrint(allocator, "{x:0>2}{x:0>2}{x:0>2}{x:0>2}-{x:0>2}{x:0>2}-{x:0>2}{x:0>2}-{x:0>2}{x:0>2}-{x:0>2}{x:0>2}{x:0>2}{x:0>2}{x:0>2}{x:0>2}", .{
+                bytes[0],  bytes[1],  bytes[2],  bytes[3],
+                bytes[4],  bytes[5],  bytes[6],  bytes[7],
+                bytes[8],  bytes[9],  bytes[10], bytes[11],
+                bytes[12], bytes[13], bytes[14], bytes[15],
+            });
+            return try EvalResult.single(allocator, .{ .string = str });
+        },
+        .shortid => {
+            // Base62 8-char ID
+            const str = try generateBase62(allocator, 8);
+            return try EvalResult.single(allocator, .{ .string = str });
+        },
+        .sid => {
+            // Base62 6-char ID
+            const str = try generateBase62(allocator, 6);
+            return try EvalResult.single(allocator, .{ .string = str });
+        },
+        // Sprint 06: Generator functions - Random/Sequence
+        .random => {
+            // Random float between 0.0 and 1.0
+            const rand_int = std.crypto.random.int(u64);
+            const rand_float = @as(f64, @floatFromInt(rand_int)) / @as(f64, @floatFromInt(std.math.maxInt(u64)));
+            return try EvalResult.single(allocator, .{ .float = rand_float });
+        },
+        .seq => {
+            // Incrementing counter (thread-local, resets each run)
+            const current = seq_counter;
+            seq_counter += 1;
+            return try EvalResult.single(allocator, .{ .integer = current });
+        },
     }
+}
+
+// Thread-local sequence counter for seq generator
+threadlocal var seq_counter: i64 = 1;
+
+// Helper: Convert epoch day (days since 1970-01-01) to year/month/day
+const YearMonthDay = struct { year: u32, month: u32, day: u32 };
+
+fn epochDayToYmd(epoch_day: u64) YearMonthDay {
+    // Algorithm from http://howardhinnant.github.io/date_algorithms.html
+    const z = epoch_day + 719468;
+    const era = z / 146097;
+    const doe = z - era * 146097;
+    const yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    const y = yoe + era * 400;
+    const doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    const mp = (5 * doy + 2) / 153;
+    const d = doy - (153 * mp + 2) / 5 + 1;
+    const m = if (mp < 10) mp + 3 else mp - 9;
+    const year = if (m <= 2) y + 1 else y;
+
+    return .{
+        .year = @intCast(year),
+        .month = @intCast(m),
+        .day = @intCast(d),
+    };
+}
+
+// Base62 alphabet for shortid/sid
+const base62_alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+
+fn generateBase62(allocator: std.mem.Allocator, len: usize) ![]u8 {
+    var result = try allocator.alloc(u8, len);
+    var rand_bytes: [16]u8 = undefined;
+    std.crypto.random.bytes(&rand_bytes);
+
+    for (0..len) |i| {
+        const rand_idx = rand_bytes[i % 16] % 62;
+        result[i] = base62_alphabet[rand_idx];
+    }
+    return result;
 }
 
 // Sprint 03: Helper functions for sorting/comparing JSON values
