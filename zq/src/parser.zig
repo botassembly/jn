@@ -433,6 +433,33 @@ pub fn parseExprWithContext(allocator: std.mem.Allocator, expr: []const u8, err_
     // Sprint 06: Generator functions - Random/Sequence
     if (std.mem.eql(u8, trimmed, "random")) return .{ .builtin = .{ .kind = .random } };
     if (std.mem.eql(u8, trimmed, "seq")) return .{ .builtin = .{ .kind = .seq } };
+    // Sprint 06: Transform functions - Numeric
+    if (std.mem.eql(u8, trimmed, "incr")) return .{ .builtin = .{ .kind = .incr } };
+    if (std.mem.eql(u8, trimmed, "decr")) return .{ .builtin = .{ .kind = .decr } };
+    if (std.mem.eql(u8, trimmed, "negate")) return .{ .builtin = .{ .kind = .negate } };
+    if (std.mem.eql(u8, trimmed, "toggle")) return .{ .builtin = .{ .kind = .toggle } };
+    // Sprint 06: Transform functions - String
+    if (std.mem.eql(u8, trimmed, "trim")) return .{ .builtin = .{ .kind = .trim } };
+    if (std.mem.eql(u8, trimmed, "ltrim")) return .{ .builtin = .{ .kind = .ltrim } };
+    if (std.mem.eql(u8, trimmed, "rtrim")) return .{ .builtin = .{ .kind = .rtrim } };
+    // Sprint 06: Type coercion
+    if (std.mem.eql(u8, trimmed, "int")) return .{ .builtin = .{ .kind = .@"int" } };
+    if (std.mem.eql(u8, trimmed, "float")) return .{ .builtin = .{ .kind = .@"float" } };
+    if (std.mem.eql(u8, trimmed, "bool")) return .{ .builtin = .{ .kind = .@"bool" } };
+    // Sprint 06: Case functions
+    if (std.mem.eql(u8, trimmed, "capitalize")) return .{ .builtin = .{ .kind = .capitalize } };
+    if (std.mem.eql(u8, trimmed, "titlecase")) return .{ .builtin = .{ .kind = .titlecase } };
+    if (std.mem.eql(u8, trimmed, "snakecase")) return .{ .builtin = .{ .kind = .snakecase } };
+    if (std.mem.eql(u8, trimmed, "camelcase")) return .{ .builtin = .{ .kind = .camelcase } };
+    if (std.mem.eql(u8, trimmed, "kebabcase")) return .{ .builtin = .{ .kind = .kebabcase } };
+    // Sprint 06: Predicates
+    if (std.mem.eql(u8, trimmed, "empty")) return .{ .builtin = .{ .kind = .empty } };
+    // Sprint 06: String splitting
+    if (std.mem.eql(u8, trimmed, "words")) return .{ .builtin = .{ .kind = .words } };
+    if (std.mem.eql(u8, trimmed, "lines")) return .{ .builtin = .{ .kind = .lines } };
+    if (std.mem.eql(u8, trimmed, "chars")) return .{ .builtin = .{ .kind = .chars } };
+    // Sprint 06: Slug
+    if (std.mem.eql(u8, trimmed, "slugify")) return .{ .builtin = .{ .kind = .slugify } };
 
     if (std.mem.startsWith(u8, trimmed, "del(") and std.mem.endsWith(u8, trimmed, ")")) {
         const inner_str = trimmed[4 .. trimmed.len - 1];

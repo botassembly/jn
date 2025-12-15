@@ -1086,6 +1086,268 @@ fn evalBuiltin(allocator: std.mem.Allocator, kind: BuiltinKind, value: std.json.
             seq_counter += 1;
             return try EvalResult.single(allocator, .{ .integer = current });
         },
+        // Sprint 06: Transform functions - Numeric
+        .incr => {
+            switch (value) {
+                .integer => |i| return try EvalResult.single(allocator, .{ .integer = i + 1 }),
+                .float => |f| return try EvalResult.single(allocator, .{ .float = f + 1.0 }),
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .decr => {
+            switch (value) {
+                .integer => |i| return try EvalResult.single(allocator, .{ .integer = i - 1 }),
+                .float => |f| return try EvalResult.single(allocator, .{ .float = f - 1.0 }),
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .negate => {
+            switch (value) {
+                .integer => |i| return try EvalResult.single(allocator, .{ .integer = -i }),
+                .float => |f| return try EvalResult.single(allocator, .{ .float = -f }),
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .toggle => {
+            switch (value) {
+                .bool => |b| return try EvalResult.single(allocator, .{ .bool = !b }),
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        // Sprint 06: Transform functions - String
+        .trim => {
+            switch (value) {
+                .string => |s| {
+                    const trimmed = std.mem.trim(u8, s, " \t\n\r");
+                    return try EvalResult.single(allocator, .{ .string = trimmed });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .ltrim => {
+            switch (value) {
+                .string => |s| {
+                    const trimmed = std.mem.trimLeft(u8, s, " \t\n\r");
+                    return try EvalResult.single(allocator, .{ .string = trimmed });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .rtrim => {
+            switch (value) {
+                .string => |s| {
+                    const trimmed = std.mem.trimRight(u8, s, " \t\n\r");
+                    return try EvalResult.single(allocator, .{ .string = trimmed });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        // Sprint 06: Type coercion
+        .@"int" => {
+            switch (value) {
+                .integer => return try EvalResult.single(allocator, value),
+                .float => |f| {
+                    if (f >= @as(f64, @floatFromInt(std.math.minInt(i64))) and
+                        f <= @as(f64, @floatFromInt(std.math.maxInt(i64))))
+                    {
+                        return try EvalResult.single(allocator, .{ .integer = @as(i64, @intFromFloat(f)) });
+                    }
+                    return try EvalResult.single(allocator, .{ .null = {} });
+                },
+                .string => |s| {
+                    if (std.fmt.parseInt(i64, s, 10)) |i| {
+                        return try EvalResult.single(allocator, .{ .integer = i });
+                    } else |_| {
+                        // Try parsing as float then truncating
+                        if (std.fmt.parseFloat(f64, s)) |f| {
+                            return try EvalResult.single(allocator, .{ .integer = @as(i64, @intFromFloat(f)) });
+                        } else |_| {
+                            return try EvalResult.single(allocator, .{ .null = {} });
+                        }
+                    }
+                },
+                .bool => |b| return try EvalResult.single(allocator, .{ .integer = if (b) 1 else 0 }),
+                .null => return try EvalResult.single(allocator, .{ .null = {} }),
+                else => return try EvalResult.single(allocator, .{ .null = {} }),
+            }
+        },
+        .@"float" => {
+            switch (value) {
+                .float => return try EvalResult.single(allocator, value),
+                .integer => |i| return try EvalResult.single(allocator, .{ .float = @as(f64, @floatFromInt(i)) }),
+                .string => |s| {
+                    if (std.fmt.parseFloat(f64, s)) |f| {
+                        return try EvalResult.single(allocator, .{ .float = f });
+                    } else |_| {
+                        return try EvalResult.single(allocator, .{ .null = {} });
+                    }
+                },
+                .bool => |b| return try EvalResult.single(allocator, .{ .float = if (b) 1.0 else 0.0 }),
+                .null => return try EvalResult.single(allocator, .{ .null = {} }),
+                else => return try EvalResult.single(allocator, .{ .null = {} }),
+            }
+        },
+        .@"bool" => {
+            // Truthy: true, non-zero numbers, non-empty strings, non-empty arrays/objects
+            // Falsy: false, 0, "", null, [], {}
+            const result = switch (value) {
+                .bool => |b| b,
+                .integer => |i| i != 0,
+                .float => |f| f != 0.0,
+                .string => |s| s.len > 0,
+                .array => |arr| arr.items.len > 0,
+                .object => |obj| obj.count() > 0,
+                .null => false,
+                else => false,
+            };
+            return try EvalResult.single(allocator, .{ .bool = result });
+        },
+        // Sprint 06: Case functions
+        .capitalize => {
+            switch (value) {
+                .string => |s| {
+                    if (s.len == 0) return try EvalResult.single(allocator, value);
+                    var result = try allocator.alloc(u8, s.len);
+                    @memcpy(result, s);
+                    if (result[0] >= 'a' and result[0] <= 'z') {
+                        result[0] = result[0] - 32;
+                    }
+                    return try EvalResult.single(allocator, .{ .string = result });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .titlecase => {
+            switch (value) {
+                .string => |s| {
+                    if (s.len == 0) return try EvalResult.single(allocator, value);
+                    var result = try allocator.alloc(u8, s.len);
+                    var capitalize_next = true;
+                    for (s, 0..) |c, i| {
+                        if (c == ' ' or c == '\t' or c == '\n' or c == '-' or c == '_') {
+                            result[i] = c;
+                            capitalize_next = true;
+                        } else if (capitalize_next and c >= 'a' and c <= 'z') {
+                            result[i] = c - 32;
+                            capitalize_next = false;
+                        } else if (!capitalize_next and c >= 'A' and c <= 'Z') {
+                            result[i] = c + 32;
+                            capitalize_next = false;
+                        } else {
+                            result[i] = c;
+                            capitalize_next = false;
+                        }
+                    }
+                    return try EvalResult.single(allocator, .{ .string = result });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .snakecase => {
+            switch (value) {
+                .string => |s| {
+                    const result = try toSnakeCase(allocator, s);
+                    return try EvalResult.single(allocator, .{ .string = result });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .camelcase => {
+            switch (value) {
+                .string => |s| {
+                    const result = try toCamelCase(allocator, s, false);
+                    return try EvalResult.single(allocator, .{ .string = result });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .kebabcase => {
+            switch (value) {
+                .string => |s| {
+                    const result = try toKebabCase(allocator, s);
+                    return try EvalResult.single(allocator, .{ .string = result });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        // Sprint 06: Predicates
+        .empty => {
+            const result = switch (value) {
+                .string => |s| s.len == 0,
+                .array => |arr| arr.items.len == 0,
+                .object => |obj| obj.count() == 0,
+                else => false,
+            };
+            return try EvalResult.single(allocator, .{ .bool = result });
+        },
+        // Sprint 06: String splitting
+        .words => {
+            switch (value) {
+                .string => |s| {
+                    var words_list: std.ArrayListUnmanaged(std.json.Value) = .empty;
+                    var iter = std.mem.tokenizeAny(u8, s, " \t\n\r");
+                    while (iter.next()) |word| {
+                        try words_list.append(allocator, .{ .string = word });
+                    }
+                    const result_slice = try words_list.toOwnedSlice(allocator);
+                    return try EvalResult.single(allocator, .{ .array = .{
+                        .items = result_slice,
+                        .capacity = result_slice.len,
+                        .allocator = allocator,
+                    } });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .lines => {
+            switch (value) {
+                .string => |s| {
+                    var lines_list: std.ArrayListUnmanaged(std.json.Value) = .empty;
+                    var iter = std.mem.splitSequence(u8, s, "\n");
+                    while (iter.next()) |line| {
+                        // Trim \r from line endings
+                        const trimmed_line = std.mem.trimRight(u8, line, "\r");
+                        try lines_list.append(allocator, .{ .string = trimmed_line });
+                    }
+                    const result_slice = try lines_list.toOwnedSlice(allocator);
+                    return try EvalResult.single(allocator, .{ .array = .{
+                        .items = result_slice,
+                        .capacity = result_slice.len,
+                        .allocator = allocator,
+                    } });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .chars => {
+            switch (value) {
+                .string => |s| {
+                    var chars_list: std.ArrayListUnmanaged(std.json.Value) = .empty;
+                    for (s) |c| {
+                        const char_str = try allocator.alloc(u8, 1);
+                        char_str[0] = c;
+                        try chars_list.append(allocator, .{ .string = char_str });
+                    }
+                    const result_slice = try chars_list.toOwnedSlice(allocator);
+                    return try EvalResult.single(allocator, .{ .array = .{
+                        .items = result_slice,
+                        .capacity = result_slice.len,
+                        .allocator = allocator,
+                    } });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        // Sprint 06: Slug
+        .slugify => {
+            switch (value) {
+                .string => |s| {
+                    const result = try toSlug(allocator, s);
+                    return try EvalResult.single(allocator, .{ .string = result });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
     }
 }
 
@@ -1128,6 +1390,207 @@ fn generateBase62(allocator: std.mem.Allocator, len: usize) ![]u8 {
         result[i] = base62_alphabet[rand_idx];
     }
     return result;
+}
+
+// Sprint 06: Case conversion helpers
+
+/// Convert string to snake_case
+/// "HelloWorld" -> "hello_world"
+/// "hello-world" -> "hello_world"
+/// "Hello World" -> "hello_world"
+fn toSnakeCase(allocator: std.mem.Allocator, s: []const u8) ![]u8 {
+    if (s.len == 0) return try allocator.alloc(u8, 0);
+
+    // First pass: count output length
+    var output_len: usize = 0;
+    var prev_lower = false;
+    for (s) |c| {
+        if (c == ' ' or c == '-' or c == '_') {
+            if (output_len > 0) output_len += 1; // add underscore
+            prev_lower = false;
+        } else if (c >= 'A' and c <= 'Z') {
+            if (prev_lower and output_len > 0) output_len += 1; // add underscore before uppercase
+            output_len += 1;
+            prev_lower = false;
+        } else {
+            output_len += 1;
+            prev_lower = (c >= 'a' and c <= 'z');
+        }
+    }
+
+    // Second pass: build output
+    var result = try allocator.alloc(u8, output_len);
+    var pos: usize = 0;
+    prev_lower = false;
+
+    for (s) |c| {
+        if (c == ' ' or c == '-' or c == '_') {
+            if (pos > 0) {
+                result[pos] = '_';
+                pos += 1;
+            }
+            prev_lower = false;
+        } else if (c >= 'A' and c <= 'Z') {
+            if (prev_lower and pos > 0) {
+                result[pos] = '_';
+                pos += 1;
+            }
+            result[pos] = c + 32; // lowercase
+            pos += 1;
+            prev_lower = false;
+        } else {
+            result[pos] = c;
+            pos += 1;
+            prev_lower = (c >= 'a' and c <= 'z');
+        }
+    }
+
+    return result[0..pos];
+}
+
+/// Convert string to camelCase or PascalCase
+/// "hello_world" -> "helloWorld" (pascal=false)
+/// "hello_world" -> "HelloWorld" (pascal=true)
+fn toCamelCase(allocator: std.mem.Allocator, s: []const u8, pascal: bool) ![]u8 {
+    if (s.len == 0) return try allocator.alloc(u8, 0);
+
+    // First pass: count output length (skip separators)
+    var output_len: usize = 0;
+    for (s) |c| {
+        if (c != ' ' and c != '-' and c != '_') {
+            output_len += 1;
+        }
+    }
+
+    var result = try allocator.alloc(u8, output_len);
+    var pos: usize = 0;
+    var capitalize_next = pascal;
+
+    for (s) |c| {
+        if (c == ' ' or c == '-' or c == '_') {
+            capitalize_next = true;
+        } else if (capitalize_next) {
+            if (c >= 'a' and c <= 'z') {
+                result[pos] = c - 32;
+            } else {
+                result[pos] = c;
+            }
+            pos += 1;
+            capitalize_next = false;
+        } else {
+            if (c >= 'A' and c <= 'Z') {
+                result[pos] = c + 32;
+            } else {
+                result[pos] = c;
+            }
+            pos += 1;
+        }
+    }
+
+    return result[0..pos];
+}
+
+/// Convert string to kebab-case
+/// "HelloWorld" -> "hello-world"
+/// "hello_world" -> "hello-world"
+fn toKebabCase(allocator: std.mem.Allocator, s: []const u8) ![]u8 {
+    if (s.len == 0) return try allocator.alloc(u8, 0);
+
+    // First pass: count output length
+    var output_len: usize = 0;
+    var prev_lower = false;
+    for (s) |c| {
+        if (c == ' ' or c == '-' or c == '_') {
+            if (output_len > 0) output_len += 1;
+            prev_lower = false;
+        } else if (c >= 'A' and c <= 'Z') {
+            if (prev_lower and output_len > 0) output_len += 1;
+            output_len += 1;
+            prev_lower = false;
+        } else {
+            output_len += 1;
+            prev_lower = (c >= 'a' and c <= 'z');
+        }
+    }
+
+    // Second pass: build output
+    var result = try allocator.alloc(u8, output_len);
+    var pos: usize = 0;
+    prev_lower = false;
+
+    for (s) |c| {
+        if (c == ' ' or c == '-' or c == '_') {
+            if (pos > 0) {
+                result[pos] = '-';
+                pos += 1;
+            }
+            prev_lower = false;
+        } else if (c >= 'A' and c <= 'Z') {
+            if (prev_lower and pos > 0) {
+                result[pos] = '-';
+                pos += 1;
+            }
+            result[pos] = c + 32;
+            pos += 1;
+            prev_lower = false;
+        } else {
+            result[pos] = c;
+            pos += 1;
+            prev_lower = (c >= 'a' and c <= 'z');
+        }
+    }
+
+    return result[0..pos];
+}
+
+/// Convert string to URL-safe slug
+/// "Hello World!" -> "hello-world"
+/// "This & That" -> "this-that"
+fn toSlug(allocator: std.mem.Allocator, s: []const u8) ![]u8 {
+    if (s.len == 0) return try allocator.alloc(u8, 0);
+
+    // First pass: count output length
+    var output_len: usize = 0;
+    var prev_dash = true; // Start true to avoid leading dash
+
+    for (s) |c| {
+        if ((c >= 'a' and c <= 'z') or (c >= '0' and c <= '9')) {
+            output_len += 1;
+            prev_dash = false;
+        } else if (c >= 'A' and c <= 'Z') {
+            output_len += 1;
+            prev_dash = false;
+        } else if (!prev_dash) {
+            // Any non-alphanumeric becomes a dash
+            output_len += 1;
+            prev_dash = true;
+        }
+    }
+
+    // Remove trailing dash if present
+    if (output_len > 0 and prev_dash) output_len -= 1;
+
+    var result = try allocator.alloc(u8, output_len);
+    var pos: usize = 0;
+    prev_dash = true;
+
+    for (s) |c| {
+        if ((c >= 'a' and c <= 'z') or (c >= '0' and c <= '9')) {
+            result[pos] = c;
+            pos += 1;
+            prev_dash = false;
+        } else if (c >= 'A' and c <= 'Z') {
+            result[pos] = c + 32; // lowercase
+            pos += 1;
+            prev_dash = false;
+        } else if (!prev_dash and pos < output_len) {
+            result[pos] = '-';
+            pos += 1;
+            prev_dash = true;
+        }
+    }
+
+    return result[0..pos];
 }
 
 // Sprint 03: Helper functions for sorting/comparing JSON values

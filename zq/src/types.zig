@@ -155,6 +155,33 @@ pub const BuiltinKind = enum {
     // Generator functions - Random/Sequence (Sprint 06)
     random, // Random float 0.0-1.0
     seq, // Incrementing counter
+    // Transform functions - Numeric (Sprint 06)
+    incr, // Add 1
+    decr, // Subtract 1
+    negate, // Flip sign
+    toggle, // Flip boolean
+    // Transform functions - String (Sprint 06)
+    trim, // Remove leading/trailing whitespace
+    ltrim, // Remove leading whitespace
+    rtrim, // Remove trailing whitespace
+    // Type coercion (Sprint 06)
+    @"int", // Coerce to integer
+    @"float", // Coerce to float (note: using @"" to escape keyword-like name)
+    @"bool", // Coerce to boolean
+    // Case functions (Sprint 06)
+    capitalize, // First letter uppercase
+    titlecase, // Each word capitalized
+    snakecase, // to_snake_case
+    camelcase, // toCamelCase
+    kebabcase, // to-kebab-case
+    // Predicate functions (Sprint 06)
+    empty, // True if empty string/array/object
+    // String splitting (Sprint 06)
+    words, // Split string into words
+    lines, // Split string into lines
+    chars, // Split string into characters
+    // Slug (Sprint 06)
+    slugify, // Convert to URL-safe slug
 };
 
 pub const BuiltinExpr = struct {
