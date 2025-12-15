@@ -143,6 +143,13 @@ pub const BuiltinKind = enum {
     ceil,
     round,
     fabs,
+    // More math functions (Sprint 07)
+    abs, // Alias for fabs, works with integers too
+    exp, // e^x
+    ln, // Natural logarithm
+    log10, // Base-10 logarithm
+    log2, // Base-2 logarithm
+    sqrt, // Square root
     // Generator functions - Date/Time (Sprint 06)
     now, // ISO 8601 timestamp (UTC)
     today, // Date only (YYYY-MM-DD)

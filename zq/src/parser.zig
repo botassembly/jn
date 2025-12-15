@@ -421,6 +421,13 @@ pub fn parseExprWithContext(allocator: std.mem.Allocator, expr: []const u8, err_
     if (std.mem.eql(u8, trimmed, "ceil")) return .{ .builtin = .{ .kind = .ceil } };
     if (std.mem.eql(u8, trimmed, "round")) return .{ .builtin = .{ .kind = .round } };
     if (std.mem.eql(u8, trimmed, "fabs")) return .{ .builtin = .{ .kind = .fabs } };
+    // Sprint 07: More math functions
+    if (std.mem.eql(u8, trimmed, "abs")) return .{ .builtin = .{ .kind = .abs } };
+    if (std.mem.eql(u8, trimmed, "exp")) return .{ .builtin = .{ .kind = .exp } };
+    if (std.mem.eql(u8, trimmed, "ln")) return .{ .builtin = .{ .kind = .ln } };
+    if (std.mem.eql(u8, trimmed, "log10")) return .{ .builtin = .{ .kind = .log10 } };
+    if (std.mem.eql(u8, trimmed, "log2")) return .{ .builtin = .{ .kind = .log2 } };
+    if (std.mem.eql(u8, trimmed, "sqrt")) return .{ .builtin = .{ .kind = .sqrt } };
     // Sprint 06: Generator functions - Date/Time
     if (std.mem.eql(u8, trimmed, "now")) return .{ .builtin = .{ .kind = .now } };
     if (std.mem.eql(u8, trimmed, "today")) return .{ .builtin = .{ .kind = .today } };

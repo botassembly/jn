@@ -986,7 +986,7 @@ fn evalBuiltin(allocator: std.mem.Allocator, kind: BuiltinKind, value: std.json.
                 else => return EvalResult.empty(allocator),
             }
         },
-        .fabs => {
+        .fabs, .abs => {
             switch (value) {
                 .integer => |i| {
                     // Handle minInt(i64) specially to avoid overflow
@@ -1003,6 +1003,51 @@ fn evalBuiltin(allocator: std.mem.Allocator, kind: BuiltinKind, value: std.json.
                 },
                 else => return EvalResult.empty(allocator),
             }
+        },
+        // Sprint 07: More math functions
+        .exp => {
+            const f = switch (value) {
+                .integer => |i| @as(f64, @floatFromInt(i)),
+                .float => |f| f,
+                else => return EvalResult.empty(allocator),
+            };
+            return try EvalResult.single(allocator, .{ .float = @exp(f) });
+        },
+        .ln => {
+            const f = switch (value) {
+                .integer => |i| @as(f64, @floatFromInt(i)),
+                .float => |f| f,
+                else => return EvalResult.empty(allocator),
+            };
+            if (f <= 0) return try EvalResult.single(allocator, .null);
+            return try EvalResult.single(allocator, .{ .float = @log(f) });
+        },
+        .log10 => {
+            const f = switch (value) {
+                .integer => |i| @as(f64, @floatFromInt(i)),
+                .float => |f| f,
+                else => return EvalResult.empty(allocator),
+            };
+            if (f <= 0) return try EvalResult.single(allocator, .null);
+            return try EvalResult.single(allocator, .{ .float = std.math.log10(f) });
+        },
+        .log2 => {
+            const f = switch (value) {
+                .integer => |i| @as(f64, @floatFromInt(i)),
+                .float => |f| f,
+                else => return EvalResult.empty(allocator),
+            };
+            if (f <= 0) return try EvalResult.single(allocator, .null);
+            return try EvalResult.single(allocator, .{ .float = std.math.log2(f) });
+        },
+        .sqrt => {
+            const f = switch (value) {
+                .integer => |i| @as(f64, @floatFromInt(i)),
+                .float => |f| f,
+                else => return EvalResult.empty(allocator),
+            };
+            if (f < 0) return try EvalResult.single(allocator, .null);
+            return try EvalResult.single(allocator, .{ .float = @sqrt(f) });
         },
         // Sprint 06: Generator functions - Date/Time
         .now => {
