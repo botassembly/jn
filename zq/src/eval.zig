@@ -1568,6 +1568,40 @@ fn evalBuiltin(allocator: std.mem.Allocator, kind: BuiltinKind, value: std.json.
                 else => return EvalResult.empty(allocator),
             }
         },
+        // Sprint 08: Time functions
+        .xid_time => {
+            // Extract epoch seconds from XID string (20 chars total, first 4 bytes = timestamp)
+            switch (value) {
+                .string => |s| {
+                    if (s.len < 20) return try EvalResult.single(allocator, .null);
+                    const timestamp = decodeXidTimestamp(s) orelse return try EvalResult.single(allocator, .null);
+                    return try EvalResult.single(allocator, .{ .integer = @intCast(timestamp) });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .delta => {
+            // Seconds since a timestamp (accepts epoch int or ISO string)
+            const now_secs: i64 = std.time.timestamp();
+            const then_secs: i64 = switch (value) {
+                .integer => |i| i,
+                .string => |s| parseIsoTimestamp(s) orelse return try EvalResult.single(allocator, .null),
+                else => return EvalResult.empty(allocator),
+            };
+            return try EvalResult.single(allocator, .{ .integer = now_secs - then_secs });
+        },
+        .ago => {
+            // Human-friendly relative time string
+            const now_secs: i64 = std.time.timestamp();
+            const then_secs: i64 = switch (value) {
+                .integer => |i| i,
+                .string => |s| parseIsoTimestamp(s) orelse return try EvalResult.single(allocator, .null),
+                else => return EvalResult.empty(allocator),
+            };
+            const diff = now_secs - then_secs;
+            const ago_str = try formatAgo(allocator, diff);
+            return try EvalResult.single(allocator, .{ .string = ago_str });
+        },
     }
 }
 
@@ -2023,6 +2057,183 @@ fn toSlug(allocator: std.mem.Allocator, s: []const u8) ![]u8 {
     }
 
     return result[0..pos];
+}
+
+// Sprint 08: XID timestamp decoding
+fn decodeXidTimestamp(s: []const u8) ?u32 {
+    // XID is 20 chars base32 encoding 12 bytes (96 bits)
+    // First 4 bytes (32 bits) are the timestamp
+    // We need to decode all 20 chars and extract the top 32 bits
+    if (s.len < 20) return null;
+
+    // Decode all 20 characters to 96 bits
+    var bits: u128 = 0; // Use u128 to hold 96 bits safely
+    for (s[0..20]) |c| {
+        const val: u128 = if (c >= '0' and c <= '9')
+            c - '0'
+        else if (c >= 'a' and c <= 'v')
+            c - 'a' + 10
+        else
+            return null; // Invalid character
+        bits = (bits << 5) | val;
+    }
+
+    // 20 chars * 5 bits = 100 bits, but we only have 96 bits of data
+    // The encoding uses the full 100 bits, so top 4 bits are padding
+    // Extract timestamp from bits 64-95 (after removing 4 padding bits from top)
+    const timestamp: u32 = @truncate(bits >> 64);
+    return timestamp;
+}
+
+// Sprint 08: Parse ISO timestamp to epoch seconds
+fn parseIsoTimestamp(s: []const u8) ?i64 {
+    // Parse "2024-12-15T17:30:00Z" or "2024-12-15T17:30:00" or "2024-12-15"
+    if (s.len < 10) return null;
+
+    // Parse year
+    const year = std.fmt.parseInt(u32, s[0..4], 10) catch return null;
+    if (s[4] != '-') return null;
+
+    // Parse month
+    const month = std.fmt.parseInt(u32, s[5..7], 10) catch return null;
+    if (s[7] != '-') return null;
+
+    // Parse day
+    const day = std.fmt.parseInt(u32, s[8..10], 10) catch return null;
+
+    // Calculate days since epoch
+    var days: i64 = 0;
+
+    // Years since 1970
+    var y: u32 = 1970;
+    while (y < year) : (y += 1) {
+        days += if (isLeapYear(y)) 366 else 365;
+    }
+
+    // Months
+    const days_in_months = [_]u32{ 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+    var m: u32 = 1;
+    while (m < month) : (m += 1) {
+        days += days_in_months[m - 1];
+        if (m == 2 and isLeapYear(year)) days += 1;
+    }
+
+    // Days
+    days += day - 1;
+
+    // Convert to seconds
+    var secs = days * 86400;
+
+    // Parse time if present
+    if (s.len >= 19 and s[10] == 'T') {
+        const hour = std.fmt.parseInt(u32, s[11..13], 10) catch return null;
+        const minute = std.fmt.parseInt(u32, s[14..16], 10) catch return null;
+        const second = std.fmt.parseInt(u32, s[17..19], 10) catch return null;
+        secs += hour * 3600 + minute * 60 + second;
+    }
+
+    return secs;
+}
+
+// Sprint 08: Format seconds as human-friendly "ago" string
+fn formatAgo(allocator: std.mem.Allocator, diff: i64) ![]u8 {
+    const abs_diff: u64 = if (diff < 0) @intCast(-diff) else @intCast(diff);
+    const suffix = if (diff < 0) " from now" else " ago";
+
+    if (abs_diff < 60) {
+        return try std.fmt.allocPrint(allocator, "{d} second{s}{s}", .{
+            abs_diff,
+            if (abs_diff == 1) "" else "s",
+            suffix,
+        });
+    }
+
+    const minutes = abs_diff / 60;
+    if (minutes < 60) {
+        return try std.fmt.allocPrint(allocator, "{d} minute{s}{s}", .{
+            minutes,
+            if (minutes == 1) "" else "s",
+            suffix,
+        });
+    }
+
+    const hours = abs_diff / 3600;
+    const remaining_mins = (abs_diff % 3600) / 60;
+    if (hours < 24) {
+        if (remaining_mins > 0) {
+            return try std.fmt.allocPrint(allocator, "{d} hour{s}, {d} minute{s}{s}", .{
+                hours,
+                if (hours == 1) "" else "s",
+                remaining_mins,
+                if (remaining_mins == 1) "" else "s",
+                suffix,
+            });
+        } else {
+            return try std.fmt.allocPrint(allocator, "{d} hour{s}{s}", .{
+                hours,
+                if (hours == 1) "" else "s",
+                suffix,
+            });
+        }
+    }
+
+    const days = abs_diff / 86400;
+    const remaining_hours = (abs_diff % 86400) / 3600;
+    if (days < 30) {
+        if (remaining_hours > 0) {
+            return try std.fmt.allocPrint(allocator, "{d} day{s}, {d} hour{s}{s}", .{
+                days,
+                if (days == 1) "" else "s",
+                remaining_hours,
+                if (remaining_hours == 1) "" else "s",
+                suffix,
+            });
+        } else {
+            return try std.fmt.allocPrint(allocator, "{d} day{s}{s}", .{
+                days,
+                if (days == 1) "" else "s",
+                suffix,
+            });
+        }
+    }
+
+    const months = days / 30;
+    const remaining_days = days % 30;
+    if (months < 12) {
+        if (remaining_days > 0) {
+            return try std.fmt.allocPrint(allocator, "{d} month{s}, {d} day{s}{s}", .{
+                months,
+                if (months == 1) "" else "s",
+                remaining_days,
+                if (remaining_days == 1) "" else "s",
+                suffix,
+            });
+        } else {
+            return try std.fmt.allocPrint(allocator, "{d} month{s}{s}", .{
+                months,
+                if (months == 1) "" else "s",
+                suffix,
+            });
+        }
+    }
+
+    const years = days / 365;
+    const remaining_months = (days % 365) / 30;
+    if (remaining_months > 0) {
+        return try std.fmt.allocPrint(allocator, "{d} year{s}, {d} month{s}{s}", .{
+            years,
+            if (years == 1) "" else "s",
+            remaining_months,
+            if (remaining_months == 1) "" else "s",
+            suffix,
+        });
+    } else {
+        return try std.fmt.allocPrint(allocator, "{d} year{s}{s}", .{
+            years,
+            if (years == 1) "" else "s",
+            suffix,
+        });
+    }
 }
 
 // Sprint 03: Helper functions for sorting/comparing JSON values

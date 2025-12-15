@@ -215,6 +215,10 @@ pub const BuiltinKind = enum {
     chars, // Split string into characters
     // Slug (Sprint 06)
     slugify, // Convert to URL-safe slug
+    // Time functions (Sprint 08)
+    xid_time, // Extract epoch seconds from XID string
+    delta, // Seconds since a timestamp (epoch or ISO)
+    ago, // Human-friendly relative time ("7 days, 8 hours ago")
 };
 
 pub const BuiltinExpr = struct {

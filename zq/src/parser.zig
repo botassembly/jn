@@ -493,6 +493,10 @@ pub fn parseExprWithContext(allocator: std.mem.Allocator, expr: []const u8, err_
     if (std.mem.eql(u8, trimmed, "chars")) return .{ .builtin = .{ .kind = .chars } };
     // Sprint 06: Slug
     if (std.mem.eql(u8, trimmed, "slugify")) return .{ .builtin = .{ .kind = .slugify } };
+    // Sprint 08: Time functions
+    if (std.mem.eql(u8, trimmed, "xid_time")) return .{ .builtin = .{ .kind = .xid_time } };
+    if (std.mem.eql(u8, trimmed, "delta")) return .{ .builtin = .{ .kind = .delta } };
+    if (std.mem.eql(u8, trimmed, "ago")) return .{ .builtin = .{ .kind = .ago } };
 
     if (std.mem.startsWith(u8, trimmed, "del(") and std.mem.endsWith(u8, trimmed, ")")) {
         const inner_str = trimmed[4 .. trimmed.len - 1];
