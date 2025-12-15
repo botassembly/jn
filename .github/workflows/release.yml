@@ -111,6 +111,7 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
+    environment: release
 
     steps:
       - name: Download all artifacts
