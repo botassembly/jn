@@ -256,7 +256,7 @@ fn handleCompressedFile(allocator: std.mem.Allocator, address: jn_address.Addres
 }
 
 /// Profile type enumeration
-const ProfileType = enum { http, duckdb, code };
+const ProfileType = enum { http, duckdb, code, file };
 
 /// Handle profile reference (@namespace/name)
 fn handleProfile(allocator: std.mem.Allocator, address: jn_address.Address, args: *const jn_cli.ArgParser) !void {
@@ -273,9 +273,31 @@ fn handleProfile(allocator: std.mem.Allocator, address: jn_address.Address, args
         return;
     }
 
+    // Detect project root by looking for .jn directory
+    var project_root: ?[]const u8 = null;
+    var cwd_buf: [std.fs.max_path_bytes]u8 = undefined;
+    if (std.fs.cwd().realpath(".", &cwd_buf)) |cwd| {
+        // Check if .jn exists in current directory
+        var check_dir: []const u8 = cwd;
+        while (true) {
+            const jn_dir = std.fmt.allocPrint(allocator, "{s}/.jn", .{check_dir}) catch break;
+            defer allocator.free(jn_dir);
+            if (std.fs.cwd().access(jn_dir, .{})) |_| {
+                project_root = allocator.dupe(u8, check_dir) catch null;
+                break;
+            } else |_| {}
+            // Go up one directory
+            if (std.fs.path.dirname(check_dir)) |parent| {
+                if (std.mem.eql(u8, parent, check_dir)) break; // Reached root
+                check_dir = parent;
+            } else break;
+        }
+    } else |_| {}
+    defer if (project_root) |pr| allocator.free(pr);
+
     // Get profile directories
     const profile_dirs = jn_profile.getProfileDirs(allocator, .{
-        .project_root = null, // TODO: detect project root
+        .project_root = project_root,
         .home_dir = jn_profile.getHomeDir(),
         .jn_home = jn_profile.getJnHome(),
     }) catch {
@@ -326,8 +348,26 @@ fn handleProfile(allocator: std.mem.Allocator, address: jn_address.Address, args
         }
     }
 
+    // If no DuckDB profile found, search file/folder profiles: profiles/file/<namespace>/<name>.json
+    if (profile_file == null) {
+        for (profile_dirs) |dir| {
+            const path = std.fmt.allocPrint(allocator, "{s}/file/{s}/{s}.json", .{ dir, namespace, name }) catch continue;
+            if (jn_profile.pathExists(path)) {
+                profile_file = path;
+                profile_dir = std.fmt.allocPrint(allocator, "{s}/file/{s}", .{ dir, namespace }) catch {
+                    allocator.free(path);
+                    continue;
+                };
+                profile_type = .file;
+                break;
+            } else {
+                allocator.free(path);
+            }
+        }
+    }
+
     if (profile_file == null or profile_dir == null) {
-        jn_core.exitWithError("jn-cat: profile not found: @{s}/{s}\nSearched:\n  profiles/http/{s}/{s}.json\n  profiles/duckdb/{s}/{s}.sql", .{ namespace, name, namespace, name, namespace, name });
+        jn_core.exitWithError("jn-cat: profile not found: @{s}/{s}\nSearched:\n  profiles/http/{s}/{s}.json\n  profiles/duckdb/{s}/{s}.sql\n  profiles/file/{s}/{s}.json", .{ namespace, name, namespace, name, namespace, name, namespace, name });
     }
     defer allocator.free(profile_file.?);
     defer allocator.free(profile_dir.?);
@@ -336,6 +376,7 @@ fn handleProfile(allocator: std.mem.Allocator, address: jn_address.Address, args
     switch (profile_type) {
         .http => try handleHttpProfile(allocator, address, args, namespace, name, profile_dir.?),
         .duckdb => try handleDuckdbProfile(allocator, address, profile_dir.?),
+        .file => try handleFileProfile(allocator, address, args, namespace, name, profile_dir.?),
         .code => unreachable, // Handled above
     }
 }
@@ -676,6 +717,299 @@ fn handleHttpProfile(allocator: std.mem.Allocator, address: jn_address.Address, 
     }
 }
 
+/// Handle file/folder profiles - expand glob pattern and process files
+/// Profile format:
+/// {
+///   "pattern": "data/**/*.jsonl",      // glob pattern (required)
+///   "inject_meta": true,               // inject path metadata (optional, default true)
+///   "filter": "select(.level == ...)", // ZQ filter expression (optional)
+///   "description": "..."               // human readable description (optional)
+/// }
+fn handleFileProfile(allocator: std.mem.Allocator, address: jn_address.Address, args: *const jn_cli.ArgParser, namespace: []const u8, name: []const u8, profile_dir: []const u8) !void {
+    _ = address; // Profile address is resolved through profile_dir
+
+    // Load profile with hierarchical merge
+    const profile_path = std.fmt.allocPrint(allocator, "{s}.json", .{name}) catch {
+        jn_core.exitWithError("jn-cat: out of memory", .{});
+    };
+    defer allocator.free(profile_path);
+
+    var config = jn_profile.loadProfile(allocator, profile_dir, profile_path, true) catch |err| {
+        jn_core.exitWithError("jn-cat: failed to load file profile @{s}/{s}: {s}", .{ namespace, name, @errorName(err) });
+    };
+    defer jn_profile.freeValue(allocator, config);
+
+    // Extract profile fields
+    const pattern = if (config.object.get("pattern")) |v| v.string else null;
+    const inject_meta_val = config.object.get("inject_meta");
+    const inject_meta = if (inject_meta_val) |v| (v == .bool and v.bool) or v != .bool else true; // default true
+    const filter_expr = if (config.object.get("filter")) |v| v.string else null;
+
+    if (pattern == null) {
+        jn_core.exitWithError("jn-cat: file profile @{s}/{s} missing required 'pattern' field", .{ namespace, name });
+    }
+
+    // Resolve pattern relative to profile directory's project root
+    // Profile is at: .../project/.jn/profiles/file/<namespace>/<name>.json
+    // profile_dir is: .../project/.jn/profiles/file/<namespace>
+    // Project root is 4 levels up: namespace -> file -> profiles -> .jn -> project
+    const file_dir = std.fs.path.dirname(profile_dir) orelse profile_dir; // .../profiles/file
+    const profiles_base = std.fs.path.dirname(file_dir) orelse file_dir; // .../profiles
+    const jn_dir = std.fs.path.dirname(profiles_base) orelse profiles_base; // .../.jn
+    const project_root = std.fs.path.dirname(jn_dir) orelse jn_dir; // .../project
+
+    // Build full pattern path
+    var full_pattern: []const u8 = undefined;
+    if (std.fs.path.isAbsolute(pattern.?)) {
+        full_pattern = allocator.dupe(u8, pattern.?) catch {
+            jn_core.exitWithError("jn-cat: out of memory", .{});
+        };
+    } else {
+        full_pattern = std.fmt.allocPrint(allocator, "{s}/{s}", .{ project_root, pattern.? }) catch {
+            jn_core.exitWithError("jn-cat: out of memory", .{});
+        };
+    }
+    defer allocator.free(full_pattern);
+
+    // Create a synthetic address for glob processing
+    const glob_address = jn_address.parse(full_pattern);
+
+    // Override inject_meta based on profile setting or command line
+    const effective_inject_meta = inject_meta or args.has("meta") or args.has("inject-meta");
+
+    // If there's a filter expression, we need to pipe through jn-filter
+    if (filter_expr) |filter| {
+        // Process glob with filter: expand glob, process files, pipe through filter
+        try handleFileProfileWithFilter(allocator, glob_address, args, effective_inject_meta, filter);
+    } else {
+        // Process glob directly with modified args
+        if (effective_inject_meta and !args.has("meta") and !args.has("inject-meta")) {
+            // Need to force inject_meta - call handleGlob with meta flag
+            // Create a modified args parser isn't straightforward, so use shell pipeline
+            try handleFileProfileDirect(allocator, full_pattern, args, effective_inject_meta);
+        } else {
+            try handleGlob(allocator, glob_address, args);
+        }
+    }
+}
+
+/// Handle file profile with direct glob expansion and optional metadata injection
+fn handleFileProfileDirect(allocator: std.mem.Allocator, pattern: []const u8, args: *const jn_cli.ArgParser, inject_meta: bool) !void {
+    _ = args;
+
+    // Build shell command for glob expansion
+    var expand_cmd: []const u8 = undefined;
+
+    if (std.mem.indexOf(u8, pattern, "**") != null) {
+        // Use find for recursive patterns
+        const last_slash = std.mem.lastIndexOf(u8, pattern, "/") orelse 0;
+        const base_dir = if (last_slash > 0) pattern[0..last_slash] else ".";
+        var file_pattern = pattern[last_slash + 1 ..];
+
+        // Strip **/ prefix from file pattern
+        while (std.mem.startsWith(u8, file_pattern, "**/")) {
+            file_pattern = file_pattern[3..];
+        }
+        if (std.mem.startsWith(u8, file_pattern, "**")) {
+            file_pattern = file_pattern[2..];
+        }
+
+        // Extract the base directory (before any **)
+        var dir_to_search = base_dir;
+        if (std.mem.indexOf(u8, base_dir, "**")) |double_star| {
+            dir_to_search = if (double_star > 0) base_dir[0 .. double_star - 1] else ".";
+        }
+
+        // SECURITY: Escape directory and file pattern
+        const escaped_dir = try escapeShellPath(allocator, dir_to_search);
+        defer if (escaped_dir.ptr != dir_to_search.ptr) allocator.free(@constCast(escaped_dir));
+        const escaped_file_pattern = try escapeShellPath(allocator, file_pattern);
+        defer if (escaped_file_pattern.ptr != file_pattern.ptr) allocator.free(@constCast(escaped_file_pattern));
+
+        expand_cmd = std.fmt.allocPrint(
+            allocator,
+            "find '{s}' -type f -name '{s}' 2>/dev/null | sort",
+            .{ escaped_dir, escaped_file_pattern },
+        ) catch {
+            jn_core.exitWithError("jn-cat: out of memory", .{});
+        };
+    } else {
+        // Simple glob - use bash with globstar
+        if (!jn_core.isGlobPatternSafe(pattern)) {
+            jn_core.exitWithError("jn-cat: glob pattern contains unsafe characters: {s}", .{pattern});
+        }
+
+        expand_cmd = std.fmt.allocPrint(
+            allocator,
+            "shopt -s nullglob; for f in {s}; do [ -f \"$f\" ] && echo \"$f\"; done",
+            .{pattern},
+        ) catch {
+            jn_core.exitWithError("jn-cat: out of memory", .{});
+        };
+    }
+    defer allocator.free(expand_cmd);
+
+    // Use bash for better glob support
+    const expand_argv: [3][]const u8 = .{ "/bin/bash", "-c", expand_cmd };
+    var expand_child = std.process.Child.init(&expand_argv, allocator);
+    expand_child.stdin_behavior = .Close;
+    expand_child.stdout_behavior = .Pipe;
+    expand_child.stderr_behavior = .Inherit;
+
+    try expand_child.spawn();
+
+    // Read file list from stdout and process
+    const stdout_pipe = expand_child.stdout.?;
+    var file_count: usize = 0;
+
+    var reader_buf: [4096]u8 = undefined;
+    var reader_wrapper = stdout_pipe.reader(&reader_buf);
+    const reader = &reader_wrapper.interface;
+    while (jn_core.readLine(reader)) |line| {
+        const file_path = std.mem.trim(u8, line, " \t\r\n");
+        if (file_path.len == 0) continue;
+
+        // Process this file with metadata injection
+        if (inject_meta) {
+            try outputWithMeta(allocator, file_path, file_count);
+        } else {
+            // Just cat the file
+            const escaped_path = try escapeShellPath(allocator, file_path);
+            defer if (escaped_path.ptr != file_path.ptr) allocator.free(@constCast(escaped_path));
+
+            const shell_cmd = std.fmt.allocPrint(allocator, "cat '{s}'", .{escaped_path}) catch continue;
+            defer allocator.free(shell_cmd);
+
+            const shell_argv: [3][]const u8 = .{ "/bin/sh", "-c", shell_cmd };
+            var child = std.process.Child.init(&shell_argv, allocator);
+            child.stdin_behavior = .Close;
+            child.stdout_behavior = .Inherit;
+            child.stderr_behavior = .Inherit;
+
+            try child.spawn();
+            _ = child.wait() catch {};
+        }
+        file_count += 1;
+    }
+
+    _ = expand_child.wait() catch {};
+
+    if (file_count == 0) {
+        jn_core.exitWithError("jn-cat: no files match pattern: {s}", .{pattern});
+    }
+}
+
+/// Handle file profile with ZQ filter - pipe expanded glob through jn-filter
+fn handleFileProfileWithFilter(allocator: std.mem.Allocator, glob_address: jn_address.Address, args: *const jn_cli.ArgParser, inject_meta: bool, filter: []const u8) !void {
+    _ = args;
+    const pattern = glob_address.path;
+
+    // Find jn-filter executable
+    var exe_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var filter_path: []const u8 = "jn-filter"; // fallback to PATH
+
+    if (std.fs.selfExePath(&exe_path_buf)) |exe_path| {
+        if (std.fs.path.dirname(exe_path)) |exe_dir| {
+            const sibling_path = std.fmt.allocPrint(allocator, "{s}/jn-filter", .{exe_dir}) catch filter_path;
+            if (std.fs.cwd().access(sibling_path, .{})) |_| {
+                filter_path = sibling_path;
+            } else |_| {
+                allocator.free(sibling_path);
+            }
+        }
+    } else |_| {}
+
+    // Build glob expansion command
+    var expand_part: []const u8 = undefined;
+
+    if (std.mem.indexOf(u8, pattern, "**") != null) {
+        const last_slash = std.mem.lastIndexOf(u8, pattern, "/") orelse 0;
+        const base_dir = if (last_slash > 0) pattern[0..last_slash] else ".";
+        var file_pattern = pattern[last_slash + 1 ..];
+
+        while (std.mem.startsWith(u8, file_pattern, "**/")) {
+            file_pattern = file_pattern[3..];
+        }
+        if (std.mem.startsWith(u8, file_pattern, "**")) {
+            file_pattern = file_pattern[2..];
+        }
+
+        var dir_to_search = base_dir;
+        if (std.mem.indexOf(u8, base_dir, "**")) |double_star| {
+            dir_to_search = if (double_star > 0) base_dir[0 .. double_star - 1] else ".";
+        }
+
+        const escaped_dir = try escapeShellPath(allocator, dir_to_search);
+        defer if (escaped_dir.ptr != dir_to_search.ptr) allocator.free(@constCast(escaped_dir));
+        const escaped_file_pattern = try escapeShellPath(allocator, file_pattern);
+        defer if (escaped_file_pattern.ptr != file_pattern.ptr) allocator.free(@constCast(escaped_file_pattern));
+
+        expand_part = std.fmt.allocPrint(allocator, "find '{s}' -type f -name '{s}' 2>/dev/null | sort", .{ escaped_dir, escaped_file_pattern }) catch {
+            jn_core.exitWithError("jn-cat: out of memory", .{});
+        };
+    } else {
+        if (!jn_core.isGlobPatternSafe(pattern)) {
+            jn_core.exitWithError("jn-cat: glob pattern contains unsafe characters: {s}", .{pattern});
+        }
+        expand_part = std.fmt.allocPrint(allocator, "shopt -s nullglob; for f in {s}; do [ -f \"$f\" ] && echo \"$f\"; done", .{pattern}) catch {
+            jn_core.exitWithError("jn-cat: out of memory", .{});
+        };
+    }
+    defer allocator.free(expand_part);
+
+    // Escape filter for shell
+    const escaped_filter = try escapeShellPath(allocator, filter);
+    defer if (escaped_filter.ptr != filter.ptr) allocator.free(@constCast(escaped_filter));
+
+    // Build full pipeline: expand files -> read each with metadata -> filter
+    // We need to process files in a subshell and pipe through filter
+    const meta_flag: []const u8 = if (inject_meta) " --meta" else "";
+
+    // Find jn-cat executable path
+    var cat_path: []const u8 = "jn-cat";
+    if (std.fs.selfExePath(&exe_path_buf)) |exe_path| {
+        cat_path = exe_path;
+    } else |_| {}
+
+    const escaped_cat_path = try escapeShellPath(allocator, cat_path);
+    defer if (escaped_cat_path.ptr != cat_path.ptr) allocator.free(@constCast(escaped_cat_path));
+    const escaped_pattern = try escapeShellPath(allocator, pattern);
+    defer if (escaped_pattern.ptr != pattern.ptr) allocator.free(@constCast(escaped_pattern));
+
+    // Build the shell command: jn-cat 'pattern' [--meta] | jn-filter 'filter'
+    const shell_cmd = std.fmt.allocPrint(
+        allocator,
+        "'{s}' '{s}'{s} | '{s}' '{s}'",
+        .{ escaped_cat_path, escaped_pattern, meta_flag, filter_path, escaped_filter },
+    ) catch {
+        jn_core.exitWithError("jn-cat: out of memory", .{});
+    };
+    defer allocator.free(shell_cmd);
+
+    // Run via bash (need shopt for globs)
+    const shell_argv: [3][]const u8 = .{ "/bin/bash", "-c", shell_cmd };
+    var shell_child = std.process.Child.init(&shell_argv, allocator);
+    shell_child.stdin_behavior = .Close;
+    shell_child.stdout_behavior = .Inherit;
+    shell_child.stderr_behavior = .Inherit;
+
+    try shell_child.spawn();
+    const result = shell_child.wait() catch |err| {
+        jn_core.exitWithError("jn-cat: file profile execution failed: {s}", .{@errorName(err)});
+    };
+
+    switch (result) {
+        .Exited => |code| {
+            if (code != 0) {
+                std.process.exit(code);
+            }
+        },
+        else => {
+            std.process.exit(1);
+        },
+    }
+}
+
 /// Handle URL address (http://, https://, s3://, etc.)
 fn handleUrl(allocator: std.mem.Allocator, address: jn_address.Address, args: *const jn_cli.ArgParser) !void {
     const protocol = address.protocol orelse {
@@ -934,6 +1268,13 @@ fn processGlobFile(allocator: std.mem.Allocator, file_path: []const u8, format: 
         }
     }
 
+    // For JSONL with metadata injection, handle specially (before plugin lookup)
+    const is_jsonl = std.mem.eql(u8, effective_format, "jsonl") or std.mem.eql(u8, effective_format, "ndjson");
+    if (is_jsonl and inject_meta and compression == .none) {
+        try outputWithMeta(allocator, file_path, file_index);
+        return;
+    }
+
     // Find format plugin
     const plugin_path = findPlugin(allocator, effective_format);
 
@@ -973,12 +1314,7 @@ fn processGlobFile(allocator: std.mem.Allocator, file_path: []const u8, format: 
             .{ escaped_file_path, fmt_path, format_args },
         );
     } else if (std.mem.eql(u8, effective_format, "jsonl") or std.mem.eql(u8, effective_format, "ndjson")) {
-        // JSONL - if inject_meta, wrap each line; otherwise cat directly
-        if (inject_meta) {
-            // Wrap with path metadata
-            try outputWithMeta(allocator, file_path, file_index);
-            return;
-        }
+        // JSONL without metadata injection (inject_meta case handled earlier)
         shell_cmd = try std.fmt.allocPrint(allocator, "cat '{s}'", .{escaped_file_path});
     } else {
         jn_core.exitWithError("jn-cat: format plugin '{s}' not found", .{effective_format});
