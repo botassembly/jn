@@ -441,6 +441,11 @@ pub fn parseExprWithContext(allocator: std.mem.Allocator, expr: []const u8, err_
     if (std.mem.eql(u8, trimmed, "uuid")) return .{ .builtin = .{ .kind = .uuid } };
     if (std.mem.eql(u8, trimmed, "shortid")) return .{ .builtin = .{ .kind = .shortid } };
     if (std.mem.eql(u8, trimmed, "sid")) return .{ .builtin = .{ .kind = .sid } };
+    // Sprint 07: More ID generators
+    if (std.mem.eql(u8, trimmed, "nanoid")) return .{ .builtin = .{ .kind = .nanoid } };
+    if (std.mem.eql(u8, trimmed, "ulid")) return .{ .builtin = .{ .kind = .ulid } };
+    if (std.mem.eql(u8, trimmed, "uuid7")) return .{ .builtin = .{ .kind = .uuid7 } };
+    if (std.mem.eql(u8, trimmed, "xid")) return .{ .builtin = .{ .kind = .xid } };
     // Sprint 06: Generator functions - Random/Sequence
     if (std.mem.eql(u8, trimmed, "random")) return .{ .builtin = .{ .kind = .random } };
     if (std.mem.eql(u8, trimmed, "seq")) return .{ .builtin = .{ .kind = .seq } };

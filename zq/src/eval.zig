@@ -1143,6 +1143,31 @@ fn evalBuiltin(allocator: std.mem.Allocator, kind: BuiltinKind, value: std.json.
             const str = try generateBase62(allocator, 6);
             return try EvalResult.single(allocator, .{ .string = str });
         },
+        // Sprint 07: More ID generators
+        .nanoid => {
+            // NanoID: 21 chars, URL-safe alphabet
+            // Alphabet: A-Za-z0-9_-
+            const str = try generateNanoId(allocator, 21);
+            return try EvalResult.single(allocator, .{ .string = str });
+        },
+        .ulid => {
+            // ULID: 26 chars, Crockford Base32, time-sortable
+            // Format: TTTTTTTTTTRRRRRRRRRRRRRRR (10 time + 16 random chars)
+            const str = try generateUlid(allocator);
+            return try EvalResult.single(allocator, .{ .string = str });
+        },
+        .uuid7 => {
+            // UUID v7: 36 chars with dashes, time-sortable
+            // Based on Unix timestamp milliseconds
+            const str = try generateUuid7(allocator);
+            return try EvalResult.single(allocator, .{ .string = str });
+        },
+        .xid => {
+            // XID: 20 chars, URL-safe Base32, sortable
+            // 4 bytes time + 3 bytes machine + 2 bytes PID + 3 bytes counter
+            const str = try generateXid(allocator);
+            return try EvalResult.single(allocator, .{ .string = str });
+        },
         // Sprint 06: Generator functions - Random/Sequence
         .random => {
             // Random float between 0.0 and 1.0
@@ -1518,6 +1543,159 @@ fn generateBase62(allocator: std.mem.Allocator, len: usize) ![]u8 {
         const rand_idx = rand_bytes[i % 16] % 62;
         result[i] = base62_alphabet[rand_idx];
     }
+    return result;
+}
+
+// Sprint 07: NanoID - URL-safe alphabet
+const nanoid_alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-";
+
+fn generateNanoId(allocator: std.mem.Allocator, len: usize) ![]u8 {
+    var result = try allocator.alloc(u8, len);
+    var rand_bytes: [32]u8 = undefined;
+    std.crypto.random.bytes(&rand_bytes);
+
+    for (0..len) |i| {
+        const rand_idx = rand_bytes[i % 32] % 64;
+        result[i] = nanoid_alphabet[rand_idx];
+    }
+    return result;
+}
+
+// Sprint 07: ULID - Crockford Base32, time-sortable
+const crockford_alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
+fn generateUlid(allocator: std.mem.Allocator) ![]u8 {
+    var result = try allocator.alloc(u8, 26);
+
+    // Get timestamp in milliseconds
+    const timestamp_ns = std.time.nanoTimestamp();
+    var timestamp_ms: u64 = @intCast(@divFloor(timestamp_ns, std.time.ns_per_ms));
+
+    // Encode 48-bit timestamp as first 10 characters (Crockford Base32)
+    var i: usize = 9;
+    while (i < 10) : (i -%= 1) {
+        result[i] = crockford_alphabet[@intCast(timestamp_ms & 0x1f)];
+        timestamp_ms >>= 5;
+        if (i == 0) break;
+    }
+
+    // Generate 80 bits of randomness for remaining 16 characters
+    var rand_bytes: [10]u8 = undefined;
+    std.crypto.random.bytes(&rand_bytes);
+
+    // Encode random bytes as Base32
+    // Each char is 5 bits, so 16 chars = 80 bits = 10 bytes
+    var rand_bits: u80 = 0;
+    for (rand_bytes) |b| {
+        rand_bits = (rand_bits << 8) | b;
+    }
+
+    var j: usize = 25;
+    while (j >= 10) : (j -%= 1) {
+        result[j] = crockford_alphabet[@intCast(rand_bits & 0x1f)];
+        rand_bits >>= 5;
+        if (j == 10) break;
+    }
+
+    return result;
+}
+
+// Sprint 07: UUID v7 - time-sortable UUID
+fn generateUuid7(allocator: std.mem.Allocator) ![]u8 {
+    // UUID v7: xxxxxxxx-xxxx-7xxx-yxxx-xxxxxxxxxxxx
+    // First 48 bits: Unix timestamp in milliseconds
+    // Next 4 bits: version (7)
+    // Next 12 bits: random
+    // Next 2 bits: variant (10)
+    // Remaining 62 bits: random
+
+    const timestamp_ns = std.time.nanoTimestamp();
+    const timestamp_ms: u64 = @intCast(@divFloor(timestamp_ns, std.time.ns_per_ms));
+
+    var bytes: [16]u8 = undefined;
+
+    // Timestamp (48 bits, big-endian)
+    bytes[0] = @intCast((timestamp_ms >> 40) & 0xff);
+    bytes[1] = @intCast((timestamp_ms >> 32) & 0xff);
+    bytes[2] = @intCast((timestamp_ms >> 24) & 0xff);
+    bytes[3] = @intCast((timestamp_ms >> 16) & 0xff);
+    bytes[4] = @intCast((timestamp_ms >> 8) & 0xff);
+    bytes[5] = @intCast(timestamp_ms & 0xff);
+
+    // Random bytes for the rest
+    std.crypto.random.bytes(bytes[6..]);
+
+    // Set version 7
+    bytes[6] = (bytes[6] & 0x0f) | 0x70;
+    // Set variant (10xx)
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+
+    return try std.fmt.allocPrint(allocator, "{x:0>2}{x:0>2}{x:0>2}{x:0>2}-{x:0>2}{x:0>2}-{x:0>2}{x:0>2}-{x:0>2}{x:0>2}-{x:0>2}{x:0>2}{x:0>2}{x:0>2}{x:0>2}{x:0>2}", .{
+        bytes[0],  bytes[1],  bytes[2],  bytes[3],
+        bytes[4],  bytes[5],  bytes[6],  bytes[7],
+        bytes[8],  bytes[9],  bytes[10], bytes[11],
+        bytes[12], bytes[13], bytes[14], bytes[15],
+    });
+}
+
+// Sprint 07: XID - compact, sortable ID
+// XID alphabet is lowercase hex-extended with more URL-safe chars
+const xid_alphabet = "0123456789abcdefghijklmnopqrstuv";
+threadlocal var xid_counter: u24 = 0;
+threadlocal var xid_machine_id: ?[3]u8 = null;
+
+fn generateXid(allocator: std.mem.Allocator) ![]u8 {
+    var result = try allocator.alloc(u8, 20);
+
+    // 4 bytes: unix timestamp (seconds)
+    const timestamp: u32 = @intCast(std.time.timestamp());
+
+    // 3 bytes: machine ID (random, cached)
+    if (xid_machine_id == null) {
+        var machine: [3]u8 = undefined;
+        std.crypto.random.bytes(&machine);
+        xid_machine_id = machine;
+    }
+    const machine_id = xid_machine_id.?;
+
+    // 2 bytes: PID (use random since we don't have easy PID access)
+    var pid_bytes: [2]u8 = undefined;
+    std.crypto.random.bytes(&pid_bytes);
+
+    // 3 bytes: counter
+    xid_counter +%= 1;
+    const counter = xid_counter;
+
+    // Pack into 12 bytes
+    var bytes: [12]u8 = undefined;
+    bytes[0] = @intCast((timestamp >> 24) & 0xff);
+    bytes[1] = @intCast((timestamp >> 16) & 0xff);
+    bytes[2] = @intCast((timestamp >> 8) & 0xff);
+    bytes[3] = @intCast(timestamp & 0xff);
+    bytes[4] = machine_id[0];
+    bytes[5] = machine_id[1];
+    bytes[6] = machine_id[2];
+    bytes[7] = pid_bytes[0];
+    bytes[8] = pid_bytes[1];
+    bytes[9] = @intCast((counter >> 16) & 0xff);
+    bytes[10] = @intCast((counter >> 8) & 0xff);
+    bytes[11] = @intCast(counter & 0xff);
+
+    // Encode as base32 (20 chars for 12 bytes * 8 bits / 5 bits per char = 19.2, round to 20)
+    // Actually XID uses a specific encoding: 12 bytes -> 20 chars
+    // Each 5 bits becomes one character
+    var bits: u96 = 0;
+    for (bytes) |b| {
+        bits = (bits << 8) | b;
+    }
+
+    var i: usize = 19;
+    while (i < 20) : (i -%= 1) {
+        result[i] = xid_alphabet[@intCast(bits & 0x1f)];
+        bits >>= 5;
+        if (i == 0) break;
+    }
+
     return result;
 }
 

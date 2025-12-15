@@ -160,9 +160,14 @@ pub const BuiltinKind = enum {
     weekday, // Day of week name (Sunday, Monday, etc.)
     weekday_num, // Day of week number (0=Sunday, 6=Saturday)
     // Generator functions - IDs (Sprint 06)
-    uuid, // UUID v4
+    uuid, // UUID v4, 36 chars, random
     shortid, // Base62 8-char ID
     sid, // Base62 6-char ID
+    // More ID generators (Sprint 07)
+    nanoid, // NanoID, 21 chars, URL-safe
+    ulid, // ULID, 26 chars, time-sortable
+    uuid7, // UUID v7, 36 chars, time-sortable
+    xid, // XID, 20 chars, compact and sortable
     // Generator functions - Random/Sequence (Sprint 06)
     random, // Random float 0.0-1.0
     seq, // Incrementing counter
