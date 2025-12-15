@@ -2096,10 +2096,12 @@ fn parseIsoTimestamp(s: []const u8) ?i64 {
 
     // Parse month
     const month = std.fmt.parseInt(u32, s[5..7], 10) catch return null;
+    if (month < 1 or month > 12) return null;
     if (s[7] != '-') return null;
 
     // Parse day
     const day = std.fmt.parseInt(u32, s[8..10], 10) catch return null;
+    if (day < 1 or day > 31) return null;
 
     // Calculate days since epoch
     var days: i64 = 0;
@@ -2127,8 +2129,11 @@ fn parseIsoTimestamp(s: []const u8) ?i64 {
     // Parse time if present
     if (s.len >= 19 and s[10] == 'T') {
         const hour = std.fmt.parseInt(u32, s[11..13], 10) catch return null;
+        if (hour > 23) return null;
         const minute = std.fmt.parseInt(u32, s[14..16], 10) catch return null;
+        if (minute > 59) return null;
         const second = std.fmt.parseInt(u32, s[17..19], 10) catch return null;
+        if (second > 59) return null;
         secs += hour * 3600 + minute * 60 + second;
     }
 
