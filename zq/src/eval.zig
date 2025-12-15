@@ -1049,6 +1049,59 @@ fn evalBuiltin(allocator: std.mem.Allocator, kind: BuiltinKind, value: std.json.
             if (f < 0) return try EvalResult.single(allocator, .null);
             return try EvalResult.single(allocator, .{ .float = @sqrt(f) });
         },
+        // Sprint 07: Trigonometry functions
+        .sin => {
+            const f = switch (value) {
+                .integer => |i| @as(f64, @floatFromInt(i)),
+                .float => |f| f,
+                else => return EvalResult.empty(allocator),
+            };
+            return try EvalResult.single(allocator, .{ .float = @sin(f) });
+        },
+        .cos => {
+            const f = switch (value) {
+                .integer => |i| @as(f64, @floatFromInt(i)),
+                .float => |f| f,
+                else => return EvalResult.empty(allocator),
+            };
+            return try EvalResult.single(allocator, .{ .float = @cos(f) });
+        },
+        .tan => {
+            const f = switch (value) {
+                .integer => |i| @as(f64, @floatFromInt(i)),
+                .float => |f| f,
+                else => return EvalResult.empty(allocator),
+            };
+            return try EvalResult.single(allocator, .{ .float = @tan(f) });
+        },
+        .asin => {
+            const f = switch (value) {
+                .integer => |i| @as(f64, @floatFromInt(i)),
+                .float => |f| f,
+                else => return EvalResult.empty(allocator),
+            };
+            // asin is only valid for [-1, 1]
+            if (f < -1 or f > 1) return try EvalResult.single(allocator, .null);
+            return try EvalResult.single(allocator, .{ .float = std.math.asin(f) });
+        },
+        .acos => {
+            const f = switch (value) {
+                .integer => |i| @as(f64, @floatFromInt(i)),
+                .float => |f| f,
+                else => return EvalResult.empty(allocator),
+            };
+            // acos is only valid for [-1, 1]
+            if (f < -1 or f > 1) return try EvalResult.single(allocator, .null);
+            return try EvalResult.single(allocator, .{ .float = std.math.acos(f) });
+        },
+        .atan => {
+            const f = switch (value) {
+                .integer => |i| @as(f64, @floatFromInt(i)),
+                .float => |f| f,
+                else => return EvalResult.empty(allocator),
+            };
+            return try EvalResult.single(allocator, .{ .float = std.math.atan(f) });
+        },
         // Sprint 06: Generator functions - Date/Time
         .now => {
             // ISO 8601 timestamp in UTC: "2024-12-15T17:30:00Z"

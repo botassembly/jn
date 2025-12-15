@@ -150,6 +150,13 @@ pub const BuiltinKind = enum {
     log10, // Base-10 logarithm
     log2, // Base-2 logarithm
     sqrt, // Square root
+    // Trigonometry functions (Sprint 07)
+    sin, // Sine (radians)
+    cos, // Cosine (radians)
+    tan, // Tangent (radians)
+    asin, // Arc sine (radians)
+    acos, // Arc cosine (radians)
+    atan, // Arc tangent (radians)
     // Generator functions - Date/Time (Sprint 06)
     now, // ISO 8601 timestamp (UTC)
     today, // Date only (YYYY-MM-DD)
