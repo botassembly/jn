@@ -6,17 +6,24 @@ set -e
 
 RELEASE_DIR="${1:-/tmp/jn-release}"
 REPO="botassembly/jn"
-TARBALL="jn-linux-x86_64.tar.gz"
 
 echo "=== JN Release Bootstrap ==="
 
-# Download URL (uses consistent filename that always points to latest)
+# Try consistent filename first (new releases), fall back to versioned (old releases)
+TARBALL="jn-linux-x86_64.tar.gz"
 URL="https://github.com/$REPO/releases/latest/download/$TARBALL"
 
-# Download and extract
 echo "Downloading latest release..."
 mkdir -p "$RELEASE_DIR"
-curl -fL "$URL" -o "/tmp/$TARBALL"
+
+if ! curl -fL "$URL" -o "/tmp/$TARBALL" 2>/dev/null; then
+    echo "Consistent filename not found, fetching versioned release..."
+    LATEST=$(curl -s "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name"' | cut -d'"' -f4)
+    VERSION="${LATEST#v}"
+    TARBALL="jn-${VERSION}-x86_64-linux.tar.gz"
+    URL="https://github.com/$REPO/releases/download/$LATEST/$TARBALL"
+    curl -fL "$URL" -o "/tmp/$TARBALL"
+fi
 
 echo "Extracting to $RELEASE_DIR..."
 tar -xzf "/tmp/$TARBALL" -C "$RELEASE_DIR" --strip-components=1
