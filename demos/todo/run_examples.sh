@@ -21,7 +21,7 @@ set -euo pipefail
 
 # Use jn tool to access the todo command
 # In practice, you'd create an alias: alias todo="jn tool todo"
-JN="${JN:-./tools/zig/jn/bin/jn}"
+JN="${JN:-jn}"
 TODO="$JN tool todo"
 ZQ="${ZQ:-zq}"
 

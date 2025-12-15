@@ -7,9 +7,9 @@
 # ZQ is JN's high-performance filter engine for NDJSON streams.
 #
 # Categories covered:
-# - Generators: Create values (now, seq, range, xid, nanoid, ulid, uuid7)
+# - Generators: Create values (now, epoch, today, xid, nanoid, ulid, uuid7)
 # - Transforms: Modify data (keys, values, flatten, unique, sort, reverse)
-# - String: Text manipulation (upper, lower, trim, split, join, replace)
+# - String: Text manipulation (ascii_upcase, ascii_downcase, trim, split, join)
 # - Date/Time: Temporal operations (year, month, day, hour, time, weekday)
 # - Math: Numerical (abs, exp, ln, log10, sqrt, sin, cos, tan)
 # - Case: Naming conventions (snakecase, camelcase, pascalcase, screamcase)
@@ -51,11 +51,11 @@ echo ""
 # =============================================================================
 echo -e "\n${GREEN}━━━ GENERATORS ━━━${RESET}"
 
-demo_raw "Generate current timestamp (epoch seconds)" '{}' 'now'
+demo_raw "Generate ISO timestamp (UTC)" '{}' 'now'
 
-demo_raw "Generate sequence 1..5" '{}' 'seq(5)'
+demo_raw "Generate Unix epoch (seconds)" '{}' 'epoch'
 
-demo_raw "Generate range 10..15" '{}' 'range(10,15)'
+demo_raw "Generate today's date" '{}' 'today'
 
 demo_raw "Generate XID (time-sortable unique ID)" '{}' 'xid'
 
@@ -93,9 +93,9 @@ demo "Get last element" '[10,20,30]' 'last'
 # =============================================================================
 echo -e "\n${GREEN}━━━ STRING FUNCTIONS ━━━${RESET}"
 
-demo_raw "Convert to uppercase" '{"text":"hello world"}' '.text | upper'
+demo_raw "Convert to uppercase" '{"text":"hello world"}' '.text | ascii_upcase'
 
-demo_raw "Convert to lowercase" '{"text":"HELLO WORLD"}' '.text | lower'
+demo_raw "Convert to lowercase" '{"text":"HELLO WORLD"}' '.text | ascii_downcase'
 
 demo_raw "Trim whitespace" '{"text":"  hello  "}' '.text | trim'
 
@@ -103,9 +103,9 @@ demo_raw "Split string" '{"csv":"a,b,c"}' '.csv | split(",")'
 
 demo_raw "Join array to string" '{"parts":["hello","world"]}' '.parts | join(" ")'
 
-demo_raw "Replace text" '{"msg":"hello world"}' '.msg | replace("world", "ZQ")'
-
 demo_raw "Check if starts with" '{"name":"prefix_value"}' '.name | startswith("prefix")'
+
+demo_raw "Check if ends with" '{"name":"value_suffix"}' '.name | endswith("suffix")'
 
 demo_raw "Check if contains" '{"text":"hello world"}' '.text | contains("wor")'
 
@@ -222,9 +222,9 @@ demo_raw "Ago with timestamp from 7 days ago" "{\"ts\":$WEEK_AGO}" '.ts | ago'
 # =============================================================================
 echo -e "\n${GREEN}━━━ CHAINING FUNCTIONS ━━━${RESET}"
 
-demo_raw "Chain multiple transforms" '{"name":"  HELLO world  "}' '.name | trim | lower | split(" ") | reverse | join("-")'
+demo_raw "Chain multiple transforms" '{"name":"  HELLO world  "}' '.name | trim | ascii_downcase | split(" ") | reverse | join("-")'
 
-demo "Complex object transform" '{"users":[{"name":"alice"},{"name":"bob"}]}' '.users | map(.name | upper)'
+demo "Complex object transform" '{"users":[{"name":"alice"},{"name":"bob"}]}' '.users | map(.name | ascii_upcase)'
 
 echo ""
 echo "=============================================="
