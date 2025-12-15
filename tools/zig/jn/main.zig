@@ -297,7 +297,21 @@ fn findPythonPlugin(allocator: std.mem.Allocator, name: []const u8) ?[]const u8 
     // Try relative to executable's location
     var exe_path_buf: [std.fs.max_path_bytes]u8 = undefined;
     if (std.fs.selfExePath(&exe_path_buf)) |exe_path| {
-        // Go up 4 levels: bin -> jn -> zig -> tools -> root
+        // Try release layout first: bin/jn -> up 1 level -> jn_home/plugins/
+        if (std.fs.path.dirname(exe_path)) |bin_dir| {
+            if (std.fs.path.dirname(bin_dir)) |release_root| {
+                for (subdirs) |subdir| {
+                    const release_path = std.fmt.allocPrint(allocator, "{s}/jn_home/plugins/{s}/{s}", .{ release_root, subdir, name }) catch continue;
+                    if (std.fs.cwd().access(release_path, .{})) |_| {
+                        return release_path;
+                    } else |_| {
+                        allocator.free(release_path);
+                    }
+                }
+            }
+        }
+
+        // Try dev layout: bin -> jn -> zig -> tools -> root (4 levels up)
         var dir = std.fs.path.dirname(exe_path);
         var i: usize = 0;
         while (i < 4 and dir != null) : (i += 1) {
@@ -341,7 +355,19 @@ fn findUserTool(allocator: std.mem.Allocator, name: []const u8) ?[]const u8 {
     // Try relative to executable's location
     var exe_path_buf: [std.fs.max_path_bytes]u8 = undefined;
     if (std.fs.selfExePath(&exe_path_buf)) |exe_path| {
-        // Go up 4 levels: bin -> jn -> zig -> tools -> root
+        // Try release layout first: bin/jn -> up 1 level -> jn_home/tools/
+        if (std.fs.path.dirname(exe_path)) |bin_dir| {
+            if (std.fs.path.dirname(bin_dir)) |release_root| {
+                const release_path = std.fmt.allocPrint(allocator, "{s}/jn_home/tools/{s}", .{ release_root, name }) catch return null;
+                if (std.fs.cwd().access(release_path, .{})) |_| {
+                    return release_path;
+                } else |_| {
+                    allocator.free(release_path);
+                }
+            }
+        }
+
+        // Try dev layout: bin -> jn -> zig -> tools -> root (4 levels up)
         var dir = std.fs.path.dirname(exe_path);
         var i: usize = 0;
         while (i < 4 and dir != null) : (i += 1) {
