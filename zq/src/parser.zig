@@ -482,6 +482,9 @@ pub fn parseExprWithContext(allocator: std.mem.Allocator, expr: []const u8, err_
     if (std.mem.eql(u8, trimmed, "snakecase")) return .{ .builtin = .{ .kind = .snakecase } };
     if (std.mem.eql(u8, trimmed, "camelcase")) return .{ .builtin = .{ .kind = .camelcase } };
     if (std.mem.eql(u8, trimmed, "kebabcase")) return .{ .builtin = .{ .kind = .kebabcase } };
+    // Sprint 07: More case functions
+    if (std.mem.eql(u8, trimmed, "pascalcase")) return .{ .builtin = .{ .kind = .pascalcase } };
+    if (std.mem.eql(u8, trimmed, "screamcase")) return .{ .builtin = .{ .kind = .screamcase } };
     // Sprint 06: Predicates
     if (std.mem.eql(u8, trimmed, "empty")) return .{ .builtin = .{ .kind = .empty } };
     // Sprint 06: String splitting

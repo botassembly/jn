@@ -1463,6 +1463,33 @@ fn evalBuiltin(allocator: std.mem.Allocator, kind: BuiltinKind, value: std.json.
                 else => return EvalResult.empty(allocator),
             }
         },
+        // Sprint 07: More case functions
+        .pascalcase => {
+            switch (value) {
+                .string => |s| {
+                    // PascalCase is just camelCase with first letter uppercase
+                    const result = try toCamelCase(allocator, s, true);
+                    return try EvalResult.single(allocator, .{ .string = result });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .screamcase => {
+            switch (value) {
+                .string => |s| {
+                    // SCREAMING_SNAKE_CASE: snake_case but uppercase
+                    const snake = try toSnakeCase(allocator, s);
+                    // Convert to uppercase
+                    for (snake) |*c| {
+                        if (c.* >= 'a' and c.* <= 'z') {
+                            c.* = c.* - 32;
+                        }
+                    }
+                    return try EvalResult.single(allocator, .{ .string = snake });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
         // Sprint 06: Predicates
         .empty => {
             const result = switch (value) {

@@ -204,6 +204,9 @@ pub const BuiltinKind = enum {
     snakecase, // to_snake_case
     camelcase, // toCamelCase
     kebabcase, // to-kebab-case
+    // More case functions (Sprint 07)
+    pascalcase, // ToPascalCase (like camelCase but first letter uppercase)
+    screamcase, // TO_SCREAMING_SNAKE_CASE
     // Predicate functions (Sprint 06)
     empty, // True if empty string/array/object
     // String splitting (Sprint 06)
