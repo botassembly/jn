@@ -92,9 +92,12 @@ jobs:
           # Copy jn_home (tools, plugins metadata)
           cp -r jn_home release/$ARCHIVE/
 
-          # Create archive
+          # Create versioned archive
           cd release
           tar -czf ${ARCHIVE}.tar.gz $ARCHIVE
+
+          # Create non-versioned archive for easy "latest" downloads
+          cp ${ARCHIVE}.tar.gz jn-linux-x86_64.tar.gz
 
           ls -la
 

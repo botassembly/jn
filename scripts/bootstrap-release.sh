@@ -6,29 +6,17 @@ set -e
 
 RELEASE_DIR="${1:-/tmp/jn-release}"
 REPO="botassembly/jn"
+TARBALL="jn-linux-x86_64.tar.gz"
 
 echo "=== JN Release Bootstrap ==="
 
-# Get latest release tag
-echo "Fetching latest release..."
-LATEST=$(curl -s "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name"' | cut -d'"' -f4)
-
-if [ -z "$LATEST" ]; then
-    echo "Error: Could not fetch latest release"
-    exit 1
-fi
-
-echo "Latest release: $LATEST"
-
-# Construct download URL
-VERSION="${LATEST#v}"
-TARBALL="jn-${VERSION}-x86_64-linux.tar.gz"
-URL="https://github.com/$REPO/releases/download/$LATEST/$TARBALL"
+# Download URL (uses consistent filename that always points to latest)
+URL="https://github.com/$REPO/releases/latest/download/$TARBALL"
 
 # Download and extract
-echo "Downloading $TARBALL..."
+echo "Downloading latest release..."
 mkdir -p "$RELEASE_DIR"
-curl -L "$URL" -o "/tmp/$TARBALL"
+curl -fL "$URL" -o "/tmp/$TARBALL"
 
 echo "Extracting to $RELEASE_DIR..."
 tar -xzf "/tmp/$TARBALL" -C "$RELEASE_DIR" --strip-components=1
