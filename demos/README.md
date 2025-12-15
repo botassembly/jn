@@ -4,13 +4,12 @@ Run these demos to see JN's ETL capabilities in action. Each demo has a well-com
 
 ## Prerequisites
 
-Before running demos, build the Zig tools:
+Before running demos, build and activate JN:
 
 ```bash
 cd ..
 make build
-export JN_HOME="$(pwd)"
-export PATH="$(pwd)/tools/zig/jn/bin:$PATH"
+source dist/activate.sh
 ```
 
 ## Quick Start
@@ -18,8 +17,8 @@ export PATH="$(pwd)/tools/zig/jn/bin:$PATH"
 ```bash
 cd csv-filtering && ./run_examples.sh     # Core ETL operations
 cd join && ./run_examples.sh              # Stream enrichment via hash join
-cd table-rendering && ./run_examples.sh   # Pretty-print NDJSON as tables
-cd xlsx-files && ./run_examples.sh        # Read/write Excel files
+cd json-editing && ./run_examples.sh      # Surgical JSON editing with jn-edit
+cd todo && ./run_examples.sh              # Task management tool demo
 ```
 
 ## Available Demos
@@ -28,6 +27,8 @@ cd xlsx-files && ./run_examples.sh        # Read/write Excel files
 |------|--------|-------------|
 | **csv-filtering/** | ✅ Working | Read CSV, filter with ZQ, convert formats |
 | **join/** | ✅ Working | Stream enrichment via hash join |
+| **json-editing/** | ✅ Working | Surgical JSON editing with jn-edit tool |
+| **todo/** | ✅ Working | Task management with BEADS-inspired dependencies |
 | **shell-commands/** | ✅ Working | Convert shell output to NDJSON (requires `jc`) |
 | **http-api/** | ✅ Working | Fetch from REST APIs via curl |
 | **glob/** | ✅ Working | Process multiple files with glob patterns |
@@ -69,6 +70,21 @@ jn cat data.csv | jn table --tablefmt github   # Markdown table
 ```bash
 jn cat @genie/treatment                         # DuckDB query
 jn cat '@genie/treatment?regimen=FOLFOX'        # With parameters
+```
+
+**JSON editing (jn-edit):**
+```bash
+echo '{"name":"Alice"}' | jn-edit .age:=30      # Add number field
+echo '{"x":1}' | jn-edit .y:=2 .z:=3            # Multiple edits
+echo '{"a":[1]}' | jn-edit --append .a 2       # Append to array
+```
+
+**Task management (todo):**
+```bash
+todo add "Fix bug" -p high                      # Add task with priority
+todo blocks 1 2                                 # Task 1 blocks task 2
+todo ready                                      # Show actionable tasks
+todo stats                                      # Statistics dashboard
 ```
 
 For detailed examples, see the scripts in each demo directory.
