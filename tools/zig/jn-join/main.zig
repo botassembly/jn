@@ -307,13 +307,45 @@ fn outputMerged(allocator: std.mem.Allocator, left: std.json.Value, right_line: 
 }
 
 fn findTool(allocator: std.mem.Allocator, name: []const u8) ?[]const u8 {
+    // Try paths relative to JN_HOME
     if (std.posix.getenv("JN_HOME")) |jn_home| {
+        // Try installed layout: $JN_HOME/bin/{name}
+        const bin_path = std.fmt.allocPrint(allocator, "{s}/bin/{s}", .{ jn_home, name }) catch return null;
+        if (std.fs.cwd().access(bin_path, .{})) |_| {
+            return bin_path;
+        } else |_| {
+            allocator.free(bin_path);
+        }
+
+        // Try development layout: $JN_HOME/tools/zig/{name}/bin/{name}
         const path = std.fmt.allocPrint(allocator, "{s}/tools/zig/{s}/bin/{s}", .{ jn_home, name, name }) catch return null;
-        if (std.fs.cwd().access(path, .{})) |_| return path else |_| {}
+        if (std.fs.cwd().access(path, .{})) |_| {
+            return path;
+        } else |_| {
+            allocator.free(path);
+        }
     }
 
+    // Try sibling to executable (installed layout: tools in same directory)
+    var exe_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    if (std.fs.selfExePath(&exe_path_buf)) |exe_path| {
+        if (std.fs.path.dirname(exe_path)) |exe_dir| {
+            const sibling_path = std.fmt.allocPrint(allocator, "{s}/{s}", .{ exe_dir, name }) catch return null;
+            if (std.fs.cwd().access(sibling_path, .{})) |_| {
+                return sibling_path;
+            } else |_| {
+                allocator.free(sibling_path);
+            }
+        }
+    } else |_| {}
+
+    // Try relative to current directory (development mode)
     const dev_path = std.fmt.allocPrint(allocator, "tools/zig/{s}/bin/{s}", .{ name, name }) catch return null;
-    if (std.fs.cwd().access(dev_path, .{})) |_| return dev_path else |_| {}
+    if (std.fs.cwd().access(dev_path, .{})) |_| {
+        return dev_path;
+    } else |_| {
+        allocator.free(dev_path);
+    }
 
     return null;
 }

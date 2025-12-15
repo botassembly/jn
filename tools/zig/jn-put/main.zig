@@ -363,6 +363,15 @@ fn findPluginInfo(allocator: std.mem.Allocator, name: []const u8) ?PluginInfo {
 
     // Try paths relative to JN_HOME
     if (std.posix.getenv("JN_HOME")) |jn_home| {
+        // Try installed layout: $JN_HOME/bin/{name}
+        const installed_path = std.fmt.allocPrint(allocator, "{s}/bin/{s}", .{ jn_home, name }) catch return null;
+        if (std.fs.cwd().access(installed_path, .{})) |_| {
+            return .{ .path = installed_path, .plugin_type = .zig };
+        } else |_| {
+            allocator.free(installed_path);
+        }
+
+        // Try development layout: $JN_HOME/plugins/zig/{name}/bin/{name}
         const path = std.fmt.allocPrint(allocator, "{s}/plugins/zig/{s}/bin/{s}", .{ jn_home, name, name }) catch return null;
         if (std.fs.cwd().access(path, .{})) |_| {
             return .{ .path = path, .plugin_type = .zig };
@@ -370,6 +379,19 @@ fn findPluginInfo(allocator: std.mem.Allocator, name: []const u8) ?PluginInfo {
             allocator.free(path);
         }
     }
+
+    // Try sibling to executable (installed layout: binaries in same directory)
+    var exe_path_buf2: [std.fs.max_path_bytes]u8 = undefined;
+    if (std.fs.selfExePath(&exe_path_buf2)) |exe_path| {
+        if (std.fs.path.dirname(exe_path)) |exe_dir| {
+            const sibling_path = std.fmt.allocPrint(allocator, "{s}/{s}", .{ exe_dir, name }) catch return null;
+            if (std.fs.cwd().access(sibling_path, .{})) |_| {
+                return .{ .path = sibling_path, .plugin_type = .zig };
+            } else |_| {
+                allocator.free(sibling_path);
+            }
+        }
+    } else |_| {}
 
     // Try relative to current directory (development mode)
     const dev_path = std.fmt.allocPrint(allocator, "plugins/zig/{s}/bin/{s}", .{ name, name }) catch return null;

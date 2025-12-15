@@ -1,4 +1,4 @@
-.PHONY: all build test clean install-zig install-python-deps zq zq-test zig-plugins zig-plugins-test zig-libs zig-libs-test zig-tools zig-tools-test fmt
+.PHONY: all build test check clean install-zig install-python-deps zq zq-test zig-plugins zig-plugins-test zig-libs zig-libs-test zig-tools zig-tools-test fmt bootstrap
 
 # Zig configuration
 ZIG_VERSION := 0.15.2
@@ -44,6 +44,27 @@ build: install-zig install-python-deps zq zig-plugins zig-tools
 test: build zig-libs-test zig-plugins-test zig-tools-test zq-test
 	@echo ""
 	@echo "All tests passed!"
+
+check: build
+	@echo "Running integration checks..."
+	@export JN_HOME="$(PWD)" && export PATH="$(PWD)/tools/zig/jn/bin:$$PATH" && \
+	echo "  Checking jn version..." && \
+	./tools/zig/jn/bin/jn --version && \
+	echo "  Checking CSV read..." && \
+	echo 'name,age\nAlice,30\nBob,25' | ./tools/zig/jn-cat/bin/jn-cat -~csv > /dev/null && \
+	echo "  Checking JSON output..." && \
+	echo '{"test":1}' | ./tools/zig/jn-filter/bin/jn-filter '.' > /dev/null && \
+	echo "  Checking head..." && \
+	echo '{"n":1}\n{"n":2}\n{"n":3}' | ./tools/zig/jn-head/bin/jn-head --lines=2 > /dev/null && \
+	echo "  Checking tail..." && \
+	echo '{"n":1}\n{"n":2}\n{"n":3}' | ./tools/zig/jn-tail/bin/jn-tail --lines=2 > /dev/null && \
+	echo "  Checking merge..." && \
+	echo '{"a":1}' > /tmp/jn_check_a.jsonl && \
+	echo '{"b":2}' > /tmp/jn_check_b.jsonl && \
+	./tools/zig/jn-merge/bin/jn-merge /tmp/jn_check_a.jsonl /tmp/jn_check_b.jsonl > /dev/null && \
+	rm -f /tmp/jn_check_a.jsonl /tmp/jn_check_b.jsonl && \
+	echo "" && \
+	echo "All integration checks passed!"
 
 clean:
 	rm -rf zq/zig-out
@@ -121,67 +142,59 @@ zig-libs-test: install-zig
 	@echo "  jn-discovery: OK"
 
 # =============================================================================
-# Zig plugins
+# Zig plugins (can build in parallel with make -j)
 # =============================================================================
 
-zig-plugins: install-zig
-	@echo "Building Zig plugins..."
-	mkdir -p plugins/zig/csv/bin plugins/zig/json/bin plugins/zig/jsonl/bin
-	mkdir -p plugins/zig/gz/bin plugins/zig/yaml/bin plugins/zig/toml/bin
-	cd plugins/zig/csv && $(ZIG) build-exe -fllvm -O ReleaseFast $(PLUGIN_MODULES) -femit-bin=bin/csv
-	cd plugins/zig/json && $(ZIG) build-exe -fllvm -O ReleaseFast $(PLUGIN_MODULES) -femit-bin=bin/json
-	cd plugins/zig/jsonl && $(ZIG) build-exe -fllvm -O ReleaseFast $(PLUGIN_MODULES) -femit-bin=bin/jsonl
-	cd plugins/zig/gz && $(ZIG) build-exe -fllvm -O ReleaseFast $(PLUGIN_MODULES) -femit-bin=bin/gz
-	cd plugins/zig/yaml && $(ZIG) build-exe -fllvm -O ReleaseFast $(PLUGIN_MODULES) -femit-bin=bin/yaml
-	cd plugins/zig/toml && $(ZIG) build-exe -fllvm -O ReleaseFast $(PLUGIN_MODULES) -femit-bin=bin/toml
+PLUGINS := csv json jsonl gz yaml toml
+
+# Individual plugin targets for parallel builds
+.PHONY: plugin-csv plugin-json plugin-jsonl plugin-gz plugin-yaml plugin-toml
+plugin-csv: ; @mkdir -p plugins/zig/csv/bin && cd plugins/zig/csv && $(ZIG) build-exe -fllvm -O ReleaseFast $(PLUGIN_MODULES) -femit-bin=bin/csv
+plugin-json: ; @mkdir -p plugins/zig/json/bin && cd plugins/zig/json && $(ZIG) build-exe -fllvm -O ReleaseFast $(PLUGIN_MODULES) -femit-bin=bin/json
+plugin-jsonl: ; @mkdir -p plugins/zig/jsonl/bin && cd plugins/zig/jsonl && $(ZIG) build-exe -fllvm -O ReleaseFast $(PLUGIN_MODULES) -femit-bin=bin/jsonl
+plugin-gz: ; @mkdir -p plugins/zig/gz/bin && cd plugins/zig/gz && $(ZIG) build-exe -fllvm -O ReleaseFast $(PLUGIN_MODULES) -femit-bin=bin/gz
+plugin-yaml: ; @mkdir -p plugins/zig/yaml/bin && cd plugins/zig/yaml && $(ZIG) build-exe -fllvm -O ReleaseFast $(PLUGIN_MODULES) -femit-bin=bin/yaml
+plugin-toml: ; @mkdir -p plugins/zig/toml/bin && cd plugins/zig/toml && $(ZIG) build-exe -fllvm -O ReleaseFast $(PLUGIN_MODULES) -femit-bin=bin/toml
+
+zig-plugins: install-zig plugin-csv plugin-json plugin-jsonl plugin-gz plugin-yaml plugin-toml
+	@echo "All plugins built."
 
 zig-plugins-test: zig-plugins
 	@echo "Testing Zig plugins..."
-	cd plugins/zig/csv && $(ZIG) test -fllvm $(PLUGIN_MODULES)
-	cd plugins/zig/json && $(ZIG) test -fllvm $(PLUGIN_MODULES)
-	cd plugins/zig/jsonl && $(ZIG) test -fllvm $(PLUGIN_MODULES)
-	cd plugins/zig/gz && $(ZIG) test -fllvm $(PLUGIN_MODULES)
-	cd plugins/zig/yaml && $(ZIG) test -fllvm $(PLUGIN_MODULES)
-	cd plugins/zig/toml && $(ZIG) test -fllvm $(PLUGIN_MODULES)
+	@for p in $(PLUGINS); do \
+		cd plugins/zig/$$p && $(ZIG) test -fllvm $(PLUGIN_MODULES) && cd ../../..; \
+	done
 	@echo "  plugins: OK"
 
 # =============================================================================
-# Zig CLI tools
+# Zig CLI tools (can build in parallel with make -j)
 # =============================================================================
 
-zig-tools: install-zig
-	@echo "Building Zig CLI tools..."
-	mkdir -p tools/zig/jn/bin tools/zig/jn-cat/bin tools/zig/jn-put/bin
-	mkdir -p tools/zig/jn-filter/bin tools/zig/jn-head/bin tools/zig/jn-tail/bin
-	mkdir -p tools/zig/jn-analyze/bin tools/zig/jn-inspect/bin
-	mkdir -p tools/zig/jn-join/bin tools/zig/jn-merge/bin tools/zig/jn-sh/bin
-	mkdir -p tools/zig/jn-edit/bin
-	cd tools/zig/jn-cat && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-cat
-	cd tools/zig/jn-put && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-put
-	cd tools/zig/jn-filter && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-filter
-	cd tools/zig/jn-head && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-head
-	cd tools/zig/jn-tail && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-tail
-	cd tools/zig/jn-analyze && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-analyze
-	cd tools/zig/jn-inspect && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-inspect
-	cd tools/zig/jn-join && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-join
-	cd tools/zig/jn-merge && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-merge
-	cd tools/zig/jn-sh && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-sh
-	cd tools/zig/jn-edit && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-edit
-	cd tools/zig/jn && $(ZIG) build-exe -fllvm -O ReleaseFast $(JN_MODULES) -femit-bin=bin/jn
+TOOLS := jn-cat jn-put jn-filter jn-head jn-tail jn-analyze jn-inspect jn-join jn-merge jn-sh jn-edit
+
+# Individual tool targets for parallel builds
+.PHONY: tool-jn tool-jn-cat tool-jn-put tool-jn-filter tool-jn-head tool-jn-tail tool-jn-analyze tool-jn-inspect tool-jn-join tool-jn-merge tool-jn-sh tool-jn-edit
+tool-jn: ; @mkdir -p tools/zig/jn/bin && cd tools/zig/jn && $(ZIG) build-exe -fllvm -O ReleaseFast $(JN_MODULES) -femit-bin=bin/jn
+tool-jn-cat: ; @mkdir -p tools/zig/jn-cat/bin && cd tools/zig/jn-cat && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-cat
+tool-jn-put: ; @mkdir -p tools/zig/jn-put/bin && cd tools/zig/jn-put && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-put
+tool-jn-filter: ; @mkdir -p tools/zig/jn-filter/bin && cd tools/zig/jn-filter && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-filter
+tool-jn-head: ; @mkdir -p tools/zig/jn-head/bin && cd tools/zig/jn-head && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-head
+tool-jn-tail: ; @mkdir -p tools/zig/jn-tail/bin && cd tools/zig/jn-tail && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-tail
+tool-jn-analyze: ; @mkdir -p tools/zig/jn-analyze/bin && cd tools/zig/jn-analyze && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-analyze
+tool-jn-inspect: ; @mkdir -p tools/zig/jn-inspect/bin && cd tools/zig/jn-inspect && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-inspect
+tool-jn-join: ; @mkdir -p tools/zig/jn-join/bin && cd tools/zig/jn-join && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-join
+tool-jn-merge: ; @mkdir -p tools/zig/jn-merge/bin && cd tools/zig/jn-merge && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-merge
+tool-jn-sh: ; @mkdir -p tools/zig/jn-sh/bin && cd tools/zig/jn-sh && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-sh
+tool-jn-edit: ; @mkdir -p tools/zig/jn-edit/bin && cd tools/zig/jn-edit && $(ZIG) build-exe -fllvm -O ReleaseFast $(TOOL_MODULES) -femit-bin=bin/jn-edit
+
+zig-tools: install-zig tool-jn tool-jn-cat tool-jn-put tool-jn-filter tool-jn-head tool-jn-tail tool-jn-analyze tool-jn-inspect tool-jn-join tool-jn-merge tool-jn-sh tool-jn-edit
+	@echo "All tools built."
 
 zig-tools-test: zig-tools
 	@echo "Testing Zig CLI tools..."
-	cd tools/zig/jn-cat && $(ZIG) test -fllvm $(TOOL_MODULES)
-	cd tools/zig/jn-put && $(ZIG) test -fllvm $(TOOL_MODULES)
-	cd tools/zig/jn-filter && $(ZIG) test -fllvm $(TOOL_MODULES)
-	cd tools/zig/jn-head && $(ZIG) test -fllvm $(TOOL_MODULES)
-	cd tools/zig/jn-tail && $(ZIG) test -fllvm $(TOOL_MODULES)
-	cd tools/zig/jn-analyze && $(ZIG) test -fllvm $(TOOL_MODULES)
-	cd tools/zig/jn-inspect && $(ZIG) test -fllvm $(TOOL_MODULES)
-	cd tools/zig/jn-join && $(ZIG) test -fllvm $(TOOL_MODULES)
-	cd tools/zig/jn-merge && $(ZIG) test -fllvm $(TOOL_MODULES)
-	cd tools/zig/jn-sh && $(ZIG) test -fllvm $(TOOL_MODULES)
-	cd tools/zig/jn-edit && $(ZIG) test -fllvm $(TOOL_MODULES)
+	@for t in $(TOOLS); do \
+		cd tools/zig/$$t && $(ZIG) test -fllvm $(TOOL_MODULES) && cd ../../..; \
+	done
 	cd tools/zig/jn && $(ZIG) test -fllvm $(JN_MODULES)
 	@echo "  tools: OK"
 
@@ -194,3 +207,14 @@ fmt: install-zig
 	$(ZIG) fmt libs/zig/
 	$(ZIG) fmt tools/zig/
 	$(ZIG) fmt plugins/zig/
+
+# =============================================================================
+# Bootstrap (download release for fast development)
+# =============================================================================
+
+bootstrap:
+	@./scripts/bootstrap-release.sh /tmp/jn-release
+	@echo ""
+	@echo "Quick start:"
+	@echo "  export JN_HOME=/tmp/jn-release"
+	@echo "  export PATH=\"\$$JN_HOME/bin:\$$PATH\""
