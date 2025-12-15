@@ -1,4 +1,4 @@
-.PHONY: all build test check clean install-zig install-python-deps zq zq-test zig-plugins zig-plugins-test zig-libs zig-libs-test zig-tools zig-tools-test fmt dist bootstrap bootstrap-release
+.PHONY: all build test check clean install-zig install-python-deps zq zq-test zig-plugins zig-plugins-test zig-libs zig-libs-test zig-tools zig-tools-test fmt dist download
 
 # Zig configuration
 ZIG_VERSION := 0.15.2
@@ -36,12 +36,10 @@ JN_MODULES := --dep jn-core \
 
 all: build
 
-build: install-zig install-python-deps zq zig-plugins zig-tools
-	@echo ""
-	@echo "Build complete! Add to PATH:"
-	@echo "  export PATH=\"$(PWD)/tools/zig/jn/bin:\$$PATH\""
+build: dist
+	@# build is an alias for dist
 
-test: build zig-libs-test zig-plugins-test zig-tools-test zq-test
+test: dist zig-libs-test zig-plugins-test zig-tools-test zq-test
 	@echo ""
 	@echo "All tests passed!"
 
@@ -212,7 +210,7 @@ fmt: install-zig
 # Distribution build (release layout in dist/)
 # =============================================================================
 
-dist: build
+dist: install-zig install-python-deps zq zig-plugins zig-tools
 	@echo "Creating distribution in dist/..."
 	@rm -rf dist
 	@mkdir -p dist/bin
@@ -225,37 +223,29 @@ dist: build
 	@for p in $(PLUGINS); do cp plugins/zig/$$p/bin/$$p dist/bin/; done
 	@# Copy jn_home (tools, plugins, profiles)
 	@cp -r jn_home dist/
-	@# Create activate script
+	@# Create activate script with PATH and tool functions
 	@echo '#!/bin/bash' > dist/activate.sh
-	@echo '# Source this file to add jn to your PATH' >> dist/activate.sh
+	@echo '# Source this file to add jn to your PATH and set up shortcuts' >> dist/activate.sh
+	@echo '' >> dist/activate.sh
+	@echo '# Add jn binaries to PATH' >> dist/activate.sh
 	@echo 'export PATH="$$(cd "$$(dirname "$${BASH_SOURCE[0]}")" && pwd)/bin:$$PATH"' >> dist/activate.sh
+	@echo '' >> dist/activate.sh
+	@echo '# Shortcut functions for jn tools (add new tools here)' >> dist/activate.sh
+	@echo 'todo() { jn tool todo "$$@"; }' >> dist/activate.sh
 	@chmod +x dist/activate.sh
 	@echo ""
-	@echo "Distribution created in dist/"
+	@echo "=== Build Complete ==="
 	@echo ""
-	@echo "To use jn, run:"
+	@echo "To activate jn:"
 	@echo "  source dist/activate.sh"
-	@echo ""
-	@echo "Or add to PATH manually:"
-	@echo "  export PATH=\"$(PWD)/dist/bin:\$$PATH\""
 
 # =============================================================================
-# Bootstrap (build from source or download release)
+# Download pre-built release
 # =============================================================================
 
-bootstrap: dist
-	@echo ""
-	@echo "=== Bootstrap Complete ==="
-	@echo ""
-	@echo "To activate jn in your current shell:"
-	@echo "  source dist/activate.sh"
-	@echo ""
-	@echo "Verify it works:"
-	@echo "  jn --version"
-	@echo "  jn tool todo --help"
-
-bootstrap-release:
+download:
 	@./scripts/bootstrap-release.sh /tmp/jn-release
 	@echo ""
-	@echo "Quick start:"
+	@echo "To use:"
 	@echo "  export PATH=\"/tmp/jn-release/bin:\$$PATH\""
+	@echo "  alias todo=\"jn tool todo\""

@@ -92,28 +92,28 @@ For development or building from source:
 git clone https://github.com/botassembly/jn.git
 cd jn
 
-# Build and create distribution (downloads Zig automatically)
-make bootstrap
+# Build everything (downloads Zig automatically)
+make build
 
 # Activate jn in your current shell
 source dist/activate.sh
 
 # Verify
 jn --version
-jn tool todo --help
+todo --help
 ```
 
-The `make bootstrap` command:
+The `make build` command:
 1. Downloads Zig if needed
 2. Builds all tools and plugins
 3. Creates a `dist/` directory with release layout
-4. Generates `dist/activate.sh` for easy PATH setup
+4. Generates `dist/activate.sh` for PATH and aliases (like `todo`)
 
 For development, you can also run individual targets:
 ```bash
-make build    # Build tools/plugins in development layout
 make test     # Run all tests
-make dist     # Create release layout in dist/
+make dist     # Rebuild release layout in dist/
+make download # Download pre-built release instead of building
 ```
 
 ## Upgrading

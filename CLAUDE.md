@@ -15,16 +15,13 @@ JN provides a **pure Zig core** with Python plugin extensibility for data transf
 ### Makefile Commands
 
 ```bash
-make bootstrap    # Build from source and create dist/ (then: source dist/activate.sh)
-make build        # Build all Zig components (ZQ, plugins, tools)
+make build        # Build all Zig components and create dist/ (then: source dist/activate.sh)
 make test         # Run all Zig tests
 make check        # Validate build with integration tests
 make dist         # Create release layout in dist/
 make clean        # Remove build artifacts
 make fmt          # Format all Zig code
-
-# Alternative bootstrap (downloads pre-built release):
-make bootstrap-release   # Download release to /tmp/jn-release
+make download     # Download pre-built release to /tmp/jn-release
 
 # Individual targets (rarely needed):
 make zq                # Build ZQ filter engine
@@ -224,24 +221,25 @@ When starting work on this codebase, bootstrap the environment first.
 
 ```bash
 # Build from source and activate (recommended)
-make bootstrap
+make build
 source dist/activate.sh
 
 # Verify it works
 jn --version
-jn tool todo --help
+todo --help
 echo '{"test":1}' | jn filter '.'
 ```
 
-That's it! The `source dist/activate.sh` command adds `dist/bin/` to your PATH.
+That's it! The `source dist/activate.sh` command adds `dist/bin/` to PATH and sets up aliases (like `todo`).
 
 ### Alternative: Download Pre-built Release
 
 If you want to skip building (faster for quick testing):
 
 ```bash
-make bootstrap-release
+make download
 export PATH="/tmp/jn-release/bin:$PATH"
+alias todo="jn tool todo"
 ```
 
 **Note:** `JN_HOME` is not required. JN automatically discovers tools and plugins relative to the executable.
@@ -289,7 +287,7 @@ make fmt       # Format code (run if fmt fails in CI)
 
 ### Distribution Layout
 
-The `dist/` directory (created by `make dist` or `make bootstrap`) uses a flat layout:
+The `dist/` directory (created by `make build` or `make dist`) uses a flat layout:
 
 ```
 dist/
@@ -301,8 +299,10 @@ dist/
 │   ├── tools/                    # Utility tools (todo, etc.)
 │   ├── plugins/                  # Python plugins
 │   └── profiles/                 # Profile definitions
-└── activate.sh                   # Source this to add bin/ to PATH
+└── activate.sh                   # Source to add bin/ to PATH + aliases
 ```
+
+The `activate.sh` script sets up aliases for tools. When adding new tools to `jn_home/tools/`, add corresponding aliases to the Makefile's dist target.
 
 Tools discover plugins/tools relative to the executable:
 1. Sibling executables in same `bin/` directory
