@@ -18,6 +18,7 @@ source dist/activate.sh
 cd csv-filtering && ./run_examples.sh     # Core ETL operations
 cd join && ./run_examples.sh              # Stream enrichment via hash join
 cd json-editing && ./run_examples.sh      # Surgical JSON editing with jn-edit
+cd zq-functions && ./run_examples.sh      # ZQ built-in functions showcase
 cd todo && ./run_examples.sh              # Task management tool demo
 ```
 
@@ -28,6 +29,7 @@ cd todo && ./run_examples.sh              # Task management tool demo
 | **csv-filtering/** | ✅ Working | Read CSV, filter with ZQ, convert formats |
 | **join/** | ✅ Working | Stream enrichment via hash join |
 | **json-editing/** | ✅ Working | Surgical JSON editing with jn-edit tool |
+| **zq-functions/** | ✅ Working | ZQ built-in functions (generators, transforms, time) |
 | **todo/** | ✅ Working | Task management with BEADS-inspired dependencies |
 | **shell-commands/** | ✅ Working | Convert shell output to NDJSON (requires `jc`) |
 | **http-api/** | ✅ Working | Fetch from REST APIs via curl |
@@ -81,10 +83,19 @@ echo '{"a":[1]}' | jn-edit --append .a 2       # Append to array
 
 **Task management (todo):**
 ```bash
-todo add "Fix bug" -p high                      # Add task with priority
-todo blocks 1 2                                 # Task 1 blocks task 2
+todo add "Fix bug" -p high                      # Add task with priority (returns XID)
+todo blocks abc12 def34                         # Task abc12 blocks def34 (partial XIDs)
 todo ready                                      # Show actionable tasks
+todo done abc12                                 # Mark as done (partial XID matching)
 todo stats                                      # Statistics dashboard
+```
+
+**ZQ functions:**
+```bash
+echo '{}' | zq 'xid'                            # Generate XID
+echo '{}' | zq 'now'                            # Current timestamp
+echo '{"ts":1734300000}' | zq '.ts | ago'       # Human-friendly relative time
+echo '{"id":"abc..."}' | zq '.id | xid_time'    # Extract timestamp from XID
 ```
 
 For detailed examples, see the scripts in each demo directory.
