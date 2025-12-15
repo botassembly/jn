@@ -1046,6 +1046,76 @@ fn evalBuiltin(allocator: std.mem.Allocator, kind: BuiltinKind, value: std.json.
             const timestamp_ms: i64 = @intCast(@divFloor(timestamp_ns, std.time.ns_per_ms));
             return try EvalResult.single(allocator, .{ .integer = timestamp_ms });
         },
+        // Sprint 07: Date/Time component generators
+        .year => {
+            const secs: u64 = @intCast(std.time.timestamp());
+            const epoch_day = secs / 86400;
+            const ymd = epochDayToYmd(epoch_day);
+            return try EvalResult.single(allocator, .{ .integer = @intCast(ymd.year) });
+        },
+        .month => {
+            const secs: u64 = @intCast(std.time.timestamp());
+            const epoch_day = secs / 86400;
+            const ymd = epochDayToYmd(epoch_day);
+            return try EvalResult.single(allocator, .{ .integer = @intCast(ymd.month) });
+        },
+        .day => {
+            const secs: u64 = @intCast(std.time.timestamp());
+            const epoch_day = secs / 86400;
+            const ymd = epochDayToYmd(epoch_day);
+            return try EvalResult.single(allocator, .{ .integer = @intCast(ymd.day) });
+        },
+        .hour => {
+            const secs: u64 = @intCast(std.time.timestamp());
+            const day_seconds = @mod(secs, 86400);
+            const hour_val = day_seconds / 3600;
+            return try EvalResult.single(allocator, .{ .integer = @intCast(hour_val) });
+        },
+        .minute => {
+            const secs: u64 = @intCast(std.time.timestamp());
+            const day_seconds = @mod(secs, 86400);
+            const minute_val = @mod(day_seconds / 60, 60);
+            return try EvalResult.single(allocator, .{ .integer = @intCast(minute_val) });
+        },
+        .second => {
+            const secs: u64 = @intCast(std.time.timestamp());
+            const second_val = @mod(secs, 60);
+            return try EvalResult.single(allocator, .{ .integer = @intCast(second_val) });
+        },
+        .time => {
+            // HH:MM:SS format
+            const secs: u64 = @intCast(std.time.timestamp());
+            const day_seconds = @mod(secs, 86400);
+            const hour_val = day_seconds / 3600;
+            const minute_val = @mod(day_seconds / 60, 60);
+            const second_val = @mod(day_seconds, 60);
+            const str = try std.fmt.allocPrint(allocator, "{d:0>2}:{d:0>2}:{d:0>2}", .{ hour_val, minute_val, second_val });
+            return try EvalResult.single(allocator, .{ .string = str });
+        },
+        .week => {
+            // ISO week number (1-53)
+            const secs: u64 = @intCast(std.time.timestamp());
+            const epoch_day = secs / 86400;
+            const week_num = epochDayToIsoWeek(epoch_day);
+            return try EvalResult.single(allocator, .{ .integer = @intCast(week_num) });
+        },
+        .weekday => {
+            // Day of week name (Sunday, Monday, etc.)
+            const secs: u64 = @intCast(std.time.timestamp());
+            const epoch_day = secs / 86400;
+            // Jan 1, 1970 was Thursday (4)
+            const day_of_week: usize = @intCast(@mod(epoch_day + 4, 7));
+            const day_names = [_][]const u8{ "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday" };
+            return try EvalResult.single(allocator, .{ .string = day_names[day_of_week] });
+        },
+        .weekday_num => {
+            // Day of week number (0=Sunday, 6=Saturday)
+            const secs: u64 = @intCast(std.time.timestamp());
+            const epoch_day = secs / 86400;
+            // Jan 1, 1970 was Thursday (4)
+            const day_of_week = @mod(epoch_day + 4, 7);
+            return try EvalResult.single(allocator, .{ .integer = @intCast(day_of_week) });
+        },
         // Sprint 06: Generator functions - IDs
         .uuid => {
             // UUID v4 (random): "550e8400-e29b-41d4-a716-446655440000"
@@ -1375,6 +1445,65 @@ fn epochDayToYmd(epoch_day: u64) YearMonthDay {
         .month = @intCast(m),
         .day = @intCast(d),
     };
+}
+
+// Helper: Calculate ISO week number (1-53)
+fn epochDayToIsoWeek(epoch_day: u64) u32 {
+    // ISO 8601 week number formula
+    // Week 1 is the week containing the first Thursday of the year
+
+    const ymd = epochDayToYmd(epoch_day);
+
+    // Calculate day of year (1-indexed)
+    const days_in_months = [_]u32{ 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334 };
+    var day_of_year: u32 = days_in_months[ymd.month - 1] + ymd.day;
+
+    // Add leap day if after Feb in a leap year
+    if (ymd.month > 2 and isLeapYear(ymd.year)) {
+        day_of_year += 1;
+    }
+
+    // Day of week: 1=Monday, 7=Sunday (ISO)
+    // Jan 1, 1970 was Thursday
+    const dow: u32 = @intCast(@mod(epoch_day + 3, 7) + 1);
+
+    // ISO week number formula:
+    // week = (day_of_year - dow + 10) / 7
+    // This formula accounts for the Thursday rule
+    const week_calc: i32 = @divFloor(@as(i32, @intCast(day_of_year)) - @as(i32, @intCast(dow)) + 10, 7);
+
+    if (week_calc < 1) {
+        // Week belongs to previous year - calculate weeks in previous year
+        return weeksInYear(ymd.year - 1);
+    } else if (week_calc > weeksInYear(ymd.year)) {
+        // Week belongs to next year
+        return 1;
+    }
+
+    return @intCast(week_calc);
+}
+
+fn isLeapYear(year: u32) bool {
+    return (year % 4 == 0 and year % 100 != 0) or (year % 400 == 0);
+}
+
+fn weeksInYear(year: u32) u32 {
+    // A year has 53 weeks if Jan 1 is Thursday, or
+    // Jan 1 is Wednesday and it's a leap year
+    const jan1_dow = getJan1Weekday(year);
+    if (jan1_dow == 4) return 53; // Thursday
+    if (jan1_dow == 3 and isLeapYear(year)) return 53; // Wednesday + leap
+    return 52;
+}
+
+fn getJan1Weekday(year: u32) u32 {
+    // Day of week for Jan 1 of given year (1=Monday, 7=Sunday)
+    // Using a standard formula
+    const y = year - 1;
+    const day = (1 + 5 * (y % 4) + 4 * (y % 100) + 6 * (y % 400)) % 7;
+    // Result: 0=Sunday, 1=Monday, ..., 6=Saturday
+    // Convert to ISO: 1=Monday, 7=Sunday
+    return if (day == 0) 7 else day;
 }
 
 // Base62 alphabet for shortid/sid

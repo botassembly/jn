@@ -426,6 +426,17 @@ pub fn parseExprWithContext(allocator: std.mem.Allocator, expr: []const u8, err_
     if (std.mem.eql(u8, trimmed, "today")) return .{ .builtin = .{ .kind = .today } };
     if (std.mem.eql(u8, trimmed, "epoch")) return .{ .builtin = .{ .kind = .epoch } };
     if (std.mem.eql(u8, trimmed, "epoch_ms")) return .{ .builtin = .{ .kind = .epoch_ms } };
+    // Sprint 07: Date/Time component generators
+    if (std.mem.eql(u8, trimmed, "year")) return .{ .builtin = .{ .kind = .year } };
+    if (std.mem.eql(u8, trimmed, "month")) return .{ .builtin = .{ .kind = .month } };
+    if (std.mem.eql(u8, trimmed, "day")) return .{ .builtin = .{ .kind = .day } };
+    if (std.mem.eql(u8, trimmed, "hour")) return .{ .builtin = .{ .kind = .hour } };
+    if (std.mem.eql(u8, trimmed, "minute")) return .{ .builtin = .{ .kind = .minute } };
+    if (std.mem.eql(u8, trimmed, "second")) return .{ .builtin = .{ .kind = .second } };
+    if (std.mem.eql(u8, trimmed, "time")) return .{ .builtin = .{ .kind = .time } };
+    if (std.mem.eql(u8, trimmed, "week")) return .{ .builtin = .{ .kind = .week } };
+    if (std.mem.eql(u8, trimmed, "weekday")) return .{ .builtin = .{ .kind = .weekday } };
+    if (std.mem.eql(u8, trimmed, "weekday_num")) return .{ .builtin = .{ .kind = .weekday_num } };
     // Sprint 06: Generator functions - IDs
     if (std.mem.eql(u8, trimmed, "uuid")) return .{ .builtin = .{ .kind = .uuid } };
     if (std.mem.eql(u8, trimmed, "shortid")) return .{ .builtin = .{ .kind = .shortid } };

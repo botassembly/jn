@@ -148,6 +148,17 @@ pub const BuiltinKind = enum {
     today, // Date only (YYYY-MM-DD)
     epoch, // Unix timestamp in seconds
     epoch_ms, // Unix timestamp in milliseconds
+    // Date/Time component generators (Sprint 07)
+    year, // Current year (e.g., 2025)
+    month, // Current month (1-12)
+    day, // Current day of month (1-31)
+    hour, // Current hour (0-23)
+    minute, // Current minute (0-59)
+    second, // Current second (0-59)
+    time, // Time only (HH:MM:SS)
+    week, // ISO week number (1-53)
+    weekday, // Day of week name (Sunday, Monday, etc.)
+    weekday_num, // Day of week number (0=Sunday, 6=Saturday)
     // Generator functions - IDs (Sprint 06)
     uuid, // UUID v4
     shortid, // Base62 8-char ID
