@@ -317,6 +317,51 @@ Short options require `=` syntax:
 
 ---
 
+## Creating Releases
+
+Releases are created via git tags and built by GitHub Actions.
+
+### Release Process
+
+```bash
+# 1. Ensure all changes are committed and pushed
+git status  # Should be clean
+
+# 2. Create and push a version tag
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+### What Happens on Tag Push
+
+1. **Build job runs automatically** - compiles all tools with version from tag
+2. **Release job waits for approval** - requires "release" environment approval in GitHub
+3. **After approval** - publishes to GitHub Releases with:
+   - `jn-{VERSION}-x86_64-linux.tar.gz` (versioned)
+   - `jn-linux-x86_64.tar.gz` (consistent "latest" filename)
+
+### Version Embedding
+
+CI extracts version from the git tag and writes to `tools/zig/jn/version.txt` before building. The `jn` binary embeds this at compile time via `@embedFile("version.txt")`.
+
+Local development uses `version.txt` which defaults to `0.0.0`.
+
+### Prerelease Tags
+
+Tags containing `-alpha`, `-beta`, or `-rc` are marked as prereleases:
+- `v1.0.0-alpha` → prerelease
+- `v1.0.0-rc1` → prerelease
+- `v1.0.0` → full release
+
+### Security
+
+The release job requires approval from the "release" environment. Configure reviewers in:
+Settings → Environments → release → Required reviewers
+
+This prevents unauthorized releases even if someone has push access.
+
+---
+
 ## Work Tracking
 
 Progress is tracked in `spec/log.md`.
