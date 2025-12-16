@@ -1,0 +1,32 @@
+=== Merge Demo ===
+
+1. Merge two files with labels:
+{"_label":"East","product":"Widget","amount":"500"}
+{"_label":"East","product":"Widget","amount":"1200"}
+{"_label":"East","product":"Gadget","amount":"900"}
+{"_label":"East","product":"Widget","amount":"450"}
+{"_label":"West","product":"Gadget","amount":"750"}
+{"_label":"West","product":"Widget","amount":"300"}
+{"_label":"West","product":"Gadget","amount":"1500"}
+{"_label":"West","product":"Widget","amount":"2000"}
+
+2. Count by label (compare regions):
+[
+  {
+    "label": "East",
+    "count": 4,
+    "total": 3050
+  },
+  {
+    "label": "West",
+    "count": 4,
+    "total": 4550
+  }
+]
+
+3. Merge without labels (just _source):
+{"_source":"/tmp/east_sales.jsonl","product":"Widget"}
+{"_source":"/tmp/east_sales.jsonl","product":"Widget"}
+{"_source":"/tmp/east_sales.jsonl","product":"Gadget"}
+
+=== Done ===

@@ -1,0 +1,21 @@
+=== HTTP API Demo ===
+
+1. Parse JSON response (select field):
+{"title":"Sample Slide Show","author":"Yours Truly"}
+
+2. Extract array elements:
+{"title":"Wake up to WonderWidgets!","type":"all"}
+{"title":"Overview","type":"all"}
+
+3. Filter and transform:
+{"title":"Overview","item_count":2}
+
+4. Pipeline with aggregation:
+{
+  "total_slides": 2,
+  "types": [
+    "all"
+  ]
+}
+
+=== Done ===
