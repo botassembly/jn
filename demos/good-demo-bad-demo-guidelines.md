@@ -156,22 +156,54 @@ echo "1. Everything:"
 
 ---
 
-## Sample Data
+## Demo as Integration Test
 
-### Inline for simple demos
-```bash
-SAMPLE='{"a":1}
-{"a":2}'
-echo "$SAMPLE" | jn filter '.a > 1'
-```
+Every demo should be a self-verifying integration test:
 
-### Separate file for complex data
 ```
 demo/
-  run.sh
-  sample.md      # Test data
-  README.md      # Optional docs
+  run.sh         # Test runner
+  input.md       # Test input data
+  expected.txt   # Golden output
+  actual.txt     # Generated (gitignored)
+  .gitignore     # Contains: actual.txt
 ```
+
+### run.sh pattern:
+
+```bash
+#!/bin/bash
+set -e
+cd "$(dirname "$0")"
+
+# Run demo, capture output
+{
+echo "=== Demo Name ==="
+# ... commands ...
+echo "=== Done ==="
+} > actual.txt
+
+# Compare with expected
+if diff -q expected.txt actual.txt > /dev/null; then
+    echo "PASS"
+    cat actual.txt
+else
+    echo "FAIL"
+    diff expected.txt actual.txt || true
+    exit 1
+fi
+```
+
+### Creating expected.txt:
+```bash
+./run.sh                    # First run creates actual.txt
+cp actual.txt expected.txt  # Promote to golden
+./run.sh                    # Verify: should show PASS
+```
+
+---
+
+## Input Data
 
 ### Use realistic examples
 - API responses
@@ -234,5 +266,8 @@ Before committing a demo:
 - [ ] No hardcoded absolute paths
 - [ ] Helper functions hide plugin complexity
 - [ ] Examples are numbered
-- [ ] Uses realistic sample data
+- [ ] Uses realistic input data (`input.*`)
+- [ ] Has `expected.txt` golden file
+- [ ] Has `.gitignore` with `actual.txt`
+- [ ] Exits 1 on diff (CI-friendly)
 - [ ] Demonstrates one JN capability clearly
