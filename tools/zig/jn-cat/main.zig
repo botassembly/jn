@@ -1275,8 +1275,8 @@ fn processGlobFile(allocator: std.mem.Allocator, file_path: []const u8, format: 
         return;
     }
 
-    // Find format plugin
-    const plugin_path = findPlugin(allocator, effective_format);
+    // Find format plugin (including Python plugins)
+    const plugin_info = findPluginInfo(allocator, effective_format);
 
     // Build format args (dynamically allocated, properly escaped)
     const format_args = try buildFormatArgs(allocator, args);
@@ -1294,12 +1294,21 @@ fn processGlobFile(allocator: std.mem.Allocator, file_path: []const u8, format: 
             jn_core.exitWithError("jn-cat: compression plugin 'gz' not found", .{});
         };
 
-        if (plugin_path) |fmt_path| {
-            shell_cmd = try std.fmt.allocPrint(
-                allocator,
-                "cat '{s}' | {s} --mode=raw | {s} --mode=read{s}",
-                .{ escaped_file_path, gz_path, fmt_path, format_args },
-            );
+        if (plugin_info) |info| {
+            if (info.plugin_type == .python) {
+                // Python plugin with compression
+                shell_cmd = try std.fmt.allocPrint(
+                    allocator,
+                    "cat '{s}' | {s} --mode=raw | uv run --script {s} --mode=read{s}",
+                    .{ escaped_file_path, gz_path, info.path, format_args },
+                );
+            } else {
+                shell_cmd = try std.fmt.allocPrint(
+                    allocator,
+                    "cat '{s}' | {s} --mode=raw | {s} --mode=read{s}",
+                    .{ escaped_file_path, gz_path, info.path, format_args },
+                );
+            }
         } else {
             shell_cmd = try std.fmt.allocPrint(
                 allocator,
@@ -1307,12 +1316,21 @@ fn processGlobFile(allocator: std.mem.Allocator, file_path: []const u8, format: 
                 .{ escaped_file_path, gz_path },
             );
         }
-    } else if (plugin_path) |fmt_path| {
-        shell_cmd = try std.fmt.allocPrint(
-            allocator,
-            "cat '{s}' | {s} --mode=read{s}",
-            .{ escaped_file_path, fmt_path, format_args },
-        );
+    } else if (plugin_info) |info| {
+        if (info.plugin_type == .python) {
+            // Python plugin
+            shell_cmd = try std.fmt.allocPrint(
+                allocator,
+                "cat '{s}' | uv run --script {s} --mode=read{s}",
+                .{ escaped_file_path, info.path, format_args },
+            );
+        } else {
+            shell_cmd = try std.fmt.allocPrint(
+                allocator,
+                "cat '{s}' | {s} --mode=read{s}",
+                .{ escaped_file_path, info.path, format_args },
+            );
+        }
     } else if (std.mem.eql(u8, effective_format, "jsonl") or std.mem.eql(u8, effective_format, "ndjson")) {
         // JSONL without metadata injection (inject_meta case handled earlier)
         shell_cmd = try std.fmt.allocPrint(allocator, "cat '{s}'", .{escaped_file_path});
@@ -1761,18 +1779,69 @@ fn findPythonPlugin(allocator: std.mem.Allocator, format: []const u8) ?[]const u
 
     if (plugin_name == null) return null;
 
-    const jn_home = std.posix.getenv("JN_HOME") orelse return null;
-
-    // Search in plugin subdirectories
     const subdirs = [_][]const u8{ "formats", "protocols", "databases", "filters", "shell" };
-    for (subdirs) |subdir| {
-        const path = std.fmt.allocPrint(allocator, "{s}/jn_home/plugins/{s}/{s}", .{ jn_home, subdir, plugin_name.? }) catch continue;
-        if (std.fs.cwd().access(path, .{})) |_| {
-            return path;
-        } else |_| {
-            allocator.free(path);
+
+    // Try JN_HOME first
+    if (std.posix.getenv("JN_HOME")) |jn_home| {
+        for (subdirs) |subdir| {
+            const path = std.fmt.allocPrint(allocator, "{s}/jn_home/plugins/{s}/{s}", .{ jn_home, subdir, plugin_name.? }) catch continue;
+            if (std.fs.cwd().access(path, .{})) |_| {
+                return path;
+            } else |_| {
+                allocator.free(path);
+            }
         }
     }
+
+    // Try sibling to executable (installed layout: ../jn_home/plugins/)
+    var exe_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    if (std.fs.selfExePath(&exe_path_buf)) |exe_path| {
+        if (std.fs.path.dirname(exe_path)) |bin_dir| {
+            if (std.fs.path.dirname(bin_dir)) |dist_dir| {
+                for (subdirs) |subdir| {
+                    const path = std.fmt.allocPrint(allocator, "{s}/jn_home/plugins/{s}/{s}", .{ dist_dir, subdir, plugin_name.? }) catch continue;
+                    if (std.fs.cwd().access(path, .{})) |_| {
+                        return path;
+                    } else |_| {
+                        allocator.free(path);
+                    }
+                }
+            }
+        }
+    } else |_| {}
+
+    // Try relative to executable (development layout)
+    if (std.fs.selfExePath(&exe_path_buf)) |exe_path| {
+        // Go up 4 levels: bin -> tool -> zig -> tools -> root
+        var dir = std.fs.path.dirname(exe_path);
+        var i: usize = 0;
+        while (i < 4 and dir != null) : (i += 1) {
+            dir = std.fs.path.dirname(dir.?);
+        }
+        if (dir) |root| {
+            for (subdirs) |subdir| {
+                const path = std.fmt.allocPrint(allocator, "{s}/jn_home/plugins/{s}/{s}", .{ root, subdir, plugin_name.? }) catch continue;
+                if (std.fs.cwd().access(path, .{})) |_| {
+                    return path;
+                } else |_| {
+                    allocator.free(path);
+                }
+            }
+        }
+    } else |_| {}
+
+    // Try ~/.local/jn
+    if (std.posix.getenv("HOME")) |home| {
+        for (subdirs) |subdir| {
+            const path = std.fmt.allocPrint(allocator, "{s}/.local/jn/plugins/{s}/{s}", .{ home, subdir, plugin_name.? }) catch continue;
+            if (std.fs.cwd().access(path, .{})) |_| {
+                return path;
+            } else |_| {
+                allocator.free(path);
+            }
+        }
+    }
+
     return null;
 }
 
