@@ -19,6 +19,7 @@ cd csv-filtering && ./run_examples.sh     # Core ETL operations
 cd join && ./run_examples.sh              # Stream enrichment via hash join
 cd json-editing && ./run_examples.sh      # Surgical JSON editing with jn-edit
 cd zq-functions && ./run_examples.sh      # ZQ built-in functions showcase
+cd jn-grep && ./run_examples.sh           # Grep-like text search with line numbers
 cd todo && ./run_examples.sh              # Task management tool demo
 ```
 
@@ -30,6 +31,7 @@ cd todo && ./run_examples.sh              # Task management tool demo
 | **join/** | ✅ Working | Stream enrichment via hash join |
 | **json-editing/** | ✅ Working | Surgical JSON editing with jn-edit tool |
 | **zq-functions/** | ✅ Working | ZQ built-in functions (generators, transforms, time) |
+| **jn-grep/** | ✅ Working | Grep-like text search with line numbers |
 | **todo/** | ✅ Working | Task management with BEADS-inspired dependencies |
 | **shell-commands/** | ✅ Working | Convert shell output to NDJSON (requires `jc`) |
 | **http-api/** | ✅ Working | Fetch from REST APIs via curl |
@@ -96,6 +98,13 @@ echo '{}' | zq 'xid'                            # Generate XID
 echo '{}' | zq 'now'                            # Current timestamp
 echo '{"ts":1734300000}' | zq '.ts | ago'       # Human-friendly relative time
 echo '{"id":"abc..."}' | zq '.id | xid_time'    # Extract timestamp from XID
+```
+
+**Grep-like text search (jn-sh + zq):**
+```bash
+jn-sh --raw cat file.log | zq 'select(.text | contains("ERROR"))'
+jn-sh --raw ps aux | zq 'select(.text | contains("python"))'
+jn-sh --raw cat file.txt | zq -r 'select(.text | contains("pattern")) | .line'
 ```
 
 For detailed examples, see the scripts in each demo directory.
