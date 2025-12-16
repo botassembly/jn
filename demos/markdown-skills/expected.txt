@@ -1,6 +1,6 @@
 === Markdown Skills Demo ===
 
-1. Skill catalog (name + truncated description):
+1. Skill catalog (name + short desc):
 {"name":"algorithmic-art","desc":"Creating algorithmic art using p5.js with seeded r"}
 {"name":"brand-guidelines","desc":"Applies Anthropic's official brand colors and typo"}
 {"name":"canvas-design","desc":"Create beautiful visual art in .png and .pdf docum"}
@@ -18,10 +18,24 @@
 {"name":"webapp-testing","desc":"Toolkit for interacting with and testing local web"}
 {"name":"xlsx","desc":"Comprehensive spreadsheet creation, editing, and a"}
 
-2. Count skills:
+2. Total skill count:
 16
 
-3. Single file (pdf skill frontmatter):
+3. Proprietary skills (have license field):
+"docx"
+"pdf"
+"pptx"
+"xlsx"
+
+4. First 3 skills alphabetically:
+"algorithmic-art"
+"brand-guidelines"
+"canvas-design"
+
+5. Average description length:
+301
+
+6. Single file parse (pdf frontmatter):
 {"name":"pdf","license":"Proprietary. LICENSE.txt has complete terms"}
 
 === Done ===

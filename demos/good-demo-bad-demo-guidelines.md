@@ -10,6 +10,7 @@ How to write demos that showcase JN effectively.
 2. **Show, don't tell** - Let the output speak for itself
 3. **Real data, real filtering** - Use meaningful examples
 4. **Clean abstractions** - Hide complexity behind helpers
+5. **5-10 examples** - Enough to show depth, not so many it overwhelms
 
 ---
 
@@ -265,7 +266,7 @@ Before committing a demo:
 - [ ] Uses `jq -c` for compact JSON
 - [ ] No hardcoded absolute paths
 - [ ] Helper functions hide plugin complexity
-- [ ] Examples are numbered
+- [ ] Examples are numbered (5-10 total)
 - [ ] Uses realistic input data (`input.*`)
 - [ ] Has `expected.txt` golden file
 - [ ] Has `.gitignore` with `actual.txt`
