@@ -1,0 +1,2 @@
+{"timestamp": "2024-01-15T10:00:00Z", "metric": "memory_pct", "value": 78.5, "host": "server1"}
+{"timestamp": "2024-01-15T10:01:00Z", "metric": "memory_pct", "value": 79.2, "host": "server1"}

@@ -1,0 +1,3 @@
+{"timestamp": "2024-01-15T09:00:00Z", "event_type": "order_created", "order_id": "ORD001", "user_id": "user123", "total": 99.99}
+{"timestamp": "2024-01-15T14:00:00Z", "event_type": "order_shipped", "order_id": "ORD001", "carrier": "UPS"}
+{"timestamp": "2024-01-16T10:00:00Z", "event_type": "order_delivered", "order_id": "ORD001"}

@@ -49,3 +49,6 @@ demos/todo-cli/.todo.jsonl.bak
 # Test data files
 .todo.jsonl
 .todo.jsonl.bak
+
+# Demo output (for actual vs expected comparison)
+**/actual.txt

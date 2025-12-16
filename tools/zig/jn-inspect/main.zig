@@ -426,8 +426,7 @@ fn outputProfilesJson(writer: anytype, profiles: []const ProfileInfo) void {
         writer.writeAll(",\"name\":") catch {};
         jn_core.writeJsonString(writer, p.name) catch {};
         writer.writeAll(",\"ref\":\"@") catch {};
-        writer.writeAll(p.profile_type) catch {};
-        writer.writeByte('/') catch {};
+        // Reference format is @<namespace>/<name>, not @<type>/<namespace>/<name>
         writer.writeAll(p.name) catch {};
         writer.writeAll("\"}") catch {};
     }
@@ -454,9 +453,8 @@ fn outputProfilesText(writer: anytype, profiles: []const ProfileInfo) void {
             current_type = p.profile_type;
         }
 
+        // Reference format is @<namespace>/<name>, not @<type>/<namespace>/<name>
         writer.writeAll("  @") catch {};
-        writer.writeAll(p.profile_type) catch {};
-        writer.writeByte('/') catch {};
         writer.writeAll(p.name) catch {};
         writer.writeAll("  (") catch {};
         writer.writeAll(p.source) catch {};

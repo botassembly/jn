@@ -1,0 +1,4 @@
+{
+  "pattern": "test_data/metrics/**/*.jsonl",
+  "description": "All server metrics"
+}

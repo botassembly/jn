@@ -1,0 +1,2 @@
+{"timestamp": "2024-02-01T10:00:00Z", "event_type": "order_created", "order_id": "ORD002", "user_id": "user789", "total": 149.99}
+{"timestamp": "2024-02-02T09:00:00Z", "event_type": "order_shipped", "order_id": "ORD002", "carrier": "FedEx"}

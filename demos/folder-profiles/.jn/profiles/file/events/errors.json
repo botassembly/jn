@@ -1,0 +1,5 @@
+{
+  "pattern": "test_data/events/**/*.jsonl",
+  "filter": "select(.event_type == \"error\")",
+  "description": "Error events only"
+}
