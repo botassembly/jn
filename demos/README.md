@@ -35,6 +35,7 @@ cd xlsx-files && ./run_examples.sh        # Read/write Excel files
 | **table-rendering/** | ✅ Working | Pretty-print NDJSON as ASCII/markdown tables |
 | **code-lcov/** | ✅ Working | Analyze code files via @code profiles |
 | **adapter-merge/** | ✅ Working | DuckDB profiles + merge for data comparison |
+| **markdown-skills/** | ✅ Working | Parse markdown with frontmatter (Python plugin) |
 | **genomoncology/** | 📋 Example | Shows syntax only (requires credentials) |
 
 ## Key Patterns
@@ -72,3 +73,7 @@ jn cat '@genie/treatment?regimen=FOLFOX'        # With parameters
 ```
 
 For detailed examples, see the scripts in each demo directory.
+
+## Writing Demos
+
+See [good-demo-bad-demo-guidelines.md](./good-demo-bad-demo-guidelines.md) for best practices.
