@@ -40,6 +40,7 @@ cd todo && ./run_examples.sh              # Task management tool demo
 | **table-rendering/** | ✅ Working | Pretty-print NDJSON as ASCII/markdown tables |
 | **code-lcov/** | ✅ Working | Analyze code files via @code profiles |
 | **adapter-merge/** | ✅ Working | DuckDB profiles + merge for data comparison |
+| **markdown-skills/** | ✅ Working | Parse markdown with frontmatter (Python plugin) |
 | **genomoncology/** | 📋 Example | Shows syntax only (requires credentials) |
 
 ## Key Patterns
@@ -108,3 +109,7 @@ jn-sh --raw cat file.txt | zq -r 'select(.text | contains("pattern")) | .line'
 ```
 
 For detailed examples, see the scripts in each demo directory.
+
+## Writing Demos
+
+See [good-demo-bad-demo-guidelines.md](./good-demo-bad-demo-guidelines.md) for best practices.

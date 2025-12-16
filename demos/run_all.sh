@@ -87,6 +87,8 @@ run_demo "http-api" "run_examples.sh" "HTTP API"
 run_demo "xlsx-files" "run_examples.sh" "Excel Files"
 run_demo "table-rendering" "run_examples.sh" "Table Rendering"
 
+run_demo "markdown-skills" "run.sh" "Markdown Skills"
+
 echo ""
 echo "--- Profile Protocol Demos ---"
 run_demo "adapter-merge" "run_examples.sh" "Adapter Merge"

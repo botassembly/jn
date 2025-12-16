@@ -1,0 +1,10 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "if ! command -v jn &>/dev/null; then make download 2>/dev/null || make build; fi && source dist/activate.sh 2>/dev/null || export PATH=\"/tmp/jn-release/bin:$PATH\" && jn --version && echo '✓ jn ready'"
+      }
+    ]
+  }
+}
