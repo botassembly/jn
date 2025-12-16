@@ -1,0 +1,30 @@
+=== JSON Editing Demo ===
+
+1. Set a string value:
+{"name":"Bob","age":30,"email":"alice@example.com","active":true,"tags":["developer","admin"],"profile":{"bio":"Software engineer","location":"NYC","social":{"twitter":"@alice","github":"alice"}},"settings":{"theme":"light","notifications":true}}
+
+2. Set a numeric value (use :=):
+{"name":"Alice","age":25,"email":"alice@example.com","active":true,"tags":["developer","admin"],"profile":{"bio":"Software engineer","location":"NYC","social":{"twitter":"@alice","github":"alice"}},"settings":{"theme":"light","notifications":true}}
+
+3. Set a nested field:
+{"name":"Alice","age":30,"email":"alice@example.com","active":true,"tags":["developer","admin"],"profile":{"bio":"Software engineer","location":"Boston","social":{"twitter":"@alice","github":"alice"}},"settings":{"theme":"light","notifications":true}}
+
+4. Delete a field:
+{"name":"Alice","age":30,"active":true,"tags":["developer","admin"],"profile":{"bio":"Software engineer","location":"NYC","social":{"twitter":"@alice","github":"alice"}},"settings":{"theme":"light","notifications":true}}
+
+5. Multiple edits in one command:
+{"name":"Charlie","age":35,"email":"alice@example.com","active":true,"tags":["developer","admin"],"profile":{"bio":"Software engineer","location":"NYC","social":{"twitter":"@alice","github":"alice"}},"settings":{"theme":"light","notifications":true}}
+
+6. Append to an array:
+{"name":"Alice","age":30,"email":"alice@example.com","active":true,"tags":["developer","admin","moderator"],"profile":{"bio":"Software engineer","location":"NYC","social":{"twitter":"@alice","github":"alice"}},"settings":{"theme":"light","notifications":true}}
+
+7. Merge a partial object:
+{"name":"Eve","age":28,"email":"alice@example.com","active":true,"tags":["developer","admin"],"profile":{"bio":"Software engineer","location":"NYC","social":{"twitter":"@alice","github":"alice"}},"settings":{"theme":"light","notifications":true}}
+
+8. Edit all records in NDJSON stream:
+{"id":1,"name":"Alice","role":"admin","active":true,"verified":true}
+{"id":2,"name":"Bob","role":"user","active":false,"verified":true}
+{"id":3,"name":"Carol","role":"user","active":true,"verified":true}
+{"id":4,"name":"Dave","role":"guest","active":false,"verified":true}
+
+=== Done ===

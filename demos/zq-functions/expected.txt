@@ -1,0 +1,39 @@
+=== ZQ Functions Demo ===
+
+1. Object transforms (keys, values):
+["name","age"]
+["Alice",30]
+
+2. Array operations (unique, sort, reverse):
+[1,2,3,4,5,6,9]
+[1,1,2,3,4,5,6,9]
+[5,4,3,2,1]
+
+3. String functions:
+HELLO WORLD
+hello
+["a","b","c"]
+
+4. Math functions:
+42
+4
+3
+4
+
+5. Case conversion:
+hello_world
+helloWorld
+HelloWorld
+
+6. Flatten and length:
+[1,2,3,[4,5]]
+5
+
+7. First and last:
+10
+30
+
+8. Chaining functions:
+world-hello
+
+=== Done ===

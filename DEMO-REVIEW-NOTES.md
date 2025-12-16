@@ -46,35 +46,30 @@ source ../../dist/activate.sh  # or rely on hook
 
 ---
 
-## Cleanup TODO: Convert Other Demos
+## Demo Conversion Status
 
-Each demo in `demos/` should be converted to the integration test pattern:
+All demos have been converted to the integration test pattern:
 
 | Demo | Status | Notes |
 |------|--------|-------|
-| markdown-skills | ✅ Done | New pattern reference |
-| csv-filtering | ❌ TODO | Rename run_examples.sh → run.sh |
-| join | ❌ TODO | Add expected.txt |
-| shell-commands | ❌ TODO | Requires `jc` - note in expected |
-| http-api | ❌ TODO | May need mocking for determinism |
-| glob | ❌ TODO | |
-| xlsx-files | ❌ TODO | |
-| table-rendering | ❌ TODO | |
-| code-lcov | ❌ TODO | |
-| adapter-merge | ❌ TODO | |
+| csv-filtering | ✅ Done | |
+| join | ✅ Done | |
+| shell-commands | ✅ Done | Uses `jc` for parsing |
+| glob | ✅ Done | Creates test data dynamically |
+| http-api | ✅ Done | Uses local mock data |
+| xlsx-files | ✅ Done | |
+| table-rendering | ✅ Done | |
+| markdown-skills | ✅ Done | Pattern reference |
+| adapter-merge | ✅ Done | |
+| code-lcov | ✅ Done | |
+| folder-profiles | ✅ Done | Simplified output with jq |
+| jn-grep | ✅ Done | Creates deterministic test data |
+| json-editing | ✅ Done | Simplified to 8 examples |
+| todo | ✅ Done | Uses fixed XIDs, strips colors |
+| zq-functions | ✅ Done | Only deterministic functions |
+| genomoncology | ✅ Done | Shows profile config (no API calls) |
 
-### Conversion steps for each:
-1. Rename `run_examples.sh` → `run.sh`
-2. Rename sample data → `input.*`
-3. Wrap output in `{ ... } > actual.txt`
-4. Add diff check at end
-5. Run once, `cp actual.txt expected.txt`
-6. Add `.gitignore` with `actual.txt`
-7. Verify `./run.sh` shows PASS
-
-### Update run_all.sh
-- Change script names from `run_examples.sh` to `run.sh`
-- All demos should exit 0 on PASS, 1 on FAIL
+All 16 demos pass `./run_all.sh`
 
 ---
 

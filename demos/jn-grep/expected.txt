@@ -1,0 +1,34 @@
+=== JN Grep Demo ===
+
+1. Convert text to NDJSON with line numbers:
+{"line":1,"text":"2024-12-15 10:00:01 INFO Starting application"}
+{"line":2,"text":"2024-12-15 10:00:02 DEBUG Loading configuration"}
+{"line":3,"text":"2024-12-15 10:00:03 INFO Database connected"}
+
+2. Search for ERROR lines:
+{"line":5,"text":"2024-12-15 10:00:10 ERROR Failed to connect to cache"}
+{"line":7,"text":"2024-12-15 10:00:15 ERROR Cache connection timeout"}
+
+3. Get line numbers of errors:
+5
+7
+
+4. Lines NOT containing DEBUG:
+{"line":1,"text":"2024-12-15 10:00:01 INFO Starting application"}
+{"line":3,"text":"2024-12-15 10:00:03 INFO Database connected"}
+{"line":4,"text":"2024-12-15 10:00:05 WARN High memory usage detected"}
+{"line":5,"text":"2024-12-15 10:00:10 ERROR Failed to connect to cache"}
+{"line":6,"text":"2024-12-15 10:00:11 INFO Retrying connection"}
+{"line":7,"text":"2024-12-15 10:00:15 ERROR Cache connection timeout"}
+{"line":8,"text":"2024-12-15 10:00:20 INFO Application ready"}
+
+5. Parse colon-delimited file:
+{"line":1,"user":"alice","dept":"Engineering"}
+{"line":2,"user":"bob","dept":"Marketing"}
+{"line":3,"user":"charlie","dept":"Engineering"}
+{"line":4,"user":"diana","dept":"Sales"}
+
+6. Count lines matching pattern:
+2
+
+=== Done ===

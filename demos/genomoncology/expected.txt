@@ -1,0 +1,46 @@
+=== GenomOncology Profile Demo ===
+
+1. Profile metadata (_meta.json):
+{
+  "base_url": "https://${GENOMONCOLOGY_URL}/api",
+  "headers": {
+    "Authorization": "Token ${GENOMONCOLOGY_API_KEY}",
+    "Accept": "application/json"
+  },
+  "timeout": 60
+}
+
+
+2. Available endpoints:
+alterations.json
+annotations.json
+clinical_trials.json
+diseases.json
+genes.json
+therapies.json
+
+3. Alterations endpoint config:
+{
+  "path": "/alterations",
+  "method": "GET",
+  "type": "source",
+  "params": ["gene", "mutation_type", "biomarker", "page", "limit"],
+  "description": "Genetic alterations database (55,000+ entries)"
+}
+
+
+4. Clinical trials endpoint config:
+{
+  "path": "/clinical_trials",
+  "method": "GET",
+  "type": "source",
+  "params": ["alteration", "disease", "status", "phase", "page", "limit"]
+}
+
+
+5. Example usage (requires credentials):
+  jn cat @genomoncology/alterations?gene=BRAF
+  jn cat @genomoncology/clinical_trials?gene=EGFR
+  jn cat @genomoncology/genes?symbol=TP53
+
+=== Done ===
