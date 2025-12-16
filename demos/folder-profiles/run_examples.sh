@@ -7,6 +7,10 @@
 # - Pre-configured filters in profiles
 # - Metadata injection for file tracking
 # - Hierarchical profile organization
+#
+# Usage:
+#   ./run_examples.sh           # Run and display output
+#   ./run_examples.sh --cleanup # Clean up generated files
 
 set -e
 
@@ -25,11 +29,18 @@ else
     exit 1
 fi
 
+# Helper to run and show commands (normalizes paths for portability)
+run() {
+    echo "\$ $*"
+    "$@" | sed "s|$SCRIPT_DIR/||g"
+    echo ""
+}
+
 echo "=== JN Folder Profiles Demo ==="
 echo ""
 
 # Create test data directory structure
-echo "Setting up test data..."
+echo "# Setting up test data..."
 rm -rf test_data .jn output
 mkdir -p test_data/events/2024-01 test_data/events/2024-02
 mkdir -p test_data/metrics/server1 test_data/metrics/server2
@@ -90,12 +101,14 @@ cat > test_data/metrics/server2/cpu.jsonl << 'EOF'
 {"timestamp": "2024-01-15T10:01:00Z", "metric": "cpu_usage", "value": 35.8, "host": "server2"}
 EOF
 
-echo "   Created test data in test_data/"
+echo "# Test data created in test_data/"
 echo ""
 
 # ============================================================================
 # Create folder profiles
 # ============================================================================
+
+echo "# Creating folder profiles..."
 
 # Base config for events namespace
 cat > .jn/profiles/file/events/_meta.json << 'EOF'
@@ -188,65 +201,52 @@ cat > .jn/profiles/file/metrics/high_cpu.json << 'EOF'
 }
 EOF
 
-echo "   Created folder profiles in .jn/profiles/file/"
+echo "# Profiles created in .jn/profiles/file/"
 echo ""
 
 # ============================================================================
 # Run examples
 # ============================================================================
 
-echo "1. Query all events with @events/all..."
-$JN_CAT '@events/all' 2>/dev/null | head -5 > output/all_events.jsonl
-echo "   First 5 records saved to output/all_events.jsonl"
+echo "=== Examples ==="
 echo ""
 
-echo "2. Query login events only with @events/logins..."
-$JN_CAT '@events/logins' 2>/dev/null > output/logins.jsonl
-echo "   $(wc -l < output/logins.jsonl) login events saved to output/logins.jsonl"
-echo ""
+echo "# 1. Query all events with @events/all"
+run $JN_CAT '@events/all' 2>/dev/null
 
-echo "3. Query order events with @events/orders..."
-$JN_CAT '@events/orders' 2>/dev/null > output/orders.jsonl
-echo "   $(wc -l < output/orders.jsonl) order events saved to output/orders.jsonl"
-echo ""
+echo "# 2. Query login events only with @events/logins"
+run $JN_CAT '@events/logins' 2>/dev/null
 
-echo "4. Query January events only with @events/january..."
-$JN_CAT '@events/january' 2>/dev/null > output/january.jsonl
-echo "   $(wc -l < output/january.jsonl) January events saved to output/january.jsonl"
-echo ""
+echo "# 3. Query order events with @events/orders"
+run $JN_CAT '@events/orders' 2>/dev/null
 
-echo "5. Query CPU metrics with @metrics/cpu..."
-$JN_CAT '@metrics/cpu' 2>/dev/null > output/cpu_metrics.jsonl
-echo "   $(wc -l < output/cpu_metrics.jsonl) CPU metrics saved to output/cpu_metrics.jsonl"
-echo ""
+echo "# 4. Query January events only with @events/january"
+run $JN_CAT '@events/january' 2>/dev/null
 
-echo "6. Query high CPU (>50%) with @metrics/high_cpu..."
-$JN_CAT '@metrics/high_cpu' 2>/dev/null > output/high_cpu.jsonl
-echo "   $(wc -l < output/high_cpu.jsonl) high CPU records saved to output/high_cpu.jsonl"
-echo ""
+echo "# 5. Query CPU metrics with @metrics/cpu"
+run $JN_CAT '@metrics/cpu' 2>/dev/null
 
-echo "7. Query errors with @events/errors..."
-$JN_CAT '@events/errors' 2>/dev/null > output/errors.jsonl
-echo "   $(wc -l < output/errors.jsonl) errors saved to output/errors.jsonl"
-echo ""
+echo "# 6. Query high CPU (>50%) with @metrics/high_cpu"
+run $JN_CAT '@metrics/high_cpu' 2>/dev/null
+
+echo "# 7. Query errors with @events/errors"
+run $JN_CAT '@events/errors' 2>/dev/null
 
 # ============================================================================
-# Show sample output
+# Show sample transformations
 # ============================================================================
 
-echo "=== Sample Output ==="
-echo ""
-echo "Login events (with path metadata):"
-head -2 output/logins.jsonl | jq -c '{event: .event_type, user: .user_id, file: ._filename}'
+echo "=== Transformations ==="
 echo ""
 
-echo "Order events:"
-head -2 output/orders.jsonl | jq -c '{event: .event_type, order: .order_id, file: ._filename}'
-echo ""
+echo "# Extract login user/file info"
+run sh -c "$JN_CAT '@events/logins' 2>/dev/null | head -2 | jq -c '{user: .user_id, file: ._filename}'"
 
-echo "High CPU alerts:"
-cat output/high_cpu.jsonl | jq -c '{host: .host, value: .value, file: ._filename}'
-echo ""
+echo "# Extract order info"
+run sh -c "$JN_CAT '@events/orders' 2>/dev/null | head -2 | jq -c '{event: .event_type, order: .order_id}'"
+
+echo "# High CPU with host info"
+run sh -c "$JN_CAT '@metrics/high_cpu' 2>/dev/null | jq -c '{host: .host, cpu: .value}'"
 
 # ============================================================================
 # Show profile structure
@@ -254,21 +254,15 @@ echo ""
 
 echo "=== Profile Structure ==="
 echo ""
-echo "Profiles are stored at .jn/profiles/file/<namespace>/<name>.json"
-echo ""
-tree .jn/profiles/file/ 2>/dev/null || find .jn/profiles/file -type f | sort
-echo ""
+echo "# Profiles stored at .jn/profiles/file/<namespace>/<name>.json"
+run find .jn/profiles/file -name '*.json' | sort
 
-echo "=== Example Profile (events/logins.json) ==="
-cat .jn/profiles/file/events/logins.json | jq .
-echo ""
+echo "# Example: events/logins.json"
+run cat .jn/profiles/file/events/logins.json
 
 # Cleanup option
 if [ "$1" = "--cleanup" ]; then
-    echo "Cleaning up..."
+    echo "# Cleaning up..."
     rm -rf test_data .jn output
     echo "Done."
 fi
-
-echo "All examples completed! Check output/ directory for results."
-echo "Run with --cleanup to remove test data."
