@@ -986,7 +986,7 @@ fn evalBuiltin(allocator: std.mem.Allocator, kind: BuiltinKind, value: std.json.
                 else => return EvalResult.empty(allocator),
             }
         },
-        .fabs => {
+        .fabs, .abs => {
             switch (value) {
                 .integer => |i| {
                     // Handle minInt(i64) specially to avoid overflow
@@ -1004,6 +1004,1240 @@ fn evalBuiltin(allocator: std.mem.Allocator, kind: BuiltinKind, value: std.json.
                 else => return EvalResult.empty(allocator),
             }
         },
+        // Sprint 07: More math functions
+        .exp => {
+            const f = switch (value) {
+                .integer => |i| @as(f64, @floatFromInt(i)),
+                .float => |f| f,
+                else => return EvalResult.empty(allocator),
+            };
+            return try EvalResult.single(allocator, .{ .float = @exp(f) });
+        },
+        .ln => {
+            const f = switch (value) {
+                .integer => |i| @as(f64, @floatFromInt(i)),
+                .float => |f| f,
+                else => return EvalResult.empty(allocator),
+            };
+            if (f <= 0) return try EvalResult.single(allocator, .null);
+            return try EvalResult.single(allocator, .{ .float = @log(f) });
+        },
+        .log10 => {
+            const f = switch (value) {
+                .integer => |i| @as(f64, @floatFromInt(i)),
+                .float => |f| f,
+                else => return EvalResult.empty(allocator),
+            };
+            if (f <= 0) return try EvalResult.single(allocator, .null);
+            return try EvalResult.single(allocator, .{ .float = std.math.log10(f) });
+        },
+        .log2 => {
+            const f = switch (value) {
+                .integer => |i| @as(f64, @floatFromInt(i)),
+                .float => |f| f,
+                else => return EvalResult.empty(allocator),
+            };
+            if (f <= 0) return try EvalResult.single(allocator, .null);
+            return try EvalResult.single(allocator, .{ .float = std.math.log2(f) });
+        },
+        .sqrt => {
+            const f = switch (value) {
+                .integer => |i| @as(f64, @floatFromInt(i)),
+                .float => |f| f,
+                else => return EvalResult.empty(allocator),
+            };
+            if (f < 0) return try EvalResult.single(allocator, .null);
+            return try EvalResult.single(allocator, .{ .float = @sqrt(f) });
+        },
+        // Sprint 07: Trigonometry functions
+        .sin => {
+            const f = switch (value) {
+                .integer => |i| @as(f64, @floatFromInt(i)),
+                .float => |f| f,
+                else => return EvalResult.empty(allocator),
+            };
+            return try EvalResult.single(allocator, .{ .float = @sin(f) });
+        },
+        .cos => {
+            const f = switch (value) {
+                .integer => |i| @as(f64, @floatFromInt(i)),
+                .float => |f| f,
+                else => return EvalResult.empty(allocator),
+            };
+            return try EvalResult.single(allocator, .{ .float = @cos(f) });
+        },
+        .tan => {
+            const f = switch (value) {
+                .integer => |i| @as(f64, @floatFromInt(i)),
+                .float => |f| f,
+                else => return EvalResult.empty(allocator),
+            };
+            return try EvalResult.single(allocator, .{ .float = @tan(f) });
+        },
+        .asin => {
+            const f = switch (value) {
+                .integer => |i| @as(f64, @floatFromInt(i)),
+                .float => |f| f,
+                else => return EvalResult.empty(allocator),
+            };
+            // asin is only valid for [-1, 1]
+            if (f < -1 or f > 1) return try EvalResult.single(allocator, .null);
+            return try EvalResult.single(allocator, .{ .float = std.math.asin(f) });
+        },
+        .acos => {
+            const f = switch (value) {
+                .integer => |i| @as(f64, @floatFromInt(i)),
+                .float => |f| f,
+                else => return EvalResult.empty(allocator),
+            };
+            // acos is only valid for [-1, 1]
+            if (f < -1 or f > 1) return try EvalResult.single(allocator, .null);
+            return try EvalResult.single(allocator, .{ .float = std.math.acos(f) });
+        },
+        .atan => {
+            const f = switch (value) {
+                .integer => |i| @as(f64, @floatFromInt(i)),
+                .float => |f| f,
+                else => return EvalResult.empty(allocator),
+            };
+            return try EvalResult.single(allocator, .{ .float = std.math.atan(f) });
+        },
+        // Sprint 06: Generator functions - Date/Time
+        .now => {
+            // ISO 8601 timestamp in UTC: "2024-12-15T17:30:00Z"
+            const timestamp = std.time.timestamp();
+            const epoch_seconds = @as(u64, @intCast(timestamp));
+            const epoch_day = epoch_seconds / 86400;
+            const day_seconds = epoch_seconds % 86400;
+            const hours = day_seconds / 3600;
+            const minutes = (day_seconds % 3600) / 60;
+            const seconds = day_seconds % 60;
+
+            // Calculate year, month, day from epoch day
+            const ymd = epochDayToYmd(epoch_day);
+
+            const str = try std.fmt.allocPrint(allocator, "{d:0>4}-{d:0>2}-{d:0>2}T{d:0>2}:{d:0>2}:{d:0>2}Z", .{
+                ymd.year, ymd.month, ymd.day, hours, minutes, seconds,
+            });
+            return try EvalResult.single(allocator, .{ .string = str });
+        },
+        .today => {
+            // Date only: "2024-12-15"
+            const timestamp = std.time.timestamp();
+            const epoch_seconds = @as(u64, @intCast(timestamp));
+            const epoch_day = epoch_seconds / 86400;
+            const ymd = epochDayToYmd(epoch_day);
+
+            const str = try std.fmt.allocPrint(allocator, "{d:0>4}-{d:0>2}-{d:0>2}", .{
+                ymd.year, ymd.month, ymd.day,
+            });
+            return try EvalResult.single(allocator, .{ .string = str });
+        },
+        .epoch => {
+            // Unix timestamp in seconds
+            const timestamp = std.time.timestamp();
+            return try EvalResult.single(allocator, .{ .integer = timestamp });
+        },
+        .epoch_ms => {
+            // Unix timestamp in milliseconds
+            const timestamp_ns = std.time.nanoTimestamp();
+            const timestamp_ms: i64 = @intCast(@divFloor(timestamp_ns, std.time.ns_per_ms));
+            return try EvalResult.single(allocator, .{ .integer = timestamp_ms });
+        },
+        // Sprint 07: Date/Time component generators
+        .year => {
+            const secs: u64 = @intCast(std.time.timestamp());
+            const epoch_day = secs / 86400;
+            const ymd = epochDayToYmd(epoch_day);
+            return try EvalResult.single(allocator, .{ .integer = @intCast(ymd.year) });
+        },
+        .month => {
+            const secs: u64 = @intCast(std.time.timestamp());
+            const epoch_day = secs / 86400;
+            const ymd = epochDayToYmd(epoch_day);
+            return try EvalResult.single(allocator, .{ .integer = @intCast(ymd.month) });
+        },
+        .day => {
+            const secs: u64 = @intCast(std.time.timestamp());
+            const epoch_day = secs / 86400;
+            const ymd = epochDayToYmd(epoch_day);
+            return try EvalResult.single(allocator, .{ .integer = @intCast(ymd.day) });
+        },
+        .hour => {
+            const secs: u64 = @intCast(std.time.timestamp());
+            const day_seconds = @mod(secs, 86400);
+            const hour_val = day_seconds / 3600;
+            return try EvalResult.single(allocator, .{ .integer = @intCast(hour_val) });
+        },
+        .minute => {
+            const secs: u64 = @intCast(std.time.timestamp());
+            const day_seconds = @mod(secs, 86400);
+            const minute_val = @mod(day_seconds / 60, 60);
+            return try EvalResult.single(allocator, .{ .integer = @intCast(minute_val) });
+        },
+        .second => {
+            const secs: u64 = @intCast(std.time.timestamp());
+            const second_val = @mod(secs, 60);
+            return try EvalResult.single(allocator, .{ .integer = @intCast(second_val) });
+        },
+        .time => {
+            // HH:MM:SS format
+            const secs: u64 = @intCast(std.time.timestamp());
+            const day_seconds = @mod(secs, 86400);
+            const hour_val = day_seconds / 3600;
+            const minute_val = @mod(day_seconds / 60, 60);
+            const second_val = @mod(day_seconds, 60);
+            const str = try std.fmt.allocPrint(allocator, "{d:0>2}:{d:0>2}:{d:0>2}", .{ hour_val, minute_val, second_val });
+            return try EvalResult.single(allocator, .{ .string = str });
+        },
+        .week => {
+            // ISO week number (1-53)
+            const secs: u64 = @intCast(std.time.timestamp());
+            const epoch_day = secs / 86400;
+            const week_num = epochDayToIsoWeek(epoch_day);
+            return try EvalResult.single(allocator, .{ .integer = @intCast(week_num) });
+        },
+        .weekday => {
+            // Day of week name (Sunday, Monday, etc.)
+            const secs: u64 = @intCast(std.time.timestamp());
+            const epoch_day = secs / 86400;
+            // Jan 1, 1970 was Thursday (4)
+            const day_of_week: usize = @intCast(@mod(epoch_day + 4, 7));
+            const day_names = [_][]const u8{ "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday" };
+            return try EvalResult.single(allocator, .{ .string = day_names[day_of_week] });
+        },
+        .weekday_num => {
+            // Day of week number (0=Sunday, 6=Saturday)
+            const secs: u64 = @intCast(std.time.timestamp());
+            const epoch_day = secs / 86400;
+            // Jan 1, 1970 was Thursday (4)
+            const day_of_week = @mod(epoch_day + 4, 7);
+            return try EvalResult.single(allocator, .{ .integer = @intCast(day_of_week) });
+        },
+        // Sprint 06: Generator functions - IDs
+        .uuid => {
+            // UUID v4 (random): "550e8400-e29b-41d4-a716-446655440000"
+            var bytes: [16]u8 = undefined;
+            std.crypto.random.bytes(&bytes);
+            // Set version 4 and variant bits
+            bytes[6] = (bytes[6] & 0x0f) | 0x40; // Version 4
+            bytes[8] = (bytes[8] & 0x3f) | 0x80; // Variant 1
+
+            const str = try std.fmt.allocPrint(allocator, "{x:0>2}{x:0>2}{x:0>2}{x:0>2}-{x:0>2}{x:0>2}-{x:0>2}{x:0>2}-{x:0>2}{x:0>2}-{x:0>2}{x:0>2}{x:0>2}{x:0>2}{x:0>2}{x:0>2}", .{
+                bytes[0],  bytes[1],  bytes[2],  bytes[3],
+                bytes[4],  bytes[5],  bytes[6],  bytes[7],
+                bytes[8],  bytes[9],  bytes[10], bytes[11],
+                bytes[12], bytes[13], bytes[14], bytes[15],
+            });
+            return try EvalResult.single(allocator, .{ .string = str });
+        },
+        .shortid => {
+            // Base62 8-char ID
+            const str = try generateBase62(allocator, 8);
+            return try EvalResult.single(allocator, .{ .string = str });
+        },
+        .sid => {
+            // Base62 6-char ID
+            const str = try generateBase62(allocator, 6);
+            return try EvalResult.single(allocator, .{ .string = str });
+        },
+        // Sprint 07: More ID generators
+        .nanoid => {
+            // NanoID: 21 chars, URL-safe alphabet
+            // Alphabet: A-Za-z0-9_-
+            const str = try generateNanoId(allocator, 21);
+            return try EvalResult.single(allocator, .{ .string = str });
+        },
+        .ulid => {
+            // ULID: 26 chars, Crockford Base32, time-sortable
+            // Format: TTTTTTTTTTRRRRRRRRRRRRRRR (10 time + 16 random chars)
+            const str = try generateUlid(allocator);
+            return try EvalResult.single(allocator, .{ .string = str });
+        },
+        .uuid7 => {
+            // UUID v7: 36 chars with dashes, time-sortable
+            // Based on Unix timestamp milliseconds
+            const str = try generateUuid7(allocator);
+            return try EvalResult.single(allocator, .{ .string = str });
+        },
+        .xid => {
+            // XID: 20 chars, URL-safe Base32, sortable
+            // 4 bytes time + 3 bytes machine + 2 bytes PID + 3 bytes counter
+            const str = try generateXid(allocator);
+            return try EvalResult.single(allocator, .{ .string = str });
+        },
+        // Sprint 06: Generator functions - Random/Sequence
+        .random => {
+            // Random float between 0.0 and 1.0
+            const rand_int = std.crypto.random.int(u64);
+            const rand_float = @as(f64, @floatFromInt(rand_int)) / @as(f64, @floatFromInt(std.math.maxInt(u64)));
+            return try EvalResult.single(allocator, .{ .float = rand_float });
+        },
+        .seq => {
+            // Incrementing counter (thread-local, resets each run)
+            const current = seq_counter;
+            seq_counter += 1;
+            return try EvalResult.single(allocator, .{ .integer = current });
+        },
+        // Sprint 06: Transform functions - Numeric
+        .incr => {
+            switch (value) {
+                .integer => |i| return try EvalResult.single(allocator, .{ .integer = i + 1 }),
+                .float => |f| return try EvalResult.single(allocator, .{ .float = f + 1.0 }),
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .decr => {
+            switch (value) {
+                .integer => |i| return try EvalResult.single(allocator, .{ .integer = i - 1 }),
+                .float => |f| return try EvalResult.single(allocator, .{ .float = f - 1.0 }),
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .negate => {
+            switch (value) {
+                .integer => |i| return try EvalResult.single(allocator, .{ .integer = -i }),
+                .float => |f| return try EvalResult.single(allocator, .{ .float = -f }),
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .toggle => {
+            switch (value) {
+                .bool => |b| return try EvalResult.single(allocator, .{ .bool = !b }),
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        // Sprint 06: Transform functions - String
+        .trim => {
+            switch (value) {
+                .string => |s| {
+                    const trimmed = std.mem.trim(u8, s, " \t\n\r");
+                    return try EvalResult.single(allocator, .{ .string = trimmed });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .ltrim => {
+            switch (value) {
+                .string => |s| {
+                    const trimmed = std.mem.trimLeft(u8, s, " \t\n\r");
+                    return try EvalResult.single(allocator, .{ .string = trimmed });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .rtrim => {
+            switch (value) {
+                .string => |s| {
+                    const trimmed = std.mem.trimRight(u8, s, " \t\n\r");
+                    return try EvalResult.single(allocator, .{ .string = trimmed });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        // Sprint 06: Type coercion
+        .@"int" => {
+            switch (value) {
+                .integer => return try EvalResult.single(allocator, value),
+                .float => |f| {
+                    if (f >= @as(f64, @floatFromInt(std.math.minInt(i64))) and
+                        f <= @as(f64, @floatFromInt(std.math.maxInt(i64))))
+                    {
+                        return try EvalResult.single(allocator, .{ .integer = @as(i64, @intFromFloat(f)) });
+                    }
+                    return try EvalResult.single(allocator, .{ .null = {} });
+                },
+                .string => |s| {
+                    if (std.fmt.parseInt(i64, s, 10)) |i| {
+                        return try EvalResult.single(allocator, .{ .integer = i });
+                    } else |_| {
+                        // Try parsing as float then truncating
+                        if (std.fmt.parseFloat(f64, s)) |f| {
+                            return try EvalResult.single(allocator, .{ .integer = @as(i64, @intFromFloat(f)) });
+                        } else |_| {
+                            return try EvalResult.single(allocator, .{ .null = {} });
+                        }
+                    }
+                },
+                .bool => |b| return try EvalResult.single(allocator, .{ .integer = if (b) 1 else 0 }),
+                .null => return try EvalResult.single(allocator, .{ .null = {} }),
+                else => return try EvalResult.single(allocator, .{ .null = {} }),
+            }
+        },
+        .@"float" => {
+            switch (value) {
+                .float => return try EvalResult.single(allocator, value),
+                .integer => |i| return try EvalResult.single(allocator, .{ .float = @as(f64, @floatFromInt(i)) }),
+                .string => |s| {
+                    if (std.fmt.parseFloat(f64, s)) |f| {
+                        return try EvalResult.single(allocator, .{ .float = f });
+                    } else |_| {
+                        return try EvalResult.single(allocator, .{ .null = {} });
+                    }
+                },
+                .bool => |b| return try EvalResult.single(allocator, .{ .float = if (b) 1.0 else 0.0 }),
+                .null => return try EvalResult.single(allocator, .{ .null = {} }),
+                else => return try EvalResult.single(allocator, .{ .null = {} }),
+            }
+        },
+        .@"bool" => {
+            // Truthy: true, non-zero numbers, non-empty strings, non-empty arrays/objects
+            // Falsy: false, 0, "", null, [], {}
+            const result = switch (value) {
+                .bool => |b| b,
+                .integer => |i| i != 0,
+                .float => |f| f != 0.0,
+                .string => |s| s.len > 0,
+                .array => |arr| arr.items.len > 0,
+                .object => |obj| obj.count() > 0,
+                .null => false,
+                else => false,
+            };
+            return try EvalResult.single(allocator, .{ .bool = result });
+        },
+        // Sprint 06: Case functions
+        .capitalize => {
+            switch (value) {
+                .string => |s| {
+                    if (s.len == 0) return try EvalResult.single(allocator, value);
+                    var result = try allocator.alloc(u8, s.len);
+                    @memcpy(result, s);
+                    if (result[0] >= 'a' and result[0] <= 'z') {
+                        result[0] = result[0] - 32;
+                    }
+                    return try EvalResult.single(allocator, .{ .string = result });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .titlecase => {
+            switch (value) {
+                .string => |s| {
+                    if (s.len == 0) return try EvalResult.single(allocator, value);
+                    var result = try allocator.alloc(u8, s.len);
+                    var capitalize_next = true;
+                    for (s, 0..) |c, i| {
+                        if (c == ' ' or c == '\t' or c == '\n' or c == '-' or c == '_') {
+                            result[i] = c;
+                            capitalize_next = true;
+                        } else if (capitalize_next and c >= 'a' and c <= 'z') {
+                            result[i] = c - 32;
+                            capitalize_next = false;
+                        } else if (!capitalize_next and c >= 'A' and c <= 'Z') {
+                            result[i] = c + 32;
+                            capitalize_next = false;
+                        } else {
+                            result[i] = c;
+                            capitalize_next = false;
+                        }
+                    }
+                    return try EvalResult.single(allocator, .{ .string = result });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .snakecase => {
+            switch (value) {
+                .string => |s| {
+                    const result = try toSnakeCase(allocator, s);
+                    return try EvalResult.single(allocator, .{ .string = result });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .camelcase => {
+            switch (value) {
+                .string => |s| {
+                    const result = try toCamelCase(allocator, s, false);
+                    return try EvalResult.single(allocator, .{ .string = result });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .kebabcase => {
+            switch (value) {
+                .string => |s| {
+                    const result = try toKebabCase(allocator, s);
+                    return try EvalResult.single(allocator, .{ .string = result });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        // Sprint 07: More case functions
+        .pascalcase => {
+            switch (value) {
+                .string => |s| {
+                    // PascalCase is just camelCase with first letter uppercase
+                    const result = try toCamelCase(allocator, s, true);
+                    return try EvalResult.single(allocator, .{ .string = result });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .screamcase => {
+            switch (value) {
+                .string => |s| {
+                    // SCREAMING_SNAKE_CASE: snake_case but uppercase
+                    const snake = try toSnakeCase(allocator, s);
+                    // Convert to uppercase
+                    for (snake) |*c| {
+                        if (c.* >= 'a' and c.* <= 'z') {
+                            c.* = c.* - 32;
+                        }
+                    }
+                    return try EvalResult.single(allocator, .{ .string = snake });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        // Sprint 06: Predicates
+        .empty => {
+            const result = switch (value) {
+                .string => |s| s.len == 0,
+                .array => |arr| arr.items.len == 0,
+                .object => |obj| obj.count() == 0,
+                else => false,
+            };
+            return try EvalResult.single(allocator, .{ .bool = result });
+        },
+        // Sprint 06: String splitting
+        .words => {
+            switch (value) {
+                .string => |s| {
+                    var words_list: std.ArrayListUnmanaged(std.json.Value) = .empty;
+                    var iter = std.mem.tokenizeAny(u8, s, " \t\n\r");
+                    while (iter.next()) |word| {
+                        try words_list.append(allocator, .{ .string = word });
+                    }
+                    const result_slice = try words_list.toOwnedSlice(allocator);
+                    return try EvalResult.single(allocator, .{ .array = .{
+                        .items = result_slice,
+                        .capacity = result_slice.len,
+                        .allocator = allocator,
+                    } });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .lines => {
+            switch (value) {
+                .string => |s| {
+                    var lines_list: std.ArrayListUnmanaged(std.json.Value) = .empty;
+                    var iter = std.mem.splitSequence(u8, s, "\n");
+                    while (iter.next()) |line| {
+                        // Trim \r from line endings
+                        const trimmed_line = std.mem.trimRight(u8, line, "\r");
+                        try lines_list.append(allocator, .{ .string = trimmed_line });
+                    }
+                    const result_slice = try lines_list.toOwnedSlice(allocator);
+                    return try EvalResult.single(allocator, .{ .array = .{
+                        .items = result_slice,
+                        .capacity = result_slice.len,
+                        .allocator = allocator,
+                    } });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .chars => {
+            switch (value) {
+                .string => |s| {
+                    var chars_list: std.ArrayListUnmanaged(std.json.Value) = .empty;
+                    for (s) |c| {
+                        const char_str = try allocator.alloc(u8, 1);
+                        char_str[0] = c;
+                        try chars_list.append(allocator, .{ .string = char_str });
+                    }
+                    const result_slice = try chars_list.toOwnedSlice(allocator);
+                    return try EvalResult.single(allocator, .{ .array = .{
+                        .items = result_slice,
+                        .capacity = result_slice.len,
+                        .allocator = allocator,
+                    } });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        // Sprint 06: Slug
+        .slugify => {
+            switch (value) {
+                .string => |s| {
+                    const result = try toSlug(allocator, s);
+                    return try EvalResult.single(allocator, .{ .string = result });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        // Sprint 08: Time functions
+        .xid_time => {
+            // Extract epoch seconds from XID string (20 chars total, first 4 bytes = timestamp)
+            switch (value) {
+                .string => |s| {
+                    if (s.len < 20) return try EvalResult.single(allocator, .null);
+                    const timestamp = decodeXidTimestamp(s) orelse return try EvalResult.single(allocator, .null);
+                    return try EvalResult.single(allocator, .{ .integer = @intCast(timestamp) });
+                },
+                else => return EvalResult.empty(allocator),
+            }
+        },
+        .delta => {
+            // Seconds since a timestamp (accepts epoch int or ISO string)
+            const now_secs: i64 = std.time.timestamp();
+            const then_secs: i64 = switch (value) {
+                .integer => |i| i,
+                .string => |s| parseIsoTimestamp(s) orelse return try EvalResult.single(allocator, .null),
+                else => return EvalResult.empty(allocator),
+            };
+            return try EvalResult.single(allocator, .{ .integer = now_secs - then_secs });
+        },
+        .ago => {
+            // Human-friendly relative time string
+            const now_secs: i64 = std.time.timestamp();
+            const then_secs: i64 = switch (value) {
+                .integer => |i| i,
+                .string => |s| parseIsoTimestamp(s) orelse return try EvalResult.single(allocator, .null),
+                else => return EvalResult.empty(allocator),
+            };
+            const diff = now_secs - then_secs;
+            const ago_str = try formatAgo(allocator, diff);
+            return try EvalResult.single(allocator, .{ .string = ago_str });
+        },
+    }
+}
+
+// Thread-local sequence counter for seq generator
+threadlocal var seq_counter: i64 = 1;
+
+// Helper: Convert epoch day (days since 1970-01-01) to year/month/day
+const YearMonthDay = struct { year: u32, month: u32, day: u32 };
+
+fn epochDayToYmd(epoch_day: u64) YearMonthDay {
+    // Algorithm from http://howardhinnant.github.io/date_algorithms.html
+    const z = epoch_day + 719468;
+    const era = z / 146097;
+    const doe = z - era * 146097;
+    const yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    const y = yoe + era * 400;
+    const doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    const mp = (5 * doy + 2) / 153;
+    const d = doy - (153 * mp + 2) / 5 + 1;
+    const m = if (mp < 10) mp + 3 else mp - 9;
+    const year = if (m <= 2) y + 1 else y;
+
+    return .{
+        .year = @intCast(year),
+        .month = @intCast(m),
+        .day = @intCast(d),
+    };
+}
+
+// Helper: Calculate ISO week number (1-53)
+fn epochDayToIsoWeek(epoch_day: u64) u32 {
+    // ISO 8601 week number formula
+    // Week 1 is the week containing the first Thursday of the year
+
+    const ymd = epochDayToYmd(epoch_day);
+
+    // Calculate day of year (1-indexed)
+    const days_in_months = [_]u32{ 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334 };
+    var day_of_year: u32 = days_in_months[ymd.month - 1] + ymd.day;
+
+    // Add leap day if after Feb in a leap year
+    if (ymd.month > 2 and isLeapYear(ymd.year)) {
+        day_of_year += 1;
+    }
+
+    // Day of week: 1=Monday, 7=Sunday (ISO)
+    // Jan 1, 1970 was Thursday
+    const dow: u32 = @intCast(@mod(epoch_day + 3, 7) + 1);
+
+    // ISO week number formula:
+    // week = (day_of_year - dow + 10) / 7
+    // This formula accounts for the Thursday rule
+    const week_calc: i32 = @divFloor(@as(i32, @intCast(day_of_year)) - @as(i32, @intCast(dow)) + 10, 7);
+
+    if (week_calc < 1) {
+        // Week belongs to previous year - calculate weeks in previous year
+        return weeksInYear(ymd.year - 1);
+    } else if (week_calc > weeksInYear(ymd.year)) {
+        // Week belongs to next year
+        return 1;
+    }
+
+    return @intCast(week_calc);
+}
+
+fn isLeapYear(year: u32) bool {
+    return (year % 4 == 0 and year % 100 != 0) or (year % 400 == 0);
+}
+
+fn weeksInYear(year: u32) u32 {
+    // A year has 53 weeks if Jan 1 is Thursday, or
+    // Jan 1 is Wednesday and it's a leap year
+    const jan1_dow = getJan1Weekday(year);
+    if (jan1_dow == 4) return 53; // Thursday
+    if (jan1_dow == 3 and isLeapYear(year)) return 53; // Wednesday + leap
+    return 52;
+}
+
+fn getJan1Weekday(year: u32) u32 {
+    // Day of week for Jan 1 of given year (1=Monday, 7=Sunday)
+    // Using a standard formula
+    const y = year - 1;
+    const day = (1 + 5 * (y % 4) + 4 * (y % 100) + 6 * (y % 400)) % 7;
+    // Result: 0=Sunday, 1=Monday, ..., 6=Saturday
+    // Convert to ISO: 1=Monday, 7=Sunday
+    return if (day == 0) 7 else day;
+}
+
+// Base62 alphabet for shortid/sid
+const base62_alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+
+fn generateBase62(allocator: std.mem.Allocator, len: usize) ![]u8 {
+    var result = try allocator.alloc(u8, len);
+    var rand_bytes: [16]u8 = undefined;
+    std.crypto.random.bytes(&rand_bytes);
+
+    for (0..len) |i| {
+        const rand_idx = rand_bytes[i % 16] % 62;
+        result[i] = base62_alphabet[rand_idx];
+    }
+    return result;
+}
+
+// Sprint 07: NanoID - URL-safe alphabet
+const nanoid_alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-";
+
+fn generateNanoId(allocator: std.mem.Allocator, len: usize) ![]u8 {
+    var result = try allocator.alloc(u8, len);
+    var rand_bytes: [32]u8 = undefined;
+    std.crypto.random.bytes(&rand_bytes);
+
+    for (0..len) |i| {
+        const rand_idx = rand_bytes[i % 32] % 64;
+        result[i] = nanoid_alphabet[rand_idx];
+    }
+    return result;
+}
+
+// Sprint 07: ULID - Crockford Base32, time-sortable
+const crockford_alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
+fn generateUlid(allocator: std.mem.Allocator) ![]u8 {
+    var result = try allocator.alloc(u8, 26);
+
+    // Get timestamp in milliseconds
+    const timestamp_ns = std.time.nanoTimestamp();
+    var timestamp_ms: u64 = @intCast(@divFloor(timestamp_ns, std.time.ns_per_ms));
+
+    // Encode 48-bit timestamp as first 10 characters (Crockford Base32)
+    var i: usize = 9;
+    while (i < 10) : (i -%= 1) {
+        result[i] = crockford_alphabet[@intCast(timestamp_ms & 0x1f)];
+        timestamp_ms >>= 5;
+        if (i == 0) break;
+    }
+
+    // Generate 80 bits of randomness for remaining 16 characters
+    var rand_bytes: [10]u8 = undefined;
+    std.crypto.random.bytes(&rand_bytes);
+
+    // Encode random bytes as Base32
+    // Each char is 5 bits, so 16 chars = 80 bits = 10 bytes
+    var rand_bits: u80 = 0;
+    for (rand_bytes) |b| {
+        rand_bits = (rand_bits << 8) | b;
+    }
+
+    var j: usize = 25;
+    while (j >= 10) : (j -%= 1) {
+        result[j] = crockford_alphabet[@intCast(rand_bits & 0x1f)];
+        rand_bits >>= 5;
+        if (j == 10) break;
+    }
+
+    return result;
+}
+
+// Sprint 07: UUID v7 - time-sortable UUID
+fn generateUuid7(allocator: std.mem.Allocator) ![]u8 {
+    // UUID v7: xxxxxxxx-xxxx-7xxx-yxxx-xxxxxxxxxxxx
+    // First 48 bits: Unix timestamp in milliseconds
+    // Next 4 bits: version (7)
+    // Next 12 bits: random
+    // Next 2 bits: variant (10)
+    // Remaining 62 bits: random
+
+    const timestamp_ns = std.time.nanoTimestamp();
+    const timestamp_ms: u64 = @intCast(@divFloor(timestamp_ns, std.time.ns_per_ms));
+
+    var bytes: [16]u8 = undefined;
+
+    // Timestamp (48 bits, big-endian)
+    bytes[0] = @intCast((timestamp_ms >> 40) & 0xff);
+    bytes[1] = @intCast((timestamp_ms >> 32) & 0xff);
+    bytes[2] = @intCast((timestamp_ms >> 24) & 0xff);
+    bytes[3] = @intCast((timestamp_ms >> 16) & 0xff);
+    bytes[4] = @intCast((timestamp_ms >> 8) & 0xff);
+    bytes[5] = @intCast(timestamp_ms & 0xff);
+
+    // Random bytes for the rest
+    std.crypto.random.bytes(bytes[6..]);
+
+    // Set version 7
+    bytes[6] = (bytes[6] & 0x0f) | 0x70;
+    // Set variant (10xx)
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+
+    return try std.fmt.allocPrint(allocator, "{x:0>2}{x:0>2}{x:0>2}{x:0>2}-{x:0>2}{x:0>2}-{x:0>2}{x:0>2}-{x:0>2}{x:0>2}-{x:0>2}{x:0>2}{x:0>2}{x:0>2}{x:0>2}{x:0>2}", .{
+        bytes[0],  bytes[1],  bytes[2],  bytes[3],
+        bytes[4],  bytes[5],  bytes[6],  bytes[7],
+        bytes[8],  bytes[9],  bytes[10], bytes[11],
+        bytes[12], bytes[13], bytes[14], bytes[15],
+    });
+}
+
+// Sprint 07: XID - compact, sortable ID
+// XID alphabet is lowercase hex-extended with more URL-safe chars
+const xid_alphabet = "0123456789abcdefghijklmnopqrstuv";
+threadlocal var xid_counter: u24 = 0;
+threadlocal var xid_machine_id: ?[3]u8 = null;
+
+fn generateXid(allocator: std.mem.Allocator) ![]u8 {
+    var result = try allocator.alloc(u8, 20);
+
+    // 4 bytes: unix timestamp (seconds)
+    const timestamp: u32 = @intCast(std.time.timestamp());
+
+    // 3 bytes: machine ID (random, cached)
+    if (xid_machine_id == null) {
+        var machine: [3]u8 = undefined;
+        std.crypto.random.bytes(&machine);
+        xid_machine_id = machine;
+    }
+    const machine_id = xid_machine_id.?;
+
+    // 2 bytes: PID (use random since we don't have easy PID access)
+    var pid_bytes: [2]u8 = undefined;
+    std.crypto.random.bytes(&pid_bytes);
+
+    // 3 bytes: counter
+    xid_counter +%= 1;
+    const counter = xid_counter;
+
+    // Pack into 12 bytes
+    var bytes: [12]u8 = undefined;
+    bytes[0] = @intCast((timestamp >> 24) & 0xff);
+    bytes[1] = @intCast((timestamp >> 16) & 0xff);
+    bytes[2] = @intCast((timestamp >> 8) & 0xff);
+    bytes[3] = @intCast(timestamp & 0xff);
+    bytes[4] = machine_id[0];
+    bytes[5] = machine_id[1];
+    bytes[6] = machine_id[2];
+    bytes[7] = pid_bytes[0];
+    bytes[8] = pid_bytes[1];
+    bytes[9] = @intCast((counter >> 16) & 0xff);
+    bytes[10] = @intCast((counter >> 8) & 0xff);
+    bytes[11] = @intCast(counter & 0xff);
+
+    // Encode as base32 (20 chars for 12 bytes * 8 bits / 5 bits per char = 19.2, round to 20)
+    // Actually XID uses a specific encoding: 12 bytes -> 20 chars
+    // Each 5 bits becomes one character
+    var bits: u96 = 0;
+    for (bytes) |b| {
+        bits = (bits << 8) | b;
+    }
+
+    var i: usize = 19;
+    while (i < 20) : (i -%= 1) {
+        result[i] = xid_alphabet[@intCast(bits & 0x1f)];
+        bits >>= 5;
+        if (i == 0) break;
+    }
+
+    return result;
+}
+
+// Sprint 06: Case conversion helpers
+
+/// Convert string to snake_case
+/// "HelloWorld" -> "hello_world"
+/// "hello-world" -> "hello_world"
+/// "Hello World" -> "hello_world"
+fn toSnakeCase(allocator: std.mem.Allocator, s: []const u8) ![]u8 {
+    if (s.len == 0) return try allocator.alloc(u8, 0);
+
+    // First pass: count output length
+    var output_len: usize = 0;
+    var prev_lower = false;
+    for (s) |c| {
+        if (c == ' ' or c == '-' or c == '_') {
+            if (output_len > 0) output_len += 1; // add underscore
+            prev_lower = false;
+        } else if (c >= 'A' and c <= 'Z') {
+            if (prev_lower and output_len > 0) output_len += 1; // add underscore before uppercase
+            output_len += 1;
+            prev_lower = false;
+        } else {
+            output_len += 1;
+            prev_lower = (c >= 'a' and c <= 'z');
+        }
+    }
+
+    // Second pass: build output
+    var result = try allocator.alloc(u8, output_len);
+    var pos: usize = 0;
+    prev_lower = false;
+
+    for (s) |c| {
+        if (c == ' ' or c == '-' or c == '_') {
+            if (pos > 0) {
+                result[pos] = '_';
+                pos += 1;
+            }
+            prev_lower = false;
+        } else if (c >= 'A' and c <= 'Z') {
+            if (prev_lower and pos > 0) {
+                result[pos] = '_';
+                pos += 1;
+            }
+            result[pos] = c + 32; // lowercase
+            pos += 1;
+            prev_lower = false;
+        } else {
+            result[pos] = c;
+            pos += 1;
+            prev_lower = (c >= 'a' and c <= 'z');
+        }
+    }
+
+    return result[0..pos];
+}
+
+/// Convert string to camelCase or PascalCase
+/// "hello_world" -> "helloWorld" (pascal=false)
+/// "hello_world" -> "HelloWorld" (pascal=true)
+fn toCamelCase(allocator: std.mem.Allocator, s: []const u8, pascal: bool) ![]u8 {
+    if (s.len == 0) return try allocator.alloc(u8, 0);
+
+    // First pass: count output length (skip separators)
+    var output_len: usize = 0;
+    for (s) |c| {
+        if (c != ' ' and c != '-' and c != '_') {
+            output_len += 1;
+        }
+    }
+
+    var result = try allocator.alloc(u8, output_len);
+    var pos: usize = 0;
+    var capitalize_next = pascal;
+
+    for (s) |c| {
+        if (c == ' ' or c == '-' or c == '_') {
+            capitalize_next = true;
+        } else if (capitalize_next) {
+            if (c >= 'a' and c <= 'z') {
+                result[pos] = c - 32;
+            } else {
+                result[pos] = c;
+            }
+            pos += 1;
+            capitalize_next = false;
+        } else {
+            if (c >= 'A' and c <= 'Z') {
+                result[pos] = c + 32;
+            } else {
+                result[pos] = c;
+            }
+            pos += 1;
+        }
+    }
+
+    return result[0..pos];
+}
+
+/// Convert string to kebab-case
+/// "HelloWorld" -> "hello-world"
+/// "hello_world" -> "hello-world"
+fn toKebabCase(allocator: std.mem.Allocator, s: []const u8) ![]u8 {
+    if (s.len == 0) return try allocator.alloc(u8, 0);
+
+    // First pass: count output length
+    var output_len: usize = 0;
+    var prev_lower = false;
+    for (s) |c| {
+        if (c == ' ' or c == '-' or c == '_') {
+            if (output_len > 0) output_len += 1;
+            prev_lower = false;
+        } else if (c >= 'A' and c <= 'Z') {
+            if (prev_lower and output_len > 0) output_len += 1;
+            output_len += 1;
+            prev_lower = false;
+        } else {
+            output_len += 1;
+            prev_lower = (c >= 'a' and c <= 'z');
+        }
+    }
+
+    // Second pass: build output
+    var result = try allocator.alloc(u8, output_len);
+    var pos: usize = 0;
+    prev_lower = false;
+
+    for (s) |c| {
+        if (c == ' ' or c == '-' or c == '_') {
+            if (pos > 0) {
+                result[pos] = '-';
+                pos += 1;
+            }
+            prev_lower = false;
+        } else if (c >= 'A' and c <= 'Z') {
+            if (prev_lower and pos > 0) {
+                result[pos] = '-';
+                pos += 1;
+            }
+            result[pos] = c + 32;
+            pos += 1;
+            prev_lower = false;
+        } else {
+            result[pos] = c;
+            pos += 1;
+            prev_lower = (c >= 'a' and c <= 'z');
+        }
+    }
+
+    return result[0..pos];
+}
+
+/// Convert string to URL-safe slug
+/// "Hello World!" -> "hello-world"
+/// "This & That" -> "this-that"
+fn toSlug(allocator: std.mem.Allocator, s: []const u8) ![]u8 {
+    if (s.len == 0) return try allocator.alloc(u8, 0);
+
+    // First pass: count output length
+    var output_len: usize = 0;
+    var prev_dash = true; // Start true to avoid leading dash
+
+    for (s) |c| {
+        if ((c >= 'a' and c <= 'z') or (c >= '0' and c <= '9')) {
+            output_len += 1;
+            prev_dash = false;
+        } else if (c >= 'A' and c <= 'Z') {
+            output_len += 1;
+            prev_dash = false;
+        } else if (!prev_dash) {
+            // Any non-alphanumeric becomes a dash
+            output_len += 1;
+            prev_dash = true;
+        }
+    }
+
+    // Remove trailing dash if present
+    if (output_len > 0 and prev_dash) output_len -= 1;
+
+    var result = try allocator.alloc(u8, output_len);
+    var pos: usize = 0;
+    prev_dash = true;
+
+    for (s) |c| {
+        if ((c >= 'a' and c <= 'z') or (c >= '0' and c <= '9')) {
+            result[pos] = c;
+            pos += 1;
+            prev_dash = false;
+        } else if (c >= 'A' and c <= 'Z') {
+            result[pos] = c + 32; // lowercase
+            pos += 1;
+            prev_dash = false;
+        } else if (!prev_dash and pos < output_len) {
+            result[pos] = '-';
+            pos += 1;
+            prev_dash = true;
+        }
+    }
+
+    return result[0..pos];
+}
+
+// Sprint 08: XID timestamp decoding
+fn decodeXidTimestamp(s: []const u8) ?u32 {
+    // XID is 20 chars base32 encoding 12 bytes (96 bits)
+    // First 4 bytes (32 bits) are the timestamp
+    // We need to decode all 20 chars and extract the top 32 bits
+    if (s.len < 20) return null;
+
+    // Decode all 20 characters to 96 bits
+    var bits: u128 = 0; // Use u128 to hold 96 bits safely
+    for (s[0..20]) |c| {
+        const val: u128 = if (c >= '0' and c <= '9')
+            c - '0'
+        else if (c >= 'a' and c <= 'v')
+            c - 'a' + 10
+        else
+            return null; // Invalid character
+        bits = (bits << 5) | val;
+    }
+
+    // 20 chars * 5 bits = 100 bits, but we only have 96 bits of data
+    // The encoding uses the full 100 bits, so top 4 bits are padding
+    // Extract timestamp from bits 64-95 (after removing 4 padding bits from top)
+    const timestamp: u32 = @truncate(bits >> 64);
+    return timestamp;
+}
+
+// Sprint 08: Parse ISO timestamp to epoch seconds
+fn parseIsoTimestamp(s: []const u8) ?i64 {
+    // Parse "2024-12-15T17:30:00Z" or "2024-12-15T17:30:00" or "2024-12-15"
+    if (s.len < 10) return null;
+
+    // Parse year
+    const year = std.fmt.parseInt(u32, s[0..4], 10) catch return null;
+    if (s[4] != '-') return null;
+
+    // Parse month
+    const month = std.fmt.parseInt(u32, s[5..7], 10) catch return null;
+    if (month < 1 or month > 12) return null;
+    if (s[7] != '-') return null;
+
+    // Parse day
+    const day = std.fmt.parseInt(u32, s[8..10], 10) catch return null;
+    if (day < 1 or day > 31) return null;
+
+    // Calculate days since epoch
+    var days: i64 = 0;
+
+    // Years since 1970
+    var y: u32 = 1970;
+    while (y < year) : (y += 1) {
+        days += if (isLeapYear(y)) 366 else 365;
+    }
+
+    // Months
+    const days_in_months = [_]u32{ 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+    var m: u32 = 1;
+    while (m < month) : (m += 1) {
+        days += days_in_months[m - 1];
+        if (m == 2 and isLeapYear(year)) days += 1;
+    }
+
+    // Days
+    days += day - 1;
+
+    // Convert to seconds
+    var secs = days * 86400;
+
+    // Parse time if present
+    if (s.len >= 19 and s[10] == 'T') {
+        const hour = std.fmt.parseInt(u32, s[11..13], 10) catch return null;
+        if (hour > 23) return null;
+        const minute = std.fmt.parseInt(u32, s[14..16], 10) catch return null;
+        if (minute > 59) return null;
+        const second = std.fmt.parseInt(u32, s[17..19], 10) catch return null;
+        if (second > 59) return null;
+        secs += hour * 3600 + minute * 60 + second;
+    }
+
+    return secs;
+}
+
+// Sprint 08: Format seconds as human-friendly "ago" string
+fn formatAgo(allocator: std.mem.Allocator, diff: i64) ![]u8 {
+    const abs_diff: u64 = if (diff < 0) @intCast(-diff) else @intCast(diff);
+    const suffix = if (diff < 0) " from now" else " ago";
+
+    if (abs_diff < 60) {
+        return try std.fmt.allocPrint(allocator, "{d} second{s}{s}", .{
+            abs_diff,
+            if (abs_diff == 1) "" else "s",
+            suffix,
+        });
+    }
+
+    const minutes = abs_diff / 60;
+    if (minutes < 60) {
+        return try std.fmt.allocPrint(allocator, "{d} minute{s}{s}", .{
+            minutes,
+            if (minutes == 1) "" else "s",
+            suffix,
+        });
+    }
+
+    const hours = abs_diff / 3600;
+    const remaining_mins = (abs_diff % 3600) / 60;
+    if (hours < 24) {
+        if (remaining_mins > 0) {
+            return try std.fmt.allocPrint(allocator, "{d} hour{s}, {d} minute{s}{s}", .{
+                hours,
+                if (hours == 1) "" else "s",
+                remaining_mins,
+                if (remaining_mins == 1) "" else "s",
+                suffix,
+            });
+        } else {
+            return try std.fmt.allocPrint(allocator, "{d} hour{s}{s}", .{
+                hours,
+                if (hours == 1) "" else "s",
+                suffix,
+            });
+        }
+    }
+
+    const days = abs_diff / 86400;
+    const remaining_hours = (abs_diff % 86400) / 3600;
+    if (days < 30) {
+        if (remaining_hours > 0) {
+            return try std.fmt.allocPrint(allocator, "{d} day{s}, {d} hour{s}{s}", .{
+                days,
+                if (days == 1) "" else "s",
+                remaining_hours,
+                if (remaining_hours == 1) "" else "s",
+                suffix,
+            });
+        } else {
+            return try std.fmt.allocPrint(allocator, "{d} day{s}{s}", .{
+                days,
+                if (days == 1) "" else "s",
+                suffix,
+            });
+        }
+    }
+
+    const months = days / 30;
+    const remaining_days = days % 30;
+    if (months < 12) {
+        if (remaining_days > 0) {
+            return try std.fmt.allocPrint(allocator, "{d} month{s}, {d} day{s}{s}", .{
+                months,
+                if (months == 1) "" else "s",
+                remaining_days,
+                if (remaining_days == 1) "" else "s",
+                suffix,
+            });
+        } else {
+            return try std.fmt.allocPrint(allocator, "{d} month{s}{s}", .{
+                months,
+                if (months == 1) "" else "s",
+                suffix,
+            });
+        }
+    }
+
+    const years = days / 365;
+    const remaining_months = (days % 365) / 30;
+    if (remaining_months > 0) {
+        return try std.fmt.allocPrint(allocator, "{d} year{s}, {d} month{s}{s}", .{
+            years,
+            if (years == 1) "" else "s",
+            remaining_months,
+            if (remaining_months == 1) "" else "s",
+            suffix,
+        });
+    } else {
+        return try std.fmt.allocPrint(allocator, "{d} year{s}{s}", .{
+            years,
+            if (years == 1) "" else "s",
+            suffix,
+        });
     }
 }
 

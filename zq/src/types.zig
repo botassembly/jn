@@ -143,6 +143,82 @@ pub const BuiltinKind = enum {
     ceil,
     round,
     fabs,
+    // More math functions (Sprint 07)
+    abs, // Alias for fabs, works with integers too
+    exp, // e^x
+    ln, // Natural logarithm
+    log10, // Base-10 logarithm
+    log2, // Base-2 logarithm
+    sqrt, // Square root
+    // Trigonometry functions (Sprint 07)
+    sin, // Sine (radians)
+    cos, // Cosine (radians)
+    tan, // Tangent (radians)
+    asin, // Arc sine (radians)
+    acos, // Arc cosine (radians)
+    atan, // Arc tangent (radians)
+    // Generator functions - Date/Time (Sprint 06)
+    now, // ISO 8601 timestamp (UTC)
+    today, // Date only (YYYY-MM-DD)
+    epoch, // Unix timestamp in seconds
+    epoch_ms, // Unix timestamp in milliseconds
+    // Date/Time component generators (Sprint 07)
+    year, // Current year (e.g., 2025)
+    month, // Current month (1-12)
+    day, // Current day of month (1-31)
+    hour, // Current hour (0-23)
+    minute, // Current minute (0-59)
+    second, // Current second (0-59)
+    time, // Time only (HH:MM:SS)
+    week, // ISO week number (1-53)
+    weekday, // Day of week name (Sunday, Monday, etc.)
+    weekday_num, // Day of week number (0=Sunday, 6=Saturday)
+    // Generator functions - IDs (Sprint 06)
+    uuid, // UUID v4, 36 chars, random
+    shortid, // Base62 8-char ID
+    sid, // Base62 6-char ID
+    // More ID generators (Sprint 07)
+    nanoid, // NanoID, 21 chars, URL-safe
+    ulid, // ULID, 26 chars, time-sortable
+    uuid7, // UUID v7, 36 chars, time-sortable
+    xid, // XID, 20 chars, compact and sortable
+    // Generator functions - Random/Sequence (Sprint 06)
+    random, // Random float 0.0-1.0
+    seq, // Incrementing counter
+    // Transform functions - Numeric (Sprint 06)
+    incr, // Add 1
+    decr, // Subtract 1
+    negate, // Flip sign
+    toggle, // Flip boolean
+    // Transform functions - String (Sprint 06)
+    trim, // Remove leading/trailing whitespace
+    ltrim, // Remove leading whitespace
+    rtrim, // Remove trailing whitespace
+    // Type coercion (Sprint 06)
+    @"int", // Coerce to integer
+    @"float", // Coerce to float (note: using @"" to escape keyword-like name)
+    @"bool", // Coerce to boolean
+    // Case functions (Sprint 06)
+    capitalize, // First letter uppercase
+    titlecase, // Each word capitalized
+    snakecase, // to_snake_case
+    camelcase, // toCamelCase
+    kebabcase, // to-kebab-case
+    // More case functions (Sprint 07)
+    pascalcase, // ToPascalCase (like camelCase but first letter uppercase)
+    screamcase, // TO_SCREAMING_SNAKE_CASE
+    // Predicate functions (Sprint 06)
+    empty, // True if empty string/array/object
+    // String splitting (Sprint 06)
+    words, // Split string into words
+    lines, // Split string into lines
+    chars, // Split string into characters
+    // Slug (Sprint 06)
+    slugify, // Convert to URL-safe slug
+    // Time functions (Sprint 08)
+    xid_time, // Extract epoch seconds from XID string
+    delta, // Seconds since a timestamp (epoch or ISO)
+    ago, // Human-friendly relative time ("7 days, 8 hours ago")
 };
 
 pub const BuiltinExpr = struct {

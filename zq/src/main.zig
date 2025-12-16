@@ -161,6 +161,17 @@ fn printUsage() void {
         \\  .foo?              Optional access (no error if missing)
         \\  .[n:m]             Array slice (e.g., .[2:5], .[-3:])
         \\
+        \\GENERATOR FUNCTIONS:
+        \\  now                ISO 8601 timestamp (UTC)
+        \\  today              Date only (YYYY-MM-DD)
+        \\  epoch              Unix timestamp (seconds)
+        \\  epoch_ms           Unix timestamp (milliseconds)
+        \\  uuid               UUID v4 (random)
+        \\  shortid            Base62 ID (8 chars)
+        \\  sid                Base62 ID (6 chars)
+        \\  random             Random float 0.0-1.0
+        \\  seq                Incrementing counter (1, 2, 3...)
+        \\
         \\OPTIONS:
         \\  -c          Compact output (default, NDJSON compatible)
         \\  -r          Raw string output (no quotes around strings)
@@ -190,6 +201,11 @@ fn printUsage() void {
         \\  echo '"HELLO"' | zq 'ascii_downcase'       # Lowercase
         \\  echo '"a,b,c"' | zq 'split(",")'           # Split string
         \\  echo '["a","b"]' | zq 'join("-")'          # Join array
+        \\
+        \\  # Generator functions:
+        \\  echo '{}' | zq '{id: uuid, created: now}'  # Add ID and timestamp
+        \\  cat data.ndjson | zq '{row: seq, data: .}' # Add row numbers
+        \\  echo '{}' | zq 'shortid'                   # Generate 8-char ID
         \\
     ;
     std.debug.print("{s}", .{usage});

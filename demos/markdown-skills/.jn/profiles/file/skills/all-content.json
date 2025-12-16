@@ -1,0 +1,5 @@
+{
+  "pattern": "data/**/*.md",
+  "inject_meta": true,
+  "description": "All markdown content with file metadata"
+}

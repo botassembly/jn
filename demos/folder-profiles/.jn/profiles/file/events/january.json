@@ -1,0 +1,4 @@
+{
+  "pattern": "test_data/events/2024-01/**/*.jsonl",
+  "description": "All January 2024 events"
+}

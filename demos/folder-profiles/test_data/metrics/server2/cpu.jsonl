@@ -1,0 +1,2 @@
+{"timestamp": "2024-01-15T10:00:00Z", "metric": "cpu_usage", "value": 32.1, "host": "server2"}
+{"timestamp": "2024-01-15T10:01:00Z", "metric": "cpu_usage", "value": 35.8, "host": "server2"}

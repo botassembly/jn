@@ -421,6 +421,82 @@ pub fn parseExprWithContext(allocator: std.mem.Allocator, expr: []const u8, err_
     if (std.mem.eql(u8, trimmed, "ceil")) return .{ .builtin = .{ .kind = .ceil } };
     if (std.mem.eql(u8, trimmed, "round")) return .{ .builtin = .{ .kind = .round } };
     if (std.mem.eql(u8, trimmed, "fabs")) return .{ .builtin = .{ .kind = .fabs } };
+    // Sprint 07: More math functions
+    if (std.mem.eql(u8, trimmed, "abs")) return .{ .builtin = .{ .kind = .abs } };
+    if (std.mem.eql(u8, trimmed, "exp")) return .{ .builtin = .{ .kind = .exp } };
+    if (std.mem.eql(u8, trimmed, "ln")) return .{ .builtin = .{ .kind = .ln } };
+    if (std.mem.eql(u8, trimmed, "log10")) return .{ .builtin = .{ .kind = .log10 } };
+    if (std.mem.eql(u8, trimmed, "log2")) return .{ .builtin = .{ .kind = .log2 } };
+    if (std.mem.eql(u8, trimmed, "sqrt")) return .{ .builtin = .{ .kind = .sqrt } };
+    // Sprint 07: Trigonometry functions
+    if (std.mem.eql(u8, trimmed, "sin")) return .{ .builtin = .{ .kind = .sin } };
+    if (std.mem.eql(u8, trimmed, "cos")) return .{ .builtin = .{ .kind = .cos } };
+    if (std.mem.eql(u8, trimmed, "tan")) return .{ .builtin = .{ .kind = .tan } };
+    if (std.mem.eql(u8, trimmed, "asin")) return .{ .builtin = .{ .kind = .asin } };
+    if (std.mem.eql(u8, trimmed, "acos")) return .{ .builtin = .{ .kind = .acos } };
+    if (std.mem.eql(u8, trimmed, "atan")) return .{ .builtin = .{ .kind = .atan } };
+    // Sprint 06: Generator functions - Date/Time
+    if (std.mem.eql(u8, trimmed, "now")) return .{ .builtin = .{ .kind = .now } };
+    if (std.mem.eql(u8, trimmed, "today")) return .{ .builtin = .{ .kind = .today } };
+    if (std.mem.eql(u8, trimmed, "epoch")) return .{ .builtin = .{ .kind = .epoch } };
+    if (std.mem.eql(u8, trimmed, "epoch_ms")) return .{ .builtin = .{ .kind = .epoch_ms } };
+    // Sprint 07: Date/Time component generators
+    if (std.mem.eql(u8, trimmed, "year")) return .{ .builtin = .{ .kind = .year } };
+    if (std.mem.eql(u8, trimmed, "month")) return .{ .builtin = .{ .kind = .month } };
+    if (std.mem.eql(u8, trimmed, "day")) return .{ .builtin = .{ .kind = .day } };
+    if (std.mem.eql(u8, trimmed, "hour")) return .{ .builtin = .{ .kind = .hour } };
+    if (std.mem.eql(u8, trimmed, "minute")) return .{ .builtin = .{ .kind = .minute } };
+    if (std.mem.eql(u8, trimmed, "second")) return .{ .builtin = .{ .kind = .second } };
+    if (std.mem.eql(u8, trimmed, "time")) return .{ .builtin = .{ .kind = .time } };
+    if (std.mem.eql(u8, trimmed, "week")) return .{ .builtin = .{ .kind = .week } };
+    if (std.mem.eql(u8, trimmed, "weekday")) return .{ .builtin = .{ .kind = .weekday } };
+    if (std.mem.eql(u8, trimmed, "weekday_num")) return .{ .builtin = .{ .kind = .weekday_num } };
+    // Sprint 06: Generator functions - IDs
+    if (std.mem.eql(u8, trimmed, "uuid")) return .{ .builtin = .{ .kind = .uuid } };
+    if (std.mem.eql(u8, trimmed, "shortid")) return .{ .builtin = .{ .kind = .shortid } };
+    if (std.mem.eql(u8, trimmed, "sid")) return .{ .builtin = .{ .kind = .sid } };
+    // Sprint 07: More ID generators
+    if (std.mem.eql(u8, trimmed, "nanoid")) return .{ .builtin = .{ .kind = .nanoid } };
+    if (std.mem.eql(u8, trimmed, "ulid")) return .{ .builtin = .{ .kind = .ulid } };
+    if (std.mem.eql(u8, trimmed, "uuid7")) return .{ .builtin = .{ .kind = .uuid7 } };
+    if (std.mem.eql(u8, trimmed, "xid")) return .{ .builtin = .{ .kind = .xid } };
+    // Sprint 06: Generator functions - Random/Sequence
+    if (std.mem.eql(u8, trimmed, "random")) return .{ .builtin = .{ .kind = .random } };
+    if (std.mem.eql(u8, trimmed, "seq")) return .{ .builtin = .{ .kind = .seq } };
+    // Sprint 06: Transform functions - Numeric
+    if (std.mem.eql(u8, trimmed, "incr")) return .{ .builtin = .{ .kind = .incr } };
+    if (std.mem.eql(u8, trimmed, "decr")) return .{ .builtin = .{ .kind = .decr } };
+    if (std.mem.eql(u8, trimmed, "negate")) return .{ .builtin = .{ .kind = .negate } };
+    if (std.mem.eql(u8, trimmed, "toggle")) return .{ .builtin = .{ .kind = .toggle } };
+    // Sprint 06: Transform functions - String
+    if (std.mem.eql(u8, trimmed, "trim")) return .{ .builtin = .{ .kind = .trim } };
+    if (std.mem.eql(u8, trimmed, "ltrim")) return .{ .builtin = .{ .kind = .ltrim } };
+    if (std.mem.eql(u8, trimmed, "rtrim")) return .{ .builtin = .{ .kind = .rtrim } };
+    // Sprint 06: Type coercion
+    if (std.mem.eql(u8, trimmed, "int")) return .{ .builtin = .{ .kind = .@"int" } };
+    if (std.mem.eql(u8, trimmed, "float")) return .{ .builtin = .{ .kind = .@"float" } };
+    if (std.mem.eql(u8, trimmed, "bool")) return .{ .builtin = .{ .kind = .@"bool" } };
+    // Sprint 06: Case functions
+    if (std.mem.eql(u8, trimmed, "capitalize")) return .{ .builtin = .{ .kind = .capitalize } };
+    if (std.mem.eql(u8, trimmed, "titlecase")) return .{ .builtin = .{ .kind = .titlecase } };
+    if (std.mem.eql(u8, trimmed, "snakecase")) return .{ .builtin = .{ .kind = .snakecase } };
+    if (std.mem.eql(u8, trimmed, "camelcase")) return .{ .builtin = .{ .kind = .camelcase } };
+    if (std.mem.eql(u8, trimmed, "kebabcase")) return .{ .builtin = .{ .kind = .kebabcase } };
+    // Sprint 07: More case functions
+    if (std.mem.eql(u8, trimmed, "pascalcase")) return .{ .builtin = .{ .kind = .pascalcase } };
+    if (std.mem.eql(u8, trimmed, "screamcase")) return .{ .builtin = .{ .kind = .screamcase } };
+    // Sprint 06: Predicates
+    if (std.mem.eql(u8, trimmed, "empty")) return .{ .builtin = .{ .kind = .empty } };
+    // Sprint 06: String splitting
+    if (std.mem.eql(u8, trimmed, "words")) return .{ .builtin = .{ .kind = .words } };
+    if (std.mem.eql(u8, trimmed, "lines")) return .{ .builtin = .{ .kind = .lines } };
+    if (std.mem.eql(u8, trimmed, "chars")) return .{ .builtin = .{ .kind = .chars } };
+    // Sprint 06: Slug
+    if (std.mem.eql(u8, trimmed, "slugify")) return .{ .builtin = .{ .kind = .slugify } };
+    // Sprint 08: Time functions
+    if (std.mem.eql(u8, trimmed, "xid_time")) return .{ .builtin = .{ .kind = .xid_time } };
+    if (std.mem.eql(u8, trimmed, "delta")) return .{ .builtin = .{ .kind = .delta } };
+    if (std.mem.eql(u8, trimmed, "ago")) return .{ .builtin = .{ .kind = .ago } };
 
     if (std.mem.startsWith(u8, trimmed, "del(") and std.mem.endsWith(u8, trimmed, ")")) {
         const inner_str = trimmed[4 .. trimmed.len - 1];
