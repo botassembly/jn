@@ -1,0 +1,6 @@
+{
+  "pattern": "data/**/SKILL.md",
+  "inject_meta": true,
+  "filter": "select(.type == \"frontmatter\" and ((.name | test(\"web\"; \"i\")) or (.description | test(\"web\"; \"i\"))))",
+  "description": "Web-related skills"
+}

@@ -1,0 +1,6 @@
+{
+  "pattern": "data/**/SKILL.md",
+  "inject_meta": true,
+  "filter": "select(.type == \"frontmatter\")",
+  "description": "Skill catalog - frontmatter only from all SKILL.md files"
+}

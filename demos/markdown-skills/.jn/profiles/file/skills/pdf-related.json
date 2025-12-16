@@ -1,0 +1,6 @@
+{
+  "pattern": "data/**/SKILL.md",
+  "inject_meta": true,
+  "filter": "select(.type == \"frontmatter\" and (.description | test(\"PDF|pdf\"; \"i\")))",
+  "description": "Skills related to PDF processing"
+}

@@ -1,14 +1,6 @@
 === Markdown Skills Demo ===
 
-# This demo uses skill files from https://github.com/anthropics/skills
-# Each SKILL.md has YAML front matter with: name, description, license
-
-# Creating folder profiles...
-# Profiles created in .jn/profiles/file/skills/
-
-=== Examples ===
-
-# 1. List all skills (frontmatter only)
+# List all skills (frontmatter only)
 $ ../../dist/bin/jn-cat @skills/catalog
 {"type":"frontmatter","name":"algorithmic-art","description":"Creating algorithmic art using p5.js with seeded randomness and interactive parameter exploration. Use this when users request creating art using code, generative art, algorithmic art, flow fields, or particle systems. Create original algorithmic art rather than copying existing artists' work to avoid copyright violations.","license":"Complete terms in LICENSE.txt"}
 {"type":"frontmatter","name":"brand-guidelines","description":"Applies Anthropic's official brand colors and typography to any sort of artifact that may benefit from having Anthropic's look-and-feel. Use it when brand colors or style guidelines, visual formatting, or company design standards apply.","license":"Complete terms in LICENSE.txt"}
@@ -27,7 +19,7 @@ $ ../../dist/bin/jn-cat @skills/catalog
 {"type":"frontmatter","name":"webapp-testing","description":"Toolkit for interacting with and testing local web applications using Playwright. Supports verifying frontend functionality, debugging UI behavior, capturing browser screenshots, and viewing browser logs.","license":"Complete terms in LICENSE.txt"}
 {"type":"frontmatter","name":"xlsx","description":"Comprehensive spreadsheet creation, editing, and analysis with support for formulas, formatting, data analysis, and visualization. When Claude needs to work with spreadsheets (.xlsx, .xlsm, .csv, .tsv, etc) for: (1) Creating new spreadsheets with formulas and formatting, (2) Reading or analyzing data, (3) Modify existing spreadsheets while preserving formulas, (4) Data analysis and visualization in spreadsheets, or (5) Recalculating formulas","license":"Proprietary. LICENSE.txt has complete terms"}
 
-# 2. Show skill names only
+# Show skill names only
 $ sh -c ../../dist/bin/jn-cat '@skills/catalog' 2>/dev/null | ../../dist/bin/jn-filter '.name' 2>/dev/null
 "algorithmic-art"
 "brand-guidelines"
@@ -46,28 +38,19 @@ $ sh -c ../../dist/bin/jn-cat '@skills/catalog' 2>/dev/null | ../../dist/bin/jn-
 "webapp-testing"
 "xlsx"
 
-# 3. Query single markdown file directly
+# Query single markdown file
 $ sh -c ../../dist/bin/jn-cat data/pdf/SKILL.md 2>/dev/null | head -1 | ../../dist/bin/jn-filter '{name: .name, type: .type}' 2>/dev/null
 {"name":"pdf","type":"frontmatter"}
 
-# 4. Show skill names with file paths
-$ sh -c ../../dist/bin/jn-cat '@skills/catalog' 2>/dev/null | ../../dist/bin/jn-filter '{skill: .name, path: ._path}' 2>/dev/null | head -5
-{"skill":"algorithmic-art"}
-{"skill":"brand-guidelines"}
-{"skill":"canvas-design"}
-{"skill":"doc-coauthoring"}
-{"skill":"docx"}
-
 === Profile Structure ===
 
-# Profiles stored at .jn/profiles/file/skills/
 
 $ find .jn/profiles/file/skills -name *.json
 .jn/profiles/file/skills/all-content.json
 .jn/profiles/file/skills/catalog.json
 .jn/profiles/file/skills/pdf-related.json
 .jn/profiles/file/skills/web-related.json
-# Example: skills/catalog.json
+# Example profile: skills/catalog.json
 $ cat .jn/profiles/file/skills/catalog.json
 {
   "pattern": "data/**/SKILL.md",
@@ -75,29 +58,4 @@ $ cat .jn/profiles/file/skills/catalog.json
   "filter": "select(.type == \"frontmatter\")",
   "description": "Skill catalog - frontmatter only from all SKILL.md files"
 }
-
-=== Data Structure ===
-
-# Sample SKILL.md with YAML front matter:
-$ head -8 data/pdf/SKILL.md
----
-name: pdf
-description: Comprehensive PDF manipulation toolkit for extracting text and tables, creating new PDFs, merging/splitting documents, and handling forms. When Claude needs to fill in a PDF form or programmatically process, generate, or analyze PDF documents at scale.
-license: Proprietary. LICENSE.txt has complete terms
----
-
-# PDF Processing Guide
-
-
-=== Profile Discovery ===
-
-# jn-inspect profiles --type=file
-$ ../../dist/bin/jn-inspect profiles --type=file
-=== Available Profiles ===
-
-[file]
-  @skills/all-content  (project)
-  @skills/pdf-related  (project)
-  @skills/catalog  (project)
-  @skills/web-related  (project)
 
