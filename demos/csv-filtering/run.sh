@@ -11,7 +11,7 @@ echo "1. Filter Electronics products:"
 jn cat input.csv | jn filter 'select(.category == "Electronics")' | jq -c '{product, revenue}'
 echo ""
 
-echo "2. High-revenue products (>$100):"
+echo "2. High-revenue products (>\$100):"
 jn cat input.csv | jn filter 'select((.revenue | tonumber) > 100)' | jq -c '{product, revenue}'
 echo ""
 

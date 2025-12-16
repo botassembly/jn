@@ -9,7 +9,7 @@
 {"product":"Webcam HD","revenue":"89.99"}
 {"product":"Headphones","revenue":"179.99"}
 
-2. High-revenue products (>00):
+2. High-revenue products (>$100):
 {"product":"Laptop Pro","revenue":"1299.99"}
 {"product":"Office Chair","revenue":"249.99"}
 {"product":"Standing Desk","revenue":"599.99"}
