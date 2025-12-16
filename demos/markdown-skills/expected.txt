@@ -1,0 +1,26 @@
+=== Markdown Demo ===
+
+1. Frontmatter metadata:
+{"title":"API Reference","version":"2.1.0","tags":["api","documentation","v2"]}
+
+2. All headings:
+{"level":1,"text":"API Reference"}
+{"level":2,"text":"Authentication"}
+{"level":2,"text":"Endpoints"}
+{"level":3,"text":"GET /users"}
+{"level":3,"text":"POST /users"}
+{"level":2,"text":"Rate Limits"}
+
+3. Code blocks:
+{"lang":"bash"}
+{"lang":"json"}
+{"lang":"python"}
+
+4. H2+ headings only:
+{"level":2,"text":"Authentication"}
+{"level":2,"text":"Endpoints"}
+{"level":3,"text":"GET /users"}
+{"level":3,"text":"POST /users"}
+{"level":2,"text":"Rate Limits"}
+
+=== Done ===
