@@ -5,12 +5,27 @@
 # - Extracting frontmatter metadata
 # - Parsing document structure (headings, code blocks)
 # - Filtering with zq and jq
+#
+# Prerequisites: jn in PATH (run: source dist/activate.sh)
 
 set -e
 cd "$(dirname "$0")"
 
-# Helper: invoke markdown plugin
-md() { uv run ../../jn_home/plugins/formats/markdown_.py "$@" 2>/dev/null; }
+# Find markdown plugin: check repo layout first, then installed layout
+find_plugin() {
+    local plugin="jn_home/plugins/formats/markdown_.py"
+    # In-repo: demos/markdown-skills -> repo root
+    [ -f "../../$plugin" ] && echo "../../$plugin" && return
+    # Installed: relative to jn binary
+    local jn_dir=$(dirname "$(command -v jn 2>/dev/null)")
+    [ -f "$jn_dir/../$plugin" ] && echo "$jn_dir/../$plugin" && return
+    # JN_HOME
+    [ -n "$JN_HOME" ] && [ -f "$JN_HOME/$plugin" ] && echo "$JN_HOME/$plugin" && return
+    echo "Error: markdown plugin not found" >&2 && exit 1
+}
+
+PLUGIN=$(find_plugin)
+md() { uv run "$PLUGIN" "$@" 2>/dev/null; }
 
 echo "=== Markdown Demo ==="
 echo ""
