@@ -1,0 +1,4 @@
+actual.txt
+*.db
+*.ndjson
+*.jsonl

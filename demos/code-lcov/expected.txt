@@ -1,0 +1,16 @@
+=== Code Analysis Demo ===
+
+1. List code files (first 5):
+{"file":"demos/adapter-merge/setup_data.py"}
+{"file":"demos/markdown-skills/data/docx/ooxml/scripts/pack.py"}
+{"file":"demos/markdown-skills/data/docx/ooxml/scripts/unpack.py"}
+{"file":"demos/markdown-skills/data/docx/ooxml/scripts/validate.py"}
+{"file":"demos/markdown-skills/data/docx/ooxml/scripts/validation/__init__.py"}
+
+2. Count Python files:
+85
+
+3. Count Zig files:
+0
+
+=== Done ===
