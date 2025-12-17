@@ -110,8 +110,9 @@ pub fn parseArgs() ArgParser {
             } else {
                 // Flag style: -r (single letter flag)
                 // Each character is a separate flag
-                for (rest) |c| {
-                    const key: []const u8 = &[_]u8{c};
+                // Use slices into the original arg string to avoid dangling pointers
+                for (0..rest.len) |i| {
+                    const key = rest[i .. i + 1];
                     parser.add(key, "");
                 }
             }
