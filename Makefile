@@ -1,4 +1,4 @@
-.PHONY: all build test clean install-zig zq zq-test zig-plugins zig-plugins-test zig-libs zig-libs-test zig-tools zig-tools-test fmt
+.PHONY: all build test py-test clean install-zig zq zq-test zig-plugins zig-plugins-test zig-libs zig-libs-test zig-tools zig-tools-test fmt
 
 # Zig configuration
 ZIG_VERSION := 0.15.2
@@ -41,9 +41,14 @@ build: install-zig zq zig-plugins zig-tools
 	@echo "Build complete! Add to PATH:"
 	@echo "  export PATH=\"$(PWD)/tools/zig/jn/bin:\$$PATH\""
 
-test: build zig-libs-test zig-plugins-test zig-tools-test zq-test
+test: build zig-libs-test zig-plugins-test zig-tools-test zq-test py-test
 	@echo ""
 	@echo "All tests passed!"
+
+py-test:
+	@echo "Running Python tests..."
+	uv run pytest
+	@echo "  pytest: OK"
 
 clean:
 	rm -rf zq/zig-out
