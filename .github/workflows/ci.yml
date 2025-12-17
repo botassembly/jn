@@ -32,7 +32,7 @@ jobs:
 
       - name: Build Zig plugins
         run: |
-          uv run --isolated --python=3.11 python -c "
+          uv run --isolated --python=3.11 --extra dev python -c "
           from jn.zig_builder import build_zq, build_zig_plugin
           from pathlib import Path
 
@@ -42,6 +42,8 @@ jobs:
 
           # Build all Zig plugins
           for plugin_dir in Path('plugins/zig').iterdir():
+              if plugin_dir.name == 'opendal':
+                  continue
               if plugin_dir.is_dir() and (plugin_dir / 'main.zig').exists():
                   path = build_zig_plugin(plugin_dir.name, plugin_dir)
                   print(f'{plugin_dir.name} built: {path}')
@@ -80,7 +82,7 @@ jobs:
       - name: Build Zig plugins
         shell: pwsh
         run: |
-          uv run --isolated --python=3.11 python -c @"
+          uv run --isolated --python=3.11 --extra dev python -c @"
           from jn.zig_builder import build_zq, build_zig_plugin
           from pathlib import Path
 
@@ -90,6 +92,8 @@ jobs:
 
           # Build all Zig plugins
           for plugin_dir in Path('plugins/zig').iterdir():
+              if plugin_dir.name == 'opendal':
+                  continue
               if plugin_dir.is_dir() and (plugin_dir / 'main.zig').exists():
                   path = build_zig_plugin(plugin_dir.name, plugin_dir)
                   print(f'{plugin_dir.name} built: {path}')
