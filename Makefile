@@ -214,20 +214,22 @@ dist: install-zig install-python-deps zq zig-plugins zig-tools
 	@echo "Creating distribution in dist/..."
 	@rm -rf dist
 	@mkdir -p dist/bin
-	@# Copy all tools
+	@mkdir -p dist/libexec/jn
+	@# Copy jn orchestrator to bin/ (only thing on PATH)
 	@cp tools/zig/jn/bin/jn dist/bin/
-	@for t in $(TOOLS); do cp tools/zig/$$t/bin/$$t dist/bin/; done
-	@# Copy ZQ
-	@cp zq/zig-out/bin/zq dist/bin/
-	@# Copy plugins
-	@for p in $(PLUGINS); do cp plugins/zig/$$p/bin/$$p dist/bin/; done
-	@# Copy jn_home (tools, plugins, profiles)
-	@cp -r jn_home dist/
+	@# Copy internal tools to libexec/jn/ (not on PATH)
+	@for t in $(TOOLS); do cp tools/zig/$$t/bin/$$t dist/libexec/jn/; done
+	@# Copy ZQ to libexec/jn/
+	@cp zq/zig-out/bin/zq dist/libexec/jn/
+	@# Copy plugins to libexec/jn/
+	@for p in $(PLUGINS); do cp plugins/zig/$$p/bin/$$p dist/libexec/jn/; done
+	@# Copy jn_home (Python plugins, user tools, profiles) to libexec/jn/
+	@cp -r jn_home dist/libexec/jn/
 	@# Create activate script with PATH and tool functions
 	@echo '#!/bin/bash' > dist/activate.sh
 	@echo '# Source this file to add jn to your PATH and set up shortcuts' >> dist/activate.sh
 	@echo '' >> dist/activate.sh
-	@echo '# Add jn binaries to PATH' >> dist/activate.sh
+	@echo '# Add jn to PATH (only jn is exposed; internal tools are in libexec/)' >> dist/activate.sh
 	@echo 'export PATH="$$(cd "$$(dirname "$${BASH_SOURCE[0]}")" && pwd)/bin:$$PATH"' >> dist/activate.sh
 	@echo '' >> dist/activate.sh
 	@echo '# Shortcut functions for jn tools (add new tools here)' >> dist/activate.sh
@@ -235,6 +237,10 @@ dist: install-zig install-python-deps zq zig-plugins zig-tools
 	@chmod +x dist/activate.sh
 	@echo ""
 	@echo "=== Build Complete ==="
+	@echo ""
+	@echo "Distribution layout:"
+	@echo "  dist/bin/jn           - Main command (on PATH)"
+	@echo "  dist/libexec/jn/      - Internal tools, plugins, zq (not on PATH)"
 	@echo ""
 	@echo "To activate jn:"
 	@echo "  source dist/activate.sh"

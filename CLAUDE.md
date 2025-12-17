@@ -255,8 +255,8 @@ source dist/activate.sh
 # Rebuild only the tool you're changing
 make tool-jn-cat
 
-# Copy to dist for testing
-cp tools/zig/jn-cat/bin/jn-cat dist/bin/
+# Copy to dist for testing (note: libexec layout)
+cp tools/zig/jn-cat/bin/jn-cat dist/libexec/jn/
 
 # Test immediately
 echo 'a,b\n1,2' | jn cat -~csv
@@ -287,26 +287,31 @@ make fmt       # Format code (run if fmt fails in CI)
 
 ### Distribution Layout
 
-The `dist/` directory (created by `make build` or `make dist`) uses a flat layout:
+The `dist/` directory (created by `make build` or `make dist`) uses a clean layout with only `jn` exposed on PATH:
 
 ```
 dist/
 ├── bin/
-│   ├── jn, jn-cat, jn-put, ...  # All tools
-│   ├── csv, json, yaml, ...     # All plugins
-│   └── zq                        # Filter engine
-├── jn_home/
-│   ├── tools/                    # Utility tools (todo, etc.)
-│   ├── plugins/                  # Python plugins
-│   └── profiles/                 # Profile definitions
+│   └── jn                        # ONLY jn on PATH
+├── libexec/
+│   └── jn/
+│       ├── jn-cat, jn-put, ...   # Internal tools (not on PATH)
+│       ├── csv, json, yaml, ...  # Zig plugins (not on PATH)
+│       ├── zq                    # Filter engine (not on PATH)
+│       └── jn_home/
+│           ├── tools/            # Utility tools (todo, etc.)
+│           ├── plugins/          # Python plugins
+│           └── profiles/         # Profile definitions
 └── activate.sh                   # Source to add bin/ to PATH + aliases
 ```
+
+**Key design:** Users only interact with `jn`. Internal tools like `zq`, plugins, and `jn-*` tools are hidden in `libexec/` and discovered automatically.
 
 The `activate.sh` script sets up aliases for tools. When adding new tools to `jn_home/tools/`, add corresponding aliases to the Makefile's dist target.
 
 Tools discover plugins/tools relative to the executable:
-1. Sibling executables in same `bin/` directory
-2. `../jn_home/tools/` and `../jn_home/plugins/` (release layout)
+1. `../libexec/jn/` relative to `jn` binary
+2. Sibling executables in same directory (for internal tools)
 3. Development paths (4 levels up from `tools/zig/*/bin/`)
 4. `~/.local/jn/` (user install)
 

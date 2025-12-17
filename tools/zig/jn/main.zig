@@ -207,8 +207,22 @@ fn findTool(allocator: std.mem.Allocator, name: []const u8) ?[]const u8 {
         }
     }
 
-    // Try sibling to executable (flat bin/ layout: all tools in same directory)
+    // Try libexec layout: bin/jn -> ../libexec/jn/<tool>
     var exe_buf: [std.fs.max_path_bytes]u8 = undefined;
+    if (std.fs.selfExePath(&exe_buf)) |exe_path| {
+        if (std.fs.path.dirname(exe_path)) |bin_dir| {
+            if (std.fs.path.dirname(bin_dir)) |dist_dir| {
+                const libexec_path = std.fmt.allocPrint(allocator, "{s}/libexec/jn/{s}", .{ dist_dir, name }) catch return null;
+                if (std.fs.cwd().access(libexec_path, .{})) |_| {
+                    return libexec_path;
+                } else |_| {
+                    allocator.free(libexec_path);
+                }
+            }
+        }
+    } else |_| {}
+
+    // Try sibling to executable (flat bin/ layout: legacy/fallback)
     if (std.fs.selfExePath(&exe_buf)) |exe_path| {
         if (std.fs.path.dirname(exe_path)) |exe_dir| {
             const sibling_path = std.fmt.allocPrint(allocator, "{s}/{s}", .{ exe_dir, name }) catch return null;
@@ -297,7 +311,21 @@ fn findPythonPlugin(allocator: std.mem.Allocator, name: []const u8) ?[]const u8 
     // Try relative to executable's location
     var exe_path_buf: [std.fs.max_path_bytes]u8 = undefined;
     if (std.fs.selfExePath(&exe_path_buf)) |exe_path| {
-        // Try release layout first: bin/jn -> up 1 level -> jn_home/plugins/
+        // Try libexec layout: bin/jn -> ../libexec/jn/jn_home/plugins/
+        if (std.fs.path.dirname(exe_path)) |bin_dir| {
+            if (std.fs.path.dirname(bin_dir)) |dist_root| {
+                for (subdirs) |subdir| {
+                    const libexec_path = std.fmt.allocPrint(allocator, "{s}/libexec/jn/jn_home/plugins/{s}/{s}", .{ dist_root, subdir, name }) catch continue;
+                    if (std.fs.cwd().access(libexec_path, .{})) |_| {
+                        return libexec_path;
+                    } else |_| {
+                        allocator.free(libexec_path);
+                    }
+                }
+            }
+        }
+
+        // Try legacy release layout: bin/jn -> up 1 level -> jn_home/plugins/
         if (std.fs.path.dirname(exe_path)) |bin_dir| {
             if (std.fs.path.dirname(bin_dir)) |release_root| {
                 for (subdirs) |subdir| {
@@ -355,7 +383,19 @@ fn findUserTool(allocator: std.mem.Allocator, name: []const u8) ?[]const u8 {
     // Try relative to executable's location
     var exe_path_buf: [std.fs.max_path_bytes]u8 = undefined;
     if (std.fs.selfExePath(&exe_path_buf)) |exe_path| {
-        // Try release layout first: bin/jn -> up 1 level -> jn_home/tools/
+        // Try libexec layout: bin/jn -> ../libexec/jn/jn_home/tools/
+        if (std.fs.path.dirname(exe_path)) |bin_dir| {
+            if (std.fs.path.dirname(bin_dir)) |dist_root| {
+                const libexec_path = std.fmt.allocPrint(allocator, "{s}/libexec/jn/jn_home/tools/{s}", .{ dist_root, name }) catch return null;
+                if (std.fs.cwd().access(libexec_path, .{})) |_| {
+                    return libexec_path;
+                } else |_| {
+                    allocator.free(libexec_path);
+                }
+            }
+        }
+
+        // Try legacy release layout: bin/jn -> up 1 level -> jn_home/tools/
         if (std.fs.path.dirname(exe_path)) |bin_dir| {
             if (std.fs.path.dirname(bin_dir)) |release_root| {
                 const release_path = std.fmt.allocPrint(allocator, "{s}/jn_home/tools/{s}", .{ release_root, name }) catch return null;
