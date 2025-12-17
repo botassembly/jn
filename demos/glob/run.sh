@@ -22,22 +22,22 @@ echo "=== Glob Demo ==="
 echo ""
 
 echo "1. Read all JSONL files recursively:"
-OUT1=$(jn cat 'test_data/**/*.jsonl' | jq -c '{level, message}')
+OUT1=$(jn cat 'test_data/**/*.jsonl' | jn filter '{level, message}')
 echo "$OUT1"
 echo ""
 
 echo "2. Filter for ERROR level entries:"
-OUT2=$(jn cat 'test_data/**/*.jsonl' | jn filter 'select(.level == "ERROR")' | jq -c '{message, user_id}')
+OUT2=$(jn cat 'test_data/**/*.jsonl' | jn filter 'select(.level == "ERROR")' | jn filter '{message, user_id}')
 echo "$OUT2"
 echo ""
 
 echo "3. Count records by level:"
-OUT3=$(jn cat 'test_data/**/*.jsonl' | jq -s 'group_by(.level) | map({level: .[0].level, count: length})')
+OUT3=$(jn cat 'test_data/**/*.jsonl' | jn filter -s 'group_by(.level) | map({level: .[0] | .level, count: length})')
 echo "$OUT3"
 echo ""
 
 echo "4. Read specific directory pattern:"
-OUT4=$(jn cat 'test_data/logs/2024-01/*.jsonl' | jq -c '{timestamp, message}')
+OUT4=$(jn cat 'test_data/logs/2024-01/*.jsonl' | jn filter '{timestamp, message}')
 echo "$OUT4"
 echo ""
 

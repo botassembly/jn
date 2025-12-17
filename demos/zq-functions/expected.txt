@@ -1,4 +1,4 @@
-=== ZQ Functions Demo ===
+=== JN Filter Functions Demo ===
 
 1. Object transforms (keys, values):
 ["name","age"]

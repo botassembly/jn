@@ -408,9 +408,20 @@ fn findPluginsRoot(allocator: std.mem.Allocator) []const u8 {
     // Try to find relative to executable path
     var exe_path_buf: [std.fs.max_path_bytes]u8 = undefined;
     if (std.fs.selfExePath(&exe_path_buf)) |exe_path| {
-        // Executable is at: /path/to/jn/tools/zig/jn-cat/bin/jn-cat
-        // We want: /path/to/jn
-        // Go up 5 levels: bin -> jn-cat -> zig -> tools -> jn
+        // Try libexec layout first: jn_home is sibling in same directory
+        if (std.fs.path.dirname(exe_path)) |exe_dir| {
+            const check_path = std.fmt.allocPrint(allocator, "{s}/jn_home/plugins", .{exe_dir}) catch {
+                jn_core.exitWithError("jn-cat: out of memory", .{});
+            };
+            defer allocator.free(check_path);
+            if (std.fs.cwd().access(check_path, .{})) |_| {
+                return allocator.dupe(u8, exe_dir) catch {
+                    jn_core.exitWithError("jn-cat: out of memory", .{});
+                };
+            } else |_| {}
+        }
+
+        // Try dev layout: go up 4 levels from bin -> jn-cat -> zig -> tools -> jn
         var dir = std.fs.path.dirname(exe_path); // bin
         var i: usize = 0;
         while (i < 4 and dir != null) : (i += 1) {
@@ -1793,8 +1804,22 @@ fn findPythonPlugin(allocator: std.mem.Allocator, format: []const u8) ?[]const u
         }
     }
 
-    // Try sibling to executable (installed layout: ../jn_home/plugins/)
+    // Try sibling to executable (libexec layout: jn_home is sibling in same dir)
     var exe_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    if (std.fs.selfExePath(&exe_path_buf)) |exe_path| {
+        if (std.fs.path.dirname(exe_path)) |exe_dir| {
+            for (subdirs) |subdir| {
+                const path = std.fmt.allocPrint(allocator, "{s}/jn_home/plugins/{s}/{s}", .{ exe_dir, subdir, plugin_name.? }) catch continue;
+                if (std.fs.cwd().access(path, .{})) |_| {
+                    return path;
+                } else |_| {
+                    allocator.free(path);
+                }
+            }
+        }
+    } else |_| {}
+
+    // Try legacy layout (jn_home one level up from bin/)
     if (std.fs.selfExePath(&exe_path_buf)) |exe_path| {
         if (std.fs.path.dirname(exe_path)) |bin_dir| {
             if (std.fs.path.dirname(bin_dir)) |dist_dir| {

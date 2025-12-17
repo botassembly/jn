@@ -15,22 +15,22 @@ source dist/activate.sh
 ## Quick Start
 
 ```bash
-cd csv-filtering && ./run_examples.sh     # Core ETL operations
-cd join && ./run_examples.sh              # Stream enrichment via hash join
-cd json-editing && ./run_examples.sh      # Surgical JSON editing with jn-edit
-cd zq-functions && ./run_examples.sh      # ZQ built-in functions showcase
-cd jn-grep && ./run_examples.sh           # Grep-like text search with line numbers
-cd todo && ./run_examples.sh              # Task management tool demo
+cd csv-filtering && ./run.sh              # Core ETL operations
+cd join && ./run.sh                       # Stream enrichment via hash join
+cd json-editing && ./run.sh               # Surgical JSON editing with jn-edit
+cd zq-functions && ./run.sh               # Filter functions showcase
+cd jn-grep && ./run.sh                    # Grep-like text search with line numbers
+cd todo && ./run.sh                       # Task management tool demo
 ```
 
 ## Available Demos
 
 | Demo | Status | Description |
 |------|--------|-------------|
-| **csv-filtering/** | ✅ Working | Read CSV, filter with ZQ, convert formats |
+| **csv-filtering/** | ✅ Working | Read CSV, filter with jn filter, convert formats |
 | **join/** | ✅ Working | Stream enrichment via hash join |
 | **json-editing/** | ✅ Working | Surgical JSON editing with jn-edit tool |
-| **zq-functions/** | ✅ Working | ZQ built-in functions (generators, transforms, time) |
+| **zq-functions/** | ✅ Working | Filter functions (generators, transforms, time) |
 | **jn-grep/** | ✅ Working | Grep-like text search with line numbers |
 | **todo/** | ✅ Working | Task management with BEADS-inspired dependencies |
 | **shell-commands/** | ✅ Working | Convert shell output to NDJSON (requires `jc`) |
@@ -93,19 +93,19 @@ todo done abc12                                 # Mark as done (partial XID matc
 todo stats                                      # Statistics dashboard
 ```
 
-**ZQ functions:**
+**Filter functions:**
 ```bash
-echo '{}' | zq 'xid'                            # Generate XID
-echo '{}' | zq 'now'                            # Current timestamp
-echo '{"ts":1734300000}' | zq '.ts | ago'       # Human-friendly relative time
-echo '{"id":"abc..."}' | zq '.id | xid_time'    # Extract timestamp from XID
+echo '{}' | jn filter 'xid'                            # Generate XID
+echo '{}' | jn filter 'now'                            # Current timestamp
+echo '{"ts":1734300000}' | jn filter '.ts | ago'       # Human-friendly relative time
+echo '{"id":"abc..."}' | jn filter '.id | xid_time'    # Extract timestamp from XID
 ```
 
-**Grep-like text search (jn-sh + zq):**
+**Grep-like text search (jn sh + jn filter):**
 ```bash
-jn-sh --raw cat file.log | zq 'select(.text | contains("ERROR"))'
-jn-sh --raw ps aux | zq 'select(.text | contains("python"))'
-jn-sh --raw cat file.txt | zq -r 'select(.text | contains("pattern")) | .line'
+jn sh --raw cat file.log | jn filter 'select(.text | contains("ERROR"))'
+jn sh --raw ps aux | jn filter 'select(.text | contains("python"))'
+jn sh --raw cat file.txt | jn filter -r 'select(.text | contains("pattern")) | .line'
 ```
 
 For detailed examples, see the scripts in each demo directory.

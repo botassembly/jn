@@ -3,36 +3,36 @@
 set -e
 cd "$(dirname "$0")"
 
-{
-echo "=== Markdown Skills Demo ==="
-echo ""
+rm -f actual.txt
 
-echo "1. Skill catalog (name + short desc):"
-jn cat @skills/catalog | jq -c '{name, desc: .description[:50]}'
-echo ""
+echo "=== Markdown Skills Demo ===" >> actual.txt
+echo "" >> actual.txt
 
-echo "2. Total skill count:"
-jn cat @skills/catalog | jq -s 'length'
-echo ""
+echo "1. Skill catalog (names):" >> actual.txt
+jn cat @skills/catalog | jn filter '{name}' >> actual.txt
+echo "" >> actual.txt
 
-echo "3. Proprietary skills (have license field):"
-jn cat @skills/catalog | jq -c 'select(.license) | select(.license | contains("Proprietary")) | .name'
-echo ""
+echo "2. Total skill count:" >> actual.txt
+jn cat @skills/catalog | jn filter -s 'length' >> actual.txt
+echo "" >> actual.txt
 
-echo "4. First 3 skills alphabetically:"
-jn cat @skills/catalog | jq -s 'sort_by(.name) | .[0:3] | .[].name'
-echo ""
+echo "3. Proprietary skills (have license field):" >> actual.txt
+jn cat @skills/catalog | jn filter 'select(.license) | select(.license | contains("Proprietary")) | .name' >> actual.txt
+echo "" >> actual.txt
 
-echo "5. Average description length:"
-jn cat @skills/catalog | jq -s 'map(.description | length) | add / length | floor'
-echo ""
+echo "4. First 3 skills:" >> actual.txt
+jn cat @skills/catalog | jn filter -s '.[0:3] | .[] | .name' >> actual.txt
+echo "" >> actual.txt
 
-echo "6. Single file parse (pdf frontmatter):"
-jn cat data/pdf/SKILL.md | jq -c 'select(.type=="frontmatter") | {name, license}'
+echo "5. Average description length:" >> actual.txt
+jn cat @skills/catalog | jn filter -s 'map(.description | length) | add / length | floor' >> actual.txt
+echo "" >> actual.txt
 
-echo ""
-echo "=== Done ==="
-} > actual.txt
+echo "6. Single file parse (pdf frontmatter):" >> actual.txt
+jn cat data/pdf/SKILL.md | jn filter 'select(.type == "frontmatter") | {name, license}' >> actual.txt
+
+echo "" >> actual.txt
+echo "=== Done ===" >> actual.txt
 
 if diff -q expected.txt actual.txt > /dev/null 2>&1; then
     echo "PASS"; cat actual.txt

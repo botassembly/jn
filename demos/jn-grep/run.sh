@@ -29,27 +29,27 @@ echo "=== JN Grep Demo ===" >> actual.txt
 echo "" >> actual.txt
 
 echo "1. Convert text to NDJSON with line numbers:" >> actual.txt
-jn-sh --raw cat test_data/app.log | head -3 >> actual.txt
+jn sh --raw cat test_data/app.log | head -3 >> actual.txt
 echo "" >> actual.txt
 
 echo "2. Search for ERROR lines:" >> actual.txt
-jn-sh --raw cat test_data/app.log | zq 'select(.text | contains("ERROR"))' >> actual.txt
+jn sh --raw cat test_data/app.log | jn filter 'select(.text | contains("ERROR"))' >> actual.txt
 echo "" >> actual.txt
 
 echo "3. Get line numbers of errors:" >> actual.txt
-jn-sh --raw cat test_data/app.log | zq -r 'select(.text | contains("ERROR")) | .line' >> actual.txt
+jn sh --raw cat test_data/app.log | jn filter -r 'select(.text | contains("ERROR")) | .line' >> actual.txt
 echo "" >> actual.txt
 
 echo "4. Lines NOT containing DEBUG:" >> actual.txt
-jn-sh --raw cat test_data/app.log | zq 'select(not (.text | contains("DEBUG")))' >> actual.txt
+jn sh --raw cat test_data/app.log | jn filter 'select(not (.text | contains("DEBUG")))' >> actual.txt
 echo "" >> actual.txt
 
 echo "5. Parse colon-delimited file:" >> actual.txt
-jn-sh --raw cat test_data/users.txt | zq '{line, user: (.text | split(":") | first), dept: (.text | split(":") | .[2])}' >> actual.txt
+jn sh --raw cat test_data/users.txt | jn filter '{line, user: (.text | split(":") | first), dept: (.text | split(":") | .[2])}' >> actual.txt
 echo "" >> actual.txt
 
 echo "6. Count lines matching pattern:" >> actual.txt
-jn-sh --raw cat test_data/app.log | zq 'select(.text | contains("ERROR"))' | zq -s 'length' >> actual.txt
+jn sh --raw cat test_data/app.log | jn filter 'select(.text | contains("ERROR"))' | jn filter -s 'length' >> actual.txt
 echo "" >> actual.txt
 
 echo "=== Done ===" >> actual.txt

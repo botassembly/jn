@@ -74,8 +74,13 @@ if command -v jn-edit &> /dev/null && command -v zq &> /dev/null; then
     JN_EDIT="jn-edit"
     ZQ="zq"
 else
-    # Try relative path from demos directory
-    if [[ -d "$SCRIPT_DIR/../../tools/zig" ]]; then
+    # Try libexec layout: jn_home/tools/todo -> ../../ -> libexec/jn/
+    LIBEXEC_DIR="$SCRIPT_DIR/../.."
+    if [[ -x "$LIBEXEC_DIR/jn-edit" ]] && [[ -x "$LIBEXEC_DIR/zq" ]]; then
+        JN_EDIT="$LIBEXEC_DIR/jn-edit"
+        ZQ="$LIBEXEC_DIR/zq"
+    # Try relative path from demos directory (development layout)
+    elif [[ -d "$SCRIPT_DIR/../../tools/zig" ]]; then
         TOOLS_DIR="$SCRIPT_DIR/../../tools/zig"
         ZQ_DIR="$SCRIPT_DIR/../../zq/zig-out/bin"
         export PATH="$ZQ_DIR:$TOOLS_DIR/jn-edit/bin:$PATH"
@@ -87,13 +92,13 @@ else
     fi
 fi
 
-# Verify tools exist
-if ! command -v $JN_EDIT &> /dev/null; then
-    echo "Error: jn-edit not found" >&2
+# Verify tools exist (check if executable, works for both PATH and full paths)
+if [[ ! -x "$JN_EDIT" ]] && ! command -v "$JN_EDIT" &> /dev/null; then
+    echo "Error: jn-edit not found at $JN_EDIT" >&2
     exit 1
 fi
-if ! command -v $ZQ &> /dev/null; then
-    echo "Error: zq not found" >&2
+if [[ ! -x "$ZQ" ]] && ! command -v "$ZQ" &> /dev/null; then
+    echo "Error: zq not found at $ZQ" >&2
     exit 1
 fi
 

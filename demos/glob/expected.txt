@@ -11,20 +11,7 @@
 {"message":"Auth failed","user_id":101}
 
 3. Count records by level:
-[
-  {
-    "level": "ERROR",
-    "count": 2
-  },
-  {
-    "level": "INFO",
-    "count": 1
-  },
-  {
-    "level": "WARN",
-    "count": 1
-  }
-]
+[{"level":"ERROR","count":2},{"level":"WARN","count":1},{"level":"INFO","count":1}]
 
 4. Read specific directory pattern:
 {"timestamp":"2024-01-15T10:30:00Z","message":"User login"}

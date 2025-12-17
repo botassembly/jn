@@ -11,11 +11,6 @@
 {"title":"Overview","item_count":2}
 
 4. Pipeline with aggregation:
-{
-  "total_slides": 2,
-  "types": [
-    "all"
-  ]
-}
+{"total_slides":2,"types":["all"]}
 
 === Done ===

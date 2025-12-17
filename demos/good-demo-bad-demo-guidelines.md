@@ -27,7 +27,7 @@ echo "=== Demo Name ==="
 
 # 1. First example
 echo "1. What this does:"
-jn cat data.csv | jn filter '.x > 10' | jq -c '{key, value}'
+jn cat data.csv | jn filter '.x > 10' | jn filter '{key, value}'
 
 echo "=== Demo Complete ==="
 ```
@@ -70,27 +70,27 @@ cat sample.md | /path/to/uv run /another/path/to/jn_home/plugins/formats/markdow
 - Trust that PATH includes jn tools
 - Document prerequisites in README, not the script
 
-### 5. Filter long output with jq/zq
+### 5. Filter long output
 ```bash
 # Good - show what matters
-jn cat data.json | jq -c '{id, name}'
+jn cat data.json | jn filter '{id, name}'
 
 # Bad - dump everything
 jn cat data.json
 ```
 
-### 6. Use `jq -c` for compact output
-- One JSON object per line
+### 6. NDJSON output is already compact
+- One JSON object per line (default JN output)
 - Easy to scan vertically
 - Consistent formatting
 
-### 7. Prefer `zq` for simple filters
+### 7. Prefer `jn filter` for filtering
 ```bash
 # Good - streaming filter
-jn cat data.csv | zq 'select(.amount > 100)'
+jn cat data.csv | jn filter '.amount > 100'
 
-# Acceptable - when you need aggregation
-jn cat data.csv | jq -s 'group_by(.category)'
+# Good - when you need aggregation (slurp mode)
+jn cat data.csv | jn filter -s 'group_by(.category)'
 ```
 
 ### 8. Number your examples
@@ -128,7 +128,7 @@ echo "=== Demo Complete ==="
 
 ### Keep output short
 - Max 10-20 lines per example
-- Use `head`, `tail`, or `jq` to limit
+- Use `jn head`, `jn tail`, or `jn filter` to limit
 - Truncate long strings: `.content[:80] + "..."`
 
 ### Show meaningful data
@@ -145,10 +145,10 @@ echo "=== Demo Complete ==="
 ```bash
 # Good - single purpose
 echo "1. List headings:"
-... | zq 'select(.type == "heading")'
+... | jn filter '.type == "heading"'
 
 echo "2. List code blocks:"
-... | zq 'select(.type == "code")'
+... | jn filter '.type == "code"'
 
 # Bad - kitchen sink
 echo "1. Everything:"
@@ -219,7 +219,7 @@ cp actual.txt expected.txt  # Promote to golden
 ### Do show:
 - Core JN commands: `cat`, `filter`, `put`
 - Format conversion: CSV → JSON
-- Data filtering with zq
+- Data filtering with `jn filter`
 - Plugin capabilities
 
 ### Don't show:
@@ -263,7 +263,7 @@ Before committing a demo:
 - [ ] Script named `run.sh`
 - [ ] Runs in under 5 seconds
 - [ ] Output fits on one screen
-- [ ] Uses `jq -c` for compact JSON
+- [ ] Uses `jn filter` for filtering (not raw jq/zq)
 - [ ] No hardcoded absolute paths
 - [ ] Helper functions hide plugin complexity
 - [ ] Examples are numbered (5-10 total)

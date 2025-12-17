@@ -14,22 +14,22 @@ echo "=== XLSX Demo ==="
 echo ""
 
 echo "1. View Excel data (first 5 rows):"
-OUT1=$(jn cat budget.xlsx | jn head --lines=5 | jq -c '{Month, Category, Amount}')
+OUT1=$(jn cat budget.xlsx | jn head --lines=5 | jn filter '{Month, Category, Amount}')
 echo "$OUT1"
 echo ""
 
 echo "2. Filter Engineering expenses:"
-OUT2=$(jn cat budget.xlsx | jn filter 'select(.Category == "Engineering")' | jq -c '{Month, Description, Amount}')
+OUT2=$(jn cat budget.xlsx | jn filter 'select(.Category == "Engineering")' | jn filter '{Month, Description, Amount}')
 echo "$OUT2"
 echo ""
 
 echo "3. Calculate totals by category:"
-OUT3=$(jn cat budget.xlsx | jq -s 'group_by(.Category) | map({category: .[0].Category, total: (map(.Amount | tonumber) | add)}) | sort_by(.category)')
+OUT3=$(jn cat budget.xlsx | jn filter -s 'group_by(.Category) | map({category: .[0] | .Category, total: (map(.Amount | tonumber) | add)}) | sort_by(.category)')
 echo "$OUT3"
 echo ""
 
 echo "4. Monthly summary:"
-OUT4=$(jn cat budget.xlsx | jq -s 'group_by(.Month) | map({month: .[0].Month, count: length, total: (map(.Amount | tonumber) | add)})')
+OUT4=$(jn cat budget.xlsx | jn filter -s 'group_by(.Month) | map({month: .[0] | .Month, count: length, total: (map(.Amount | tonumber) | add)})')
 echo "$OUT4"
 echo ""
 

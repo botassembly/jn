@@ -97,8 +97,27 @@ pub fn parseArgs() ArgParser {
                 // Flag style: --flag
                 parser.add(rest, "");
             }
+        } else if (std.mem.startsWith(u8, arg, "-") and arg.len > 1) {
+            // Handle single-dash short options like -r, -s, -c
+            // Also handle -n=5 style
+            const rest = arg[1..];
+
+            // Check for -k=value style
+            if (std.mem.indexOf(u8, rest, "=")) |eq_pos| {
+                const key = rest[0..eq_pos];
+                const value = rest[eq_pos + 1 ..];
+                parser.add(key, value);
+            } else {
+                // Flag style: -r (single letter flag)
+                // Each character is a separate flag
+                // Use slices into the original arg string to avoid dangling pointers
+                for (0..rest.len) |i| {
+                    const key = rest[i .. i + 1];
+                    parser.add(key, "");
+                }
+            }
         }
-        // Ignore non-dashed arguments for now (positional args)
+        // Ignore non-dashed arguments (positional args)
     }
 
     return parser;

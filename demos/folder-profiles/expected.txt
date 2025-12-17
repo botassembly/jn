@@ -11,13 +11,13 @@
 
 3. Query order events:
 {"event_type":"order_created","order_id":"ORD001","total":99.99}
-{"event_type":"order_shipped","order_id":"ORD001","total":null}
-{"event_type":"order_delivered","order_id":"ORD001","total":null}
+{"event_type":"order_shipped","order_id":"ORD001"}
+{"event_type":"order_delivered","order_id":"ORD001"}
 {"event_type":"order_created","order_id":"ORD002","total":149.99}
-{"event_type":"order_shipped","order_id":"ORD002","total":null}
+{"event_type":"order_shipped","order_id":"ORD002"}
 
 4. Query January events (count by type):
-[{"type":"error","count":2},{"type":"login","count":2},{"type":"logout","count":1},{"type":"order_created","count":1},{"type":"order_delivered","count":1},{"type":"order_shipped","count":1}]
+[{"type":"order_delivered","count":1},{"type":"login","count":2},{"type":"order_shipped","count":1},{"type":"logout","count":1},{"type":"order_created","count":1},{"type":"error","count":2}]
 
 5. Query CPU metrics:
 {"host":"server1","value":45.2}
