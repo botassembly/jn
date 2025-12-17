@@ -1,0 +1,20 @@
+=== Glob Demo ===
+
+1. Read all JSONL files recursively:
+{"level":"INFO","message":"User login"}
+{"level":"ERROR","message":"Connection failed"}
+{"level":"WARN","message":"Rate limit"}
+{"level":"ERROR","message":"Auth failed"}
+
+2. Filter for ERROR level entries:
+{"message":"Connection failed","user_id":456}
+{"message":"Auth failed","user_id":101}
+
+3. Count records by level:
+[{"level":"ERROR","count":2},{"level":"WARN","count":1},{"level":"INFO","count":1}]
+
+4. Read specific directory pattern:
+{"timestamp":"2024-01-15T10:30:00Z","message":"User login"}
+{"timestamp":"2024-01-15T10:31:00Z","message":"Connection failed"}
+
+=== Done ===

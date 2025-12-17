@@ -1,0 +1,36 @@
+=== CSV Filtering Demo ===
+
+1. Filter Electronics products:
+{"product":"Laptop Pro","revenue":"1299.99"}
+{"product":"Wireless Mouse","revenue":"29.99"}
+{"product":"Mechanical Keyboard","revenue":"149.99"}
+{"product":"Monitor 27 inch","revenue":"399.99"}
+{"product":"USB Hub","revenue":"34.99"}
+{"product":"Webcam HD","revenue":"89.99"}
+{"product":"Headphones","revenue":"179.99"}
+
+2. High-revenue products (>$100):
+{"product":"Laptop Pro","revenue":"1299.99"}
+{"product":"Office Chair","revenue":"249.99"}
+{"product":"Standing Desk","revenue":"599.99"}
+{"product":"Mechanical Keyboard","revenue":"149.99"}
+{"product":"Monitor 27 inch","revenue":"399.99"}
+{"product":"Ergonomic Chair","revenue":"449.99"}
+{"product":"Headphones","revenue":"179.99"}
+
+3. First 5 records:
+{"product":"Laptop Pro","category":"Electronics"}
+{"product":"Office Chair","category":"Furniture"}
+{"product":"Wireless Mouse","category":"Electronics"}
+{"product":"Standing Desk","category":"Furniture"}
+{"product":"Mechanical Keyboard","category":"Electronics"}
+
+4. Summary statistics:
+{"total_records":15,"total_revenue":3709.84,"categories":3}
+
+5. Top 3 products by revenue:
+{"product":"Laptop Pro","revenue":"1299.99"}
+{"product":"Standing Desk","revenue":"599.99"}
+{"product":"Ergonomic Chair","revenue":"449.99"}
+
+=== Done ===

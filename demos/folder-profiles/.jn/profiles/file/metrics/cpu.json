@@ -1,0 +1,5 @@
+{
+  "pattern": "test_data/metrics/**/*.jsonl",
+  "filter": "select(.metric == \"cpu_usage\")",
+  "description": "CPU usage metrics only"
+}

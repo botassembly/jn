@@ -207,6 +207,27 @@ pub fn freeValue(allocator: std.mem.Allocator, value: std.json.Value) void {
 }
 
 /// Clone a JSON value (deep copy)
+///
+/// ## Design Decision: Error Path Cleanup
+///
+/// The errdefer on array/object containers (new_arr.deinit(), new_obj.deinit())
+/// frees the container but not already-cloned items. This is ACCEPTABLE because:
+///
+/// 1. **Profile loading is startup-only**: Profiles are loaded once at tool startup.
+///    If cloning fails, the tool exits with an error anyway.
+///
+/// 2. **Errors are fatal**: In JN's process-per-tool model, profile load errors
+///    cause immediate exit. The OS reclaims all memory on exit.
+///
+/// 3. **Complexity tradeoff**: Adding cleanup loops for already-cloned items
+///    would significantly complicate the code for a scenario that (a) rarely
+///    happens, and (b) results in process exit anyway.
+///
+/// For library usage where profiles might be loaded/retried multiple times,
+/// use freeValue() to clean up on error paths, or use an arena allocator
+/// that can be reset/freed atomically.
+///
+/// See also: freeValue() for proper cleanup of successfully cloned values.
 pub fn cloneValue(allocator: std.mem.Allocator, value: std.json.Value) !std.json.Value {
     return switch (value) {
         .null => .null,
@@ -290,23 +311,24 @@ pub fn loadProfile(
 
     // Load the specific profile file
     var profile_json = try parseJsonFile(allocator, full_path);
-    errdefer profile_json.deinit();
+    defer profile_json.deinit(); // Always clean up the parsed profile
 
     // Merge _meta.json files (from root to leaf) with profile
     var result = std.json.Value{ .object = std.json.ObjectMap.init(allocator) };
+    errdefer freeValue(allocator, result); // Clean up on error
 
     // Apply metas in reverse order (root first)
     var i: usize = metas.items.len;
     while (i > 0) {
         i -= 1;
         const merged = try deepMerge(allocator, result, metas.items[i].value);
-        result.object.deinit();
+        freeValue(allocator, result);
         result = merged;
     }
 
     // Finally merge with the profile itself
     const final = try deepMerge(allocator, result, profile_json.value);
-    result.object.deinit();
+    freeValue(allocator, result);
     result = final;
 
     // Apply environment variable substitution if requested

@@ -6,6 +6,7 @@ JN provides a **pure Zig core** with Python plugin extensibility for data transf
 
 **Documentation:** `spec/` contains the full architecture docs (14 documents).
 **Work Log:** `spec/log.md` tracks implementation progress.
+**Installation:** See `INSTALL.md` for end-user installation instructions.
 
 ---
 
@@ -14,10 +15,13 @@ JN provides a **pure Zig core** with Python plugin extensibility for data transf
 ### Makefile Commands
 
 ```bash
-make build        # Build all Zig components (ZQ, plugins, tools)
+make build        # Build all Zig components and create dist/ (then: source dist/activate.sh)
 make test         # Run all Zig tests
+make check        # Validate build with integration tests
+make dist         # Create release layout in dist/
 make clean        # Remove build artifacts
 make fmt          # Format all Zig code
+make download     # Download pre-built release to /tmp/jn-release
 
 # Individual targets (rarely needed):
 make zq                # Build ZQ filter engine
@@ -206,6 +210,162 @@ make fmt     # Format Zig code
 | `11-demo-migration.md` | Demo inventory |
 | `12-testing-strategy.md` | Outside-in testing |
 | `13-code-quality.md` | Coverage, linting |
+
+---
+
+## Agent Bootstrapping Guide
+
+When starting work on this codebase, bootstrap the environment first.
+
+### Quick Start for Agents
+
+```bash
+# Build from source and activate (recommended)
+make build
+source dist/activate.sh
+
+# Verify it works
+jn --version
+todo --help
+echo '{"test":1}' | jn filter '.'
+```
+
+That's it! The `source dist/activate.sh` command adds `dist/bin/` to PATH and sets up aliases (like `todo`).
+
+### Alternative: Download Pre-built Release
+
+If you want to skip building (faster for quick testing):
+
+```bash
+make download
+export PATH="/tmp/jn-release/bin:$PATH"
+alias todo="jn tool todo"
+```
+
+**Note:** `JN_HOME` is not required. JN automatically discovers tools and plugins relative to the executable.
+
+### Development Workflow
+
+**When modifying a single tool:**
+
+```bash
+# Make sure jn is available
+source dist/activate.sh
+
+# Rebuild only the tool you're changing
+make tool-jn-cat
+
+# Copy to dist for testing (note: libexec layout)
+cp tools/zig/jn-cat/bin/jn-cat dist/libexec/jn/
+
+# Test immediately
+echo 'a,b\n1,2' | jn cat -~csv
+```
+
+**When doing full validation:**
+
+```bash
+# Run full build and test
+make test
+
+# Run integration checks
+make check
+
+# Rebuild dist/ with all changes
+make dist
+```
+
+### Validating Your Changes
+
+Always run these before committing:
+
+```bash
+make test      # Unit tests for all components
+make check     # Integration tests with real data
+make fmt       # Format code (run if fmt fails in CI)
+```
+
+### Distribution Layout
+
+The `dist/` directory (created by `make build` or `make dist`) uses a clean layout with only `jn` exposed on PATH:
+
+```
+dist/
+├── bin/
+│   └── jn                        # ONLY jn on PATH
+├── libexec/
+│   └── jn/
+│       ├── jn-cat, jn-put, ...   # Internal tools (not on PATH)
+│       ├── csv, json, yaml, ...  # Zig plugins (not on PATH)
+│       ├── zq                    # Filter engine (not on PATH)
+│       └── jn_home/
+│           ├── tools/            # Utility tools (todo, etc.)
+│           ├── plugins/          # Python plugins
+│           └── profiles/         # Profile definitions
+└── activate.sh                   # Source to add bin/ to PATH + aliases
+```
+
+**Key design:** Users only interact with `jn`. Internal tools like `zq`, plugins, and `jn-*` tools are hidden in `libexec/` and discovered automatically.
+
+The `activate.sh` script sets up aliases for tools. When adding new tools to `jn_home/tools/`, add corresponding aliases to the Makefile's dist target.
+
+Tools discover plugins/tools relative to the executable:
+1. `../libexec/jn/` relative to `jn` binary
+2. Sibling executables in same directory (for internal tools)
+3. Development paths (4 levels up from `tools/zig/*/bin/`)
+4. `~/.local/jn/` (user install)
+
+### CLI Argument Notes
+
+Short options require `=` syntax:
+- `jn head --lines=5` works
+- `jn head -n=5` works
+- `jn head -n 5` does NOT work (space-separated)
+
+---
+
+## Creating Releases
+
+Releases are created via git tags and built by GitHub Actions.
+
+### Release Process
+
+```bash
+# 1. Ensure all changes are committed and pushed
+git status  # Should be clean
+
+# 2. Create and push a version tag
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+### What Happens on Tag Push
+
+1. **Build job runs automatically** - compiles all tools with version from tag
+2. **Release job waits for approval** - requires "release" environment approval in GitHub
+3. **After approval** - publishes to GitHub Releases with:
+   - `jn-{VERSION}-x86_64-linux.tar.gz` (versioned)
+   - `jn-linux-x86_64.tar.gz` (consistent "latest" filename)
+
+### Version Embedding
+
+CI extracts version from the git tag and writes to `tools/zig/jn/version.txt` before building. The `jn` binary embeds this at compile time via `@embedFile("version.txt")`.
+
+Local development uses `version.txt` which defaults to `0.0.0`.
+
+### Prerelease Tags
+
+Tags containing `-alpha`, `-beta`, or `-rc` are marked as prereleases:
+- `v1.0.0-alpha` → prerelease
+- `v1.0.0-rc1` → prerelease
+- `v1.0.0` → full release
+
+### Security
+
+The release job requires approval from the "release" environment. Configure reviewers in:
+Settings → Environments → release → Required reviewers
+
+This prevents unauthorized releases even if someone has push access.
 
 ---
 

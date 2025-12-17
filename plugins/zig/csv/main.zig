@@ -17,6 +17,15 @@ const Config = struct {
     no_header: bool = false,
 };
 
+/// Maximum number of fields per CSV row. This limit prevents buffer overflow
+/// attacks with maliciously crafted CSV files.
+const MAX_CSV_FIELDS: usize = 4096;
+
+/// Warning state for field truncation (passed to avoid global mutable state)
+const TruncationWarningState = struct {
+    warned: bool = false,
+};
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -72,11 +81,32 @@ fn parseConfig(args: jn_cli.ArgParser) Config {
 }
 
 fn parseDelimiter(value: []const u8) u8 {
+    // Handle named delimiters
     if (std.mem.eql(u8, value, "tab") or std.mem.eql(u8, value, "\\t")) {
         return '\t';
     }
-    if (value.len > 0) return value[0];
-    return ',';
+    if (std.mem.eql(u8, value, "comma")) {
+        return ',';
+    }
+    if (std.mem.eql(u8, value, "semicolon")) {
+        return ';';
+    }
+    if (std.mem.eql(u8, value, "pipe")) {
+        return '|';
+    }
+
+    // Handle empty input with warning
+    if (value.len == 0) {
+        std.debug.print("csv: warning: empty delimiter specified, using comma\n", .{});
+        return ',';
+    }
+
+    // Warn if multi-character delimiter specified (only first char is used)
+    if (value.len > 1) {
+        std.debug.print("csv: warning: only first character of delimiter '{s}' will be used\n", .{value});
+    }
+
+    return value[0];
 }
 
 /// Delimiter detection result
@@ -196,11 +226,11 @@ fn readMode(allocator: std.mem.Allocator, config: Config) !void {
     const reader = &stdin_wrapper.interface;
 
     var stdout_buf: [jn_core.STDOUT_BUFFER_SIZE]u8 = undefined;
-    var stdout_wrapper = std.fs.File.stdout().writer(&stdout_buf);
+    var stdout_wrapper = std.fs.File.stdout().writerStreaming(&stdout_buf);
     const writer = &stdout_wrapper.interface;
 
-    var field_starts: [1024]usize = undefined;
-    var field_ends: [1024]usize = undefined;
+    var field_starts: [MAX_CSV_FIELDS]usize = undefined;
+    var field_ends: [MAX_CSV_FIELDS]usize = undefined;
 
     // Buffer for sample lines when auto-detecting
     var sample_lines: std.ArrayListUnmanaged([]const u8) = .empty;
@@ -250,9 +280,12 @@ fn readMode(allocator: std.mem.Allocator, config: Config) !void {
             break :blk jn_core.stripCR(maybe_header.?);
         };
 
-        const field_count = parseCSVRowFast(header_line, delimiter, &field_starts, &field_ends);
+        // Note: null for warn_state since header parsing doesn't need truncation warnings
+        const field_count = parseCSVRowFast(header_line, delimiter, &field_starts, &field_ends, null);
         for (0..field_count) |i| {
-            const field = unquoteField(header_line[field_starts[i]..field_ends[i]]);
+            var needs_free: bool = false;
+            const field = unquoteField(allocator, header_line[field_starts[i]..field_ends[i]], &needs_free);
+            defer if (needs_free) allocator.free(@constCast(field));
             const duped = try allocator.dupe(u8, field);
             try headers.append(allocator, duped);
         }
@@ -262,20 +295,25 @@ fn readMode(allocator: std.mem.Allocator, config: Config) !void {
         }
     }
 
+    // Warning state for field truncation (local, not global)
+    var truncation_warn = TruncationWarningState{};
+
     // Helper to process a single data line
     const processLine = struct {
         fn f(
+            alloc: std.mem.Allocator,
             w: anytype,
             line: []const u8,
             delim: u8,
             hdrs: *std.ArrayListUnmanaged([]const u8),
             no_header: bool,
-            starts: *[1024]usize,
-            ends: *[1024]usize,
+            starts: *[MAX_CSV_FIELDS]usize,
+            ends: *[MAX_CSV_FIELDS]usize,
+            warn_state: *TruncationWarningState,
         ) void {
             if (line.len == 0) return;
 
-            const fc = parseCSVRowFast(line, delim, starts, ends);
+            const fc = parseCSVRowFast(line, delim, starts, ends, warn_state);
 
             w.writeByte('{') catch |err| jn_core.handleWriteError(err);
 
@@ -283,7 +321,9 @@ fn readMode(allocator: std.mem.Allocator, config: Config) !void {
                 for (0..fc) |i| {
                     if (i > 0) w.writeByte(',') catch |err| jn_core.handleWriteError(err);
                     w.print("\"col{d}\":", .{i}) catch |err| jn_core.handleWriteError(err);
-                    const fld = unquoteField(line[starts[i]..ends[i]]);
+                    var needs_free: bool = false;
+                    const fld = unquoteField(alloc, line[starts[i]..ends[i]], &needs_free);
+                    defer if (needs_free) alloc.free(@constCast(fld));
                     jn_core.writeJsonString(w, fld) catch |err| jn_core.handleWriteError(err);
                 }
             } else {
@@ -292,7 +332,9 @@ fn readMode(allocator: std.mem.Allocator, config: Config) !void {
                     if (i > 0) w.writeByte(',') catch |err| jn_core.handleWriteError(err);
                     jn_core.writeJsonString(w, hdrs.items[i]) catch |err| jn_core.handleWriteError(err);
                     w.writeByte(':') catch |err| jn_core.handleWriteError(err);
-                    const fld = unquoteField(line[starts[i]..ends[i]]);
+                    var needs_free: bool = false;
+                    const fld = unquoteField(alloc, line[starts[i]..ends[i]], &needs_free);
+                    defer if (needs_free) alloc.free(@constCast(fld));
                     jn_core.writeJsonString(w, fld) catch |err| jn_core.handleWriteError(err);
                 }
 
@@ -300,7 +342,9 @@ fn readMode(allocator: std.mem.Allocator, config: Config) !void {
                     for (hdrs.items.len..fc) |i| {
                         w.writeByte(',') catch |err| jn_core.handleWriteError(err);
                         w.print("\"_extra{d}\":", .{i - hdrs.items.len}) catch |err| jn_core.handleWriteError(err);
-                        const fld = unquoteField(line[starts[i]..ends[i]]);
+                        var needs_free: bool = false;
+                        const fld = unquoteField(alloc, line[starts[i]..ends[i]], &needs_free);
+                        defer if (needs_free) alloc.free(@constCast(fld));
                         jn_core.writeJsonString(w, fld) catch |err| jn_core.handleWriteError(err);
                     }
                 }
@@ -313,23 +357,24 @@ fn readMode(allocator: std.mem.Allocator, config: Config) !void {
 
     // Process buffered sample lines first
     for (sample_lines.items[data_start_idx..]) |line| {
-        processLine(writer, line, delimiter, &headers, config.no_header, &field_starts, &field_ends);
+        processLine(allocator, writer, line, delimiter, &headers, config.no_header, &field_starts, &field_ends, &truncation_warn);
     }
 
     // Continue reading from stdin
     while (jn_core.readLine(reader)) |line| {
         const clean_line = jn_core.stripCR(line);
-        processLine(writer, clean_line, delimiter, &headers, config.no_header, &field_starts, &field_ends);
+        processLine(allocator, writer, clean_line, delimiter, &headers, config.no_header, &field_starts, &field_ends, &truncation_warn);
     }
 
     jn_core.flushWriter(writer);
 }
 
-fn parseCSVRowFast(line: []const u8, delimiter: u8, starts: *[1024]usize, ends: *[1024]usize) usize {
+fn parseCSVRowFast(line: []const u8, delimiter: u8, starts: *[MAX_CSV_FIELDS]usize, ends: *[MAX_CSV_FIELDS]usize, warn_state: ?*TruncationWarningState) usize {
     var field_count: usize = 0;
     var i: usize = 0;
     var field_start: usize = 0;
     var in_quotes = false;
+    var truncated = false;
 
     while (i < line.len) : (i += 1) {
         const c = line[i];
@@ -341,19 +386,38 @@ fn parseCSVRowFast(line: []const u8, delimiter: u8, starts: *[1024]usize, ends: 
             }
             in_quotes = !in_quotes;
         } else if (c == delimiter and !in_quotes) {
-            if (field_count < 1024) {
+            if (field_count < MAX_CSV_FIELDS) {
                 starts[field_count] = field_start;
                 ends[field_count] = i;
                 field_count += 1;
+            } else {
+                truncated = true;
             }
             field_start = i + 1;
         }
     }
 
-    if (field_count < 1024) {
+    if (field_count < MAX_CSV_FIELDS) {
         starts[field_count] = field_start;
         ends[field_count] = line.len;
         field_count += 1;
+    } else {
+        truncated = true;
+    }
+
+    // Warn once about field truncation (using passed state to avoid global mutable state)
+    if (truncated) {
+        if (warn_state) |ws| {
+            if (!ws.warned) {
+                ws.warned = true;
+                const stderr = std.fs.File.stderr();
+                _ = stderr.write("csv: warning: row has more than ") catch {};
+                var num_buf: [16]u8 = undefined;
+                const num_str = std.fmt.bufPrint(&num_buf, "{d}", .{MAX_CSV_FIELDS}) catch "4096";
+                _ = stderr.write(num_str) catch {};
+                _ = stderr.write(" fields, extra fields truncated\n") catch {};
+            }
+        }
     }
 
     return field_count;
@@ -375,7 +439,11 @@ fn parseCSVRow(allocator: std.mem.Allocator, line: []const u8, delimiter: u8, fi
             in_quotes = !in_quotes;
             i += 1;
         } else if (c == delimiter and !in_quotes) {
-            try fields.append(allocator, unquoteField(line[field_start..i]));
+            var needs_free: bool = false;
+            const field = unquoteField(allocator, line[field_start..i], &needs_free);
+            // Always dupe to ensure consistent ownership - fields list owns all memory
+            const duped = if (needs_free) field else try allocator.dupe(u8, field);
+            try fields.append(allocator, duped);
             field_start = i + 1;
             i += 1;
         } else {
@@ -383,13 +451,59 @@ fn parseCSVRow(allocator: std.mem.Allocator, line: []const u8, delimiter: u8, fi
         }
     }
 
-    try fields.append(allocator, unquoteField(line[field_start..]));
+    var needs_free: bool = false;
+    const field = unquoteField(allocator, line[field_start..], &needs_free);
+    const duped = if (needs_free) field else try allocator.dupe(u8, field);
+    try fields.append(allocator, duped);
 }
 
-fn unquoteField(field: []const u8) []const u8 {
+/// Unquote and unescape a CSV field.
+/// Returns a slice that may or may not need freeing depending on `needs_free` output.
+/// Handles RFC 4180 escaped quotes (doubled quotes "" become single ").
+fn unquoteField(allocator: std.mem.Allocator, field: []const u8, needs_free: *bool) []const u8 {
+    needs_free.* = false;
+
     if (field.len < 2) return field;
     if (field[0] != '"' or field[field.len - 1] != '"') return field;
-    return field[1 .. field.len - 1];
+
+    const inner = field[1 .. field.len - 1];
+
+    // Check if the field contains escaped quotes
+    var has_escaped_quote = false;
+    var i: usize = 0;
+    while (i < inner.len) : (i += 1) {
+        if (i + 1 < inner.len and inner[i] == '"' and inner[i + 1] == '"') {
+            has_escaped_quote = true;
+            break;
+        }
+    }
+
+    if (!has_escaped_quote) {
+        // No escaped quotes - just return the inner slice
+        return inner;
+    }
+
+    // Need to unescape - build new string replacing "" with "
+    var result: std.ArrayListUnmanaged(u8) = .empty;
+    // Track if we need to cleanup on OOM - can't use errdefer with non-error return
+    var cleanup_on_oom = true;
+    defer if (cleanup_on_oom) result.deinit(allocator);
+
+    i = 0;
+    while (i < inner.len) {
+        if (i + 1 < inner.len and inner[i] == '"' and inner[i + 1] == '"') {
+            result.append(allocator, '"') catch return inner; // Fallback on OOM, defer handles cleanup
+            i += 2;
+        } else {
+            result.append(allocator, inner[i]) catch return inner; // Fallback on OOM, defer handles cleanup
+            i += 1;
+        }
+    }
+
+    const owned = result.toOwnedSlice(allocator) catch return inner; // Fallback on OOM, defer handles cleanup
+    cleanup_on_oom = false; // Success - caller owns the memory now
+    needs_free.* = true;
+    return owned;
 }
 
 fn writeMode(allocator: std.mem.Allocator, config: Config) !void {
@@ -398,7 +512,7 @@ fn writeMode(allocator: std.mem.Allocator, config: Config) !void {
     const reader = &stdin_wrapper.interface;
 
     var stdout_buf: [jn_core.STDOUT_BUFFER_SIZE]u8 = undefined;
-    var stdout_wrapper = std.fs.File.stdout().writer(&stdout_buf);
+    var stdout_wrapper = std.fs.File.stdout().writerStreaming(&stdout_buf);
     const writer = &stdout_wrapper.interface;
 
     var lines = std.ArrayListUnmanaged([]const u8){};
@@ -512,7 +626,10 @@ fn writeCSVValue(writer: anytype, value: std.json.Value, delimiter: u8) !void {
 test "parse simple csv row" {
     const allocator = std.testing.allocator;
     var fields = std.ArrayListUnmanaged([]const u8){};
-    defer fields.deinit(allocator);
+    defer {
+        for (fields.items) |f| allocator.free(@constCast(f));
+        fields.deinit(allocator);
+    }
 
     try parseCSVRow(allocator, "a,b,c", ',', &fields);
     try std.testing.expectEqual(@as(usize, 3), fields.items.len);
@@ -524,16 +641,57 @@ test "parse simple csv row" {
 test "parse quoted csv row" {
     const allocator = std.testing.allocator;
     var fields = std.ArrayListUnmanaged([]const u8){};
-    defer fields.deinit(allocator);
+    defer {
+        for (fields.items) |f| allocator.free(@constCast(f));
+        fields.deinit(allocator);
+    }
 
     try parseCSVRow(allocator, "\"hello, world\",b,c", ',', &fields);
     try std.testing.expectEqual(@as(usize, 3), fields.items.len);
     try std.testing.expectEqualStrings("hello, world", fields.items[0]);
 }
 
+test "parse csv with escaped quotes" {
+    const allocator = std.testing.allocator;
+    var fields = std.ArrayListUnmanaged([]const u8){};
+    defer {
+        for (fields.items) |f| allocator.free(@constCast(f));
+        fields.deinit(allocator);
+    }
+
+    // RFC 4180: doubled quotes inside quoted field should become single quote
+    try parseCSVRow(allocator, "\"He said \"\"Hello\"\"\",b,c", ',', &fields);
+    try std.testing.expectEqual(@as(usize, 3), fields.items.len);
+    try std.testing.expectEqualStrings("He said \"Hello\"", fields.items[0]);
+}
+
 test "unquote field" {
-    try std.testing.expectEqualStrings("hello", unquoteField("\"hello\""));
-    try std.testing.expectEqualStrings("world", unquoteField("world"));
+    const allocator = std.testing.allocator;
+    var needs_free: bool = false;
+
+    // Simple quoted field
+    const field1 = unquoteField(allocator, "\"hello\"", &needs_free);
+    defer if (needs_free) allocator.free(@constCast(field1));
+    try std.testing.expectEqualStrings("hello", field1);
+    try std.testing.expect(!needs_free);
+
+    // Unquoted field
+    needs_free = false;
+    const field2 = unquoteField(allocator, "world", &needs_free);
+    defer if (needs_free) allocator.free(@constCast(field2));
+    try std.testing.expectEqualStrings("world", field2);
+    try std.testing.expect(!needs_free);
+}
+
+test "unquote field with escaped quotes" {
+    const allocator = std.testing.allocator;
+    var needs_free: bool = false;
+
+    // Field with escaped quotes - should allocate
+    const field = unquoteField(allocator, "\"He said \"\"Hi\"\"\"", &needs_free);
+    defer if (needs_free) allocator.free(@constCast(field));
+    try std.testing.expectEqualStrings("He said \"Hi\"", field);
+    try std.testing.expect(needs_free);
 }
 
 test "detect comma delimiter" {
@@ -613,4 +771,23 @@ test "detect delimiter no delimiters found returns comma" {
     const result = detectDelimiter(&sample);
     try std.testing.expectEqual(@as(u8, ','), result.delimiter);
     try std.testing.expect(!result.has_evidence);
+}
+
+test "parseDelimiter handles named delimiters" {
+    try std.testing.expectEqual(@as(u8, '\t'), parseDelimiter("tab"));
+    try std.testing.expectEqual(@as(u8, '\t'), parseDelimiter("\\t"));
+    try std.testing.expectEqual(@as(u8, ','), parseDelimiter("comma"));
+    try std.testing.expectEqual(@as(u8, ';'), parseDelimiter("semicolon"));
+    try std.testing.expectEqual(@as(u8, '|'), parseDelimiter("pipe"));
+}
+
+test "parseDelimiter handles single character" {
+    try std.testing.expectEqual(@as(u8, ','), parseDelimiter(","));
+    try std.testing.expectEqual(@as(u8, ';'), parseDelimiter(";"));
+    try std.testing.expectEqual(@as(u8, ':'), parseDelimiter(":"));
+}
+
+test "parseDelimiter empty returns comma" {
+    // Empty delimiter should fall back to comma (with warning printed to stderr)
+    try std.testing.expectEqual(@as(u8, ','), parseDelimiter(""));
 }

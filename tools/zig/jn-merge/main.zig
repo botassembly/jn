@@ -101,7 +101,7 @@ pub fn main() !void {
 
     // Process each source
     var stdout_buf: [jn_core.STDOUT_BUFFER_SIZE]u8 = undefined;
-    var stdout_wrapper = std.fs.File.stdout().writer(&stdout_buf);
+    var stdout_wrapper = std.fs.File.stdout().writerStreaming(&stdout_buf);
     const writer = &stdout_wrapper.interface;
 
     var had_errors = false;
@@ -153,7 +153,7 @@ fn processFile(allocator: std.mem.Allocator, source: SourceSpec, config: *const 
     // Direct NDJSON reading
     const file = std.fs.cwd().openFile(source.path, .{}) catch |err| {
         var stderr_buf: [256]u8 = undefined;
-        var stderr_wrapper = std.fs.File.stderr().writer(&stderr_buf);
+        var stderr_wrapper = std.fs.File.stderr().writerStreaming(&stderr_buf);
         const stderr = &stderr_wrapper.interface;
         stderr.print("jn-merge: cannot open '{s}': {s}\n", .{ source.path, @errorName(err) }) catch {};
         jn_core.flushWriter(stderr);
@@ -197,7 +197,7 @@ fn processViaJnCat(allocator: std.mem.Allocator, source: SourceSpec, config: *co
     // Find jn-cat
     const jn_cat_path = findTool(allocator, "jn-cat") orelse {
         var stderr_buf: [256]u8 = undefined;
-        var stderr_wrapper = std.fs.File.stderr().writer(&stderr_buf);
+        var stderr_wrapper = std.fs.File.stderr().writerStreaming(&stderr_buf);
         const stderr = &stderr_wrapper.interface;
         stderr.print("jn-merge: jn-cat not found (required for '{s}')\n", .{source.path}) catch {};
         jn_core.flushWriter(stderr);
@@ -215,7 +215,7 @@ fn processViaJnCat(allocator: std.mem.Allocator, source: SourceSpec, config: *co
 
     child.spawn() catch |err| {
         var stderr_buf: [256]u8 = undefined;
-        var stderr_wrapper = std.fs.File.stderr().writer(&stderr_buf);
+        var stderr_wrapper = std.fs.File.stderr().writerStreaming(&stderr_buf);
         const stderr = &stderr_wrapper.interface;
         stderr.print("jn-merge: failed to spawn jn-cat for '{s}': {s}\n", .{ source.path, @errorName(err) }) catch {};
         jn_core.flushWriter(stderr);
@@ -233,7 +233,10 @@ fn processViaJnCat(allocator: std.mem.Allocator, source: SourceSpec, config: *co
     }
 
     const result = child.wait() catch return false;
-    return result.Exited == 0;
+    return switch (result) {
+        .Exited => |code| code == 0,
+        .Signal, .Stopped, .Unknown => false,
+    };
 }
 
 /// Output a record with optional source metadata
@@ -294,17 +297,43 @@ fn outputRecord(allocator: std.mem.Allocator, line: []const u8, source: SourceSp
 fn findTool(allocator: std.mem.Allocator, name: []const u8) ?[]const u8 {
     // Try paths relative to JN_HOME
     if (std.posix.getenv("JN_HOME")) |jn_home| {
+        // Try installed layout: $JN_HOME/bin/{name}
+        const bin_path = std.fmt.allocPrint(allocator, "{s}/bin/{s}", .{ jn_home, name }) catch return null;
+        if (std.fs.cwd().access(bin_path, .{})) |_| {
+            return bin_path;
+        } else |_| {
+            allocator.free(bin_path);
+        }
+
+        // Try development layout: $JN_HOME/tools/zig/{name}/bin/{name}
         const path = std.fmt.allocPrint(allocator, "{s}/tools/zig/{s}/bin/{s}", .{ jn_home, name, name }) catch return null;
         if (std.fs.cwd().access(path, .{})) |_| {
             return path;
-        } else |_| {}
+        } else |_| {
+            allocator.free(path);
+        }
     }
+
+    // Try sibling to executable (installed layout: tools in same directory)
+    var exe_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    if (std.fs.selfExePath(&exe_path_buf)) |exe_path| {
+        if (std.fs.path.dirname(exe_path)) |exe_dir| {
+            const sibling_path = std.fmt.allocPrint(allocator, "{s}/{s}", .{ exe_dir, name }) catch return null;
+            if (std.fs.cwd().access(sibling_path, .{})) |_| {
+                return sibling_path;
+            } else |_| {
+                allocator.free(sibling_path);
+            }
+        }
+    } else |_| {}
 
     // Try relative to current directory (development mode)
     const dev_path = std.fmt.allocPrint(allocator, "tools/zig/{s}/bin/{s}", .{ name, name }) catch return null;
     if (std.fs.cwd().access(dev_path, .{})) |_| {
         return dev_path;
-    } else |_| {}
+    } else |_| {
+        allocator.free(dev_path);
+    }
 
     return null;
 }
@@ -312,7 +341,7 @@ fn findTool(allocator: std.mem.Allocator, name: []const u8) ?[]const u8 {
 /// Print version
 fn printVersion() void {
     var buf: [256]u8 = undefined;
-    var stdout_wrapper = std.fs.File.stdout().writer(&buf);
+    var stdout_wrapper = std.fs.File.stdout().writerStreaming(&buf);
     const stdout = &stdout_wrapper.interface;
     stdout.print("jn-merge {s}\n", .{VERSION}) catch {};
     jn_core.flushWriter(stdout);
@@ -359,7 +388,7 @@ fn printUsage() void {
         \\
     ;
     var buf: [4096]u8 = undefined;
-    var stdout_wrapper = std.fs.File.stdout().writer(&buf);
+    var stdout_wrapper = std.fs.File.stdout().writerStreaming(&buf);
     const stdout = &stdout_wrapper.interface;
     stdout.writeAll(usage) catch {};
     jn_core.flushWriter(stdout);

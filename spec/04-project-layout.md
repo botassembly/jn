@@ -27,45 +27,33 @@ jn/
 │   ├── jn-merge/             # Source merging
 │   ├── jn-analyze/           # Statistics
 │   ├── jn-inspect/           # Discovery
-│   ├── jn-table/             # Pretty print
-│   └── jn-profile/           # Profile CLI
+│   └── jn-sh/                # Shell command parser
 │
-├── plugins/                  # Plugin executables
-│   ├── zig/                  # High-performance Zig plugins
-│   │   ├── csv/              # CSV/TSV format
-│   │   ├── json/             # JSON format
-│   │   ├── jsonl/            # NDJSON passthrough
-│   │   ├── gz/               # Gzip compression
-│   │   └── http/             # HTTP protocol
-│   │
-│   └── python/               # Extensible Python plugins
-│       ├── xlsx_.py          # Excel format
-│       ├── xml_.py           # XML format
-│       ├── gmail_.py         # Gmail protocol
-│       ├── mcp_.py           # MCP protocol
-│       └── duckdb_.py        # DuckDB database
+├── plugins/zig/              # High-performance Zig plugins
+│   ├── csv/                  # CSV/TSV format
+│   ├── json/                 # JSON format
+│   ├── jsonl/                # NDJSON passthrough
+│   ├── gz/                   # Gzip compression
+│   ├── yaml/                 # YAML format
+│   ├── toml/                 # TOML format
+│   └── opendal/              # Protocol handler (experimental)
 │
 ├── zq/                       # ZQ filter engine (Zig)
 │
 ├── jn_home/                  # Bundled defaults
-│   ├── plugins/              # Default plugins (symlinked)
-│   └── profiles/             # Example profiles
-│       ├── http/
-│       ├── zq/
-│       └── gmail/
+│   └── plugins/              # Python plugins (PEP 723 standalone)
+│       ├── formats/          # Format plugins (xlsx, xml, table, etc.)
+│       ├── protocols/        # Protocol plugins (gmail, mcp, code)
+│       ├── databases/        # Database plugins (duckdb)
+│       └── shell/            # Shell plugins (watch)
 │
-├── src/jn/                   # Python CLI (legacy, being migrated)
+├── spec/                     # Architecture documentation (14 docs)
 │
-├── spec/                     # Documentation
-│   ├── zig-refactor/         # Architecture docs (this folder)
-│   ├── done/                 # Completed feature specs
-│   └── todo/                 # Future feature specs
+├── tests/                    # Integration tests
 │
-├── tests/                    # Test suite
+├── demos/                    # Working demonstrations
 │
-├── build.zig                 # Unified Zig build
-├── pyproject.toml            # Python project config
-├── Makefile                  # Common commands
+├── Makefile                  # Build commands
 └── CLAUDE.md                 # AI assistant context
 ```
 
@@ -102,22 +90,23 @@ CLI executables that compose into pipelines:
 | `jn-merge` | `jn-merge` | Concatenate sources |
 | `jn-analyze` | `jn-analyze` | Stream statistics |
 | `jn-inspect` | `jn-inspect` | Structure discovery |
-| `jn-table` | `jn-table` | Pretty print |
-| `jn-profile` | `jn-profile` | Profile management |
+| `jn-sh` | `jn-sh` | Shell command parser |
+
+Note: `jn table` routes to Python `table_.py` plugin via the orchestrator.
 
 ### Plugins (`plugins/`)
 
 Format, protocol, and compression handlers:
 
 **Zig plugins** (`plugins/zig/`):
-- Fast startup, low memory
+- Fast startup (<5ms), low memory (~1MB)
 - Compiled to single binary per plugin
-- Used for common, performance-critical formats
+- Used for common formats: csv, json, jsonl, yaml, toml, gz
 
-**Python plugins** (`plugins/python/`):
+**Python plugins** (`jn_home/plugins/`):
 - PEP 723 self-contained scripts
-- UV handles dependencies
-- Used for complex formats and protocols
+- UV handles dependencies automatically
+- Used for complex formats: xlsx, xml, table, gmail, mcp, duckdb
 
 ---
 
@@ -209,24 +198,21 @@ Architecture and design documentation:
 
 ```
 spec/
-├── zig-refactor/           # Current architecture docs
-│   ├── 01-vision.md
-│   ├── 02-architecture.md
-│   ├── 03-users-guide.md
-│   ├── ...
-│   └── docs-plan.md
-│
-├── done/                   # Completed feature specs
-│   ├── addressability.md
-│   ├── profile-usage.md
-│   ├── arch-backpressure.md
-│   └── ...
-│
-├── todo/                   # Planned feature specs
-│   ├── s3-protocol.md
-│   ├── sqlite-database.md
-│   └── ...
-│
+├── 00-plan.md              # Implementation phases
+├── 01-vision.md            # Philosophy and design principles
+├── 02-architecture.md      # Component model
+├── 03-users-guide.md       # CLI usage
+├── 04-project-layout.md    # Repository structure (this file)
+├── 05-plugin-system.md     # Plugin interface
+├── 06-matching-resolution.md # Address parsing
+├── 07-profiles.md          # Hierarchical profiles
+├── 08-streaming-backpressure.md # I/O patterns
+├── 09-joining-operations.md # Join/merge
+├── 10-python-plugins.md    # PEP 723 plugins
+├── 11-demo-migration.md    # Demo inventory
+├── 12-testing-strategy.md  # Outside-in testing
+├── 13-code-quality.md      # Coverage, linting
+├── log.md                  # Work log
 └── README.md               # Spec organization guide
 ```
 

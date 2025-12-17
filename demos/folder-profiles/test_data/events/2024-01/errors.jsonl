@@ -1,0 +1,2 @@
+{"timestamp": "2024-01-15T10:05:00Z", "event_type": "error", "level": "ERROR", "message": "Database connection failed", "service": "api"}
+{"timestamp": "2024-01-15T15:30:00Z", "event_type": "error", "level": "WARN", "message": "Rate limit exceeded", "service": "api", "user_id": "user456"}

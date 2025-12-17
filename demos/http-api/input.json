@@ -1,0 +1,11 @@
+{
+  "slideshow": {
+    "author": "Yours Truly",
+    "date": "date of publication",
+    "slides": [
+      {"title": "Wake up to WonderWidgets!", "type": "all"},
+      {"title": "Overview", "type": "all", "items": ["Why WonderWidgets?", "Who buys them?"]}
+    ],
+    "title": "Sample Slide Show"
+  }
+}

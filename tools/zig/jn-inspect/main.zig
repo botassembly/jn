@@ -271,24 +271,37 @@ fn getPositionalArg(index: usize) ?[]const u8 {
 /// List available profiles
 fn listProfiles(allocator: std.mem.Allocator, type_filter: ?[]const u8, json_format: bool) void {
     var profiles: std.ArrayListUnmanaged(ProfileInfo) = .empty;
-    defer profiles.deinit(allocator);
+    defer {
+        // Free allocated strings in each ProfileInfo to avoid memory leak
+        for (profiles.items) |p| {
+            allocator.free(p.name);
+            allocator.free(p.path);
+        }
+        profiles.deinit(allocator);
+    }
 
     // Get profile directories
     const home = std.posix.getenv("HOME");
     const jn_home = std.posix.getenv("JN_HOME");
 
+    // Build base paths - track allocated ones for cleanup
+    const user_base: ?[]const u8 = if (home) |h|
+        std.fmt.allocPrint(allocator, "{s}/.local/jn/profiles", .{h}) catch null
+    else
+        null;
+    defer if (user_base) |ub| allocator.free(ub);
+
+    const bundled_base: ?[]const u8 = if (jn_home) |jh|
+        std.fmt.allocPrint(allocator, "{s}/profiles", .{jh}) catch null
+    else
+        null;
+    defer if (bundled_base) |bb| allocator.free(bb);
+
     // Scan each source
     const sources = [_]struct { name: []const u8, base: ?[]const u8 }{
         .{ .name = "project", .base = ".jn/profiles" },
-        .{ .name = "user", .base = if (home) |h| blk: {
-            const path = std.fmt.allocPrint(allocator, "{s}/.local/jn/profiles", .{h}) catch break :blk null;
-            break :blk path;
-        } else null },
-        .{ .name = "bundled", .base = if (jn_home) |jh|
-        blk: {
-            const path = std.fmt.allocPrint(allocator, "{s}/profiles", .{jh}) catch break :blk null;
-            break :blk path;
-        } else null },
+        .{ .name = "user", .base = user_base },
+        .{ .name = "bundled", .base = bundled_base },
     };
 
     for (sources) |source| {
@@ -299,7 +312,7 @@ fn listProfiles(allocator: std.mem.Allocator, type_filter: ?[]const u8, json_for
 
     // Output
     var stdout_buf: [jn_core.STDOUT_BUFFER_SIZE]u8 = undefined;
-    var stdout_wrapper = std.fs.File.stdout().writer(&stdout_buf);
+    var stdout_wrapper = std.fs.File.stdout().writerStreaming(&stdout_buf);
     const writer = &stdout_wrapper.interface;
 
     if (json_format) {
@@ -413,8 +426,7 @@ fn outputProfilesJson(writer: anytype, profiles: []const ProfileInfo) void {
         writer.writeAll(",\"name\":") catch {};
         jn_core.writeJsonString(writer, p.name) catch {};
         writer.writeAll(",\"ref\":\"@") catch {};
-        writer.writeAll(p.profile_type) catch {};
-        writer.writeByte('/') catch {};
+        // Reference format is @<namespace>/<name>, not @<type>/<namespace>/<name>
         writer.writeAll(p.name) catch {};
         writer.writeAll("\"}") catch {};
     }
@@ -441,9 +453,8 @@ fn outputProfilesText(writer: anytype, profiles: []const ProfileInfo) void {
             current_type = p.profile_type;
         }
 
+        // Reference format is @<namespace>/<name>, not @<type>/<namespace>/<name>
         writer.writeAll("  @") catch {};
-        writer.writeAll(p.profile_type) catch {};
-        writer.writeByte('/') catch {};
         writer.writeAll(p.name) catch {};
         writer.writeAll("  (") catch {};
         writer.writeAll(p.source) catch {};
@@ -476,7 +487,7 @@ fn inferSchema(allocator: std.mem.Allocator, sample_size: usize, json_format: bo
     }
 
     var stdout_buf: [jn_core.STDOUT_BUFFER_SIZE]u8 = undefined;
-    var stdout_wrapper = std.fs.File.stdout().writer(&stdout_buf);
+    var stdout_wrapper = std.fs.File.stdout().writerStreaming(&stdout_buf);
     const writer = &stdout_wrapper.interface;
 
     if (json_format) {
@@ -595,7 +606,7 @@ fn showProfile(allocator: std.mem.Allocator, profile_ref: []const u8, json_forma
     _ = allocator;
 
     var stdout_buf: [jn_core.STDOUT_BUFFER_SIZE]u8 = undefined;
-    var stdout_wrapper = std.fs.File.stdout().writer(&stdout_buf);
+    var stdout_wrapper = std.fs.File.stdout().writerStreaming(&stdout_buf);
     const writer = &stdout_wrapper.interface;
 
     // Parse profile reference
@@ -624,7 +635,7 @@ fn showProfile(allocator: std.mem.Allocator, profile_ref: []const u8, json_forma
 /// Print version
 fn printVersion() void {
     var buf: [256]u8 = undefined;
-    var stdout_wrapper = std.fs.File.stdout().writer(&buf);
+    var stdout_wrapper = std.fs.File.stdout().writerStreaming(&buf);
     const stdout = &stdout_wrapper.interface;
     stdout.print("jn-inspect {s}\n", .{VERSION}) catch {};
     jn_core.flushWriter(stdout);
@@ -661,7 +672,7 @@ fn printUsage() void {
         \\
     ;
     var buf: [2048]u8 = undefined;
-    var stdout_wrapper = std.fs.File.stdout().writer(&buf);
+    var stdout_wrapper = std.fs.File.stdout().writerStreaming(&buf);
     const stdout = &stdout_wrapper.interface;
     stdout.writeAll(usage) catch {};
     jn_core.flushWriter(stdout);

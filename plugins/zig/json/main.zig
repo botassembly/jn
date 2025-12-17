@@ -11,6 +11,10 @@ const plugin_meta = jn_plugin.PluginMeta{
     .modes = &.{ .read, .write },
 };
 
+/// Maximum input size (100MB default). Can be overridden with --max-size=N
+/// This prevents OOM on extremely large files.
+const DEFAULT_MAX_INPUT_SIZE: usize = 100 * 1024 * 1024;
+
 const WriteFormat = enum { array, ndjson, object };
 
 const WriteConfig = struct {
@@ -78,13 +82,17 @@ fn readMode(allocator: std.mem.Allocator) !void {
     const reader = &stdin_wrapper.interface;
 
     var stdout_buf: [jn_core.STDOUT_BUFFER_SIZE]u8 = undefined;
-    var stdout_wrapper = std.fs.File.stdout().writer(&stdout_buf);
+    var stdout_wrapper = std.fs.File.stdout().writerStreaming(&stdout_buf);
     const writer = &stdout_wrapper.interface;
 
     var input = std.ArrayList(u8){};
     defer input.deinit(allocator);
 
     while (jn_core.readLine(reader)) |line| {
+        // Check size limit to prevent OOM on maliciously large input
+        if (input.items.len + line.len > DEFAULT_MAX_INPUT_SIZE) {
+            jn_core.exitWithError("json: input exceeds maximum size of {d}MB", .{DEFAULT_MAX_INPUT_SIZE / (1024 * 1024)});
+        }
         try input.appendSlice(allocator, line);
         try input.append(allocator, '\n');
     }
@@ -121,7 +129,7 @@ fn writeMode(config: WriteConfig, allocator: std.mem.Allocator) !void {
     const reader = &stdin_wrapper.interface;
 
     var stdout_buf: [jn_core.STDOUT_BUFFER_SIZE]u8 = undefined;
-    var stdout_wrapper = std.fs.File.stdout().writer(&stdout_buf);
+    var stdout_wrapper = std.fs.File.stdout().writerStreaming(&stdout_buf);
     const writer = &stdout_wrapper.interface;
 
     switch (config.format) {

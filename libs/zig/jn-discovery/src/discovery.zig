@@ -370,6 +370,7 @@ fn parsePluginMeta(
 
     // Copy path
     const path_copy = try allocator.dupe(u8, path);
+    errdefer allocator.free(path_copy);
 
     return PluginInfo{
         .name = name,

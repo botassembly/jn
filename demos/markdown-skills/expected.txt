@@ -1,0 +1,41 @@
+=== Markdown Skills Demo ===
+
+1. Skill catalog (names):
+{"name":"algorithmic-art"}
+{"name":"brand-guidelines"}
+{"name":"canvas-design"}
+{"name":"doc-coauthoring"}
+{"name":"docx"}
+{"name":"frontend-design"}
+{"name":"internal-comms"}
+{"name":"mcp-builder"}
+{"name":"pdf"}
+{"name":"pptx"}
+{"name":"skill-creator"}
+{"name":"slack-gif-creator"}
+{"name":"theme-factory"}
+{"name":"web-artifacts-builder"}
+{"name":"webapp-testing"}
+{"name":"xlsx"}
+
+2. Total skill count:
+16
+
+3. Proprietary skills (have license field):
+"docx"
+"pdf"
+"pptx"
+"xlsx"
+
+4. First 3 skills:
+"algorithmic-art"
+"brand-guidelines"
+"canvas-design"
+
+5. Average description length:
+301
+
+6. Single file parse (pdf frontmatter):
+{"name":"pdf","license":"Proprietary. LICENSE.txt has complete terms"}
+
+=== Done ===

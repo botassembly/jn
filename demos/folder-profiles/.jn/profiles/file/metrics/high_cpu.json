@@ -1,0 +1,5 @@
+{
+  "pattern": "test_data/metrics/**/*.jsonl",
+  "filter": "select(.metric == \"cpu_usage\" and .value > 50)",
+  "description": "High CPU usage (>50%)"
+}

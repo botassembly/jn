@@ -1,0 +1,5 @@
+{
+  "pattern": "test_data/events/**/*.jsonl",
+  "filter": "select(.event_type == \"login\" or .event_type == \"logout\")",
+  "description": "User login/logout events only"
+}

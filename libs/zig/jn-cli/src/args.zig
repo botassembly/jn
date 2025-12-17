@@ -34,6 +34,10 @@ pub const ArgParser = struct {
             self.keys[self.count] = key;
             self.values[self.count] = value;
             self.count += 1;
+        } else {
+            // Warn user about truncated arguments - this indicates a bug or
+            // unusual usage pattern (most plugins have far fewer than 32 args)
+            std.debug.print("Warning: argument '--{s}' ignored (max {d} arguments)\n", .{ key, MAX_ARGS });
         }
     }
 
@@ -93,8 +97,27 @@ pub fn parseArgs() ArgParser {
                 // Flag style: --flag
                 parser.add(rest, "");
             }
+        } else if (std.mem.startsWith(u8, arg, "-") and arg.len > 1) {
+            // Handle single-dash short options like -r, -s, -c
+            // Also handle -n=5 style
+            const rest = arg[1..];
+
+            // Check for -k=value style
+            if (std.mem.indexOf(u8, rest, "=")) |eq_pos| {
+                const key = rest[0..eq_pos];
+                const value = rest[eq_pos + 1 ..];
+                parser.add(key, value);
+            } else {
+                // Flag style: -r (single letter flag)
+                // Each character is a separate flag
+                // Use slices into the original arg string to avoid dangling pointers
+                for (0..rest.len) |i| {
+                    const key = rest[i .. i + 1];
+                    parser.add(key, "");
+                }
+            }
         }
-        // Ignore non-dashed arguments for now (positional args)
+        // Ignore non-dashed arguments (positional args)
     }
 
     return parser;
@@ -133,4 +156,24 @@ test "ArgParser returns default for missing args" {
 
     try std.testing.expectEqualStrings("default", parser.get("missing", "default").?);
     try std.testing.expect(parser.get("missing", null) == null);
+}
+
+test "ArgParser handles MAX_ARGS limit" {
+    var parser = ArgParser.init();
+
+    // Add MAX_ARGS arguments
+    for (0..MAX_ARGS) |i| {
+        var key_buf: [32]u8 = undefined;
+        const key = std.fmt.bufPrint(&key_buf, "arg{d}", .{i}) catch unreachable;
+        parser.add(key, "value");
+    }
+
+    try std.testing.expectEqual(@as(usize, MAX_ARGS), parser.count);
+
+    // Attempting to add more should not increase count (truncated)
+    parser.add("extra", "value");
+    try std.testing.expectEqual(@as(usize, MAX_ARGS), parser.count);
+
+    // The truncated argument should not be accessible
+    try std.testing.expect(!parser.has("extra"));
 }

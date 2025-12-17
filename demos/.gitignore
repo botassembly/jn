@@ -19,10 +19,10 @@ csv-filtering/summary.json
 csv-filtering/top_products.csv
 
 # HTTP API demo outputs
-http-api/*.json
+http-api/actual.txt
 
 # Shell commands demo outputs
-shell-commands/*.json
+shell-commands/actual.txt
 
 # XLSX files demo outputs
 xlsx-files/*.xlsx

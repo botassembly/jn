@@ -1,0 +1,134 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.15.2
+
+      - name: Extract version from tag
+        id: version
+        shell: bash
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Generate version file
+        shell: bash
+        run: echo "${{ steps.version.outputs.version }}" > tools/zig/jn/version.txt
+
+      - name: Build all tools
+        shell: bash
+        run: |
+          # Module definitions
+          JN_CORE="-Mjn-core=../../../libs/zig/jn-core/src/root.zig"
+          JN_CLI="-Mjn-cli=../../../libs/zig/jn-cli/src/root.zig"
+          JN_PLUGIN="-Mjn-plugin=../../../libs/zig/jn-plugin/src/root.zig"
+          JN_ADDRESS="-Mjn-address=../../../libs/zig/jn-address/src/root.zig"
+          JN_PROFILE="-Mjn-profile=../../../libs/zig/jn-profile/src/root.zig"
+
+          TOOL_MODULES="--dep jn-core --dep jn-cli --dep jn-address --dep jn-profile -Mroot=./main.zig $JN_CORE $JN_CLI $JN_ADDRESS $JN_PROFILE"
+          PLUGIN_MODULES="--dep jn-core --dep jn-cli --dep jn-plugin -Mroot=./main.zig $JN_CORE $JN_CLI $JN_PLUGIN"
+          JN_MODULES="--dep jn-core -Mroot=./main.zig $JN_CORE"
+
+          TARGET="-target x86_64-linux"
+
+          # Create output directory
+          mkdir -p dist/bin
+
+          # Build jn orchestrator
+          echo "Building jn..."
+          cd tools/zig/jn
+          zig build-exe -fllvm -O ReleaseFast $TARGET $JN_MODULES -femit-bin=../../../dist/bin/jn
+          cd ../../..
+
+          # Build CLI tools
+          for tool in jn-cat jn-put jn-filter jn-head jn-tail jn-analyze jn-inspect jn-join jn-merge jn-sh jn-edit; do
+            echo "Building $tool..."
+            cd tools/zig/$tool
+            zig build-exe -fllvm -O ReleaseFast $TARGET $TOOL_MODULES -femit-bin=../../../dist/bin/${tool}
+            cd ../../..
+          done
+
+          # Build ZQ
+          echo "Building zq..."
+          cd zq
+          zig build-exe src/main.zig -fllvm -O ReleaseFast $TARGET -femit-bin=../dist/bin/zq
+          cd ..
+
+          # Build plugins
+          for plugin in csv json jsonl gz yaml toml; do
+            echo "Building $plugin plugin..."
+            cd plugins/zig/$plugin
+            zig build-exe -fllvm -O ReleaseFast $TARGET $PLUGIN_MODULES -femit-bin=../../../dist/bin/${plugin}
+            cd ../../..
+          done
+
+          echo "Build complete!"
+          ls -la dist/bin/
+
+      - name: Package release
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          ARCHIVE="jn-${VERSION}-x86_64-linux"
+
+          mkdir -p release/$ARCHIVE
+
+          # Copy binaries
+          cp -r dist/bin release/$ARCHIVE/
+
+          # Copy jn_home (tools, plugins metadata)
+          cp -r jn_home release/$ARCHIVE/
+
+          # Create versioned archive
+          cd release
+          tar -czf ${ARCHIVE}.tar.gz $ARCHIVE
+
+          # Create non-versioned archive for easy "latest" downloads
+          cp ${ARCHIVE}.tar.gz jn-linux-x86_64.tar.gz
+
+          ls -la
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jn-x86_64-linux
+          path: release/*.tar.gz
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: release
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect release files
+        run: |
+          mkdir -p release
+          find artifacts -type f -name "*.tar.gz" -exec cp {} release/ \;
+          ls -la release/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref, '-alpha') || contains(github.ref, '-beta') || contains(github.ref, '-rc') }}

@@ -11,6 +11,9 @@ const plugin_meta = jn_plugin.PluginMeta{
     .modes = &.{ .read, .write },
 };
 
+/// Maximum input size (100MB default). This prevents OOM on extremely large files.
+const DEFAULT_MAX_INPUT_SIZE: usize = 100 * 1024 * 1024;
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -51,14 +54,19 @@ fn readMode(allocator: std.mem.Allocator) !void {
     const reader = &stdin_wrapper.interface;
 
     var stdout_buf: [jn_core.STDOUT_BUFFER_SIZE]u8 = undefined;
-    var stdout_wrapper = std.fs.File.stdout().writer(&stdout_buf);
+    var stdout_wrapper = std.fs.File.stdout().writerStreaming(&stdout_buf);
     const writer = &stdout_wrapper.interface;
 
     // Read all input into memory (YAML requires full document for indentation)
-    var input = std.ArrayList(u8){};
+    // Use ArrayListUnmanaged for explicit allocator passing (clearer ownership)
+    var input: std.ArrayListUnmanaged(u8) = .empty;
     defer input.deinit(allocator);
 
     while (jn_core.readLine(reader)) |line| {
+        // Check size limit to prevent OOM on maliciously large input
+        if (input.items.len + line.len > DEFAULT_MAX_INPUT_SIZE) {
+            jn_core.exitWithError("yaml: input exceeds maximum size of {d}MB", .{DEFAULT_MAX_INPUT_SIZE / (1024 * 1024)});
+        }
         try input.appendSlice(allocator, line);
         try input.append(allocator, '\n');
     }
@@ -109,7 +117,7 @@ fn writeMode(allocator: std.mem.Allocator, indent: u8) !void {
     const reader = &stdin_wrapper.interface;
 
     var stdout_buf: [jn_core.STDOUT_BUFFER_SIZE]u8 = undefined;
-    var stdout_wrapper = std.fs.File.stdout().writer(&stdout_buf);
+    var stdout_wrapper = std.fs.File.stdout().writerStreaming(&stdout_buf);
     const writer = &stdout_wrapper.interface;
 
     var first = true;
@@ -479,6 +487,13 @@ const YamlParser = struct {
     fn parseFlowArray(self: *Self) ParseError!std.json.Value {
         self.pos += 1; // skip [
         var arr = std.json.Array.init(self.allocator);
+        errdefer {
+            // Clean up already-parsed values on error to prevent memory leaks
+            for (arr.items) |item| {
+                self.freeValueRecursive(item);
+            }
+            arr.deinit();
+        }
 
         self.skipWhitespace();
 
@@ -501,11 +516,21 @@ const YamlParser = struct {
     fn parseFlowObject(self: *Self) ParseError!std.json.Value {
         self.pos += 1; // skip {
         var obj = std.json.ObjectMap.init(self.allocator);
+        errdefer {
+            // Clean up already-parsed key-value pairs on error to prevent memory leaks
+            var iter = obj.iterator();
+            while (iter.next()) |entry| {
+                self.allocator.free(entry.key_ptr.*);
+                self.freeValueRecursive(entry.value_ptr.*);
+            }
+            obj.deinit();
+        }
 
         self.skipWhitespace();
 
         while (self.pos < self.source.len and self.source[self.pos] != '}') {
             const key = try self.parseFlowKey();
+            errdefer self.allocator.free(key); // Free key if value parsing fails
             self.skipWhitespace();
 
             if (self.pos < self.source.len and self.source[self.pos] == ':') {
@@ -571,6 +596,13 @@ const YamlParser = struct {
 
     fn parseBlockArray(self: *Self, base_indent: usize) ParseError!std.json.Value {
         var arr = std.json.Array.init(self.allocator);
+        errdefer {
+            // Clean up already-parsed values on error to prevent memory leaks
+            for (arr.items) |item| {
+                self.freeValueRecursive(item);
+            }
+            arr.deinit();
+        }
 
         while (self.pos < self.source.len) {
             const current_indent = self.currentIndent();
@@ -602,6 +634,15 @@ const YamlParser = struct {
 
     fn parseBlockObject(self: *Self, base_indent: usize) ParseError!std.json.Value {
         var obj = std.json.ObjectMap.init(self.allocator);
+        errdefer {
+            // Clean up already-parsed key-value pairs on error to prevent memory leaks
+            var iter = obj.iterator();
+            while (iter.next()) |entry| {
+                self.allocator.free(entry.key_ptr.*);
+                self.freeValueRecursive(entry.value_ptr.*);
+            }
+            obj.deinit();
+        }
 
         while (self.pos < self.source.len) {
             const current_indent = self.currentIndent();
@@ -622,6 +663,7 @@ const YamlParser = struct {
 
             const key_raw = std.mem.trim(u8, self.source[key_start..self.pos], " \t");
             const key = try self.unquoteKey(key_raw);
+            errdefer self.allocator.free(key); // Free key if value parsing fails
 
             self.pos += 1; // skip :
             self.skipInlineWhitespace();
@@ -670,7 +712,7 @@ const YamlParser = struct {
         const content_indent = self.currentIndent();
         if (content_indent == 0) return .{ .string = try self.allocator.dupe(u8, "") };
 
-        var result = std.ArrayList(u8){};
+        var result: std.ArrayListUnmanaged(u8) = .empty;
         defer result.deinit(self.allocator);
 
         var first_line = true;
@@ -797,7 +839,7 @@ const YamlParser = struct {
         const quote = self.source[self.pos];
         self.pos += 1;
 
-        var result = std.ArrayList(u8){};
+        var result: std.ArrayListUnmanaged(u8) = .empty;
         defer result.deinit(self.allocator);
 
         while (self.pos < self.source.len) {
@@ -839,10 +881,15 @@ const YamlParser = struct {
                                 try result.append(self.allocator, byte);
                                 self.pos += 1;
                             } else |_| {
+                                // Invalid hex - treat as literal \x
                                 try result.append(self.allocator, '\\');
                                 try result.append(self.allocator, 'x');
                                 continue;
                             }
+                        } else {
+                            // Not enough characters - treat as literal \x
+                            try result.append(self.allocator, '\\');
+                            try result.append(self.allocator, 'x');
                         }
                     },
                     'u' => {
@@ -856,15 +903,21 @@ const YamlParser = struct {
                                     try result.appendSlice(self.allocator, utf8_buf[0..len]);
                                     self.pos += 3;
                                 } else |_| {
+                                    // Invalid codepoint - treat as literal \u
                                     try result.append(self.allocator, '\\');
                                     try result.append(self.allocator, 'u');
                                     continue;
                                 }
                             } else |_| {
+                                // Invalid hex - treat as literal \u
                                 try result.append(self.allocator, '\\');
                                 try result.append(self.allocator, 'u');
                                 continue;
                             }
+                        } else {
+                            // Not enough characters - treat as literal \u
+                            try result.append(self.allocator, '\\');
+                            try result.append(self.allocator, 'u');
                         }
                     },
                     'U' => {
@@ -878,15 +931,21 @@ const YamlParser = struct {
                                     try result.appendSlice(self.allocator, utf8_buf[0..len]);
                                     self.pos += 7;
                                 } else |_| {
+                                    // Invalid codepoint - treat as literal \U
                                     try result.append(self.allocator, '\\');
                                     try result.append(self.allocator, 'U');
                                     continue;
                                 }
                             } else |_| {
+                                // Invalid hex - treat as literal \U
                                 try result.append(self.allocator, '\\');
                                 try result.append(self.allocator, 'U');
                                 continue;
                             }
+                        } else {
+                            // Not enough characters - treat as literal \U
+                            try result.append(self.allocator, '\\');
+                            try result.append(self.allocator, 'U');
                         }
                     },
                     else => {
@@ -1085,4 +1144,24 @@ test "needsQuoting detects reserved words" {
     try std.testing.expect(needsQuoting("no"));
     try std.testing.expect(!needsQuoting("hello"));
     try std.testing.expect(!needsQuoting("world"));
+}
+
+test "parse escape sequences in double quoted strings" {
+    const allocator = std.testing.allocator;
+
+    // Test \x escape
+    var parser1 = YamlParser.init(allocator, "\"\\x41\\x42\"\n");
+    defer parser1.deinit();
+    const v1 = try parser1.parseDocument();
+    defer parser1.freeValue(v1);
+    try std.testing.expect(v1 == .string);
+    try std.testing.expectEqualStrings("AB", v1.string);
+
+    // Test incomplete \x is preserved literally
+    var parser2 = YamlParser.init(allocator, "\"test\\x\"\n");
+    defer parser2.deinit();
+    const v2 = try parser2.parseDocument();
+    defer parser2.freeValue(v2);
+    try std.testing.expect(v2 == .string);
+    try std.testing.expectEqualStrings("test\\x", v2.string);
 }

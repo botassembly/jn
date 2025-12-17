@@ -1,0 +1,3 @@
+{"timestamp": "2024-01-15T10:00:00Z", "event_type": "login", "user_id": "user123", "ip": "192.168.1.1"}
+{"timestamp": "2024-01-15T10:30:00Z", "event_type": "logout", "user_id": "user123", "session_duration": 1800}
+{"timestamp": "2024-01-15T11:00:00Z", "event_type": "login", "user_id": "user456", "ip": "192.168.1.2"}

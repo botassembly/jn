@@ -11,6 +11,9 @@ const plugin_meta = jn_plugin.PluginMeta{
     .modes = &.{ .read, .write },
 };
 
+/// Maximum input size (100MB default). This prevents OOM on extremely large files.
+const DEFAULT_MAX_INPUT_SIZE: usize = 100 * 1024 * 1024;
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -47,7 +50,7 @@ fn readMode(allocator: std.mem.Allocator) !void {
     const reader = &stdin_wrapper.interface;
 
     var stdout_buf: [jn_core.STDOUT_BUFFER_SIZE]u8 = undefined;
-    var stdout_wrapper = std.fs.File.stdout().writer(&stdout_buf);
+    var stdout_wrapper = std.fs.File.stdout().writerStreaming(&stdout_buf);
     const writer = &stdout_wrapper.interface;
 
     // Read all input
@@ -55,6 +58,10 @@ fn readMode(allocator: std.mem.Allocator) !void {
     defer input.deinit(allocator);
 
     while (jn_core.readLine(reader)) |line| {
+        // Check size limit to prevent OOM on maliciously large input
+        if (input.items.len + line.len > DEFAULT_MAX_INPUT_SIZE) {
+            jn_core.exitWithError("toml: input exceeds maximum size of {d}MB", .{DEFAULT_MAX_INPUT_SIZE / (1024 * 1024)});
+        }
         try input.appendSlice(allocator, line);
         try input.append(allocator, '\n');
     }
@@ -112,7 +119,7 @@ fn writeMode(allocator: std.mem.Allocator) !void {
     const reader = &stdin_wrapper.interface;
 
     var stdout_buf: [jn_core.STDOUT_BUFFER_SIZE]u8 = undefined;
-    var stdout_wrapper = std.fs.File.stdout().writer(&stdout_buf);
+    var stdout_wrapper = std.fs.File.stdout().writerStreaming(&stdout_buf);
     const writer = &stdout_wrapper.interface;
 
     while (jn_core.readLine(reader)) |line| {
@@ -889,7 +896,13 @@ const TomlParser = struct {
     fn parseArray(self: *Self) ParseError!std.json.Value {
         self.pos += 1; // skip [
         var arr = std.json.Array.init(self.allocator);
-        errdefer arr.deinit();
+        errdefer {
+            // Clean up already-parsed values on error to prevent memory leaks
+            for (arr.items) |item| {
+                self.freeValueRecursive(item);
+            }
+            arr.deinit();
+        }
 
         self.skipWhitespaceAndNewlines();
 

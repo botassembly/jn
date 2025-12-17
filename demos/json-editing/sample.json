@@ -1,0 +1,19 @@
+{
+  "name": "Alice",
+  "age": 30,
+  "email": "alice@example.com",
+  "active": true,
+  "tags": ["developer", "admin"],
+  "profile": {
+    "bio": "Software engineer",
+    "location": "NYC",
+    "social": {
+      "twitter": "@alice",
+      "github": "alice"
+    }
+  },
+  "settings": {
+    "theme": "light",
+    "notifications": true
+  }
+}

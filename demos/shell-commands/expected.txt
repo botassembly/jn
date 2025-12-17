@@ -1,0 +1,21 @@
+=== Shell Commands Demo ===
+
+1. Parse ls output (from fixed input):
+{"filename":"file1.txt","size":1234}
+{"filename":"file2.csv","size":5678}
+{"filename":"subdir","size":96}
+
+2. Parse env output (from fixed input):
+{"name":"HOME","value":"/home/user"}
+{"name":"USER","value":"testuser"}
+{"name":"SHELL","value":"/bin/bash"}
+
+3. Parse df output (from fixed input):
+{"filesystem":"/dev/sda1","use_percent":50,"mounted_on":"/"}
+{"filesystem":"/dev/sda2","use_percent":50,"mounted_on":"/data"}
+
+4. Parse ps output (from fixed input):
+{"user":"root","pid":1,"cpu_percent":0,"command":"/sbin/init"}
+{"user":"user","pid":1234,"cpu_percent":1.5,"command":"python app.py"}
+
+=== Done ===

@@ -4,58 +4,112 @@ Run these demos to see JN's ETL capabilities in action. Each demo has a well-com
 
 ## Prerequisites
 
-Before running demos, build the Zig tools:
+Before running demos, build and activate JN:
 
 ```bash
 cd ..
 make build
-export JN_HOME="$(pwd)"
-export PATH="$(pwd)/tools/zig/jn/bin:$PATH"
+source dist/activate.sh
 ```
 
 ## Quick Start
 
 ```bash
-cd csv-filtering && ./run_examples.sh     # Core ETL operations ✅
-cd join && ./run_examples.sh              # Stream enrichment via hash join ✅
-cd shell-commands && ./run_examples.sh    # Convert shell output to NDJSON ⚠️
+cd csv-filtering && ./run.sh              # Core ETL operations
+cd join && ./run.sh                       # Stream enrichment via hash join
+cd json-editing && ./run.sh               # Surgical JSON editing with jn-edit
+cd zq-functions && ./run.sh               # Filter functions showcase
+cd jn-grep && ./run.sh                    # Grep-like text search with line numbers
+cd todo && ./run.sh                       # Task management tool demo
 ```
 
 ## Available Demos
 
 | Demo | Status | Description |
 |------|--------|-------------|
-| **csv-filtering/** | ✅ Working | Read CSV, filter with ZQ, convert formats |
+| **csv-filtering/** | ✅ Working | Read CSV, filter with jn filter, convert formats |
 | **join/** | ✅ Working | Stream enrichment via hash join |
-| **shell-commands/** | ⚠️ Partial | Requires `jc` tool, ZQ subset limitations |
-| **http-api/** | ⚠️ Limited | HTTP URLs pending OpenDAL integration |
-| **glob/** | ⚠️ Limited | Glob patterns pending implementation |
-| **xlsx-files/** | ❌ Pending | Needs Python plugin discovery |
-| **table-rendering/** | ❌ Pending | Needs `jn table` command |
-| **code-lcov/** | ❌ Pending | Needs Python @code profiles |
-| **adapter-merge/** | ❌ Pending | Needs DuckDB Python plugin |
+| **json-editing/** | ✅ Working | Surgical JSON editing with jn-edit tool |
+| **zq-functions/** | ✅ Working | Filter functions (generators, transforms, time) |
+| **jn-grep/** | ✅ Working | Grep-like text search with line numbers |
+| **todo/** | ✅ Working | Task management with BEADS-inspired dependencies |
+| **shell-commands/** | ✅ Working | Convert shell output to NDJSON (requires `jc`) |
+| **http-api/** | ✅ Working | Fetch from REST APIs via curl |
+| **glob/** | ✅ Working | Process multiple files with glob patterns |
+| **xlsx-files/** | ✅ Working | Read/write Excel files (Python plugin) |
+| **table-rendering/** | ✅ Working | Pretty-print NDJSON as ASCII/markdown tables |
+| **code-lcov/** | ✅ Working | Analyze code files via @code profiles |
+| **adapter-merge/** | ✅ Working | DuckDB profiles + merge for data comparison |
+| **markdown-skills/** | ✅ Working | Parse markdown with frontmatter (Python plugin) |
 | **genomoncology/** | 📋 Example | Shows syntax only (requires credentials) |
 
 ## Key Patterns
 
-**Basic pipeline (✅ works):**
+**Basic pipeline:**
 ```bash
 jn cat data.csv | jn filter '.revenue > 1000' | jn put output.json
 ```
 
-**Shell commands (⚠️ requires jc):**
+**Shell commands (requires jc):**
 ```bash
 jn sh ps aux | jn filter '.cpu_percent > 10' | jn put high_cpu.json
 ```
 
-**Format conversion (✅ for CSV/JSON):**
+**Format conversion:**
 ```bash
-jn cat data.csv | jn put data.json   # CSV → JSON
+jn cat data.csv | jn put data.json      # CSV → JSON
+jn cat data.xlsx | jn put data.csv      # Excel → CSV
 ```
 
-**Pending features:**
-- HTTP URLs: `jn cat "https://api.github.com/..."` (OpenDAL integration)
-- Excel: `jn cat data.xlsx` (Python plugin discovery)
-- Tables: `jn table` command (not yet in Zig)
+**HTTP fetching:**
+```bash
+jn cat "https://api.github.com/users/octocat~json" | jn put user.json
+```
+
+**Table rendering:**
+```bash
+jn cat data.csv | jn table --tablefmt github   # Markdown table
+```
+
+**Profile-based queries:**
+```bash
+jn cat @genie/treatment                         # DuckDB query
+jn cat '@genie/treatment?regimen=FOLFOX'        # With parameters
+```
+
+**JSON editing (jn-edit):**
+```bash
+echo '{"name":"Alice"}' | jn-edit .age:=30      # Add number field
+echo '{"x":1}' | jn-edit .y:=2 .z:=3            # Multiple edits
+echo '{"a":[1]}' | jn-edit --append .a 2       # Append to array
+```
+
+**Task management (todo):**
+```bash
+todo add "Fix bug" -p high                      # Add task with priority (returns XID)
+todo blocks abc12 def34                         # Task abc12 blocks def34 (partial XIDs)
+todo ready                                      # Show actionable tasks
+todo done abc12                                 # Mark as done (partial XID matching)
+todo stats                                      # Statistics dashboard
+```
+
+**Filter functions:**
+```bash
+echo '{}' | jn filter 'xid'                            # Generate XID
+echo '{}' | jn filter 'now'                            # Current timestamp
+echo '{"ts":1734300000}' | jn filter '.ts | ago'       # Human-friendly relative time
+echo '{"id":"abc..."}' | jn filter '.id | xid_time'    # Extract timestamp from XID
+```
+
+**Grep-like text search (jn sh + jn filter):**
+```bash
+jn sh --raw cat file.log | jn filter 'select(.text | contains("ERROR"))'
+jn sh --raw ps aux | jn filter 'select(.text | contains("python"))'
+jn sh --raw cat file.txt | jn filter -r 'select(.text | contains("pattern")) | .line'
+```
 
 For detailed examples, see the scripts in each demo directory.
+
+## Writing Demos
+
+See [good-demo-bad-demo-guidelines.md](./good-demo-bad-demo-guidelines.md) for best practices.

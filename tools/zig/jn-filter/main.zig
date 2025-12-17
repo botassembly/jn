@@ -91,8 +91,24 @@ pub fn main() !void {
         jn_core.exitWithError("jn-filter: zq execution failed: {s}", .{@errorName(err)});
     };
 
-    if (result.Exited != 0) {
-        std.process.exit(result.Exited);
+    // Properly handle all termination types to avoid undefined behavior
+    switch (result) {
+        .Exited => |code| {
+            if (code != 0) {
+                std.process.exit(code);
+            }
+        },
+        .Signal => |sig| {
+            // Exit with 128 + signal number (Unix convention)
+            std.process.exit(128 +| @as(u8, @truncate(sig)));
+        },
+        .Stopped => |sig| {
+            // Stopped has a u32 stop code, not an enum
+            std.process.exit(128 +| @as(u8, @truncate(sig)));
+        },
+        .Unknown => |code| {
+            std.process.exit(if (code != 0) 1 else 0);
+        },
     }
 }
 
@@ -132,16 +148,28 @@ fn findZq(allocator: std.mem.Allocator) ?[]const u8 {
         }
     }
 
+    // Try sibling to executable (installed layout: both in same bin/)
+    var exe_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    if (std.fs.selfExePath(&exe_path_buf)) |exe_path| {
+        if (std.fs.path.dirname(exe_path)) |exe_dir| {
+            const sibling_path = std.fmt.allocPrint(allocator, "{s}/zq", .{exe_dir}) catch return null;
+            if (std.fs.cwd().access(sibling_path, .{})) |_| {
+                return sibling_path;
+            } else |_| {
+                allocator.free(sibling_path);
+            }
+        }
+    } else |_| {}
+
     // Try relative to current directory (development mode)
     const cwd_dev_path = "zq/zig-out/bin/zq";
     if (std.fs.cwd().access(cwd_dev_path, .{})) |_| {
         return cwd_dev_path;
     } else |_| {}
 
-    // Try relative to executable's location
+    // Try relative to executable's location (development layout)
     // Executable is at: /path/to/jn/tools/zig/jn-filter/bin/jn-filter
     // ZQ is at: /path/to/jn/zq/zig-out/bin/zq
-    var exe_path_buf: [std.fs.max_path_bytes]u8 = undefined;
     if (std.fs.selfExePath(&exe_path_buf)) |exe_path| {
         // Go up 4 levels: bin -> jn-filter -> zig -> tools -> root
         var dir = std.fs.path.dirname(exe_path);
@@ -181,7 +209,7 @@ fn findZq(allocator: std.mem.Allocator) ?[]const u8 {
 /// Print version
 fn printVersion() void {
     var buf: [256]u8 = undefined;
-    var stdout_wrapper = std.fs.File.stdout().writer(&buf);
+    var stdout_wrapper = std.fs.File.stdout().writerStreaming(&buf);
     const stdout = &stdout_wrapper.interface;
     stdout.print("jn-filter {s}\n", .{VERSION}) catch {};
     jn_core.flushWriter(stdout);
@@ -220,7 +248,7 @@ fn printUsage() void {
         \\
     ;
     var buf: [2048]u8 = undefined;
-    var stdout_wrapper = std.fs.File.stdout().writer(&buf);
+    var stdout_wrapper = std.fs.File.stdout().writerStreaming(&buf);
     const stdout = &stdout_wrapper.interface;
     stdout.writeAll(usage) catch {};
     jn_core.flushWriter(stdout);

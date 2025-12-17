@@ -1,8 +1,6 @@
 name: CI
 
 on:
-  push:
-    branches: ["**"]
   pull_request:
     branches: ["**"]
 
@@ -15,7 +13,7 @@ permissions:
 
 jobs:
   test-linux:
-    name: linux (py3.11)
+    name: linux
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -26,96 +24,5 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Install and run tests
-        run: |
-          uv run --isolated --python=3.11 --extra dev pytest -q
-
-      - name: Build Zig plugins
-        run: |
-          uv run --isolated --python=3.11 --extra dev python -c "
-          from jn.zig_builder import build_zq, build_zig_plugin
-          from pathlib import Path
-
-          # Build ZQ
-          zq_path = build_zq()
-          print(f'ZQ built: {zq_path}')
-
-          # Build all Zig plugins
-          for plugin_dir in Path('plugins/zig').iterdir():
-              if plugin_dir.name == 'opendal':
-                  continue
-              if plugin_dir.is_dir() and (plugin_dir / 'main.zig').exists():
-                  path = build_zig_plugin(plugin_dir.name, plugin_dir)
-                  print(f'{plugin_dir.name} built: {path}')
-          "
-
-      - name: Test Zig binaries
-        run: |
-          # Test ZQ
-          echo '{"a":1}' | ~/.local/jn/bin/zq-* '.'
-
-          # Test JSONL plugin
-          echo '{"x":1}' | ~/.local/jn/bin/jsonl-* --mode=read
-
-          # Test CSV plugin
-          echo -e 'a,b\n1,2' | ~/.local/jn/bin/csv-* --mode=read
-
-          # Test JSON plugin
-          echo '[{"a":1}]' | ~/.local/jn/bin/json-* --mode=read
-
-  test-windows:
-    name: windows (py3.11)
-    runs-on: windows-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup uv
-        uses: astral-sh/setup-uv@v4
-        with:
-          enable-cache: true
-
-      - name: Install and run tests
-        run: |
-          uv run --isolated --python=3.11 --extra dev pytest -q
-
-      - name: Build Zig plugins
-        shell: pwsh
-        run: |
-          uv run --isolated --python=3.11 --extra dev python -c @"
-          from jn.zig_builder import build_zq, build_zig_plugin
-          from pathlib import Path
-
-          # Build ZQ
-          zq_path = build_zq()
-          print(f'ZQ built: {zq_path}')
-
-          # Build all Zig plugins
-          for plugin_dir in Path('plugins/zig').iterdir():
-              if plugin_dir.name == 'opendal':
-                  continue
-              if plugin_dir.is_dir() and (plugin_dir / 'main.zig').exists():
-                  path = build_zig_plugin(plugin_dir.name, plugin_dir)
-                  print(f'{plugin_dir.name} built: {path}')
-          "@
-
-      - name: Test Zig binaries
-        shell: pwsh
-        run: |
-          $jnBin = "$env:USERPROFILE\.local\jn\bin"
-
-          # Test ZQ
-          $zq = Get-ChildItem "$jnBin\zq-*.exe" | Select-Object -First 1
-          echo '{"a":1}' | & $zq.FullName '.'
-
-          # Test JSONL plugin
-          $jsonl = Get-ChildItem "$jnBin\jsonl-*.exe" | Select-Object -First 1
-          echo '{"x":1}' | & $jsonl.FullName --mode=read
-
-          # Test CSV plugin
-          $csv = Get-ChildItem "$jnBin\csv-*.exe" | Select-Object -First 1
-          echo "a,b`n1,2" | & $csv.FullName --mode=read
-
-          # Test JSON plugin
-          $json = Get-ChildItem "$jnBin\json-*.exe" | Select-Object -First 1
-          echo '[{"a":1}]' | & $json.FullName --mode=read
+      - name: Build and test
+        run: make test
