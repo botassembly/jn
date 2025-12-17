@@ -15,56 +15,9 @@
 {"Month":"May","Description":"Infrastructure","Amount":"3200"}
 
 3. Calculate totals by category:
-[
-  {
-    "category": "Engineering",
-    "total": 9350
-  },
-  {
-    "category": "HR",
-    "total": 4200
-  },
-  {
-    "category": "Marketing",
-    "total": 10500
-  },
-  {
-    "category": "Operations",
-    "total": 7920
-  },
-  {
-    "category": "Sales",
-    "total": 2000
-  }
-]
+[{"category":"Engineering","total":9350},{"category":"HR","total":4200},{"category":"Marketing","total":10500},{"category":"Operations","total":7920},{"category":"Sales","total":2000}]
 
 4. Monthly summary:
-[
-  {
-    "month": "April",
-    "count": 4,
-    "total": 6600
-  },
-  {
-    "month": "February",
-    "count": 4,
-    "total": 4750
-  },
-  {
-    "month": "January",
-    "count": 4,
-    "total": 9500
-  },
-  {
-    "month": "March",
-    "count": 4,
-    "total": 5270
-  },
-  {
-    "month": "May",
-    "count": 4,
-    "total": 7850
-  }
-]
+[{"month":"April","count":4,"total":6600},{"month":"February","count":4,"total":4750},{"month":"March","count":4,"total":5270},{"month":"May","count":4,"total":7850},{"month":"January","count":4,"total":9500}]
 
 === Done ===

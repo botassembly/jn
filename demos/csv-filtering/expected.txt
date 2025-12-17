@@ -26,11 +26,7 @@
 {"product":"Mechanical Keyboard","category":"Electronics"}
 
 4. Summary statistics:
-{
-  "total_records": 15,
-  "total_revenue": 3709.84,
-  "categories": 3
-}
+{"total_records":15,"total_revenue":3709.84,"categories":3}
 
 5. Top 3 products by revenue:
 {"product":"Laptop Pro","revenue":"1299.99"}

@@ -17,7 +17,7 @@ echo "$OUT1"
 echo ""
 
 echo "2. Extract array elements:"
-OUT2=$(jn cat input.json | jn filter '.slideshow.slides[]' | jq -c '{title, type}')
+OUT2=$(jn cat input.json | jn filter '.slideshow.slides[]' | jn filter '{title, type}')
 echo "$OUT2"
 echo ""
 
@@ -27,7 +27,7 @@ echo "$OUT3"
 echo ""
 
 echo "4. Pipeline with aggregation:"
-OUT4=$(jn cat input.json | jn filter '.slideshow.slides[]' | jq -s '{total_slides: length, types: (map(.type) | unique)}')
+OUT4=$(jn cat input.json | jn filter '.slideshow.slides[]' | jn filter -s '{total_slides: length, types: (map(.type) | unique)}')
 echo "$OUT4"
 echo ""
 

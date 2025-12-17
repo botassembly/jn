@@ -1,22 +1,22 @@
 === Markdown Skills Demo ===
 
-1. Skill catalog (name + short desc):
-{"name":"algorithmic-art","desc":"Creating algorithmic art using p5.js with seeded r"}
-{"name":"brand-guidelines","desc":"Applies Anthropic's official brand colors and typo"}
-{"name":"canvas-design","desc":"Create beautiful visual art in .png and .pdf docum"}
-{"name":"doc-coauthoring","desc":"Guide users through a structured workflow for co-a"}
-{"name":"docx","desc":"Comprehensive document creation, editing, and anal"}
-{"name":"frontend-design","desc":"Create distinctive, production-grade frontend inte"}
-{"name":"internal-comms","desc":"A set of resources to help me write all kinds of i"}
-{"name":"mcp-builder","desc":"Guide for creating high-quality MCP (Model Context"}
-{"name":"pdf","desc":"Comprehensive PDF manipulation toolkit for extract"}
-{"name":"pptx","desc":"Presentation creation, editing, and analysis. When"}
-{"name":"skill-creator","desc":"Guide for creating effective skills. This skill sh"}
-{"name":"slack-gif-creator","desc":"Knowledge and utilities for creating animated GIFs"}
-{"name":"theme-factory","desc":"Toolkit for styling artifacts with a theme. These "}
-{"name":"web-artifacts-builder","desc":"Suite of tools for creating elaborate, multi-compo"}
-{"name":"webapp-testing","desc":"Toolkit for interacting with and testing local web"}
-{"name":"xlsx","desc":"Comprehensive spreadsheet creation, editing, and a"}
+1. Skill catalog (names):
+{"name":"algorithmic-art"}
+{"name":"brand-guidelines"}
+{"name":"canvas-design"}
+{"name":"doc-coauthoring"}
+{"name":"docx"}
+{"name":"frontend-design"}
+{"name":"internal-comms"}
+{"name":"mcp-builder"}
+{"name":"pdf"}
+{"name":"pptx"}
+{"name":"skill-creator"}
+{"name":"slack-gif-creator"}
+{"name":"theme-factory"}
+{"name":"web-artifacts-builder"}
+{"name":"webapp-testing"}
+{"name":"xlsx"}
 
 2. Total skill count:
 16
@@ -27,7 +27,7 @@
 "pptx"
 "xlsx"
 
-4. First 3 skills alphabetically:
+4. First 3 skills:
 "algorithmic-art"
 "brand-guidelines"
 "canvas-design"

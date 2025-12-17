@@ -12,17 +12,17 @@ echo "=== Code Analysis Demo ==="
 echo ""
 
 echo "1. List code files (first 5):"
-OUT1=$(jn cat @code/files | jn head --lines=5 | jq -c '.')
+OUT1=$(jn cat @code/files | jn head --lines=5 | jn filter '.')
 echo "$OUT1"
 echo ""
 
 echo "2. Count Python files:"
-OUT2=$(jn cat @code/files | jn filter 'select(.file | endswith(".py"))' | jq -s 'length')
+OUT2=$(jn cat @code/files | jn filter 'select(.file | endswith(".py"))' | jn filter -s 'length')
 echo "$OUT2"
 echo ""
 
 echo "3. Count Zig files:"
-OUT3=$(jn cat @code/files | jn filter 'select(.file | endswith(".zig"))' | jq -s 'length')
+OUT3=$(jn cat @code/files | jn filter 'select(.file | endswith(".zig"))' | jn filter -s 'length')
 echo "$OUT3"
 echo ""
 

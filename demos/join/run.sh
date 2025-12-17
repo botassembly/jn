@@ -3,34 +3,34 @@
 set -e
 cd "$(dirname "$0")"
 
-{
-echo "=== Join Demo ==="
-echo ""
+rm -f actual.txt
 
-echo "1. Left Join (enrich customers with orders):"
+echo "=== Join Demo ===" >> actual.txt
+echo "" >> actual.txt
+
+echo "1. Left Join (enrich customers with orders):" >> actual.txt
 jn cat customers.csv | jn join orders.csv \
-  --left-key=id --right-key=customer_id | jq -c '.'
-echo ""
+  --left-key=id --right-key=customer_id | jn filter '.' >> actual.txt
+echo "" >> actual.txt
 
-echo "2. Inner Join (only customers with orders):"
+echo "2. Inner Join (only customers with orders):" >> actual.txt
 jn cat customers.csv | jn join orders.csv \
-  --left-key=id --right-key=customer_id --inner | jq -c '.'
-echo ""
+  --left-key=id --right-key=customer_id --inner | jn filter '.' >> actual.txt
+echo "" >> actual.txt
 
-echo "3. Chain with filter (high value orders >150):"
-jn cat customers.csv | jn join orders.csv \
-  --left-key=id --right-key=customer_id \
-  | jn filter 'select((.amount | tonumber) > 150)' | jq -c '.'
-echo ""
-
-echo "4. Select specific fields after join:"
+echo "3. Chain with filter (high value orders >150):" >> actual.txt
 jn cat customers.csv | jn join orders.csv \
   --left-key=id --right-key=customer_id \
-  | jq -c '{customer: .name, order: .order_id, amount}'
-echo ""
+  | jn filter 'select((.amount | tonumber) > 150)' >> actual.txt
+echo "" >> actual.txt
 
-echo "=== Done ==="
-} > actual.txt
+echo "4. Select specific fields after join:" >> actual.txt
+jn cat customers.csv | jn join orders.csv \
+  --left-key=id --right-key=customer_id \
+  | jn filter '{customer: .name, order: .order_id, amount}' >> actual.txt
+echo "" >> actual.txt
+
+echo "=== Done ===" >> actual.txt
 
 if diff -q expected.txt actual.txt > /dev/null 2>&1; then
     echo "PASS"; cat actual.txt

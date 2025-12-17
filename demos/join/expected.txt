@@ -18,6 +18,6 @@
 {"customer":"Alice","order":"O1","amount":"100"}
 {"customer":"Alice","order":"O2","amount":"200"}
 {"customer":"Bob","order":"O3","amount":"150"}
-{"customer":"Charlie","order":null,"amount":null}
+{"customer":"Charlie"}
 
 === Done ===

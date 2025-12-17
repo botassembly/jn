@@ -11,18 +11,7 @@
 {"_label":"West","product":"Widget","amount":"2000"}
 
 2. Count by label (compare regions):
-[
-  {
-    "label": "East",
-    "count": 4,
-    "total": 3050
-  },
-  {
-    "label": "West",
-    "count": 4,
-    "total": 4550
-  }
-]
+[{"label":"West","count":4,"total":4550},{"label":"East","count":4,"total":3050}]
 
 3. Merge without labels (just _source):
 {"_source":"/tmp/east_sales.jsonl","product":"Widget"}

@@ -15,7 +15,7 @@
 {"filesystem":"/dev/sda2","use_percent":50,"mounted_on":"/data"}
 
 4. Parse ps output (from fixed input):
-{"user":"root","pid":1,"cpu_percent":0.0,"command":"/sbin/init"}
+{"user":"root","pid":1,"cpu_percent":0,"command":"/sbin/init"}
 {"user":"user","pid":1234,"cpu_percent":1.5,"command":"python app.py"}
 
 === Done ===

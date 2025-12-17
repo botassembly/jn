@@ -27,7 +27,7 @@ echo "=== Demo Name ==="
 
 # 1. First example
 echo "1. What this does:"
-jn cat data.csv | jn filter '.x > 10' | jn filter 'pick(.key, .value)'
+jn cat data.csv | jn filter '.x > 10' | jn filter '{key, value}'
 
 echo "=== Demo Complete ==="
 ```
@@ -73,7 +73,7 @@ cat sample.md | /path/to/uv run /another/path/to/jn_home/plugins/formats/markdow
 ### 5. Filter long output
 ```bash
 # Good - show what matters
-jn cat data.json | jn filter 'pick(.id, .name)'
+jn cat data.json | jn filter '{id, name}'
 
 # Bad - dump everything
 jn cat data.json
