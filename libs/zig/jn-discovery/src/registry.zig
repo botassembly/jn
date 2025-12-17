@@ -198,22 +198,12 @@ fn matchSinglePattern(pattern: []const u8, address: []const u8) bool {
 
     // Handle end anchor with wildcard: .*\.ext$
     if (std.mem.startsWith(u8, pattern, ".*") and pattern[pattern.len - 1] == '$') {
-        // Extract the suffix (everything between .* and $)
-        var suffix_start: usize = 2; // Skip ".*"
-
-        // Handle .*\. (extension pattern)
-        if (pattern.len > 3 and pattern[2] == '\\' and pattern[3] == '.') {
-            suffix_start = 3; // Include the escaped dot
-        }
-
-        const suffix = extractLiteralSuffix(pattern[suffix_start .. pattern.len - 1]);
-        return std.mem.endsWith(u8, address, suffix);
+        return endsWithUnescaped(address, pattern[2 .. pattern.len - 1]);
     }
 
     // Handle end anchor only: suffix$
     if (pattern[pattern.len - 1] == '$') {
-        const suffix = extractLiteralSuffix(pattern[0 .. pattern.len - 1]);
-        return std.mem.endsWith(u8, address, suffix);
+        return endsWithUnescaped(address, pattern[0 .. pattern.len - 1]);
     }
 
     // Exact match
@@ -243,29 +233,23 @@ fn extractLiteralPrefix(pattern: []const u8) []const u8 {
     return pattern[0..end];
 }
 
-/// Extract literal suffix from a regex-like pattern.
-/// Handles escaped characters like \. -> .
-fn extractLiteralSuffix(pattern: []const u8) []const u8 {
-    // For suffix patterns like "\.csv" or ".csv", just unescape
-    var result: [256]u8 = undefined;
-    var result_len: usize = 0;
-    var i: usize = 0;
+fn endsWithUnescaped(address: []const u8, pattern: []const u8) bool {
+    var address_i: usize = address.len;
+    var pattern_i: usize = pattern.len;
 
-    while (i < pattern.len and result_len < 256) {
-        if (pattern[i] == '\\' and i + 1 < pattern.len) {
-            // Skip the backslash, include the next char
-            result[result_len] = pattern[i + 1];
-            result_len += 1;
-            i += 2;
-        } else {
-            result[result_len] = pattern[i];
-            result_len += 1;
-            i += 1;
+    while (pattern_i > 0) {
+        pattern_i -= 1;
+        const c = pattern[pattern_i];
+        if (pattern_i > 0 and pattern[pattern_i - 1] == '\\') {
+            pattern_i -= 1;
         }
+
+        if (address_i == 0) return false;
+        address_i -= 1;
+        if (address[address_i] != c) return false;
     }
 
-    // Return a view into a static buffer - this is safe for comparison
-    return result[0..result_len];
+    return true;
 }
 
 /// Calculate plugin match score.
