@@ -48,6 +48,7 @@ const COMMANDS = [_]Command{
     .{ .name = "cat", .tool = "jn-cat", .description = "Read and convert to NDJSON" },
     .{ .name = "put", .tool = "jn-put", .description = "Write from NDJSON to other formats" },
     .{ .name = "filter", .tool = "jn-filter", .description = "Filter and transform NDJSON" },
+    .{ .name = "edit", .tool = "jn-edit", .description = "Surgical JSON field editing" },
     .{ .name = "head", .tool = "jn-head", .description = "Output first N records" },
     .{ .name = "tail", .tool = "jn-tail", .description = "Output last N records" },
     .{ .name = "analyze", .tool = "jn-analyze", .description = "Compute statistics on NDJSON" },
@@ -631,6 +632,7 @@ fn printUsage() void {
         \\  cat        Read and convert to NDJSON
         \\  put        Write from NDJSON to other formats
         \\  filter     Filter and transform NDJSON
+        \\  edit       Surgical JSON field editing
         \\  head       Output first N records
         \\  tail       Output last N records
         \\  analyze    Compute statistics on NDJSON
@@ -674,7 +676,7 @@ test "command lookup" {
 
 test "known commands" {
     // Verify all expected commands are present
-    const expected = [_][]const u8{ "cat", "put", "filter", "head", "tail", "analyze", "inspect", "join", "merge", "sh" };
+    const expected = [_][]const u8{ "cat", "put", "filter", "edit", "head", "tail", "analyze", "inspect", "join", "merge", "sh" };
     for (expected) |name| {
         var found = false;
         for (COMMANDS) |cmd| {
