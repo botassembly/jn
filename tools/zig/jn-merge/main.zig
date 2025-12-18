@@ -101,7 +101,7 @@ pub fn main() !void {
 
     // Process each source
     var stdout_buf: [jn_core.STDOUT_BUFFER_SIZE]u8 = undefined;
-    var stdout_wrapper = std.fs.File.stdout().writer(&stdout_buf);
+    var stdout_wrapper = std.fs.File.stdout().writerStreaming(&stdout_buf);
     const writer = &stdout_wrapper.interface;
 
     var had_errors = false;
@@ -153,7 +153,7 @@ fn processFile(allocator: std.mem.Allocator, source: SourceSpec, config: *const 
     // Direct NDJSON reading
     const file = std.fs.cwd().openFile(source.path, .{}) catch |err| {
         var stderr_buf: [256]u8 = undefined;
-        var stderr_wrapper = std.fs.File.stderr().writer(&stderr_buf);
+        var stderr_wrapper = std.fs.File.stderr().writerStreaming(&stderr_buf);
         const stderr = &stderr_wrapper.interface;
         stderr.print("jn-merge: cannot open '{s}': {s}\n", .{ source.path, @errorName(err) }) catch {};
         jn_core.flushWriter(stderr);
@@ -197,7 +197,7 @@ fn processViaJnCat(allocator: std.mem.Allocator, source: SourceSpec, config: *co
     // Find jn-cat
     const jn_cat_path = findTool(allocator, "jn-cat") orelse {
         var stderr_buf: [256]u8 = undefined;
-        var stderr_wrapper = std.fs.File.stderr().writer(&stderr_buf);
+        var stderr_wrapper = std.fs.File.stderr().writerStreaming(&stderr_buf);
         const stderr = &stderr_wrapper.interface;
         stderr.print("jn-merge: jn-cat not found (required for '{s}')\n", .{source.path}) catch {};
         jn_core.flushWriter(stderr);
@@ -215,7 +215,7 @@ fn processViaJnCat(allocator: std.mem.Allocator, source: SourceSpec, config: *co
 
     child.spawn() catch |err| {
         var stderr_buf: [256]u8 = undefined;
-        var stderr_wrapper = std.fs.File.stderr().writer(&stderr_buf);
+        var stderr_wrapper = std.fs.File.stderr().writerStreaming(&stderr_buf);
         const stderr = &stderr_wrapper.interface;
         stderr.print("jn-merge: failed to spawn jn-cat for '{s}': {s}\n", .{ source.path, @errorName(err) }) catch {};
         jn_core.flushWriter(stderr);
@@ -341,7 +341,7 @@ fn findTool(allocator: std.mem.Allocator, name: []const u8) ?[]const u8 {
 /// Print version
 fn printVersion() void {
     var buf: [256]u8 = undefined;
-    var stdout_wrapper = std.fs.File.stdout().writer(&buf);
+    var stdout_wrapper = std.fs.File.stdout().writerStreaming(&buf);
     const stdout = &stdout_wrapper.interface;
     stdout.print("jn-merge {s}\n", .{VERSION}) catch {};
     jn_core.flushWriter(stdout);
@@ -388,7 +388,7 @@ fn printUsage() void {
         \\
     ;
     var buf: [4096]u8 = undefined;
-    var stdout_wrapper = std.fs.File.stdout().writer(&buf);
+    var stdout_wrapper = std.fs.File.stdout().writerStreaming(&buf);
     const stdout = &stdout_wrapper.interface;
     stdout.writeAll(usage) catch {};
     jn_core.flushWriter(stdout);

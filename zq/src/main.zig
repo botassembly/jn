@@ -291,7 +291,7 @@ pub fn main() !void {
     const reader = &stdin_reader_wrapper.interface;
 
     var stdout_buffer: [8192]u8 = undefined;
-    var stdout_writer_wrapper = std.fs.File.stdout().writer(&stdout_buffer);
+    var stdout_writer_wrapper = std.fs.File.stdout().writerStreaming(&stdout_buffer);
     const writer = &stdout_writer_wrapper.interface;
 
     var arena = std.heap.ArenaAllocator.init(page_alloc);

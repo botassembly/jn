@@ -11,6 +11,11 @@ dependencies = [
     "pytest>=7.0",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "ziglang",
+]
+
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]

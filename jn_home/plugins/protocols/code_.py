@@ -819,13 +819,27 @@ def enrich_with_coverage(record: dict, lcov_data: dict[str, list[dict]]) -> dict
 def find_files(root: str, globs: list[str]) -> Iterator[str]:
     """Find all matching files under root."""
     root_path = Path(root)
+    exclude_dirs = {".git", ".venv", "dist", "jn_home", "__pycache__"}
     seen = set()
 
     for pattern in globs:
         for path in root_path.glob(pattern):
-            if path.is_file() and str(path) not in seen:
-                seen.add(str(path))
-                yield str(path)
+            if not path.is_file():
+                continue
+
+            rel_parts = path.parts
+            try:
+                rel_parts = path.relative_to(root_path).parts
+            except ValueError:
+                pass
+            if any(part in exclude_dirs for part in rel_parts):
+                continue
+
+            path_str = str(path)
+            if path_str in seen:
+                continue
+            seen.add(path_str)
+            yield path_str
 
 
 def parse_address(address: str) -> tuple[str, dict]:
@@ -1029,6 +1043,12 @@ def main():
     try:
         for record in reads(config):
             print(json.dumps(record), flush=True)
+    except BrokenPipeError:
+        try:
+            sys.stdout.close()
+        except Exception:
+            pass
+        return
     except Exception as e:
         print(json.dumps({'error': str(e)}), file=sys.stderr, flush=True)
         sys.exit(1)

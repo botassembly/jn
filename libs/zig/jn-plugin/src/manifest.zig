@@ -61,7 +61,7 @@ pub fn outputManifest(writer: anytype, plugin: meta.PluginMeta) !void {
 /// Convenience function for plugins to use in --jn-meta handling.
 pub fn outputManifestToStdout(plugin: meta.PluginMeta) !void {
     var stdout_buf: [4096]u8 = undefined;
-    var stdout_wrapper = std.fs.File.stdout().writer(&stdout_buf);
+    var stdout_wrapper = std.fs.File.stdout().writerStreaming(&stdout_buf);
     const writer = &stdout_wrapper.interface;
 
     try outputManifest(writer, plugin);

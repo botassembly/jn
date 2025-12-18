@@ -114,7 +114,7 @@ pub fn main() !void {
 
 fn outputManifest() !void {
     var stdout_buf: [4096]u8 = undefined;
-    var stdout_wrapper = std.fs.File.stdout().writer(&stdout_buf);
+    var stdout_wrapper = std.fs.File.stdout().writerStreaming(&stdout_buf);
     const writer = &stdout_wrapper.interface;
 
     try writer.writeAll("{\"name\":\"");
@@ -158,7 +158,7 @@ fn readMode() !void {
     const reader = &stdin_wrapper.interface;
 
     var stdout_buf: [64 * 1024]u8 = undefined;
-    var stdout_wrapper = std.fs.File.stdout().writer(&stdout_buf);
+    var stdout_wrapper = std.fs.File.stdout().writerStreaming(&stdout_buf);
     const writer = &stdout_wrapper.interface;
 
     // Simple passthrough - read lines, write lines

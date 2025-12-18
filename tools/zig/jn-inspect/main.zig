@@ -312,7 +312,7 @@ fn listProfiles(allocator: std.mem.Allocator, type_filter: ?[]const u8, json_for
 
     // Output
     var stdout_buf: [jn_core.STDOUT_BUFFER_SIZE]u8 = undefined;
-    var stdout_wrapper = std.fs.File.stdout().writer(&stdout_buf);
+    var stdout_wrapper = std.fs.File.stdout().writerStreaming(&stdout_buf);
     const writer = &stdout_wrapper.interface;
 
     if (json_format) {
@@ -487,7 +487,7 @@ fn inferSchema(allocator: std.mem.Allocator, sample_size: usize, json_format: bo
     }
 
     var stdout_buf: [jn_core.STDOUT_BUFFER_SIZE]u8 = undefined;
-    var stdout_wrapper = std.fs.File.stdout().writer(&stdout_buf);
+    var stdout_wrapper = std.fs.File.stdout().writerStreaming(&stdout_buf);
     const writer = &stdout_wrapper.interface;
 
     if (json_format) {
@@ -606,7 +606,7 @@ fn showProfile(allocator: std.mem.Allocator, profile_ref: []const u8, json_forma
     _ = allocator;
 
     var stdout_buf: [jn_core.STDOUT_BUFFER_SIZE]u8 = undefined;
-    var stdout_wrapper = std.fs.File.stdout().writer(&stdout_buf);
+    var stdout_wrapper = std.fs.File.stdout().writerStreaming(&stdout_buf);
     const writer = &stdout_wrapper.interface;
 
     // Parse profile reference
@@ -635,7 +635,7 @@ fn showProfile(allocator: std.mem.Allocator, profile_ref: []const u8, json_forma
 /// Print version
 fn printVersion() void {
     var buf: [256]u8 = undefined;
-    var stdout_wrapper = std.fs.File.stdout().writer(&buf);
+    var stdout_wrapper = std.fs.File.stdout().writerStreaming(&buf);
     const stdout = &stdout_wrapper.interface;
     stdout.print("jn-inspect {s}\n", .{VERSION}) catch {};
     jn_core.flushWriter(stdout);
@@ -672,7 +672,7 @@ fn printUsage() void {
         \\
     ;
     var buf: [2048]u8 = undefined;
-    var stdout_wrapper = std.fs.File.stdout().writer(&buf);
+    var stdout_wrapper = std.fs.File.stdout().writerStreaming(&buf);
     const stdout = &stdout_wrapper.interface;
     stdout.writeAll(usage) catch {};
     jn_core.flushWriter(stdout);

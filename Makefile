@@ -1,4 +1,4 @@
-.PHONY: all build test check clean install-zig install-python-deps zq zq-test zig-plugins zig-plugins-test zig-libs zig-libs-test zig-tools zig-tools-test fmt dist download
+.PHONY: all build test check py-test clean install-zig install-python-deps zq zq-test zig-plugins zig-plugins-test zig-libs zig-libs-test zig-tools zig-tools-test fmt dist download
 
 # Zig configuration
 ZIG_VERSION := 0.15.2
@@ -39,10 +39,14 @@ all: build
 build: dist
 	@# build is an alias for dist
 
-test: dist zig-libs-test zig-plugins-test zig-tools-test zq-test
+test: dist zig-libs-test zig-plugins-test zig-tools-test zq-test py-test
 	@echo ""
 	@echo "All tests passed!"
 
+py-test:
+	@echo "Running Python tests..."
+	uv run pytest
+	@echo "  pytest: OK"
 check: build
 	@echo "Running integration checks..."
 	@export JN_HOME="$(PWD)" && export PATH="$(PWD)/tools/zig/jn/bin:$$PATH" && \
@@ -96,7 +100,7 @@ install-zig:
 install-python-deps:
 	@echo "Installing Python dependencies..."
 	@if command -v uv >/dev/null 2>&1; then \
-		uv pip install --system jc 2>/dev/null || uv pip install jc; \
+		uv tool install --force jc; \
 	elif command -v pip3 >/dev/null 2>&1; then \
 		pip3 install --user jc; \
 	elif command -v pip >/dev/null 2>&1; then \

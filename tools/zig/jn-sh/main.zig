@@ -313,7 +313,7 @@ fn executeWithJc(allocator: std.mem.Allocator, cmd_str: []const u8, command: []c
     };
 
     var stdout_buf: [jn_core.STDOUT_BUFFER_SIZE]u8 = undefined;
-    var stdout_wrapper = std.fs.File.stdout().writer(&stdout_buf);
+    var stdout_wrapper = std.fs.File.stdout().writerStreaming(&stdout_buf);
     const writer = &stdout_wrapper.interface;
 
     var pipe_buf: [jn_core.STDIN_BUFFER_SIZE]u8 = undefined;
@@ -407,7 +407,7 @@ fn executeRaw(allocator: std.mem.Allocator, cmd_str: []const u8) void {
     };
 
     var stdout_buf: [jn_core.STDOUT_BUFFER_SIZE]u8 = undefined;
-    var stdout_wrapper = std.fs.File.stdout().writer(&stdout_buf);
+    var stdout_wrapper = std.fs.File.stdout().writerStreaming(&stdout_buf);
     const writer = &stdout_wrapper.interface;
 
     // Read output line by line, wrap each in JSON
@@ -454,7 +454,7 @@ fn executeRaw(allocator: std.mem.Allocator, cmd_str: []const u8) void {
 /// Print version
 fn printVersion() void {
     var buf: [256]u8 = undefined;
-    var stdout_wrapper = std.fs.File.stdout().writer(&buf);
+    var stdout_wrapper = std.fs.File.stdout().writerStreaming(&buf);
     const stdout = &stdout_wrapper.interface;
     stdout.print("jn-sh {s}\n", .{VERSION}) catch {};
     jn_core.flushWriter(stdout);
@@ -500,7 +500,7 @@ fn printUsage() void {
         \\
     ;
     var buf: [4096]u8 = undefined;
-    var stdout_wrapper = std.fs.File.stdout().writer(&buf);
+    var stdout_wrapper = std.fs.File.stdout().writerStreaming(&buf);
     const stdout = &stdout_wrapper.interface;
     stdout.writeAll(usage) catch {};
     jn_core.flushWriter(stdout);

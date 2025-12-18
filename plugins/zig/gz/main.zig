@@ -61,7 +61,7 @@ fn compressMode() !void {
     var stdin_wrapper = std.fs.File.stdin().reader(&stdin_buf);
 
     var stdout_buf: [jn_core.STDOUT_BUFFER_SIZE]u8 = undefined;
-    var stdout_wrapper = std.fs.File.stdout().writer(&stdout_buf);
+    var stdout_wrapper = std.fs.File.stdout().writerStreaming(&stdout_buf);
     const writer = &stdout_wrapper.interface;
 
     comprezz.compress(&stdin_wrapper.interface, writer, .{}) catch |err| {
