@@ -100,7 +100,7 @@ install-zig:
 install-python-deps:
 	@echo "Installing Python dependencies..."
 	@if command -v uv >/dev/null 2>&1; then \
-		uv pip install --system jc 2>/dev/null || uv pip install jc; \
+		uv tool install --force jc; \
 	elif command -v pip3 >/dev/null 2>&1; then \
 		pip3 install --user jc; \
 	elif command -v pip >/dev/null 2>&1; then \
