@@ -1,0 +1,72 @@
+=== DB Demo ===
+
+1. Initialize database:
+Created database: ./.db.jsonl
+
+2. Insert records:
+{"name":"Alice","age":30,"role":"engineer","_meta":{"id":1,"created_at":"TIMESTAMP","updated_at":"TIMESTAMP","deleted":false,"deleted_at":null,"version":1}}
+Inserted record with ID 1
+{"name":"Bob","age":25,"role":"designer","_meta":{"id":2,"created_at":"TIMESTAMP","updated_at":"TIMESTAMP","deleted":false,"deleted_at":null,"version":1}}
+Inserted record with ID 2
+{"name":"Charlie","age":35,"role":"manager","_meta":{"id":3,"created_at":"TIMESTAMP","updated_at":"TIMESTAMP","deleted":false,"deleted_at":null,"version":1}}
+Inserted record with ID 3
+
+3. List all records:
+{"name":"Alice","age":30,"role":"engineer","_meta":{"id":1,"created_at":"TIMESTAMP","updated_at":"TIMESTAMP","deleted":false,"deleted_at":null,"version":1}}
+{"name":"Bob","age":25,"role":"designer","_meta":{"id":2,"created_at":"TIMESTAMP","updated_at":"TIMESTAMP","deleted":false,"deleted_at":null,"version":1}}
+{"name":"Charlie","age":35,"role":"manager","_meta":{"id":3,"created_at":"TIMESTAMP","updated_at":"TIMESTAMP","deleted":false,"deleted_at":null,"version":1}}
+
+4. Get specific record:
+{"name":"Bob","age":25,"role":"designer","_meta":{"id":2,"created_at":"TIMESTAMP","updated_at":"TIMESTAMP","deleted":false,"deleted_at":null,"version":1}}
+
+5. Query with filter:
+{"name":"Alice","age":30,"role":"engineer","_meta":{"id":1,"created_at":"TIMESTAMP","updated_at":"TIMESTAMP","deleted":false,"deleted_at":null,"version":1}}
+{"name":"Charlie","age":35,"role":"manager","_meta":{"id":3,"created_at":"TIMESTAMP","updated_at":"TIMESTAMP","deleted":false,"deleted_at":null,"version":1}}
+
+6. Update a record:
+Updated record 1
+{"name":"Alice","age":31,"role":"engineer","_meta":{"id":1,"created_at":"TIMESTAMP","updated_at":"TIMESTAMP","deleted":false,"deleted_at":null,"version":2}}
+
+7. Soft delete:
+Deleted record 3 (soft delete)
+total: 3
+active: 2
+deleted: 1
+
+8. List with deleted:
+{"name":"Alice","age":31,"role":"engineer","_meta":{"id":1,"created_at":"TIMESTAMP","updated_at":"TIMESTAMP","deleted":false,"deleted_at":null,"version":2}}
+{"name":"Bob","age":25,"role":"designer","_meta":{"id":2,"created_at":"TIMESTAMP","updated_at":"TIMESTAMP","deleted":false,"deleted_at":null,"version":1}}
+{"name":"Charlie","age":35,"role":"manager","_meta":{"id":3,"created_at":"TIMESTAMP","updated_at":"TIMESTAMP","deleted":true,"deleted_at":"TIMESTAMP","version":2}}
+
+9. Undelete:
+Restored record 3
+total: 3
+active: 3
+deleted: 0
+
+10. Stats:
+Database Statistics
+
+File: ./.db.jsonl
+
+Records:
+  Total:   3
+  Active:  3
+  Deleted: 0
+
+IDs:
+  Max ID:  3
+  Next ID: 4
+
+11. Check integrity:
+
+Check Results:
+  Records: 3
+  Status:  OK
+  Errors:   0
+  Warnings: 0
+
+12. Export as JSON array:
+[{"name":"Alice","age":31,"role":"engineer","_meta":{"id":1,"created_at":"TIMESTAMP","updated_at":"TIMESTAMP","deleted":false,"deleted_at":null,"version":2}},{"name":"Bob","age":25,"role":"designer","_meta":{"id":2,"created_at":"TIMESTAMP","updated_at":"TIMESTAMP","deleted":false,"deleted_at":null,"version":1}},{"name":"Charlie","age":35,"role":"manager","_meta":{"id":3,"created_at":"TIMESTAMP","updated_at":"TIMESTAMP","deleted":false,"deleted_at":null,"version":3}}]
+
+=== Done ===

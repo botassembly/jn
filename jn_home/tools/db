@@ -349,7 +349,9 @@ cmd_insert() {
     fi
 
     # Validate input is a JSON object
-    if ! echo "$input" | "$ZQ" -c 'select(type == "object")' >/dev/null 2>&1; then
+    local validated
+    validated=$(echo "$input" | "$ZQ" -c 'select(type == "object")' 2>/dev/null)
+    if [[ -z "$validated" ]]; then
         echo "Error: Input must be a JSON object" >&2
         exit 1
     fi
@@ -596,7 +598,65 @@ cmd_unset() {
         exit 1
     fi
 
-    cmd_update "$id" "del(.$path)"
+    lock_write
+    ensure_db_file
+
+    if ! record_exists "$id"; then
+        unlock_write
+        echo "Error: Record $id not found" >&2
+        exit 1
+    fi
+
+    backup_rotate
+
+    local temp_file
+    temp_file=$(get_temp_file)
+    local now
+    now=$(now_utc)
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ -z "$line" ]]; then
+            continue
+        fi
+
+        local line_id
+        line_id=$(echo "$line" | "$ZQ" -r '._meta.id' 2>/dev/null)
+
+        if [[ "$line_id" == "$id" ]]; then
+            local version
+            version=$(echo "$line" | "$ZQ" -r '._meta.version' 2>/dev/null)
+            local new_version=$((version + 1))
+
+            # Delete the field using --del
+            local result
+            result=$(echo "$line" | "$JN_EDIT" --del ".$path")
+
+            # Update mutable fields
+            result=$(echo "$result" | "$JN_EDIT" "._meta.updated_at:=\"$now\"")
+            result=$(echo "$result" | "$JN_EDIT" "._meta.version:=$new_version")
+
+            echo "$result" >> "$temp_file"
+
+            # Audit
+            audit_log "unset" "$id" "\"path\":\"$path\""
+        else
+            echo "$line" >> "$temp_file"
+        fi
+    done < "$DB_FILE"
+
+    # Validate and replace
+    if validate_ndjson_file "$temp_file" 2>/dev/null; then
+        mv "$temp_file" "$DB_FILE"
+    else
+        rm -f "$temp_file"
+        unlock_write
+        echo "Error: Unset produced invalid JSON" >&2
+        exit 1
+    fi
+
+    unlock_write
+
+    msg "${GREEN}Removed${RESET} field '$path' from record $id"
 }
 
 cmd_delete() {
