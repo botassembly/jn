@@ -1,0 +1,6 @@
+actual.txt
+.db.jsonl
+.db.jsonl.bak
+.db.jsonl.bak2
+.db.jsonl.audit.jsonl
+.db.jsonl.lock

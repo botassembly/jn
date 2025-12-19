@@ -1,0 +1,1662 @@
+#!/bin/bash
+#
+# db - A contention-safe, accuracy-first JSONL document database shell
+#
+# Powered by jn-edit for surgical JSON mutation and zq for querying.
+#
+# Usage:
+#   db init                         Initialize database file
+#   db insert '{"name":"Alice"}'    Insert a new record
+#   db get <id>                     Get record by ID
+#   db list                         List all active records
+#   db query '<zq_expr>'            Query records with zq expression
+#   db update <id> '<edit>...'      Update record with jn-edit expressions
+#   db set <id> <path> <value>      Set a field value
+#   db unset <id> <path>            Remove a field
+#   db delete <id>                  Soft delete a record
+#   db undelete <id>                Restore a soft-deleted record
+#   db purge                        Hard delete all soft-deleted records
+#   db count                        Count records by status
+#   db stats                        Show database statistics
+#   db check                        Validate database integrity
+#   db repair                       Repair database issues
+#   db reindex                      Verify and normalize database
+#   db undo                         Restore from backup
+#   db export [ndjson|json|csv]     Export records
+#   db help                         Show this help
+#
+# Data model:
+#   Each record has a reserved _meta object:
+#   {
+#     "_meta": {
+#       "id": 1,                           # Stable integer ID
+#       "created_at": "2025-01-01T00:00:00Z",
+#       "updated_at": "2025-01-01T00:00:00Z",
+#       "deleted": false,
+#       "deleted_at": null,
+#       "version": 1
+#     },
+#     "name": "Alice",  # User fields
+#     ...
+#   }
+#
+# Options:
+#   --file <path>        Database file (default: ./.db.jsonl)
+#   --schema <name>      Filter/assign _meta.schema
+#   --include-deleted    Include soft-deleted records
+#   --only-deleted       Show only soft-deleted records
+#   --json               Machine-readable output
+#   --quiet              Suppress non-essential messages
+#   --unsafe             Allow editing _meta fields (dangerous)
+#
+# Dependencies: jn-edit, zq (from the jn toolkit)
+#
+
+set -euo pipefail
+
+# -----------------------------------------------------------------------------
+# Configuration
+# -----------------------------------------------------------------------------
+
+DB_FILE="${JN_DB_FILE:-./.db.jsonl}"
+INCLUDE_DELETED=false
+ONLY_DELETED=false
+SCHEMA=""
+JSON_OUTPUT=false
+QUIET=false
+UNSAFE=false
+
+# ANSI colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+MAGENTA='\033[0;35m'
+CYAN='\033[0;36m'
+DIM='\033[2m'
+BOLD='\033[1m'
+RESET='\033[0m'
+
+# -----------------------------------------------------------------------------
+# Setup: Find jn tools
+# -----------------------------------------------------------------------------
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if command -v jn-edit &> /dev/null && command -v zq &> /dev/null; then
+    JN_EDIT="jn-edit"
+    ZQ="zq"
+else
+    # Try libexec layout: jn_home/tools/db -> ../../ -> libexec/jn/
+    LIBEXEC_DIR="$SCRIPT_DIR/../.."
+    if [[ -x "$LIBEXEC_DIR/jn-edit" ]] && [[ -x "$LIBEXEC_DIR/zq" ]]; then
+        JN_EDIT="$LIBEXEC_DIR/jn-edit"
+        ZQ="$LIBEXEC_DIR/zq"
+    # Try relative path from demos directory (development layout)
+    elif [[ -d "$SCRIPT_DIR/../../tools/zig" ]]; then
+        TOOLS_DIR="$SCRIPT_DIR/../../tools/zig"
+        ZQ_DIR="$SCRIPT_DIR/../../zq/zig-out/bin"
+        export PATH="$ZQ_DIR:$TOOLS_DIR/jn-edit/bin:$PATH"
+        JN_EDIT="jn-edit"
+        ZQ="zq"
+    else
+        echo "Error: jn tools not found. Please install jn or run 'make build'." >&2
+        exit 1
+    fi
+fi
+
+# Verify tools exist
+if [[ ! -x "$JN_EDIT" ]] && ! command -v "$JN_EDIT" &> /dev/null; then
+    echo "Error: jn-edit not found at $JN_EDIT" >&2
+    exit 1
+fi
+if [[ ! -x "$ZQ" ]] && ! command -v "$ZQ" &> /dev/null; then
+    echo "Error: zq not found at $ZQ" >&2
+    exit 1
+fi
+
+# -----------------------------------------------------------------------------
+# Helper Functions
+# -----------------------------------------------------------------------------
+
+# Get current UTC timestamp in ISO-8601 format
+now_utc() {
+    date -u +%Y-%m-%dT%H:%M:%SZ
+}
+
+# Sleep for specified milliseconds (pure bash, no bc dependency)
+sleep_ms() {
+    local ms="$1"
+    local sec=$((ms / 1000))
+    local frac=$((ms % 1000))
+    sleep "$(printf '%d.%03d' "$sec" "$frac")"
+}
+
+# Ensure database file exists
+ensure_db_file() {
+    if [[ ! -f "$DB_FILE" ]]; then
+        touch "$DB_FILE"
+    fi
+}
+
+# Get lock file path
+get_lock_file() {
+    echo "${DB_FILE}.lock"
+}
+
+# Get temp file path (using mktemp for safety)
+get_temp_file() {
+    mktemp "${DB_FILE}.tmp.XXXXXX"
+}
+
+# Acquire exclusive lock using flock or mkdir fallback
+# Blocks indefinitely until lock is acquired (consistent behavior across both methods)
+lock_fd=""
+lock_write() {
+    local lock_file
+    lock_file=$(get_lock_file)
+
+    # Try flock first (preferred) - blocks until lock acquired
+    if command -v flock &> /dev/null; then
+        exec 9>"$lock_file"
+        flock 9  # Blocking wait for lock
+        lock_fd=9
+    else
+        # Fallback to mkdir (atomic on all filesystems)
+        # Blocks indefinitely with exponential backoff (matching flock behavior)
+        local lockdir="${lock_file}.d"
+        local wait_ms=100
+        local max_wait_ms=5000  # Cap at 5 seconds between attempts
+        while ! mkdir "$lockdir" 2>/dev/null; do
+            sleep_ms "$wait_ms"
+            # Exponential backoff with cap
+            wait_ms=$((wait_ms * 2))
+            if [[ $wait_ms -gt $max_wait_ms ]]; then
+                wait_ms=$max_wait_ms
+            fi
+        done
+        # Set up cleanup trap
+        trap 'rmdir "'"$lockdir"'" 2>/dev/null || true' EXIT
+    fi
+}
+
+# Release lock
+unlock_write() {
+    local lock_file
+    lock_file=$(get_lock_file)
+
+    if [[ -n "$lock_fd" ]]; then
+        # flock is auto-released when fd is closed
+        # DO NOT delete the lock file - flock coherence requires the inode to persist
+        exec 9>&-
+        lock_fd=""
+    else
+        # Remove mkdir lock
+        local lockdir="${lock_file}.d"
+        rmdir "$lockdir" 2>/dev/null || true
+        trap - EXIT
+    fi
+}
+
+# Rotate backups before destructive operation
+backup_rotate() {
+    if [[ -f "$DB_FILE" ]]; then
+        if [[ -f "${DB_FILE}.bak" ]]; then
+            cp "${DB_FILE}.bak" "${DB_FILE}.bak2"
+        fi
+        cp "$DB_FILE" "${DB_FILE}.bak"
+    fi
+}
+
+# Validate NDJSON file - each line must be valid JSON object with proper _meta
+validate_ndjson_file() {
+    local file="$1"
+    local ok=true
+    local line_num=0
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line_num=$((line_num + 1))
+        if [[ -z "$line" ]]; then
+            continue
+        fi
+        # Check if valid JSON
+        if ! echo "$line" | "$ZQ" -c '.' >/dev/null 2>&1; then
+            echo "Line $line_num: Invalid JSON" >&2
+            ok=false
+            continue
+        fi
+        # Check if top-level is object
+        local type_check
+        type_check=$(echo "$line" | "$ZQ" -r 'type' 2>/dev/null)
+        if [[ "$type_check" != "object" ]]; then
+            echo "Line $line_num: Not a JSON object" >&2
+            ok=false
+            continue
+        fi
+        # Check if _meta exists and is object
+        local meta_type
+        meta_type=$(echo "$line" | "$ZQ" -r '._meta | type' 2>/dev/null)
+        if [[ "$meta_type" != "object" ]]; then
+            echo "Line $line_num: Missing or invalid _meta object" >&2
+            ok=false
+            continue
+        fi
+        # Check if _meta.id exists and is positive integer (>= 1)
+        local meta_id
+        meta_id=$(echo "$line" | "$ZQ" -r '._meta.id' 2>/dev/null)
+        if [[ -z "$meta_id" ]] || [[ "$meta_id" == "null" ]] || ! [[ "$meta_id" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Line $line_num: Missing or invalid _meta.id (must be >= 1)" >&2
+            ok=false
+            continue
+        fi
+    done < "$file"
+
+    if [[ "$ok" == "true" ]]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Require that an ID argument is a valid positive integer (>= 1)
+require_int_id() {
+    local id="$1"
+    local cmd="${2:-command}"
+    if [[ -z "$id" ]]; then
+        echo "Error: $cmd requires an ID" >&2
+        exit 1
+    fi
+    if ! [[ "$id" =~ ^[1-9][0-9]*$ ]]; then
+        echo "Error: ID must be a positive integer (>= 1), got: $id" >&2
+        exit 1
+    fi
+}
+
+# Require that a schema name is a safe identifier (letters, numbers, underscore, hyphen)
+require_schema_name() {
+    local schema="$1"
+    if [[ -z "$schema" ]]; then
+        return 0  # Empty schema is allowed (means no schema)
+    fi
+    if ! [[ "$schema" =~ ^[A-Za-z][A-Za-z0-9_-]{0,63}$ ]]; then
+        echo "Error: Schema name must be 1-64 chars, start with letter, contain only [A-Za-z0-9_-]" >&2
+        echo "Got: $schema" >&2
+        exit 1
+    fi
+}
+
+# Get maximum ID from database (including deleted records)
+max_id() {
+    if [[ ! -f "$DB_FILE" ]] || [[ ! -s "$DB_FILE" ]]; then
+        echo 0
+        return
+    fi
+    local max
+    max=$("$ZQ" -r '._meta.id' < "$DB_FILE" 2>/dev/null | sort -n | tail -1)
+    if [[ -z "$max" ]] || [[ "$max" == "null" ]]; then
+        echo 0
+    else
+        echo "$max"
+    fi
+}
+
+# Get record by ID (respects current visibility context: deleted/schema filters)
+select_by_id() {
+    local id="$1"
+    if [[ ! -f "$DB_FILE" ]] || [[ ! -s "$DB_FILE" ]]; then
+        return
+    fi
+    local filter
+    filter=$(build_base_filter)
+    "$ZQ" -c "select(._meta.id == $id) | $filter" < "$DB_FILE" 2>/dev/null
+}
+
+# Check if record exists in current visibility context
+record_exists() {
+    local id="$1"
+    local record
+    record=$(select_by_id "$id")
+    [[ -n "$record" ]]
+}
+
+# Check if record exists at all (ignoring visibility, for ID allocation)
+record_exists_any() {
+    local id="$1"
+    if [[ ! -f "$DB_FILE" ]] || [[ ! -s "$DB_FILE" ]]; then
+        return 1
+    fi
+    local record
+    record=$("$ZQ" -c "select(._meta.id == $id)" < "$DB_FILE" 2>/dev/null)
+    [[ -n "$record" ]]
+}
+
+# Get _meta for a record ignoring visibility filters (for error messaging)
+get_meta_for_id_any() {
+    local id="$1"
+    if [[ ! -f "$DB_FILE" ]] || [[ ! -s "$DB_FILE" ]]; then
+        return
+    fi
+    "$ZQ" -c "select(._meta.id == $id) | ._meta" < "$DB_FILE" 2>/dev/null
+}
+
+# Build base filter expression based on flags
+build_base_filter() {
+    local filter=""
+
+    if [[ "$ONLY_DELETED" == "true" ]]; then
+        filter='select(._meta.deleted == true)'
+    elif [[ "$INCLUDE_DELETED" != "true" ]]; then
+        filter='select(._meta.deleted == false)'
+    fi
+
+    if [[ -n "$SCHEMA" ]]; then
+        if [[ -n "$filter" ]]; then
+            filter="$filter | select(._meta.schema == \"$SCHEMA\")"
+        else
+            filter="select(._meta.schema == \"$SCHEMA\")"
+        fi
+    fi
+
+    if [[ -z "$filter" ]]; then
+        filter='.'
+    fi
+
+    echo "$filter"
+}
+
+# Append to audit log (best-effort)
+audit_log() {
+    local op="$1"
+    local id="$2"
+    local extra="${3:-}"
+
+    local audit_file="${DB_FILE}.audit.jsonl"
+    local ts
+    ts=$(now_utc)
+
+    local entry="{\"ts\":\"$ts\",\"op\":\"$op\",\"id\":$id"
+    if [[ -n "$SCHEMA" ]]; then
+        entry="$entry,\"schema\":\"$SCHEMA\""
+    fi
+    if [[ -n "$extra" ]]; then
+        entry="$entry,$extra"
+    fi
+    entry="$entry}"
+
+    echo "$entry" >> "$audit_file" 2>/dev/null || true
+}
+
+# Print message to stderr unless quiet
+msg() {
+    if [[ "$QUIET" != "true" ]]; then
+        echo -e "$@" >&2
+    fi
+}
+
+# -----------------------------------------------------------------------------
+# Commands
+# -----------------------------------------------------------------------------
+
+cmd_init() {
+    if [[ -f "$DB_FILE" ]]; then
+        msg "${YELLOW}Database already exists:${RESET} $DB_FILE"
+    else
+        touch "$DB_FILE"
+        msg "${GREEN}Created${RESET} database: $DB_FILE"
+    fi
+}
+
+cmd_insert() {
+    local input=""
+    local from_stdin=false
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --stdin)
+                from_stdin=true
+                shift
+                ;;
+            *)
+                input="$1"
+                shift
+                ;;
+        esac
+    done
+
+    # Get input
+    if [[ "$from_stdin" == "true" ]]; then
+        input=$(cat)
+    fi
+
+    if [[ -z "$input" ]]; then
+        echo "Usage: db insert '{\"field\":\"value\"}' or db insert --stdin" >&2
+        exit 1
+    fi
+
+    # Validate input is a JSON object
+    local validated
+    validated=$(echo "$input" | "$ZQ" -c 'select(type == "object")' 2>/dev/null)
+    if [[ -z "$validated" ]]; then
+        echo "Error: Input must be a JSON object" >&2
+        exit 1
+    fi
+
+    lock_write
+    ensure_db_file
+
+    # Get next ID
+    local next_id
+    next_id=$(($(max_id) + 1))
+
+    # Get current timestamp
+    local now
+    now=$(now_utc)
+
+    # Build _meta object
+    local meta="{\"id\":$next_id,\"created_at\":\"$now\",\"updated_at\":\"$now\",\"deleted\":false,\"deleted_at\":null,\"version\":1"
+    if [[ -n "$SCHEMA" ]]; then
+        meta="$meta,\"schema\":\"$SCHEMA\""
+    fi
+    meta="$meta}"
+
+    # Remove any existing _meta from input and add our own
+    local clean_input
+    clean_input=$(echo "$input" | "$ZQ" -c 'del(._meta)')
+
+    # Merge _meta with user data
+    local record
+    record=$(echo "$clean_input" | "$JN_EDIT" "._meta:=$meta")
+
+    # Create backup
+    backup_rotate
+
+    # Atomic write: copy existing + new record to temp file, then rename
+    local temp_file
+    temp_file=$(get_temp_file)
+
+    # Copy existing records to temp file
+    if [[ -s "$DB_FILE" ]]; then
+        cat "$DB_FILE" > "$temp_file"
+    fi
+
+    # Append new record
+    echo "$record" >> "$temp_file"
+
+    # Validate temp file before committing
+    if ! validate_ndjson_file "$temp_file" 2>/dev/null; then
+        rm -f "$temp_file"
+        unlock_write
+        echo "Error: Insert produced invalid database state" >&2
+        exit 1
+    fi
+
+    # Atomic rename
+    mv "$temp_file" "$DB_FILE"
+
+    # Audit log AFTER successful commit
+    audit_log "insert" "$next_id"
+
+    unlock_write
+
+    # Output
+    if [[ "$JSON_OUTPUT" == "true" ]]; then
+        echo "$record"
+    else
+        echo "$record"
+        msg "${GREEN}Inserted${RESET} record with ID $next_id"
+    fi
+}
+
+cmd_get() {
+    local id="$1"
+    require_int_id "$id" "get"
+
+    ensure_db_file
+
+    local filter
+    filter=$(build_base_filter)
+
+    local record
+    record=$("$ZQ" -c "select(._meta.id == $id) | $filter" < "$DB_FILE" 2>/dev/null)
+
+    if [[ -z "$record" ]]; then
+        msg "${RED}Error:${RESET} Record $id not found"
+        exit 1
+    fi
+
+    echo "$record"
+}
+
+cmd_list() {
+    ensure_db_file
+
+    if [[ ! -s "$DB_FILE" ]]; then
+        if [[ "$JSON_OUTPUT" != "true" ]]; then
+            msg "${DIM}No records.${RESET}"
+        fi
+        return
+    fi
+
+    local filter
+    filter=$(build_base_filter)
+
+    "$ZQ" -c "$filter" < "$DB_FILE" 2>/dev/null
+}
+
+cmd_query() {
+    local expr="$1"
+
+    if [[ -z "$expr" ]]; then
+        echo "Usage: db query '<zq_expression>'" >&2
+        exit 1
+    fi
+
+    ensure_db_file
+
+    if [[ ! -s "$DB_FILE" ]]; then
+        return
+    fi
+
+    local base_filter
+    base_filter=$(build_base_filter)
+
+    "$ZQ" -c "$base_filter | $expr" < "$DB_FILE" 2>/dev/null
+}
+
+cmd_update() {
+    local id="$1"
+    shift
+    local edits=("$@")
+
+    require_int_id "$id" "update"
+    if [[ ${#edits[@]} -eq 0 ]]; then
+        echo "Usage: db update <id> '<edit_expr>' [...]" >&2
+        echo "Example: db update 1 '.name:=\"Bob\"' '.age:=25'" >&2
+        exit 1
+    fi
+
+    lock_write
+    ensure_db_file
+
+    if ! record_exists "$id"; then
+        unlock_write
+        echo "Error: Record $id not found" >&2
+        exit 1
+    fi
+
+    backup_rotate
+
+    local temp_file
+    temp_file=$(get_temp_file)
+    local now
+    now=$(now_utc)
+    local updated=false
+    local audit_version_before=""
+    local audit_version_after=""
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ -z "$line" ]]; then
+            continue
+        fi
+
+        local line_id
+        line_id=$(echo "$line" | "$ZQ" -r '._meta.id' 2>/dev/null)
+
+        if [[ "$line_id" == "$id" ]]; then
+            # Capture original _meta as compact JSON (avoids quoting/escaping issues)
+            local orig_meta_json orig_version
+            orig_meta_json=$(echo "$line" | "$ZQ" -c '._meta' 2>/dev/null)
+            orig_version=$(echo "$line" | "$ZQ" -r '._meta.version' 2>/dev/null)
+            local new_version=$((orig_version + 1))
+
+            # Apply user edits
+            local result="$line"
+            for edit in "${edits[@]}"; do
+                result=$(echo "$result" | "$JN_EDIT" "$edit")
+            done
+
+            # Enforce safe mode: restore original _meta then patch mutable fields
+            if [[ "$UNSAFE" != "true" ]]; then
+                # Restore original _meta verbatim (prevents user corruption like ._meta:={})
+                result=$(echo "$result" | "$JN_EDIT" "._meta:=$orig_meta_json")
+            fi
+
+            # Update mutable fields (version and updated_at)
+            result=$(echo "$result" | "$JN_EDIT" "._meta.updated_at:=\"$now\"")
+            result=$(echo "$result" | "$JN_EDIT" "._meta.version:=$new_version")
+
+            echo "$result" >> "$temp_file"
+            updated=true
+            # Store audit info for after commit
+            audit_version_before="$orig_version"
+            audit_version_after="$new_version"
+        else
+            echo "$line" >> "$temp_file"
+        fi
+    done < "$DB_FILE"
+
+    # Validate and replace
+    if validate_ndjson_file "$temp_file" 2>/dev/null; then
+        mv "$temp_file" "$DB_FILE"
+    else
+        rm -f "$temp_file"
+        unlock_write
+        echo "Error: Update produced invalid JSON" >&2
+        exit 1
+    fi
+
+    # Audit log AFTER successful commit
+    if [[ -n "$audit_version_before" ]]; then
+        audit_log "update" "$id" "\"version_before\":$audit_version_before,\"version_after\":$audit_version_after"
+    fi
+
+    unlock_write
+
+    msg "${GREEN}Updated${RESET} record $id"
+}
+
+cmd_set() {
+    local id="$1"
+    local path="$2"
+    local value="$3"
+
+    require_int_id "$id" "set"
+    if [[ -z "$path" ]] || [[ -z "$value" ]]; then
+        echo "Usage: db set <id> <path> <json_value>" >&2
+        echo "Example: db set 1 name '\"Alice\"'" >&2
+        echo "Example: db set 1 age '30'" >&2
+        exit 1
+    fi
+
+    # Validate value is valid JSON
+    if ! echo "$value" | "$ZQ" -c '.' >/dev/null 2>&1; then
+        echo "Error: Value must be valid JSON" >&2
+        exit 1
+    fi
+
+    # Check for _meta access
+    if [[ "$path" == _meta* ]] && [[ "$UNSAFE" != "true" ]]; then
+        echo "Error: Cannot modify _meta fields without --unsafe" >&2
+        exit 1
+    fi
+
+    cmd_update "$id" ".$path:=$value"
+}
+
+cmd_unset() {
+    local id="$1"
+    local path="$2"
+
+    require_int_id "$id" "unset"
+    if [[ -z "$path" ]]; then
+        echo "Usage: db unset <id> <path>" >&2
+        echo "Example: db unset 1 temp_field" >&2
+        exit 1
+    fi
+
+    # Check for _meta access
+    if [[ "$path" == _meta* ]] && [[ "$UNSAFE" != "true" ]]; then
+        echo "Error: Cannot modify _meta fields without --unsafe" >&2
+        exit 1
+    fi
+
+    lock_write
+    ensure_db_file
+
+    if ! record_exists "$id"; then
+        unlock_write
+        echo "Error: Record $id not found" >&2
+        exit 1
+    fi
+
+    backup_rotate
+
+    local temp_file
+    temp_file=$(get_temp_file)
+    local now
+    now=$(now_utc)
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ -z "$line" ]]; then
+            continue
+        fi
+
+        local line_id
+        line_id=$(echo "$line" | "$ZQ" -r '._meta.id' 2>/dev/null)
+
+        if [[ "$line_id" == "$id" ]]; then
+            local version
+            version=$(echo "$line" | "$ZQ" -r '._meta.version' 2>/dev/null)
+            local new_version=$((version + 1))
+
+            # Delete the field using --del
+            local result
+            result=$(echo "$line" | "$JN_EDIT" --del ".$path")
+
+            # Update mutable fields
+            result=$(echo "$result" | "$JN_EDIT" "._meta.updated_at:=\"$now\"")
+            result=$(echo "$result" | "$JN_EDIT" "._meta.version:=$new_version")
+
+            echo "$result" >> "$temp_file"
+        else
+            echo "$line" >> "$temp_file"
+        fi
+    done < "$DB_FILE"
+
+    # Validate and replace
+    if validate_ndjson_file "$temp_file" 2>/dev/null; then
+        mv "$temp_file" "$DB_FILE"
+    else
+        rm -f "$temp_file"
+        unlock_write
+        echo "Error: Unset produced invalid JSON" >&2
+        exit 1
+    fi
+
+    # Audit log AFTER successful commit
+    audit_log "unset" "$id" "\"path\":\"$path\""
+
+    unlock_write
+
+    msg "${GREEN}Removed${RESET} field '$path' from record $id"
+}
+
+cmd_delete() {
+    local id="$1"
+    require_int_id "$id" "delete"
+
+    lock_write
+    ensure_db_file
+
+    if ! record_exists "$id"; then
+        unlock_write
+        echo "Error: Record $id not found" >&2
+        exit 1
+    fi
+
+    backup_rotate
+
+    local temp_file
+    temp_file=$(get_temp_file)
+    local now
+    now=$(now_utc)
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ -z "$line" ]]; then
+            continue
+        fi
+
+        local line_id
+        line_id=$(echo "$line" | "$ZQ" -r '._meta.id' 2>/dev/null)
+
+        if [[ "$line_id" == "$id" ]]; then
+            local version
+            version=$(echo "$line" | "$ZQ" -r '._meta.version' 2>/dev/null)
+            local new_version=$((version + 1))
+
+            local result
+            result=$(echo "$line" | "$JN_EDIT" "._meta.deleted:=true")
+            result=$(echo "$result" | "$JN_EDIT" "._meta.deleted_at:=\"$now\"")
+            result=$(echo "$result" | "$JN_EDIT" "._meta.updated_at:=\"$now\"")
+            result=$(echo "$result" | "$JN_EDIT" "._meta.version:=$new_version")
+
+            echo "$result" >> "$temp_file"
+        else
+            echo "$line" >> "$temp_file"
+        fi
+    done < "$DB_FILE"
+
+    # Validate before commit
+    if ! validate_ndjson_file "$temp_file" 2>/dev/null; then
+        rm -f "$temp_file"
+        unlock_write
+        echo "Error: Delete produced invalid database state" >&2
+        exit 1
+    fi
+
+    mv "$temp_file" "$DB_FILE"
+
+    # Audit log AFTER successful commit
+    audit_log "delete" "$id"
+
+    unlock_write
+
+    msg "${YELLOW}Deleted${RESET} record $id (soft delete)"
+}
+
+cmd_undelete() {
+    local id="$1"
+    require_int_id "$id" "undelete"
+
+    lock_write
+    ensure_db_file
+
+    if ! record_exists "$id"; then
+        unlock_write
+        # Check if record exists but is hidden due to visibility context
+        local meta
+        meta=$(get_meta_for_id_any "$id")
+        if [[ -n "$meta" ]]; then
+            # Record exists but is filtered out - provide precise hint
+            local rec_deleted rec_schema
+            rec_deleted=$(echo "$meta" | "$ZQ" -r '.deleted' 2>/dev/null)
+            rec_schema=$(echo "$meta" | "$ZQ" -r '.schema // empty' 2>/dev/null)
+
+            if [[ "$rec_deleted" == "false" ]]; then
+                echo "Error: Record $id is not deleted" >&2
+            elif [[ -n "$SCHEMA" ]] && [[ "$rec_schema" != "$SCHEMA" ]]; then
+                echo "Error: Record $id has schema '${rec_schema:-<none>}', not '$SCHEMA'" >&2
+                if [[ -z "$rec_schema" ]]; then
+                    echo "Hint: Remove --schema to access records with no schema" >&2
+                else
+                    echo "Hint: Remove --schema or use --schema $rec_schema" >&2
+                fi
+            elif [[ "$ONLY_DELETED" != "true" ]] && [[ "$INCLUDE_DELETED" != "true" ]]; then
+                echo "Error: Record $id is deleted and hidden by default" >&2
+                echo "Hint: Use --include-deleted or --only-deleted to access it" >&2
+            else
+                echo "Error: Record $id not found in current visibility context" >&2
+            fi
+        else
+            echo "Error: Record $id not found" >&2
+        fi
+        exit 1
+    fi
+
+    backup_rotate
+
+    local temp_file
+    temp_file=$(get_temp_file)
+    local now
+    now=$(now_utc)
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ -z "$line" ]]; then
+            continue
+        fi
+
+        local line_id
+        line_id=$(echo "$line" | "$ZQ" -r '._meta.id' 2>/dev/null)
+
+        if [[ "$line_id" == "$id" ]]; then
+            # Strict semantics: only undelete records that are actually deleted
+            local is_deleted
+            is_deleted=$(echo "$line" | "$ZQ" -r '._meta.deleted' 2>/dev/null)
+            if [[ "$is_deleted" != "true" ]]; then
+                rm -f "$temp_file"
+                unlock_write
+                echo "Error: Record $id is not deleted" >&2
+                exit 1
+            fi
+
+            local version
+            version=$(echo "$line" | "$ZQ" -r '._meta.version' 2>/dev/null)
+            local new_version=$((version + 1))
+
+            local result
+            result=$(echo "$line" | "$JN_EDIT" "._meta.deleted:=false")
+            result=$(echo "$result" | "$JN_EDIT" "._meta.deleted_at:=null")
+            result=$(echo "$result" | "$JN_EDIT" "._meta.updated_at:=\"$now\"")
+            result=$(echo "$result" | "$JN_EDIT" "._meta.version:=$new_version")
+
+            echo "$result" >> "$temp_file"
+        else
+            echo "$line" >> "$temp_file"
+        fi
+    done < "$DB_FILE"
+
+    # Validate before commit
+    if ! validate_ndjson_file "$temp_file" 2>/dev/null; then
+        rm -f "$temp_file"
+        unlock_write
+        echo "Error: Undelete produced invalid database state" >&2
+        exit 1
+    fi
+
+    mv "$temp_file" "$DB_FILE"
+
+    # Audit log AFTER successful commit
+    audit_log "undelete" "$id"
+
+    unlock_write
+
+    msg "${GREEN}Restored${RESET} record $id"
+}
+
+cmd_purge() {
+    local target_id=""
+    local before=""
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --id)
+                target_id="$2"
+                shift 2
+                ;;
+            --before)
+                before="$2"
+                shift 2
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
+    # Validate --id if provided
+    if [[ -n "$target_id" ]]; then
+        require_int_id "$target_id" "purge --id"
+    fi
+
+    lock_write
+    ensure_db_file
+
+    if [[ ! -s "$DB_FILE" ]]; then
+        unlock_write
+        msg "${DIM}No records to purge.${RESET}"
+        return
+    fi
+
+    backup_rotate
+
+    local temp_file
+    temp_file=$(get_temp_file)
+    local purged=0
+    local purged_ids=()
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ -z "$line" ]]; then
+            continue
+        fi
+
+        local deleted
+        deleted=$(echo "$line" | "$ZQ" -r '._meta.deleted' 2>/dev/null)
+
+        if [[ "$deleted" == "true" ]]; then
+            local should_purge=true
+
+            # Check --id filter
+            if [[ -n "$target_id" ]]; then
+                local line_id
+                line_id=$(echo "$line" | "$ZQ" -r '._meta.id' 2>/dev/null)
+                if [[ "$line_id" != "$target_id" ]]; then
+                    should_purge=false
+                fi
+            fi
+
+            # Check --before filter
+            if [[ -n "$before" ]] && [[ "$should_purge" == "true" ]]; then
+                local deleted_at
+                deleted_at=$(echo "$line" | "$ZQ" -r '._meta.deleted_at' 2>/dev/null)
+                if [[ "$deleted_at" > "$before" ]] || [[ "$deleted_at" == "$before" ]]; then
+                    should_purge=false
+                fi
+            fi
+
+            if [[ "$should_purge" == "true" ]]; then
+                local id
+                id=$(echo "$line" | "$ZQ" -r '._meta.id' 2>/dev/null)
+                purged_ids+=("$id")
+                purged=$((purged + 1))
+            else
+                echo "$line" >> "$temp_file"
+            fi
+        else
+            echo "$line" >> "$temp_file"
+        fi
+    done < "$DB_FILE"
+
+    # Validate before commit (temp_file may be empty if all records purged)
+    if [[ -s "$temp_file" ]]; then
+        if ! validate_ndjson_file "$temp_file" 2>/dev/null; then
+            rm -f "$temp_file"
+            unlock_write
+            echo "Error: Purge produced invalid database state" >&2
+            exit 1
+        fi
+    fi
+
+    mv "$temp_file" "$DB_FILE"
+
+    # Audit log AFTER successful commit
+    for id in "${purged_ids[@]}"; do
+        audit_log "purge" "$id"
+    done
+
+    unlock_write
+
+    msg "${RED}Purged${RESET} $purged record(s)"
+}
+
+cmd_count() {
+    ensure_db_file
+
+    if [[ ! -s "$DB_FILE" ]]; then
+        if [[ "$JSON_OUTPUT" == "true" ]]; then
+            echo '{"total":0,"active":0,"deleted":0}'
+        else
+            echo "total: 0"
+            echo "active: 0"
+            echo "deleted: 0"
+        fi
+        return
+    fi
+
+    # Build schema filter if specified
+    local schema_filter=""
+    if [[ -n "$SCHEMA" ]]; then
+        schema_filter="select(._meta.schema == \"$SCHEMA\") | "
+    fi
+
+    local total active deleted
+    # Count records matching schema filter (if any)
+    total=$("$ZQ" -c "${schema_filter}." < "$DB_FILE" 2>/dev/null | wc -l | tr -d ' ')
+    active=$("$ZQ" -c "${schema_filter}select(._meta.deleted == false)" < "$DB_FILE" 2>/dev/null | wc -l | tr -d ' ')
+    deleted=$("$ZQ" -c "${schema_filter}select(._meta.deleted == true)" < "$DB_FILE" 2>/dev/null | wc -l | tr -d ' ')
+
+    if [[ "$JSON_OUTPUT" == "true" ]]; then
+        local result="{\"total\":$total,\"active\":$active,\"deleted\":$deleted"
+        if [[ -n "$SCHEMA" ]]; then
+            result="$result,\"schema\":\"$SCHEMA\""
+        fi
+        echo "$result}"
+    else
+        echo "total: $total"
+        echo "active: $active"
+        echo "deleted: $deleted"
+    fi
+}
+
+cmd_stats() {
+    ensure_db_file
+
+    if [[ ! -s "$DB_FILE" ]]; then
+        msg "${DIM}No records.${RESET}"
+        return
+    fi
+
+    # Build schema filter if specified
+    local schema_filter=""
+    if [[ -n "$SCHEMA" ]]; then
+        schema_filter="select(._meta.schema == \"$SCHEMA\") | "
+    fi
+
+    local total active deleted max_id_val
+    # Count records matching schema filter (if any)
+    total=$("$ZQ" -c "${schema_filter}." < "$DB_FILE" 2>/dev/null | wc -l | tr -d ' ')
+    active=$("$ZQ" -c "${schema_filter}select(._meta.deleted == false)" < "$DB_FILE" 2>/dev/null | wc -l | tr -d ' ')
+    deleted=$("$ZQ" -c "${schema_filter}select(._meta.deleted == true)" < "$DB_FILE" 2>/dev/null | wc -l | tr -d ' ')
+    max_id_val=$(max_id)
+
+    if [[ "$JSON_OUTPUT" == "true" ]]; then
+        local result="{\"total\":$total,\"active\":$active,\"deleted\":$deleted,\"max_id\":$max_id_val"
+        if [[ -n "$SCHEMA" ]]; then
+            result="$result,\"schema\":\"$SCHEMA\""
+        fi
+        echo "$result}"
+    else
+        echo -e "${BOLD}Database Statistics${RESET}"
+        echo ""
+        echo -e "File: ${CYAN}$DB_FILE${RESET}"
+        if [[ -n "$SCHEMA" ]]; then
+            echo -e "Schema: ${MAGENTA}$SCHEMA${RESET}"
+        fi
+        echo ""
+        echo -e "${BOLD}Records:${RESET}"
+        echo "  Total:   $total"
+        echo -e "  Active:  ${GREEN}$active${RESET}"
+        echo -e "  Deleted: ${DIM}$deleted${RESET}"
+        echo ""
+        echo -e "${BOLD}IDs:${RESET}"
+        echo "  Max ID:  $max_id_val"
+        echo "  Next ID: $((max_id_val + 1))"
+
+        # Schema breakdown only when not filtering by schema (otherwise it's redundant)
+        if [[ -z "$SCHEMA" ]]; then
+            local schemas
+            schemas=$("$ZQ" -r 'select(._meta.schema != null) | ._meta.schema' < "$DB_FILE" 2>/dev/null | sort | uniq -c | sort -rn)
+            if [[ -n "$schemas" ]]; then
+                echo ""
+                echo -e "${BOLD}Schemas:${RESET}"
+                echo "$schemas" | while read -r count schema; do
+                    [[ -n "$schema" ]] && echo "  $schema: $count"
+                done
+            fi
+        fi
+    fi
+}
+
+cmd_check() {
+    ensure_db_file
+
+    local errors=0
+    local warnings=0
+
+    if [[ ! -f "$DB_FILE" ]]; then
+        echo "Error: Database file not found: $DB_FILE" >&2
+        exit 1
+    fi
+
+    if [[ ! -r "$DB_FILE" ]]; then
+        echo "Error: Database file not readable: $DB_FILE" >&2
+        exit 1
+    fi
+
+    local line_count=0
+    local ids=()
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ -z "$line" ]]; then
+            continue
+        fi
+        line_count=$((line_count + 1))
+
+        # Check 1: Valid JSON
+        if ! echo "$line" | "$ZQ" -c '.' >/dev/null 2>&1; then
+            echo "Error: Line $line_count: Invalid JSON" >&2
+            errors=$((errors + 1))
+            continue
+        fi
+
+        # Check 2: Is object
+        local type_check
+        type_check=$(echo "$line" | "$ZQ" -r 'type' 2>/dev/null)
+        if [[ "$type_check" != "object" ]]; then
+            echo "Error: Line $line_count: Not a JSON object" >&2
+            errors=$((errors + 1))
+            continue
+        fi
+
+        # Check 3: Has _meta
+        local has_meta
+        has_meta=$(echo "$line" | "$ZQ" -r '._meta | type' 2>/dev/null)
+        if [[ "$has_meta" != "object" ]]; then
+            echo "Error: Line $line_count: Missing _meta object" >&2
+            errors=$((errors + 1))
+            continue
+        fi
+
+        # Check 4: _meta.id exists and is positive integer (>= 1)
+        local meta_id
+        meta_id=$(echo "$line" | "$ZQ" -r '._meta.id' 2>/dev/null)
+        if [[ -z "$meta_id" ]] || [[ "$meta_id" == "null" ]]; then
+            echo "Error: Line $line_count: Missing _meta.id" >&2
+            errors=$((errors + 1))
+            continue
+        fi
+        if ! [[ "$meta_id" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Error: Line $line_count: _meta.id must be a positive integer (>= 1): $meta_id" >&2
+            errors=$((errors + 1))
+            continue
+        fi
+
+        ids+=("$meta_id")
+
+        # Check 5: timestamps present
+        local created_at updated_at
+        created_at=$(echo "$line" | "$ZQ" -r '._meta.created_at' 2>/dev/null)
+        updated_at=$(echo "$line" | "$ZQ" -r '._meta.updated_at' 2>/dev/null)
+        if [[ -z "$created_at" ]] || [[ "$created_at" == "null" ]]; then
+            echo "Warning: Line $line_count: Missing _meta.created_at" >&2
+            warnings=$((warnings + 1))
+        fi
+        if [[ -z "$updated_at" ]] || [[ "$updated_at" == "null" ]]; then
+            echo "Warning: Line $line_count: Missing _meta.updated_at" >&2
+            warnings=$((warnings + 1))
+        fi
+
+        # Check 6: deleted is boolean
+        local deleted
+        deleted=$(echo "$line" | "$ZQ" -r '._meta.deleted | type' 2>/dev/null)
+        if [[ "$deleted" != "boolean" ]]; then
+            echo "Warning: Line $line_count: _meta.deleted is not boolean" >&2
+            warnings=$((warnings + 1))
+        fi
+
+    done < "$DB_FILE"
+
+    # Check for duplicate IDs
+    local sorted_ids
+    sorted_ids=$(printf '%s\n' "${ids[@]}" | sort -n)
+    local duplicates
+    duplicates=$(echo "$sorted_ids" | uniq -d)
+    if [[ -n "$duplicates" ]]; then
+        echo "Error: Duplicate IDs found: $duplicates" >&2
+        errors=$((errors + 1))
+    fi
+
+    # Summary
+    if [[ "$JSON_OUTPUT" == "true" ]]; then
+        echo "{\"valid\":$([[ $errors -eq 0 ]] && echo true || echo false),\"errors\":$errors,\"warnings\":$warnings,\"records\":$line_count}"
+    else
+        echo ""
+        echo -e "${BOLD}Check Results:${RESET}"
+        echo "  Records: $line_count"
+        if [[ $errors -eq 0 ]]; then
+            echo -e "  Status:  ${GREEN}OK${RESET}"
+        else
+            echo -e "  Status:  ${RED}FAILED${RESET}"
+        fi
+        echo "  Errors:   $errors"
+        echo "  Warnings: $warnings"
+    fi
+
+    if [[ $errors -gt 0 ]]; then
+        exit 2
+    fi
+}
+
+cmd_repair() {
+    local repair_missing_meta=false
+    local keep="first"
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --repair-missing-meta)
+                repair_missing_meta=true
+                shift
+                ;;
+            --keep)
+                keep="$2"
+                shift 2
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
+    lock_write
+    ensure_db_file
+
+    if [[ ! -s "$DB_FILE" ]]; then
+        unlock_write
+        msg "${DIM}No records to repair.${RESET}"
+        return
+    fi
+
+    backup_rotate
+
+    local temp_file bad_file
+    temp_file=$(get_temp_file)
+    bad_file="${DB_FILE}.bad.jsonl"
+
+    local repaired=0
+    local quarantined=0
+    local seen_ids=()
+
+    # Pre-compute max_id from the original file to avoid reading during iteration
+    local running_max_id
+    running_max_id=$(max_id)
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ -z "$line" ]]; then
+            continue
+        fi
+
+        # Check if valid JSON
+        if ! echo "$line" | "$ZQ" -c '.' >/dev/null 2>&1; then
+            echo "$line" >> "$bad_file"
+            quarantined=$((quarantined + 1))
+            continue
+        fi
+
+        # Check if has _meta
+        local has_meta
+        has_meta=$(echo "$line" | "$ZQ" -r '._meta | type' 2>/dev/null)
+        if [[ "$has_meta" != "object" ]]; then
+            if [[ "$repair_missing_meta" == "true" ]]; then
+                # Allocate new ID from running counter (avoids duplicates)
+                running_max_id=$((running_max_id + 1))
+                local next_id=$running_max_id
+                local now
+                now=$(now_utc)
+                local meta="{\"id\":$next_id,\"created_at\":\"$now\",\"updated_at\":\"$now\",\"deleted\":false,\"deleted_at\":null,\"version\":1}"
+                line=$(echo "$line" | "$JN_EDIT" "._meta:=$meta")
+                repaired=$((repaired + 1))
+            else
+                echo "$line" >> "$bad_file"
+                quarantined=$((quarantined + 1))
+                continue
+            fi
+        fi
+
+        # Check for duplicate IDs
+        local meta_id
+        meta_id=$(echo "$line" | "$ZQ" -r '._meta.id' 2>/dev/null)
+
+        local is_dup=false
+        for seen in "${seen_ids[@]:-}"; do
+            if [[ "$seen" == "$meta_id" ]]; then
+                is_dup=true
+                break
+            fi
+        done
+
+        if [[ "$is_dup" == "true" ]]; then
+            if [[ "$keep" == "first" ]]; then
+                echo "$line" >> "$bad_file"
+                quarantined=$((quarantined + 1))
+                continue
+            fi
+            # keep=last: we'd need to track and replace - simplified: quarantine all dups
+            echo "$line" >> "$bad_file"
+            quarantined=$((quarantined + 1))
+            continue
+        fi
+
+        seen_ids+=("$meta_id")
+        # Update running_max_id to track highest ID seen (for new allocations)
+        if [[ "$meta_id" =~ ^[0-9]+$ ]] && [[ "$meta_id" -gt "$running_max_id" ]]; then
+            running_max_id="$meta_id"
+        fi
+        echo "$line" >> "$temp_file"
+
+    done < "$DB_FILE"
+
+    # Validate temp file before commit (may be empty if all records quarantined)
+    if [[ -s "$temp_file" ]]; then
+        if ! validate_ndjson_file "$temp_file" 2>/dev/null; then
+            rm -f "$temp_file"
+            unlock_write
+            echo "Error: Repair produced invalid database state" >&2
+            exit 1
+        fi
+    fi
+
+    mv "$temp_file" "$DB_FILE"
+    unlock_write
+
+    msg "${GREEN}Repair complete:${RESET}"
+    msg "  Repaired:     $repaired"
+    msg "  Quarantined:  $quarantined"
+    if [[ $quarantined -gt 0 ]]; then
+        msg "  Bad records:  $bad_file"
+    fi
+}
+
+cmd_reindex() {
+    # In v1, reindex is primarily check + optional normalize
+    msg "Running integrity check..."
+    cmd_check
+    msg ""
+    msg "${GREEN}Reindex complete.${RESET}"
+}
+
+cmd_undo() {
+    local backup_file="${DB_FILE}.bak"
+
+    if [[ ! -f "$backup_file" ]]; then
+        echo "Error: No backup available to restore" >&2
+        exit 1
+    fi
+
+    lock_write
+
+    # Validate backup before restoring
+    if ! validate_ndjson_file "$backup_file" 2>/dev/null; then
+        unlock_write
+        echo "Error: Backup file is corrupted" >&2
+        exit 1
+    fi
+
+    cp "$backup_file" "$DB_FILE"
+
+    unlock_write
+
+    msg "${GREEN}Restored${RESET} from backup"
+}
+
+cmd_export() {
+    local format="${1:-ndjson}"
+
+    ensure_db_file
+
+    if [[ ! -s "$DB_FILE" ]]; then
+        return
+    fi
+
+    local filter
+    filter=$(build_base_filter)
+
+    case "$format" in
+        ndjson|jsonl)
+            "$ZQ" -c "$filter" < "$DB_FILE" 2>/dev/null
+            ;;
+        json)
+            "$ZQ" -c "$filter" < "$DB_FILE" 2>/dev/null | "$ZQ" -s -c '.'
+            ;;
+        csv)
+            # Best-effort CSV export - flatten _meta and common fields
+            echo "id,created_at,updated_at,deleted,version,data"
+            "$ZQ" -c "$filter" < "$DB_FILE" 2>/dev/null | while read -r line; do
+                local id created updated deleted version data
+                id=$(echo "$line" | "$ZQ" -r '._meta.id' 2>/dev/null)
+                created=$(echo "$line" | "$ZQ" -r '._meta.created_at' 2>/dev/null)
+                updated=$(echo "$line" | "$ZQ" -r '._meta.updated_at' 2>/dev/null)
+                deleted=$(echo "$line" | "$ZQ" -r '._meta.deleted' 2>/dev/null)
+                version=$(echo "$line" | "$ZQ" -r '._meta.version' 2>/dev/null)
+                data=$(echo "$line" | "$ZQ" -c 'del(._meta)' 2>/dev/null)
+                data="${data//\"/\"\"}"
+                echo "$id,$created,$updated,$deleted,$version,\"$data\""
+            done
+            ;;
+        *)
+            echo "Unknown format: $format (use ndjson, json, or csv)" >&2
+            exit 1
+            ;;
+    esac
+}
+
+cmd_help() {
+    cat << 'EOF'
+db - A contention-safe JSONL document database shell
+
+Powered by jn-edit for mutations and zq for queries.
+
+BASIC COMMANDS:
+  db init                           Initialize database file
+  db insert '{"name":"Alice"}'      Insert a new record
+  db insert --stdin                 Insert from stdin
+  db get <id>                       Get record by ID
+  db list                           List all active records
+  db query '<zq_expr>'              Query with zq expression
+
+MUTATIONS:
+  db update <id> '<edit>...'        Update with jn-edit expressions
+  db set <id> <path> <value>        Set a field value
+  db unset <id> <path>              Remove a field
+  db delete <id>                    Soft delete a record
+  db --include-deleted undelete <id>  Restore a soft-deleted record
+  db purge                          Hard delete all soft-deleted records
+  db purge --id <id>                Purge specific record
+  db purge --before <timestamp>     Purge deleted before timestamp
+  Note: purge operates across all schemas (ignores --schema filter)
+
+INSPECTION:
+  db count                          Count records by status
+  db stats                          Show database statistics
+  db check                          Validate database integrity
+  db repair                         Repair database issues
+  db reindex                        Verify and normalize database
+
+UTILITIES:
+  db undo                           Restore from backup
+  db export [ndjson|json|csv]       Export records
+  db help                           Show this help
+
+GLOBAL OPTIONS:
+  --file <path>        Database file (default: ./.db.jsonl or $JN_DB_FILE)
+  --schema <name>      Filter/assign _meta.schema
+  --include-deleted    Include soft-deleted records in output
+  --only-deleted       Show only soft-deleted records
+  --json               Machine-readable output
+  --quiet              Suppress status messages
+  --unsafe             Allow editing _meta fields (dangerous!)
+
+DATA MODEL:
+  Each record has a reserved _meta object with:
+    id           - Stable integer identifier (immutable)
+    created_at   - Creation timestamp (immutable)
+    updated_at   - Last update timestamp (auto-updated)
+    deleted      - Soft delete flag
+    deleted_at   - Deletion timestamp
+    version      - Mutation counter (starts at 1)
+    schema       - Optional collection/table name
+
+EXAMPLES:
+  db init
+  db insert '{"name":"Alice","age":30}'
+  db insert --schema users '{"name":"Bob"}'
+  db list
+  db get 1
+  db query 'select(.age > 25)'
+  db set 1 age '31'
+  db update 1 '.name:="Updated Name"'
+  db delete 1
+  db --include-deleted list
+  db --include-deleted undelete 1
+  db purge
+  db stats
+  db check
+
+STORAGE:
+  Data stored in .db.jsonl (NDJSON format).
+  Backups: .db.jsonl.bak, .db.jsonl.bak2
+  Audit log: .db.jsonl.audit.jsonl (optional)
+  Lock file: .db.jsonl.lock
+
+Powered by jn-edit and zq from the jn toolkit.
+EOF
+}
+
+# -----------------------------------------------------------------------------
+# Argument Parsing
+# -----------------------------------------------------------------------------
+
+# Parse all arguments, extracting global options and collecting command + args
+COMMAND=""
+CMD_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --file)
+            DB_FILE="$2"
+            shift 2
+            ;;
+        --schema)
+            SCHEMA="$2"
+            require_schema_name "$SCHEMA"
+            shift 2
+            ;;
+        --include-deleted)
+            INCLUDE_DELETED=true
+            shift
+            ;;
+        --only-deleted)
+            ONLY_DELETED=true
+            shift
+            ;;
+        --json)
+            JSON_OUTPUT=true
+            shift
+            ;;
+        --quiet|-q)
+            QUIET=true
+            shift
+            ;;
+        --unsafe)
+            UNSAFE=true
+            shift
+            ;;
+        -*)
+            # Unknown option, pass to command
+            CMD_ARGS+=("$1")
+            shift
+            ;;
+        *)
+            # First non-option is the command, rest are command args
+            if [[ -z "$COMMAND" ]]; then
+                COMMAND="$1"
+            else
+                CMD_ARGS+=("$1")
+            fi
+            shift
+            ;;
+    esac
+done
+
+# Restore command args for dispatch
+set -- "${CMD_ARGS[@]}"
+
+# -----------------------------------------------------------------------------
+# Main Command Dispatch
+# -----------------------------------------------------------------------------
+
+case "${COMMAND:-help}" in
+    init)
+        cmd_init
+        ;;
+    insert|add)
+        cmd_insert "$@"
+        ;;
+    get)
+        cmd_get "$@"
+        ;;
+    list|ls)
+        cmd_list "$@"
+        ;;
+    query|q)
+        cmd_query "$@"
+        ;;
+    update)
+        cmd_update "$@"
+        ;;
+    set)
+        cmd_set "$@"
+        ;;
+    unset)
+        cmd_unset "$@"
+        ;;
+    delete|del)
+        cmd_delete "$@"
+        ;;
+    undelete|restore)
+        cmd_undelete "$@"
+        ;;
+    purge)
+        cmd_purge "$@"
+        ;;
+    count)
+        cmd_count
+        ;;
+    stats)
+        cmd_stats
+        ;;
+    check|validate)
+        cmd_check
+        ;;
+    repair|fix)
+        cmd_repair "$@"
+        ;;
+    reindex)
+        cmd_reindex
+        ;;
+    undo)
+        cmd_undo
+        ;;
+    export)
+        cmd_export "$@"
+        ;;
+    help|--help|-h)
+        cmd_help
+        ;;
+    *)
+        echo "Unknown command: $COMMAND" >&2
+        echo "Run 'db help' for usage." >&2
+        exit 1
+        ;;
+esac

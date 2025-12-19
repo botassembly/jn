@@ -238,6 +238,7 @@ dist: install-zig install-python-deps zq zig-plugins zig-tools
 	@echo '' >> dist/activate.sh
 	@echo '# Shortcut functions for jn tools (add new tools here)' >> dist/activate.sh
 	@echo 'todo() { jn tool todo "$$@"; }' >> dist/activate.sh
+	@echo 'db() { jn tool db "$$@"; }' >> dist/activate.sh
 	@chmod +x dist/activate.sh
 	@echo ""
 	@echo "=== Build Complete ==="
