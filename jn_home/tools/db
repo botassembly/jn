@@ -124,6 +124,14 @@ now_utc() {
     date -u +%Y-%m-%dT%H:%M:%SZ
 }
 
+# Sleep for specified milliseconds (pure bash, no bc dependency)
+sleep_ms() {
+    local ms="$1"
+    local sec=$((ms / 1000))
+    local frac=$((ms % 1000))
+    sleep "$(printf '%d.%03d' "$sec" "$frac")"
+}
+
 # Ensure database file exists
 ensure_db_file() {
     if [[ ! -f "$DB_FILE" ]]; then
@@ -160,10 +168,7 @@ lock_write() {
         local wait_ms=100
         local max_wait_ms=5000  # Cap at 5 seconds between attempts
         while ! mkdir "$lockdir" 2>/dev/null; do
-            # Sleep for wait_ms milliseconds (pure bash, no bc dependency)
-            local sec=$((wait_ms / 1000))
-            local ms=$((wait_ms % 1000))
-            sleep "$(printf '%d.%03d' "$sec" "$ms")"
+            sleep_ms "$wait_ms"
             # Exponential backoff with cap
             wait_ms=$((wait_ms * 2))
             if [[ $wait_ms -gt $max_wait_ms ]]; then
@@ -323,6 +328,15 @@ record_exists_any() {
     local record
     record=$("$ZQ" -c "select(._meta.id == $id)" < "$DB_FILE" 2>/dev/null)
     [[ -n "$record" ]]
+}
+
+# Get _meta for a record ignoring visibility filters (for error messaging)
+get_meta_for_id_any() {
+    local id="$1"
+    if [[ ! -f "$DB_FILE" ]] || [[ ! -s "$DB_FILE" ]]; then
+        return
+    fi
+    "$ZQ" -c "select(._meta.id == $id) | ._meta" < "$DB_FILE" 2>/dev/null
 }
 
 # Build base filter expression based on flags
@@ -821,9 +835,25 @@ cmd_undelete() {
     if ! record_exists "$id"; then
         unlock_write
         # Check if record exists but is hidden due to visibility context
-        if record_exists_any "$id"; then
-            echo "Error: Record $id not found in current visibility context" >&2
-            echo "Hint: Use --include-deleted or --only-deleted to see deleted records" >&2
+        local meta
+        meta=$(get_meta_for_id_any "$id")
+        if [[ -n "$meta" ]]; then
+            # Record exists but is filtered out - provide precise hint
+            local rec_deleted rec_schema
+            rec_deleted=$(echo "$meta" | "$ZQ" -r '.deleted' 2>/dev/null)
+            rec_schema=$(echo "$meta" | "$ZQ" -r '.schema // empty' 2>/dev/null)
+
+            if [[ "$rec_deleted" == "false" ]]; then
+                echo "Error: Record $id is not deleted" >&2
+            elif [[ -n "$SCHEMA" ]] && [[ "$rec_schema" != "$SCHEMA" ]]; then
+                echo "Error: Record $id has schema '${rec_schema:-<none>}', not '$SCHEMA'" >&2
+                echo "Hint: Remove --schema or use --schema $rec_schema" >&2
+            elif [[ "$ONLY_DELETED" != "true" ]] && [[ "$INCLUDE_DELETED" != "true" ]]; then
+                echo "Error: Record $id is deleted and hidden by default" >&2
+                echo "Hint: Use --include-deleted or --only-deleted to access it" >&2
+            else
+                echo "Error: Record $id not found in current visibility context" >&2
+            fi
         else
             echo "Error: Record $id not found" >&2
         fi
@@ -1431,6 +1461,7 @@ MUTATIONS:
   db purge                          Hard delete all soft-deleted records
   db purge --id <id>                Purge specific record
   db purge --before <timestamp>     Purge deleted before timestamp
+  Note: purge operates across all schemas (ignores --schema filter)
 
 INSPECTION:
   db count                          Count records by status
