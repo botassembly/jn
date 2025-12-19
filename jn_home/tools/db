@@ -847,7 +847,11 @@ cmd_undelete() {
                 echo "Error: Record $id is not deleted" >&2
             elif [[ -n "$SCHEMA" ]] && [[ "$rec_schema" != "$SCHEMA" ]]; then
                 echo "Error: Record $id has schema '${rec_schema:-<none>}', not '$SCHEMA'" >&2
-                echo "Hint: Remove --schema or use --schema $rec_schema" >&2
+                if [[ -z "$rec_schema" ]]; then
+                    echo "Hint: Remove --schema to access records with no schema" >&2
+                else
+                    echo "Hint: Remove --schema or use --schema $rec_schema" >&2
+                fi
             elif [[ "$ONLY_DELETED" != "true" ]] && [[ "$INCLUDE_DELETED" != "true" ]]; then
                 echo "Error: Record $id is deleted and hidden by default" >&2
                 echo "Hint: Use --include-deleted or --only-deleted to access it" >&2
@@ -876,6 +880,16 @@ cmd_undelete() {
         line_id=$(echo "$line" | "$ZQ" -r '._meta.id' 2>/dev/null)
 
         if [[ "$line_id" == "$id" ]]; then
+            # Strict semantics: only undelete records that are actually deleted
+            local is_deleted
+            is_deleted=$(echo "$line" | "$ZQ" -r '._meta.deleted' 2>/dev/null)
+            if [[ "$is_deleted" != "true" ]]; then
+                rm -f "$temp_file"
+                unlock_write
+                echo "Error: Record $id is not deleted" >&2
+                exit 1
+            fi
+
             local version
             version=$(echo "$line" | "$ZQ" -r '._meta.version' 2>/dev/null)
             local new_version=$((version + 1))
@@ -1134,11 +1148,10 @@ cmd_check() {
     local ids=()
 
     while IFS= read -r line || [[ -n "$line" ]]; do
-        line_count=$((line_count + 1))
-
         if [[ -z "$line" ]]; then
             continue
         fi
+        line_count=$((line_count + 1))
 
         # Check 1: Valid JSON
         if ! echo "$line" | "$ZQ" -c '.' >/dev/null 2>&1; then
