@@ -136,9 +136,9 @@ get_lock_file() {
     echo "${DB_FILE}.lock"
 }
 
-# Get temp file path
+# Get temp file path (using mktemp for safety)
 get_temp_file() {
-    echo "${DB_FILE}.tmp.$$"
+    mktemp "${DB_FILE}.tmp.XXXXXX"
 }
 
 # Acquire exclusive lock using flock or mkdir fallback
@@ -180,8 +180,9 @@ unlock_write() {
 
     if [[ -n "$lock_fd" ]]; then
         # flock is auto-released when fd is closed
+        # DO NOT delete the lock file - flock coherence requires the inode to persist
         exec 9>&-
-        rm -f "$lock_file"
+        lock_fd=""
     else
         # Remove mkdir lock
         local lockdir="${lock_file}.d"
@@ -385,10 +386,30 @@ cmd_insert() {
     # Create backup
     backup_rotate
 
-    # Append to database
-    echo "$record" >> "$DB_FILE"
+    # Atomic write: copy existing + new record to temp file, then rename
+    local temp_file
+    temp_file=$(get_temp_file)
 
-    # Audit log
+    # Copy existing records to temp file
+    if [[ -s "$DB_FILE" ]]; then
+        cat "$DB_FILE" > "$temp_file"
+    fi
+
+    # Append new record
+    echo "$record" >> "$temp_file"
+
+    # Validate temp file before committing
+    if ! validate_ndjson_file "$temp_file" 2>/dev/null; then
+        rm -f "$temp_file"
+        unlock_write
+        echo "Error: Insert produced invalid database state" >&2
+        exit 1
+    fi
+
+    # Atomic rename
+    mv "$temp_file" "$DB_FILE"
+
+    # Audit log AFTER successful commit
     audit_log "insert" "$next_id"
 
     unlock_write
@@ -489,6 +510,8 @@ cmd_update() {
     local now
     now=$(now_utc)
     local updated=false
+    local audit_version_before=""
+    local audit_version_after=""
 
     while IFS= read -r line || [[ -n "$line" ]]; do
         if [[ -z "$line" ]]; then
@@ -500,12 +523,13 @@ cmd_update() {
 
         if [[ "$line_id" == "$id" ]]; then
             # Save original meta values
-            local orig_id orig_created orig_deleted orig_deleted_at orig_version
+            local orig_id orig_created orig_deleted orig_deleted_at orig_version orig_schema
             orig_id=$(echo "$line" | "$ZQ" -r '._meta.id' 2>/dev/null)
             orig_created=$(echo "$line" | "$ZQ" -r '._meta.created_at' 2>/dev/null)
             orig_deleted=$(echo "$line" | "$ZQ" -r '._meta.deleted' 2>/dev/null)
             orig_deleted_at=$(echo "$line" | "$ZQ" -r '._meta.deleted_at' 2>/dev/null)
             orig_version=$(echo "$line" | "$ZQ" -r '._meta.version' 2>/dev/null)
+            orig_schema=$(echo "$line" | "$ZQ" -r '._meta.schema // empty' 2>/dev/null)
 
             # Apply user edits
             local result="$line"
@@ -513,28 +537,34 @@ cmd_update() {
                 result=$(echo "$result" | "$JN_EDIT" "$edit")
             done
 
-            # Enforce safe mode: restore immutable fields
+            # Enforce safe mode: restore full _meta structure
             if [[ "$UNSAFE" != "true" ]]; then
-                result=$(echo "$result" | "$JN_EDIT" "._meta.id:=$orig_id")
-                result=$(echo "$result" | "$JN_EDIT" "._meta.created_at:=\"$orig_created\"")
-                result=$(echo "$result" | "$JN_EDIT" "._meta.deleted:=$orig_deleted")
+                # Rebuild the entire _meta to prevent corruption from user edits like ._meta:={}
+                local new_version=$((orig_version + 1))
+                local safe_meta="{\"id\":$orig_id,\"created_at\":\"$orig_created\",\"updated_at\":\"$now\",\"deleted\":$orig_deleted"
                 if [[ "$orig_deleted_at" == "null" ]]; then
-                    result=$(echo "$result" | "$JN_EDIT" "._meta.deleted_at:=null")
+                    safe_meta="$safe_meta,\"deleted_at\":null"
                 else
-                    result=$(echo "$result" | "$JN_EDIT" "._meta.deleted_at:=\"$orig_deleted_at\"")
+                    safe_meta="$safe_meta,\"deleted_at\":\"$orig_deleted_at\""
                 fi
+                safe_meta="$safe_meta,\"version\":$new_version"
+                if [[ -n "$orig_schema" ]]; then
+                    safe_meta="$safe_meta,\"schema\":\"$orig_schema\""
+                fi
+                safe_meta="$safe_meta}"
+                result=$(echo "$result" | "$JN_EDIT" "._meta:=$safe_meta")
+            else
+                # In unsafe mode, just update mutable fields
+                local new_version=$((orig_version + 1))
+                result=$(echo "$result" | "$JN_EDIT" "._meta.updated_at:=\"$now\"")
+                result=$(echo "$result" | "$JN_EDIT" "._meta.version:=$new_version")
             fi
-
-            # Update mutable fields
-            local new_version=$((orig_version + 1))
-            result=$(echo "$result" | "$JN_EDIT" "._meta.updated_at:=\"$now\"")
-            result=$(echo "$result" | "$JN_EDIT" "._meta.version:=$new_version")
 
             echo "$result" >> "$temp_file"
             updated=true
-
-            # Audit
-            audit_log "update" "$id" "\"version_before\":$orig_version,\"version_after\":$new_version"
+            # Store audit info for after commit
+            audit_version_before="$orig_version"
+            audit_version_after="$new_version"
         else
             echo "$line" >> "$temp_file"
         fi
@@ -548,6 +578,11 @@ cmd_update() {
         unlock_write
         echo "Error: Update produced invalid JSON" >&2
         exit 1
+    fi
+
+    # Audit log AFTER successful commit
+    if [[ -n "$audit_version_before" ]]; then
+        audit_log "update" "$id" "\"version_before\":$audit_version_before,\"version_after\":$audit_version_after"
     fi
 
     unlock_write
@@ -636,9 +671,6 @@ cmd_unset() {
             result=$(echo "$result" | "$JN_EDIT" "._meta.version:=$new_version")
 
             echo "$result" >> "$temp_file"
-
-            # Audit
-            audit_log "unset" "$id" "\"path\":\"$path\""
         else
             echo "$line" >> "$temp_file"
         fi
@@ -653,6 +685,9 @@ cmd_unset() {
         echo "Error: Unset produced invalid JSON" >&2
         exit 1
     fi
+
+    # Audit log AFTER successful commit
+    audit_log "unset" "$id" "\"path\":\"$path\""
 
     unlock_write
 
@@ -703,15 +738,24 @@ cmd_delete() {
             result=$(echo "$result" | "$JN_EDIT" "._meta.version:=$new_version")
 
             echo "$result" >> "$temp_file"
-
-            # Audit
-            audit_log "delete" "$id"
         else
             echo "$line" >> "$temp_file"
         fi
     done < "$DB_FILE"
 
+    # Validate before commit
+    if ! validate_ndjson_file "$temp_file" 2>/dev/null; then
+        rm -f "$temp_file"
+        unlock_write
+        echo "Error: Delete produced invalid database state" >&2
+        exit 1
+    fi
+
     mv "$temp_file" "$DB_FILE"
+
+    # Audit log AFTER successful commit
+    audit_log "delete" "$id"
+
     unlock_write
 
     msg "${YELLOW}Deleted${RESET} record $id (soft delete)"
@@ -761,15 +805,24 @@ cmd_undelete() {
             result=$(echo "$result" | "$JN_EDIT" "._meta.version:=$new_version")
 
             echo "$result" >> "$temp_file"
-
-            # Audit
-            audit_log "undelete" "$id"
         else
             echo "$line" >> "$temp_file"
         fi
     done < "$DB_FILE"
 
+    # Validate before commit
+    if ! validate_ndjson_file "$temp_file" 2>/dev/null; then
+        rm -f "$temp_file"
+        unlock_write
+        echo "Error: Undelete produced invalid database state" >&2
+        exit 1
+    fi
+
     mv "$temp_file" "$DB_FILE"
+
+    # Audit log AFTER successful commit
+    audit_log "undelete" "$id"
+
     unlock_write
 
     msg "${GREEN}Restored${RESET} record $id"
@@ -810,6 +863,7 @@ cmd_purge() {
     local temp_file
     temp_file=$(get_temp_file)
     local purged=0
+    local purged_ids=()
 
     while IFS= read -r line || [[ -n "$line" ]]; do
         if [[ -z "$line" ]]; then
@@ -843,7 +897,7 @@ cmd_purge() {
             if [[ "$should_purge" == "true" ]]; then
                 local id
                 id=$(echo "$line" | "$ZQ" -r '._meta.id' 2>/dev/null)
-                audit_log "purge" "$id"
+                purged_ids+=("$id")
                 purged=$((purged + 1))
             else
                 echo "$line" >> "$temp_file"
@@ -853,7 +907,23 @@ cmd_purge() {
         fi
     done < "$DB_FILE"
 
+    # Validate before commit (temp_file may be empty if all records purged)
+    if [[ -s "$temp_file" ]]; then
+        if ! validate_ndjson_file "$temp_file" 2>/dev/null; then
+            rm -f "$temp_file"
+            unlock_write
+            echo "Error: Purge produced invalid database state" >&2
+            exit 1
+        fi
+    fi
+
     mv "$temp_file" "$DB_FILE"
+
+    # Audit log AFTER successful commit
+    for id in "${purged_ids[@]}"; do
+        audit_log "purge" "$id"
+    done
+
     unlock_write
 
     msg "${RED}Purged${RESET} $purged record(s)"
@@ -1091,6 +1161,10 @@ cmd_repair() {
     local quarantined=0
     local seen_ids=()
 
+    # Pre-compute max_id from the original file to avoid reading during iteration
+    local running_max_id
+    running_max_id=$(max_id)
+
     while IFS= read -r line || [[ -n "$line" ]]; do
         if [[ -z "$line" ]]; then
             continue
@@ -1108,8 +1182,9 @@ cmd_repair() {
         has_meta=$(echo "$line" | "$ZQ" -r '._meta | type' 2>/dev/null)
         if [[ "$has_meta" != "object" ]]; then
             if [[ "$repair_missing_meta" == "true" ]]; then
-                local next_id
-                next_id=$(($(max_id) + 1))
+                # Allocate new ID from running counter (avoids duplicates)
+                running_max_id=$((running_max_id + 1))
+                local next_id=$running_max_id
                 local now
                 now=$(now_utc)
                 local meta="{\"id\":$next_id,\"created_at\":\"$now\",\"updated_at\":\"$now\",\"deleted\":false,\"deleted_at\":null,\"version\":1}"
@@ -1147,6 +1222,10 @@ cmd_repair() {
         fi
 
         seen_ids+=("$meta_id")
+        # Update running_max_id to track highest ID seen (for new allocations)
+        if [[ "$meta_id" =~ ^[0-9]+$ ]] && [[ "$meta_id" -gt "$running_max_id" ]]; then
+            running_max_id="$meta_id"
+        fi
         echo "$line" >> "$temp_file"
 
     done < "$DB_FILE"
