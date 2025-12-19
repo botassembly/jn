@@ -160,7 +160,10 @@ lock_write() {
         local wait_ms=100
         local max_wait_ms=5000  # Cap at 5 seconds between attempts
         while ! mkdir "$lockdir" 2>/dev/null; do
-            sleep "$(echo "scale=3; $wait_ms/1000" | bc)"
+            # Sleep for wait_ms milliseconds (pure bash, no bc dependency)
+            local sec=$((wait_ms / 1000))
+            local ms=$((wait_ms % 1000))
+            sleep "$(printf '%d.%03d' "$sec" "$ms")"
             # Exponential backoff with cap
             wait_ms=$((wait_ms * 2))
             if [[ $wait_ms -gt $max_wait_ms ]]; then
@@ -817,7 +820,13 @@ cmd_undelete() {
 
     if ! record_exists "$id"; then
         unlock_write
-        echo "Error: Record $id not found" >&2
+        # Check if record exists but is hidden due to visibility context
+        if record_exists_any "$id"; then
+            echo "Error: Record $id not found in current visibility context" >&2
+            echo "Hint: Use --include-deleted or --only-deleted to see deleted records" >&2
+        else
+            echo "Error: Record $id not found" >&2
+        fi
         exit 1
     fi
 
@@ -893,9 +902,8 @@ cmd_purge() {
     done
 
     # Validate --id if provided
-    if [[ -n "$target_id" ]] && ! [[ "$target_id" =~ ^[0-9]+$ ]]; then
-        echo "Error: --id must be a positive integer, got: $target_id" >&2
-        exit 1
+    if [[ -n "$target_id" ]]; then
+        require_int_id "$target_id" "purge --id"
     fi
 
     lock_write
@@ -1048,6 +1056,9 @@ cmd_stats() {
         echo -e "${BOLD}Database Statistics${RESET}"
         echo ""
         echo -e "File: ${CYAN}$DB_FILE${RESET}"
+        if [[ -n "$SCHEMA" ]]; then
+            echo -e "Schema: ${MAGENTA}$SCHEMA${RESET}"
+        fi
         echo ""
         echo -e "${BOLD}Records:${RESET}"
         echo "  Total:   $total"
@@ -1058,15 +1069,17 @@ cmd_stats() {
         echo "  Max ID:  $max_id_val"
         echo "  Next ID: $((max_id_val + 1))"
 
-        # Schema breakdown if any schemas exist
-        local schemas
-        schemas=$("$ZQ" -r 'select(._meta.schema != null) | ._meta.schema' < "$DB_FILE" 2>/dev/null | sort | uniq -c | sort -rn)
-        if [[ -n "$schemas" ]]; then
-            echo ""
-            echo -e "${BOLD}Schemas:${RESET}"
-            echo "$schemas" | while read -r count schema; do
-                [[ -n "$schema" ]] && echo "  $schema: $count"
-            done
+        # Schema breakdown only when not filtering by schema (otherwise it's redundant)
+        if [[ -z "$SCHEMA" ]]; then
+            local schemas
+            schemas=$("$ZQ" -r 'select(._meta.schema != null) | ._meta.schema' < "$DB_FILE" 2>/dev/null | sort | uniq -c | sort -rn)
+            if [[ -n "$schemas" ]]; then
+                echo ""
+                echo -e "${BOLD}Schemas:${RESET}"
+                echo "$schemas" | while read -r count schema; do
+                    [[ -n "$schema" ]] && echo "  $schema: $count"
+                done
+            fi
         fi
     fi
 }
@@ -1122,7 +1135,7 @@ cmd_check() {
             continue
         fi
 
-        # Check 4: _meta.id exists and is integer
+        # Check 4: _meta.id exists and is positive integer (>= 1)
         local meta_id
         meta_id=$(echo "$line" | "$ZQ" -r '._meta.id' 2>/dev/null)
         if [[ -z "$meta_id" ]] || [[ "$meta_id" == "null" ]]; then
@@ -1130,8 +1143,8 @@ cmd_check() {
             errors=$((errors + 1))
             continue
         fi
-        if ! [[ "$meta_id" =~ ^[0-9]+$ ]]; then
-            echo "Error: Line $line_count: _meta.id is not an integer: $meta_id" >&2
+        if ! [[ "$meta_id" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Error: Line $line_count: _meta.id must be a positive integer (>= 1): $meta_id" >&2
             errors=$((errors + 1))
             continue
         fi
@@ -1414,7 +1427,7 @@ MUTATIONS:
   db set <id> <path> <value>        Set a field value
   db unset <id> <path>              Remove a field
   db delete <id>                    Soft delete a record
-  db undelete <id>                  Restore a soft-deleted record
+  db --include-deleted undelete <id>  Restore a soft-deleted record
   db purge                          Hard delete all soft-deleted records
   db purge --id <id>                Purge specific record
   db purge --before <timestamp>     Purge deleted before timestamp
@@ -1460,8 +1473,8 @@ EXAMPLES:
   db set 1 age '31'
   db update 1 '.name:="Updated Name"'
   db delete 1
-  db list --include-deleted
-  db undelete 1
+  db --include-deleted list
+  db --include-deleted undelete 1
   db purge
   db stats
   db check
