@@ -142,18 +142,16 @@ get_temp_file() {
 }
 
 # Acquire exclusive lock using flock or mkdir fallback
+# Blocks until lock is acquired (consistent behavior across both methods)
 lock_fd=""
 lock_write() {
     local lock_file
     lock_file=$(get_lock_file)
 
-    # Try flock first (preferred)
+    # Try flock first (preferred) - blocks until lock acquired
     if command -v flock &> /dev/null; then
         exec 9>"$lock_file"
-        if ! flock -n 9; then
-            echo "Error: Database is locked by another process" >&2
-            exit 1
-        fi
+        flock 9  # Blocking wait for lock
         lock_fd=9
     else
         # Fallback to mkdir (atomic on all filesystems)
@@ -201,10 +199,10 @@ backup_rotate() {
     fi
 }
 
-# Validate NDJSON file - each line must be valid JSON object
+# Validate NDJSON file - each line must be valid JSON object with proper _meta
 validate_ndjson_file() {
     local file="$1"
-    local errors=0
+    local ok=true
     local line_num=0
 
     while IFS= read -r line || [[ -n "$line" ]]; do
@@ -215,11 +213,54 @@ validate_ndjson_file() {
         # Check if valid JSON
         if ! echo "$line" | "$ZQ" -c '.' >/dev/null 2>&1; then
             echo "Line $line_num: Invalid JSON" >&2
-            errors=$((errors + 1))
+            ok=false
+            continue
+        fi
+        # Check if top-level is object
+        local type_check
+        type_check=$(echo "$line" | "$ZQ" -r 'type' 2>/dev/null)
+        if [[ "$type_check" != "object" ]]; then
+            echo "Line $line_num: Not a JSON object" >&2
+            ok=false
+            continue
+        fi
+        # Check if _meta exists and is object
+        local meta_type
+        meta_type=$(echo "$line" | "$ZQ" -r '._meta | type' 2>/dev/null)
+        if [[ "$meta_type" != "object" ]]; then
+            echo "Line $line_num: Missing or invalid _meta object" >&2
+            ok=false
+            continue
+        fi
+        # Check if _meta.id exists and is integer
+        local meta_id
+        meta_id=$(echo "$line" | "$ZQ" -r '._meta.id' 2>/dev/null)
+        if [[ -z "$meta_id" ]] || [[ "$meta_id" == "null" ]] || ! [[ "$meta_id" =~ ^[0-9]+$ ]]; then
+            echo "Line $line_num: Missing or invalid _meta.id" >&2
+            ok=false
+            continue
         fi
     done < "$file"
 
-    return $errors
+    if [[ "$ok" == "true" ]]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Require that an ID argument is a valid positive integer
+require_int_id() {
+    local id="$1"
+    local cmd="${2:-command}"
+    if [[ -z "$id" ]]; then
+        echo "Error: $cmd requires an ID" >&2
+        exit 1
+    fi
+    if ! [[ "$id" =~ ^[0-9]+$ ]]; then
+        echo "Error: ID must be a positive integer, got: $id" >&2
+        exit 1
+    fi
 }
 
 # Get maximum ID from database (including deleted records)
@@ -425,11 +466,7 @@ cmd_insert() {
 
 cmd_get() {
     local id="$1"
-
-    if [[ -z "$id" ]]; then
-        echo "Usage: db get <id>" >&2
-        exit 1
-    fi
+    require_int_id "$id" "get"
 
     ensure_db_file
 
@@ -488,9 +525,10 @@ cmd_update() {
     shift
     local edits=("$@")
 
-    if [[ -z "$id" ]] || [[ ${#edits[@]} -eq 0 ]]; then
+    require_int_id "$id" "update"
+    if [[ ${#edits[@]} -eq 0 ]]; then
         echo "Usage: db update <id> '<edit_expr>' [...]" >&2
-        echo "Example: db update 1 '.name=\"Bob\"' '.age=25'" >&2
+        echo "Example: db update 1 '.name=\"Bob\"' '.age:=25'" >&2
         exit 1
     fi
 
@@ -522,14 +560,11 @@ cmd_update() {
         line_id=$(echo "$line" | "$ZQ" -r '._meta.id' 2>/dev/null)
 
         if [[ "$line_id" == "$id" ]]; then
-            # Save original meta values
-            local orig_id orig_created orig_deleted orig_deleted_at orig_version orig_schema
-            orig_id=$(echo "$line" | "$ZQ" -r '._meta.id' 2>/dev/null)
-            orig_created=$(echo "$line" | "$ZQ" -r '._meta.created_at' 2>/dev/null)
-            orig_deleted=$(echo "$line" | "$ZQ" -r '._meta.deleted' 2>/dev/null)
-            orig_deleted_at=$(echo "$line" | "$ZQ" -r '._meta.deleted_at' 2>/dev/null)
+            # Capture original _meta as compact JSON (avoids quoting/escaping issues)
+            local orig_meta_json orig_version
+            orig_meta_json=$(echo "$line" | "$ZQ" -c '._meta' 2>/dev/null)
             orig_version=$(echo "$line" | "$ZQ" -r '._meta.version' 2>/dev/null)
-            orig_schema=$(echo "$line" | "$ZQ" -r '._meta.schema // empty' 2>/dev/null)
+            local new_version=$((orig_version + 1))
 
             # Apply user edits
             local result="$line"
@@ -537,28 +572,15 @@ cmd_update() {
                 result=$(echo "$result" | "$JN_EDIT" "$edit")
             done
 
-            # Enforce safe mode: restore full _meta structure
+            # Enforce safe mode: restore original _meta then patch mutable fields
             if [[ "$UNSAFE" != "true" ]]; then
-                # Rebuild the entire _meta to prevent corruption from user edits like ._meta:={}
-                local new_version=$((orig_version + 1))
-                local safe_meta="{\"id\":$orig_id,\"created_at\":\"$orig_created\",\"updated_at\":\"$now\",\"deleted\":$orig_deleted"
-                if [[ "$orig_deleted_at" == "null" ]]; then
-                    safe_meta="$safe_meta,\"deleted_at\":null"
-                else
-                    safe_meta="$safe_meta,\"deleted_at\":\"$orig_deleted_at\""
-                fi
-                safe_meta="$safe_meta,\"version\":$new_version"
-                if [[ -n "$orig_schema" ]]; then
-                    safe_meta="$safe_meta,\"schema\":\"$orig_schema\""
-                fi
-                safe_meta="$safe_meta}"
-                result=$(echo "$result" | "$JN_EDIT" "._meta:=$safe_meta")
-            else
-                # In unsafe mode, just update mutable fields
-                local new_version=$((orig_version + 1))
-                result=$(echo "$result" | "$JN_EDIT" "._meta.updated_at:=\"$now\"")
-                result=$(echo "$result" | "$JN_EDIT" "._meta.version:=$new_version")
+                # Restore original _meta verbatim (prevents user corruption like ._meta:={})
+                result=$(echo "$result" | "$JN_EDIT" "._meta:=$orig_meta_json")
             fi
+
+            # Update mutable fields (version and updated_at)
+            result=$(echo "$result" | "$JN_EDIT" "._meta.updated_at:=\"$now\"")
+            result=$(echo "$result" | "$JN_EDIT" "._meta.version:=$new_version")
 
             echo "$result" >> "$temp_file"
             updated=true
@@ -595,7 +617,8 @@ cmd_set() {
     local path="$2"
     local value="$3"
 
-    if [[ -z "$id" ]] || [[ -z "$path" ]] || [[ -z "$value" ]]; then
+    require_int_id "$id" "set"
+    if [[ -z "$path" ]] || [[ -z "$value" ]]; then
         echo "Usage: db set <id> <path> <json_value>" >&2
         echo "Example: db set 1 name '\"Alice\"'" >&2
         echo "Example: db set 1 age '30'" >&2
@@ -621,7 +644,8 @@ cmd_unset() {
     local id="$1"
     local path="$2"
 
-    if [[ -z "$id" ]] || [[ -z "$path" ]]; then
+    require_int_id "$id" "unset"
+    if [[ -z "$path" ]]; then
         echo "Usage: db unset <id> <path>" >&2
         echo "Example: db unset 1 temp_field" >&2
         exit 1
@@ -696,11 +720,7 @@ cmd_unset() {
 
 cmd_delete() {
     local id="$1"
-
-    if [[ -z "$id" ]]; then
-        echo "Usage: db delete <id>" >&2
-        exit 1
-    fi
+    require_int_id "$id" "delete"
 
     lock_write
     ensure_db_file
@@ -763,11 +783,7 @@ cmd_delete() {
 
 cmd_undelete() {
     local id="$1"
-
-    if [[ -z "$id" ]]; then
-        echo "Usage: db undelete <id>" >&2
-        exit 1
-    fi
+    require_int_id "$id" "undelete"
 
     lock_write
     ensure_db_file
@@ -848,6 +864,12 @@ cmd_purge() {
                 ;;
         esac
     done
+
+    # Validate --id if provided
+    if [[ -n "$target_id" ]] && ! [[ "$target_id" =~ ^[0-9]+$ ]]; then
+        echo "Error: --id must be a positive integer, got: $target_id" >&2
+        exit 1
+    fi
 
     lock_write
     ensure_db_file
@@ -944,7 +966,8 @@ cmd_count() {
     fi
 
     local total active deleted
-    total=$(wc -l < "$DB_FILE" | tr -d ' ')
+    # Count non-empty lines only
+    total=$("$ZQ" -c '.' < "$DB_FILE" 2>/dev/null | wc -l | tr -d ' ')
     active=$("$ZQ" -c 'select(._meta.deleted == false)' < "$DB_FILE" 2>/dev/null | wc -l | tr -d ' ')
     deleted=$("$ZQ" -c 'select(._meta.deleted == true)' < "$DB_FILE" 2>/dev/null | wc -l | tr -d ' ')
 
@@ -966,7 +989,8 @@ cmd_stats() {
     fi
 
     local total active deleted max_id_val
-    total=$(wc -l < "$DB_FILE" | tr -d ' ')
+    # Count non-empty lines only (zq filters out blank lines)
+    total=$("$ZQ" -c '.' < "$DB_FILE" 2>/dev/null | wc -l | tr -d ' ')
     active=$("$ZQ" -c 'select(._meta.deleted == false)' < "$DB_FILE" 2>/dev/null | wc -l | tr -d ' ')
     deleted=$("$ZQ" -c 'select(._meta.deleted == true)' < "$DB_FILE" 2>/dev/null | wc -l | tr -d ' ')
     max_id_val=$(max_id)
@@ -1230,6 +1254,16 @@ cmd_repair() {
 
     done < "$DB_FILE"
 
+    # Validate temp file before commit (may be empty if all records quarantined)
+    if [[ -s "$temp_file" ]]; then
+        if ! validate_ndjson_file "$temp_file" 2>/dev/null; then
+            rm -f "$temp_file"
+            unlock_write
+            echo "Error: Repair produced invalid database state" >&2
+            exit 1
+        fi
+    fi
+
     mv "$temp_file" "$DB_FILE"
     unlock_write
 
@@ -1377,7 +1411,7 @@ EXAMPLES:
   db get 1
   db query 'select(.age > 25)'
   db set 1 age '31'
-  db update 1 '.tags += ["verified"]'
+  db update 1 '.name="Updated Name"'
   db delete 1
   db list --include-deleted
   db undelete 1
