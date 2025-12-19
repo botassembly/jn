@@ -330,7 +330,8 @@ class TestDbUndelete:
         """db undelete should restore a deleted record."""
         run_db(["delete", "2"], cwd=initialized_db)
 
-        code, stdout, stderr = run_db(["undelete", "2"], cwd=initialized_db)
+        # Need --include-deleted to see deleted records for undelete
+        code, stdout, stderr = run_db(["--include-deleted", "undelete", "2"], cwd=initialized_db)
         assert code == 0, f"Exit code {code}, stderr: {stderr}"
 
         code, stdout, _ = run_db(["get", "2"], cwd=initialized_db)

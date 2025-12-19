@@ -142,7 +142,7 @@ get_temp_file() {
 }
 
 # Acquire exclusive lock using flock or mkdir fallback
-# Blocks until lock is acquired (consistent behavior across both methods)
+# Blocks indefinitely until lock is acquired (consistent behavior across both methods)
 lock_fd=""
 lock_write() {
     local lock_file
@@ -155,16 +155,17 @@ lock_write() {
         lock_fd=9
     else
         # Fallback to mkdir (atomic on all filesystems)
+        # Blocks indefinitely with exponential backoff (matching flock behavior)
         local lockdir="${lock_file}.d"
-        local max_attempts=50
-        local attempt=0
+        local wait_ms=100
+        local max_wait_ms=5000  # Cap at 5 seconds between attempts
         while ! mkdir "$lockdir" 2>/dev/null; do
-            attempt=$((attempt + 1))
-            if [[ $attempt -ge $max_attempts ]]; then
-                echo "Error: Could not acquire lock after $max_attempts attempts" >&2
-                exit 1
+            sleep "$(echo "scale=3; $wait_ms/1000" | bc)"
+            # Exponential backoff with cap
+            wait_ms=$((wait_ms * 2))
+            if [[ $wait_ms -gt $max_wait_ms ]]; then
+                wait_ms=$max_wait_ms
             fi
-            sleep 0.1
         done
         # Set up cleanup trap
         trap 'rmdir "'"$lockdir"'" 2>/dev/null || true' EXIT
@@ -232,11 +233,11 @@ validate_ndjson_file() {
             ok=false
             continue
         fi
-        # Check if _meta.id exists and is integer
+        # Check if _meta.id exists and is positive integer (>= 1)
         local meta_id
         meta_id=$(echo "$line" | "$ZQ" -r '._meta.id' 2>/dev/null)
-        if [[ -z "$meta_id" ]] || [[ "$meta_id" == "null" ]] || ! [[ "$meta_id" =~ ^[0-9]+$ ]]; then
-            echo "Line $line_num: Missing or invalid _meta.id" >&2
+        if [[ -z "$meta_id" ]] || [[ "$meta_id" == "null" ]] || ! [[ "$meta_id" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Line $line_num: Missing or invalid _meta.id (must be >= 1)" >&2
             ok=false
             continue
         fi
@@ -249,7 +250,7 @@ validate_ndjson_file() {
     fi
 }
 
-# Require that an ID argument is a valid positive integer
+# Require that an ID argument is a valid positive integer (>= 1)
 require_int_id() {
     local id="$1"
     local cmd="${2:-command}"
@@ -257,8 +258,21 @@ require_int_id() {
         echo "Error: $cmd requires an ID" >&2
         exit 1
     fi
-    if ! [[ "$id" =~ ^[0-9]+$ ]]; then
-        echo "Error: ID must be a positive integer, got: $id" >&2
+    if ! [[ "$id" =~ ^[1-9][0-9]*$ ]]; then
+        echo "Error: ID must be a positive integer (>= 1), got: $id" >&2
+        exit 1
+    fi
+}
+
+# Require that a schema name is a safe identifier (letters, numbers, underscore, hyphen)
+require_schema_name() {
+    local schema="$1"
+    if [[ -z "$schema" ]]; then
+        return 0  # Empty schema is allowed (means no schema)
+    fi
+    if ! [[ "$schema" =~ ^[A-Za-z][A-Za-z0-9_-]{0,63}$ ]]; then
+        echo "Error: Schema name must be 1-64 chars, start with letter, contain only [A-Za-z0-9_-]" >&2
+        echo "Got: $schema" >&2
         exit 1
     fi
 }
@@ -278,20 +292,33 @@ max_id() {
     fi
 }
 
-# Get record by ID
+# Get record by ID (respects current visibility context: deleted/schema filters)
 select_by_id() {
     local id="$1"
     if [[ ! -f "$DB_FILE" ]] || [[ ! -s "$DB_FILE" ]]; then
         return
     fi
-    "$ZQ" -c "select(._meta.id == $id)" < "$DB_FILE" 2>/dev/null
+    local filter
+    filter=$(build_base_filter)
+    "$ZQ" -c "select(._meta.id == $id) | $filter" < "$DB_FILE" 2>/dev/null
 }
 
-# Check if record exists
+# Check if record exists in current visibility context
 record_exists() {
     local id="$1"
     local record
     record=$(select_by_id "$id")
+    [[ -n "$record" ]]
+}
+
+# Check if record exists at all (ignoring visibility, for ID allocation)
+record_exists_any() {
+    local id="$1"
+    if [[ ! -f "$DB_FILE" ]] || [[ ! -s "$DB_FILE" ]]; then
+        return 1
+    fi
+    local record
+    record=$("$ZQ" -c "select(._meta.id == $id)" < "$DB_FILE" 2>/dev/null)
     [[ -n "$record" ]]
 }
 
@@ -528,7 +555,7 @@ cmd_update() {
     require_int_id "$id" "update"
     if [[ ${#edits[@]} -eq 0 ]]; then
         echo "Usage: db update <id> '<edit_expr>' [...]" >&2
-        echo "Example: db update 1 '.name=\"Bob\"' '.age:=25'" >&2
+        echo "Example: db update 1 '.name:=\"Bob\"' '.age:=25'" >&2
         exit 1
     fi
 
@@ -965,14 +992,24 @@ cmd_count() {
         return
     fi
 
+    # Build schema filter if specified
+    local schema_filter=""
+    if [[ -n "$SCHEMA" ]]; then
+        schema_filter="select(._meta.schema == \"$SCHEMA\") | "
+    fi
+
     local total active deleted
-    # Count non-empty lines only
-    total=$("$ZQ" -c '.' < "$DB_FILE" 2>/dev/null | wc -l | tr -d ' ')
-    active=$("$ZQ" -c 'select(._meta.deleted == false)' < "$DB_FILE" 2>/dev/null | wc -l | tr -d ' ')
-    deleted=$("$ZQ" -c 'select(._meta.deleted == true)' < "$DB_FILE" 2>/dev/null | wc -l | tr -d ' ')
+    # Count records matching schema filter (if any)
+    total=$("$ZQ" -c "${schema_filter}." < "$DB_FILE" 2>/dev/null | wc -l | tr -d ' ')
+    active=$("$ZQ" -c "${schema_filter}select(._meta.deleted == false)" < "$DB_FILE" 2>/dev/null | wc -l | tr -d ' ')
+    deleted=$("$ZQ" -c "${schema_filter}select(._meta.deleted == true)" < "$DB_FILE" 2>/dev/null | wc -l | tr -d ' ')
 
     if [[ "$JSON_OUTPUT" == "true" ]]; then
-        echo "{\"total\":$total,\"active\":$active,\"deleted\":$deleted}"
+        local result="{\"total\":$total,\"active\":$active,\"deleted\":$deleted"
+        if [[ -n "$SCHEMA" ]]; then
+            result="$result,\"schema\":\"$SCHEMA\""
+        fi
+        echo "$result}"
     else
         echo "total: $total"
         echo "active: $active"
@@ -988,15 +1025,25 @@ cmd_stats() {
         return
     fi
 
+    # Build schema filter if specified
+    local schema_filter=""
+    if [[ -n "$SCHEMA" ]]; then
+        schema_filter="select(._meta.schema == \"$SCHEMA\") | "
+    fi
+
     local total active deleted max_id_val
-    # Count non-empty lines only (zq filters out blank lines)
-    total=$("$ZQ" -c '.' < "$DB_FILE" 2>/dev/null | wc -l | tr -d ' ')
-    active=$("$ZQ" -c 'select(._meta.deleted == false)' < "$DB_FILE" 2>/dev/null | wc -l | tr -d ' ')
-    deleted=$("$ZQ" -c 'select(._meta.deleted == true)' < "$DB_FILE" 2>/dev/null | wc -l | tr -d ' ')
+    # Count records matching schema filter (if any)
+    total=$("$ZQ" -c "${schema_filter}." < "$DB_FILE" 2>/dev/null | wc -l | tr -d ' ')
+    active=$("$ZQ" -c "${schema_filter}select(._meta.deleted == false)" < "$DB_FILE" 2>/dev/null | wc -l | tr -d ' ')
+    deleted=$("$ZQ" -c "${schema_filter}select(._meta.deleted == true)" < "$DB_FILE" 2>/dev/null | wc -l | tr -d ' ')
     max_id_val=$(max_id)
 
     if [[ "$JSON_OUTPUT" == "true" ]]; then
-        echo "{\"total\":$total,\"active\":$active,\"deleted\":$deleted,\"max_id\":$max_id_val}"
+        local result="{\"total\":$total,\"active\":$active,\"deleted\":$deleted,\"max_id\":$max_id_val"
+        if [[ -n "$SCHEMA" ]]; then
+            result="$result,\"schema\":\"$SCHEMA\""
+        fi
+        echo "$result}"
     else
         echo -e "${BOLD}Database Statistics${RESET}"
         echo ""
@@ -1411,7 +1458,7 @@ EXAMPLES:
   db get 1
   db query 'select(.age > 25)'
   db set 1 age '31'
-  db update 1 '.name="Updated Name"'
+  db update 1 '.name:="Updated Name"'
   db delete 1
   db list --include-deleted
   db undelete 1
@@ -1445,6 +1492,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         --schema)
             SCHEMA="$2"
+            require_schema_name "$SCHEMA"
             shift 2
             ;;
         --include-deleted)

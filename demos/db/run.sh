@@ -53,7 +53,8 @@ db list --include-deleted 2>&1 | strip_colors | sed 's/"created_at":"[^"]*"/"cre
 echo "" >> actual.txt
 
 echo "9. Undelete:" >> actual.txt
-db undelete 3 2>&1 | strip_colors >> actual.txt
+# Use --include-deleted to see deleted records for undelete
+db --include-deleted undelete 3 2>&1 | strip_colors >> actual.txt
 db count 2>&1 | strip_colors >> actual.txt
 echo "" >> actual.txt
 
