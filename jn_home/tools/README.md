@@ -52,6 +52,42 @@ jn tool todo tree            # Dependency visualization
 jn tool todo stats           # Dashboard
 ```
 
+### db
+Contention-safe JSONL document database shell.
+
+Features:
+- **Canonical storage**: One record per line in NDJSON format
+- **System metadata**: Reserved `_meta` object with id, timestamps, version, soft-delete
+- **Contention safety**: File locking prevents concurrent write conflicts
+- **Crash safety**: Atomic rewrite via temp file + rename with backups
+- **Soft delete**: Records marked deleted, not removed; explicit purge for hard delete
+
+```bash
+jn tool db init                          # Initialize database
+jn tool db insert '{"name":"Alice"}'     # Insert record (auto ID + timestamps)
+jn tool db list                          # List active records
+jn tool db get 1                         # Get record by ID
+jn tool db query 'select(.age > 25)'     # Query with zq expression
+jn tool db set 1 age '31'                # Set field value
+jn tool db update 1 '.tags += ["vip"]'   # Update with jn-edit expression
+jn tool db delete 1                      # Soft delete
+jn tool db undelete 1                    # Restore soft-deleted
+jn tool db purge                         # Hard delete all soft-deleted
+jn tool db check                         # Validate integrity
+jn tool db stats                         # Database statistics
+```
+
+Options:
+- `--file <path>` - Database file (default: `./.db.jsonl`)
+- `--schema <name>` - Filter/assign `_meta.schema` for multi-collection support
+- `--include-deleted` - Include soft-deleted records
+- `--only-deleted` - Show only soft-deleted records
+
+Record format:
+```json
+{"_meta":{"id":1,"created_at":"2025-01-01T00:00:00Z","updated_at":"2025-01-01T00:00:00Z","deleted":false,"deleted_at":null,"version":1},"name":"Alice","age":30}
+```
+
 ---
 
 ## Future Tool Ideas
