@@ -52,17 +52,34 @@ set -e
 
 TODO_FILE=".todo.jsonl"
 BACKUP_FILE=".todo.jsonl.bak"
+QUIET=false
 
-# ANSI colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-BLUE='\033[0;34m'
-MAGENTA='\033[0;35m'
-CYAN='\033[0;36m'
-DIM='\033[2m'
-BOLD='\033[1m'
-RESET='\033[0m'
+# Event emission - all status messages are JSONL to stderr
+# Data output (records) goes to stdout as NDJSON
+emit() {
+    if [[ "$QUIET" != "true" ]]; then
+        echo "$1" >&2
+    fi
+}
+
+emit_ok() {
+    local event="$1"
+    shift
+    local json="{\"event\":\"$event\",\"status\":\"ok\""
+    while [[ $# -gt 0 ]]; do
+        json="$json,$1"
+        shift
+    done
+    json="$json}"
+    emit "$json"
+}
+
+emit_error() {
+    local code="$1"
+    local message="$2"
+    # Errors are always emitted, even in quiet mode
+    echo "{\"event\":\"error\",\"status\":\"error\",\"code\":\"$code\",\"message\":\"$message\"}" >&2
+}
 
 # -----------------------------------------------------------------------------
 # Setup: Find jn tools
@@ -87,18 +104,18 @@ else
         JN_EDIT="jn-edit"
         ZQ="zq"
     else
-        echo "Error: jn tools not found. Please install jn or run 'make build'." >&2
+        emit_error "TOOLS_NOT_FOUND" "jn tools not found. Please install jn or run 'make build'."
         exit 1
     fi
 fi
 
 # Verify tools exist (check if executable, works for both PATH and full paths)
 if [[ ! -x "$JN_EDIT" ]] && ! command -v "$JN_EDIT" &> /dev/null; then
-    echo "Error: jn-edit not found at $JN_EDIT" >&2
+    emit_error "JN_EDIT_NOT_FOUND" "jn-edit not found at $JN_EDIT"
     exit 1
 fi
 if [[ ! -x "$ZQ" ]] && ! command -v "$ZQ" &> /dev/null; then
-    echo "Error: zq not found at $ZQ" >&2
+    emit_error "ZQ_NOT_FOUND" "zq not found at $ZQ"
     exit 1
 fi
 
@@ -137,24 +154,6 @@ backup() {
     fi
 }
 
-# Format priority for display
-format_priority() {
-    local priority="$1"
-    case "$priority" in
-        high|h|0)
-            echo -e "${RED}!!!${RESET}"
-            ;;
-        med|m|1)
-            echo -e "${YELLOW}!! ${RESET}"
-            ;;
-        low|l|2)
-            echo -e "${DIM}!  ${RESET}"
-            ;;
-        *)
-            echo "   "
-            ;;
-    esac
-}
 
 # Check if a date is overdue
 is_overdue() {
@@ -183,24 +182,6 @@ is_due_soon() {
     return 1
 }
 
-# Format due date for display
-format_due() {
-    local due="$1"
-    local status="$2"
-    if [[ -z "$due" ]] || [[ "$due" == "null" ]]; then
-        echo ""
-        return
-    fi
-    if [[ "$status" != "pending" ]]; then
-        echo -e " ${DIM}[${due}]${RESET}"
-    elif is_overdue "$due"; then
-        echo -e " ${RED}[OVERDUE: ${due}]${RESET}"
-    elif is_due_soon "$due"; then
-        echo -e " ${YELLOW}[due: ${due}]${RESET}"
-    else
-        echo -e " ${DIM}[${due}]${RESET}"
-    fi
-}
 
 # Check if a todo has open (pending) blockers
 has_open_blockers() {
@@ -260,65 +241,6 @@ get_blocker_count() {
     echo $count
 }
 
-# Format a todo for display
-format_todo() {
-    local id="$1"
-    local text="$2"
-    local status="$3"
-    local priority="${4:-}"
-    local due="${5:-}"
-    local notes_count="${6:-0}"
-    local blocker_count="${7:-0}"
-    local parent="${8:-}"
-
-    local status_icon
-    local text_style=""
-    local pri_display
-
-    case "$status" in
-        done)
-            status_icon="${GREEN}✓${RESET}"
-            text_style="${DIM}"
-            ;;
-        skipped)
-            status_icon="${YELLOW}⊘${RESET}"
-            text_style="${DIM}"
-            ;;
-        *)
-            if [[ "$blocker_count" -gt 0 ]]; then
-                status_icon="${RED}⊗${RESET}"
-            else
-                status_icon="${BLUE}○${RESET}"
-            fi
-            ;;
-    esac
-
-    pri_display=$(format_priority "$priority")
-    local due_display
-    due_display=$(format_due "$due" "$status")
-
-    local notes_indicator=""
-    if [[ "$notes_count" -gt 0 ]]; then
-        notes_indicator=" ${CYAN}[${notes_count} note(s)]${RESET}"
-    fi
-
-    local blocker_indicator=""
-    if [[ "$blocker_count" -gt 0 ]] && [[ "$status" == "pending" ]]; then
-        blocker_indicator=" ${RED}[blocked by $blocker_count]${RESET}"
-    fi
-
-    local indent=""
-    if [[ -n "$parent" ]] && [[ "$parent" != "null" ]]; then
-        indent="  "
-    fi
-
-    # Display shortened XID (first 8 chars)
-    local short_display
-    short_display=$(short_id "$id")
-
-    printf "  %s%b %b${DIM}%s${RESET}  %b%s${RESET}%b%b%b\n" \
-        "$indent" "$status_icon" "$pri_display" "$short_display" "$text_style" "$text" "$due_display" "$notes_indicator" "$blocker_indicator"
-}
 
 # Ensure todo file exists
 ensure_file() {
@@ -411,7 +333,7 @@ cmd_add() {
     done
 
     if [[ -z "$text" ]]; then
-        echo "Usage: todo add [-p high|med|low] [-d YYYY-MM-DD] [--parent ID] [-t tags] \"task\"" >&2
+        emit_error "USAGE" "Usage: todo add [-p high|med|low] [-d YYYY-MM-DD] [--parent ID] [-t tags] task"
         exit 1
     fi
 
@@ -420,7 +342,7 @@ cmd_add() {
         local resolved_parent
         resolved_parent=$(resolve_id "$parent")
         if [[ -z "$resolved_parent" ]]; then
-            echo -e "${RED}Error:${RESET} Parent todo $parent not found" >&2
+            emit_error "NOT_FOUND" "Parent todo $parent not found"
             exit 1
         fi
         parent="$resolved_parent"
@@ -432,7 +354,7 @@ cmd_add() {
         med|m|1|"") priority="med" ;;
         low|l|2) priority="low" ;;
         *)
-            echo "Invalid priority: $priority (use high, med, low)" >&2
+            emit_error "INVALID_PRIORITY" "Invalid priority: $priority (use high, med, low)"
             exit 1
             ;;
     esac
@@ -471,14 +393,7 @@ cmd_add() {
     # Build the todo JSON with XID (timestamp embedded in XID, no separate created field)
     local json
     if [[ -n "$parent" ]]; then
-        # Resolve parent to full ID if partial
-        local full_parent
-        full_parent=$(resolve_id "$parent")
-        if [[ -z "$full_parent" ]]; then
-            echo -e "${RED}Error:${RESET} Parent todo #$parent not found" >&2
-            exit 1
-        fi
-        json='{"id":"'"$id"'","text":"'"${text//\"/\\\"}"'","status":"pending","priority":"'"$priority"'","tags":'"$tags"',"notes":[],"blockers":[],"parent":"'"$full_parent"'"}'
+        json='{"id":"'"$id"'","text":"'"${text//\"/\\\"}"'","status":"pending","priority":"'"$priority"'","tags":'"$tags"',"notes":[],"blockers":[],"parent":"'"$parent"'"}'
     else
         json='{"id":"'"$id"'","text":"'"${text//\"/\\\"}"'","status":"pending","priority":"'"$priority"'","tags":'"$tags"',"notes":[],"blockers":[],"parent":null}'
     fi
@@ -490,161 +405,83 @@ cmd_add() {
 
     echo "$json" >> "$TODO_FILE"
 
-    local due_msg=""
-    if [[ -n "$due" ]]; then
-        due_msg=" (due: $due)"
-    fi
-    local parent_msg=""
-    if [[ -n "$parent" ]]; then
-        parent_msg=" (subtask of $(short_id "$parent"))"
-    fi
-    local short_display
-    short_display=$(short_id "$id")
-    echo -e "${GREEN}Added${RESET} todo $short_display [$priority]: $text$due_msg$parent_msg"
+    # Output the todo record to stdout
+    echo "$json"
+    # Emit event to stderr
+    emit_ok "add" "\"id\":\"$id\""
 }
 
 cmd_list() {
     local filter="${1:-all}"
 
     if [[ ! -f "$TODO_FILE" ]] || [[ ! -s "$TODO_FILE" ]]; then
-        echo -e "${DIM}No todos yet. Add one with: todo add \"task\"${RESET}"
         return
     fi
 
     local filter_expr=""
-    local header=""
 
     # Check if filtering by tag
     if [[ "$filter" == @* ]] || [[ "$filter" == \#* ]]; then
         local tag="$filter"
         filter_expr="select(.tags | join(\",\") | contains(\"$tag\"))"
-        header="Todos tagged $tag:"
     else
         case "$filter" in
             pending|p)
                 filter_expr='select(.status == "pending")'
-                header="Pending todos:"
                 ;;
             done|d)
                 filter_expr='select(.status == "done")'
-                header="Completed todos:"
                 ;;
             skipped|s)
                 filter_expr='select(.status == "skipped")'
-                header="Skipped todos:"
                 ;;
             high|h)
                 filter_expr='select(.priority == "high")'
-                header="High priority todos:"
                 ;;
             *)
                 filter_expr='.'
-                header="All todos:"
                 ;;
         esac
     fi
 
-    echo -e "${BOLD}$header${RESET}"
-    echo ""
-
-    local count=0
-    while IFS= read -r line; do
-        if [[ -n "$line" ]]; then
-            local id text status priority due notes_count parent
-            id=$(echo "$line" | $ZQ -r '.id' 2>/dev/null | tr -d '\n')
-            text=$(echo "$line" | $ZQ -r '.text' 2>/dev/null | tr -d '\n')
-            status=$(echo "$line" | $ZQ -r '.status' 2>/dev/null | tr -d '\n')
-            priority=$(echo "$line" | $ZQ -r '.priority' 2>/dev/null | tr -d '\n')
-            due=$(echo "$line" | $ZQ -r '.due' 2>/dev/null | tr -d '\n')
-            notes_count=$(echo "$line" | $ZQ -c '.notes | length' 2>/dev/null | tr -d '\n')
-            parent=$(echo "$line" | $ZQ -r '.parent' 2>/dev/null | tr -d '\n')
-            local blocker_count
-            blocker_count=$(get_blocker_count "$id")
-            format_todo "$id" "$text" "$status" "$priority" "$due" "$notes_count" "$blocker_count" "$parent"
-            count=$((count + 1))
-        fi
-    done < <($ZQ -c "$filter_expr" < "$TODO_FILE" 2>/dev/null)
-
-    if [[ $count -eq 0 ]]; then
-        echo -e "  ${DIM}(none)${RESET}"
-    fi
-    echo ""
+    # Output raw NDJSON to stdout
+    $ZQ -c "$filter_expr" < "$TODO_FILE" 2>/dev/null
 }
 
 cmd_ready() {
     if [[ ! -f "$TODO_FILE" ]] || [[ ! -s "$TODO_FILE" ]]; then
-        echo -e "${DIM}No todos yet.${RESET}"
         return
     fi
 
-    echo -e "${BOLD}${GREEN}Ready to work on:${RESET}"
-    echo ""
-
-    local count=0
+    # Output pending todos without open blockers as NDJSON
     while IFS= read -r line; do
         if [[ -n "$line" ]]; then
-            local id text status priority due notes_count parent
+            local id
             id=$(echo "$line" | $ZQ -r '.id' 2>/dev/null | tr -d '\n')
-
             # Skip if has open blockers
-            if has_open_blockers "$id"; then
-                continue
+            if ! has_open_blockers "$id"; then
+                echo "$line"
             fi
-
-            text=$(echo "$line" | $ZQ -r '.text' 2>/dev/null | tr -d '\n')
-            status=$(echo "$line" | $ZQ -r '.status' 2>/dev/null | tr -d '\n')
-            priority=$(echo "$line" | $ZQ -r '.priority' 2>/dev/null | tr -d '\n')
-            due=$(echo "$line" | $ZQ -r '.due' 2>/dev/null | tr -d '\n')
-            notes_count=$(echo "$line" | $ZQ -c '.notes | length' 2>/dev/null | tr -d '\n')
-            parent=$(echo "$line" | $ZQ -r '.parent' 2>/dev/null | tr -d '\n')
-            format_todo "$id" "$text" "$status" "$priority" "$due" "$notes_count" "0" "$parent"
-            count=$((count + 1))
         fi
     done < <($ZQ -c 'select(.status == "pending")' < "$TODO_FILE" 2>/dev/null)
-
-    if [[ $count -eq 0 ]]; then
-        echo -e "  ${DIM}No ready tasks. Check 'todo blocked' for blocked items.${RESET}"
-    fi
-    echo ""
 }
 
 cmd_blocked() {
     if [[ ! -f "$TODO_FILE" ]] || [[ ! -s "$TODO_FILE" ]]; then
-        echo -e "${DIM}No todos yet.${RESET}"
         return
     fi
 
-    echo -e "${BOLD}${RED}Blocked tasks:${RESET}"
-    echo ""
-
-    local count=0
+    # Output pending todos with open blockers as NDJSON
     while IFS= read -r line; do
         if [[ -n "$line" ]]; then
-            local id text status priority due notes_count parent
+            local id
             id=$(echo "$line" | $ZQ -r '.id' 2>/dev/null | tr -d '\n')
-
             # Only show if has open blockers
-            if ! has_open_blockers "$id"; then
-                continue
+            if has_open_blockers "$id"; then
+                echo "$line"
             fi
-
-            text=$(echo "$line" | $ZQ -r '.text' 2>/dev/null | tr -d '\n')
-            status=$(echo "$line" | $ZQ -r '.status' 2>/dev/null | tr -d '\n')
-            priority=$(echo "$line" | $ZQ -r '.priority' 2>/dev/null | tr -d '\n')
-            due=$(echo "$line" | $ZQ -r '.due' 2>/dev/null | tr -d '\n')
-            notes_count=$(echo "$line" | $ZQ -c '.notes | length' 2>/dev/null | tr -d '\n')
-            parent=$(echo "$line" | $ZQ -r '.parent' 2>/dev/null | tr -d '\n')
-            local blocker_count
-            blocker_count=$(get_blocker_count "$id")
-            format_todo "$id" "$text" "$status" "$priority" "$due" "$notes_count" "$blocker_count" "$parent"
-            count=$((count + 1))
         fi
     done < <($ZQ -c 'select(.status == "pending")' < "$TODO_FILE" 2>/dev/null)
-
-    if [[ $count -eq 0 ]]; then
-        echo -e "  ${DIM}No blocked tasks.${RESET}"
-    fi
-    echo ""
 }
 
 cmd_blocks() {
@@ -652,8 +489,7 @@ cmd_blocks() {
     local blocked_id="$2"
 
     if [[ -z "$blocker_id" ]] || [[ -z "$blocked_id" ]]; then
-        echo "Usage: todo blocks <blocker-id> <blocked-id>" >&2
-        echo "  Task <blocker-id> must complete before <blocked-id> can start" >&2
+        emit_error "USAGE" "Usage: todo blocks <blocker-id> <blocked-id>"
         exit 1
     fi
 
@@ -663,17 +499,17 @@ cmd_blocks() {
     full_blocked=$(resolve_id "$blocked_id")
 
     if [[ -z "$full_blocker" ]]; then
-        echo -e "${RED}Error:${RESET} Todo $blocker_id not found" >&2
+        emit_error "NOT_FOUND" "Todo $blocker_id not found"
         exit 1
     fi
 
     if [[ -z "$full_blocked" ]]; then
-        echo -e "${RED}Error:${RESET} Todo $blocked_id not found" >&2
+        emit_error "NOT_FOUND" "Todo $blocked_id not found"
         exit 1
     fi
 
     if [[ "$full_blocker" == "$full_blocked" ]]; then
-        echo -e "${RED}Error:${RESET} A todo cannot block itself" >&2
+        emit_error "INVALID_BLOCKER" "A todo cannot block itself"
         exit 1
     fi
 
@@ -697,7 +533,7 @@ cmd_blocks() {
     done < "$TODO_FILE" > "$temp_file"
     mv "$temp_file" "$TODO_FILE"
 
-    echo -e "${MAGENTA}→${RESET} Todo $(short_id "$full_blocker") now blocks $(short_id "$full_blocked")"
+    emit_ok "blocks" "\"blocker\":\"$full_blocker\"" "\"blocked\":\"$full_blocked\""
 }
 
 cmd_unblock() {
@@ -705,7 +541,7 @@ cmd_unblock() {
     local blocked_id="$2"
 
     if [[ -z "$blocker_id" ]] || [[ -z "$blocked_id" ]]; then
-        echo "Usage: todo unblock <blocker-id> <blocked-id>" >&2
+        emit_error "USAGE" "Usage: todo unblock <blocker-id> <blocked-id>"
         exit 1
     fi
 
@@ -715,7 +551,7 @@ cmd_unblock() {
     full_blocked=$(resolve_id "$blocked_id")
 
     if [[ -z "$full_blocked" ]]; then
-        echo -e "${RED}Error:${RESET} Todo $blocked_id not found" >&2
+        emit_error "NOT_FOUND" "Todo $blocked_id not found"
         exit 1
     fi
 
@@ -756,25 +592,21 @@ cmd_unblock() {
     done < "$TODO_FILE" > "$temp_file"
     mv "$temp_file" "$TODO_FILE"
 
-    echo -e "${GREEN}✓${RESET} Removed blocker: $(short_id "$full_blocker") no longer blocks $(short_id "$full_blocked")"
+    emit_ok "unblock" "\"blocker\":\"$full_blocker\"" "\"blocked\":\"$full_blocked\""
 }
 
 cmd_tree() {
     local root_id="${1:-}"
 
     if [[ ! -f "$TODO_FILE" ]] || [[ ! -s "$TODO_FILE" ]]; then
-        echo -e "${DIM}No todos yet.${RESET}"
         return
     fi
 
-    echo -e "${BOLD}Dependency Tree:${RESET}"
-    echo ""
-
-    # Helper to print a todo with indent
-    print_tree_node() {
+    # Output tree nodes as NDJSON with depth and relationship info
+    output_tree_node() {
         local id="$1"
-        local indent="$2"
-        local prefix="$3"
+        local depth="$2"
+        local parent_id="$3"
 
         local line
         line=$($ZQ -c "select(.id == \"$id\")" < "$TODO_FILE" 2>/dev/null)
@@ -782,28 +614,18 @@ cmd_tree() {
             return
         fi
 
-        local text status priority
-        text=$(echo "$line" | $ZQ -r '.text' 2>/dev/null | tr -d '\n')
-        status=$(echo "$line" | $ZQ -r '.status' 2>/dev/null | tr -d '\n')
-        priority=$(echo "$line" | $ZQ -r '.priority' 2>/dev/null | tr -d '\n')
-
-        local status_icon
-        case "$status" in
-            done) status_icon="${GREEN}✓${RESET}" ;;
-            skipped) status_icon="${YELLOW}⊘${RESET}" ;;
-            *) status_icon="${BLUE}○${RESET}" ;;
-        esac
-
-        local pri_mark=""
-        [[ "$priority" == "high" ]] && pri_mark="${RED}!!!${RESET} "
-
-        echo -e "${indent}${prefix}${status_icon} ${pri_mark}$(short_id "$id"): $text"
+        # Add tree metadata to the record
+        if [[ -n "$parent_id" ]]; then
+            echo "$line" | $JN_EDIT .tree_depth:="$depth" | $JN_EDIT .blocks="$parent_id"
+        else
+            echo "$line" | $JN_EDIT .tree_depth:="$depth"
+        fi
     }
 
-    # Print blockers of a todo recursively
-    print_blockers() {
+    # Recursively output blockers
+    output_blockers() {
         local id="$1"
-        local indent="$2"
+        local depth="$2"
 
         local blockers
         blockers=$($ZQ -c "select(.id == \"$id\") | .blockers" < "$TODO_FILE" 2>/dev/null)
@@ -815,20 +637,9 @@ cmd_tree() {
         local blocker_ids
         blocker_ids=$(echo "$blockers" | $ZQ -r '.[]' 2>/dev/null)
 
-        local count=0
-        local total
-        total=$(echo "$blocker_ids" | wc -l)
-
         for bid in $blocker_ids; do
-            count=$((count + 1))
-            local connector="├── "
-            local child_indent="│   "
-            if [[ $count -eq $total ]]; then
-                connector="└── "
-                child_indent="    "
-            fi
-            print_tree_node "$bid" "$indent" "$connector"
-            print_blockers "$bid" "${indent}${child_indent}"
+            output_tree_node "$bid" "$depth" "$id"
+            output_blockers "$bid" "$((depth + 1))"
         done
     }
 
@@ -837,13 +648,13 @@ cmd_tree() {
         local full_root
         full_root=$(resolve_id "$root_id")
         if [[ -z "$full_root" ]]; then
-            echo -e "${RED}Error:${RESET} Todo $root_id not found" >&2
+            emit_error "NOT_FOUND" "Todo $root_id not found"
             exit 1
         fi
-        print_tree_node "$full_root" "" ""
-        print_blockers "$full_root" ""
+        output_tree_node "$full_root" 0 ""
+        output_blockers "$full_root" 1
     else
-        # Show all todos that have blockers or are blockers
+        # Show all todos that have blockers
         while IFS= read -r line; do
             if [[ -n "$line" ]]; then
                 local id blockers
@@ -852,9 +663,8 @@ cmd_tree() {
 
                 # Only show if it has blockers
                 if [[ -n "$blockers" ]] && [[ "$blockers" != "[]" ]] && [[ "$blockers" != "null" ]]; then
-                    print_tree_node "$id" "" ""
-                    print_blockers "$id" ""
-                    echo ""
+                    output_tree_node "$id" 0 ""
+                    output_blockers "$id" 1
                 fi
             fi
         done < "$TODO_FILE"
@@ -863,7 +673,7 @@ cmd_tree() {
 
 cmd_count() {
     if [[ ! -f "$TODO_FILE" ]] || [[ ! -s "$TODO_FILE" ]]; then
-        echo "0 total (0 pending, 0 done, 0 skipped)"
+        echo '{"total":0,"pending":0,"done":0,"skipped":0,"ready":0,"blocked":0,"overdue":0}'
         return
     fi
 
@@ -874,42 +684,31 @@ cmd_count() {
     skipped=$($ZQ -c 'select(.status == "skipped")' < "$TODO_FILE" 2>/dev/null | wc -l | tr -d ' ')
 
     local overdue=0 blocked=0 ready=0
-    if [[ -f "$TODO_FILE" ]]; then
-        local today
-        today=$(date +%Y-%m-%d)
-        overdue=$($ZQ -c "select(.status == \"pending\") | select(.due != null) | select(.due < \"$today\")" < "$TODO_FILE" 2>/dev/null | wc -l | tr -d ' ')
+    local today
+    today=$(date +%Y-%m-%d)
+    overdue=$($ZQ -c "select(.status == \"pending\") | select(.due != null) | select(.due < \"$today\")" < "$TODO_FILE" 2>/dev/null | wc -l | tr -d ' ')
 
-        # Count blocked and ready
-        while IFS= read -r line; do
-            if [[ -n "$line" ]]; then
-                local id
-                id=$(echo "$line" | $ZQ -r '.id' 2>/dev/null | tr -d '\n')
-                if has_open_blockers "$id"; then
-                    blocked=$((blocked + 1))
-                else
-                    ready=$((ready + 1))
-                fi
+    # Count blocked and ready
+    while IFS= read -r line; do
+        if [[ -n "$line" ]]; then
+            local id
+            id=$(echo "$line" | $ZQ -r '.id' 2>/dev/null | tr -d '\n')
+            if has_open_blockers "$id"; then
+                blocked=$((blocked + 1))
+            else
+                ready=$((ready + 1))
             fi
-        done < <($ZQ -c 'select(.status == "pending")' < "$TODO_FILE" 2>/dev/null)
-    fi
+        fi
+    done < <($ZQ -c 'select(.status == "pending")' < "$TODO_FILE" 2>/dev/null)
 
-    echo -e "${BOLD}$total${RESET} total: ${BLUE}$pending pending${RESET}, ${GREEN}$done_count done${RESET}, ${YELLOW}$skipped skipped${RESET}"
-    echo -e "  ${GREEN}$ready ready${RESET}, ${RED}$blocked blocked${RESET}"
-    if [[ "$overdue" -gt 0 ]]; then
-        echo -e "  ${RED}⚠ $overdue overdue${RESET}"
-    fi
+    echo "{\"total\":$total,\"pending\":$pending,\"done\":$done_count,\"skipped\":$skipped,\"ready\":$ready,\"blocked\":$blocked,\"overdue\":$overdue}"
 }
 
 cmd_stats() {
     if [[ ! -f "$TODO_FILE" ]] || [[ ! -s "$TODO_FILE" ]]; then
-        echo -e "${DIM}No todos yet.${RESET}"
+        echo '{"total":0,"pending":0,"done":0,"skipped":0,"priority":{"high":0,"med":0,"low":0},"workflow":{"ready":0,"blocked":0},"due":{"overdue":0,"soon":0,"none":0},"top_tags":[]}'
         return
     fi
-
-    echo -e "${BOLD}═══════════════════════════════════════${RESET}"
-    echo -e "${BOLD}           TODO STATISTICS             ${RESET}"
-    echo -e "${BOLD}═══════════════════════════════════════${RESET}"
-    echo ""
 
     # Counts by status
     local total pending done_count skipped
@@ -918,24 +717,11 @@ cmd_stats() {
     done_count=$($ZQ -c 'select(.status == "done")' < "$TODO_FILE" 2>/dev/null | wc -l | tr -d ' ')
     skipped=$($ZQ -c 'select(.status == "skipped")' < "$TODO_FILE" 2>/dev/null | wc -l | tr -d ' ')
 
-    echo -e "${BOLD}By Status:${RESET}"
-    echo -e "  Total:    $total"
-    echo -e "  ${BLUE}Pending:  $pending${RESET}"
-    echo -e "  ${GREEN}Done:     $done_count${RESET}"
-    echo -e "  ${YELLOW}Skipped:  $skipped${RESET}"
-    echo ""
-
     # Counts by priority
     local high med low
     high=$($ZQ -c 'select(.status == "pending") | select(.priority == "high")' < "$TODO_FILE" 2>/dev/null | wc -l | tr -d ' ')
     med=$($ZQ -c 'select(.status == "pending") | select(.priority == "med")' < "$TODO_FILE" 2>/dev/null | wc -l | tr -d ' ')
     low=$($ZQ -c 'select(.status == "pending") | select(.priority == "low")' < "$TODO_FILE" 2>/dev/null | wc -l | tr -d ' ')
-
-    echo -e "${BOLD}By Priority (pending):${RESET}"
-    echo -e "  ${RED}High:  $high${RESET}"
-    echo -e "  ${YELLOW}Med:   $med${RESET}"
-    echo -e "  ${DIM}Low:   $low${RESET}"
-    echo ""
 
     # Blockers
     local blocked=0 ready=0
@@ -951,11 +737,6 @@ cmd_stats() {
         fi
     done < <($ZQ -c 'select(.status == "pending")' < "$TODO_FILE" 2>/dev/null)
 
-    echo -e "${BOLD}Workflow:${RESET}"
-    echo -e "  ${GREEN}Ready:    $ready${RESET}"
-    echo -e "  ${RED}Blocked:  $blocked${RESET}"
-    echo ""
-
     # Due dates
     local today overdue due_soon no_due
     today=$(date +%Y-%m-%d)
@@ -965,71 +746,45 @@ cmd_stats() {
     due_soon=$($ZQ -c "select(.status == \"pending\") | select(.due != null) | select(.due >= \"$today\") | select(.due <= \"$future\")" < "$TODO_FILE" 2>/dev/null | wc -l | tr -d ' ')
     no_due=$($ZQ -c 'select(.status == "pending") | select(.due == null)' < "$TODO_FILE" 2>/dev/null | wc -l | tr -d ' ')
 
-    echo -e "${BOLD}Due Dates (pending):${RESET}"
-    echo -e "  ${RED}Overdue:   $overdue${RESET}"
-    echo -e "  ${YELLOW}Due soon:  $due_soon${RESET}"
-    echo -e "  ${DIM}No date:   $no_due${RESET}"
-    echo ""
-
-    # Top tags
-    echo -e "${BOLD}Top Tags:${RESET}"
+    # Top tags as JSON array
+    local top_tags="[]"
     if [[ -f "$TODO_FILE" ]]; then
-        $ZQ -c 'select(.status == "pending") | .tags | .[]' < "$TODO_FILE" 2>/dev/null | \
+        top_tags=$($ZQ -c 'select(.status == "pending") | .tags | .[]' < "$TODO_FILE" 2>/dev/null | \
             sort | uniq -c | sort -rn | head -5 | \
-            while read -r count tag; do
-                echo -e "  ${MAGENTA}$tag${RESET}: $count"
-            done
+            awk 'BEGIN{printf "["} NR>1{printf ","} {printf "{\"tag\":%s,\"count\":%d}", $2, $1} END{printf "]"}')
+        [[ -z "$top_tags" ]] && top_tags="[]"
     fi
-    echo ""
-    echo -e "${BOLD}═══════════════════════════════════════${RESET}"
+
+    echo "{\"total\":$total,\"pending\":$pending,\"done\":$done_count,\"skipped\":$skipped,\"priority\":{\"high\":$high,\"med\":$med,\"low\":$low},\"workflow\":{\"ready\":$ready,\"blocked\":$blocked},\"due\":{\"overdue\":$overdue,\"soon\":$due_soon,\"none\":$no_due},\"top_tags\":$top_tags}"
 }
 
 cmd_search() {
     local term="$1"
     if [[ -z "$term" ]]; then
-        echo "Usage: todo search <term>" >&2
+        emit_error "USAGE" "Usage: todo search <term>"
         exit 1
     fi
 
     if [[ ! -f "$TODO_FILE" ]] || [[ ! -s "$TODO_FILE" ]]; then
-        echo -e "${DIM}No todos to search.${RESET}"
         return
     fi
 
-    echo -e "${BOLD}Search results for \"$term\":${RESET}"
-    echo ""
-
-    local count=0
+    # Output matching records as NDJSON
     while IFS= read -r line; do
         if [[ -n "$line" ]]; then
             local text
             text=$(echo "$line" | $ZQ -r '.text' 2>/dev/null)
             if echo "$text" | grep -qi "$term"; then
-                local id status priority due notes_count parent
-                id=$(echo "$line" | $ZQ -r '.id' 2>/dev/null | tr -d '\n')
-                status=$(echo "$line" | $ZQ -r '.status' 2>/dev/null | tr -d '\n')
-                priority=$(echo "$line" | $ZQ -r '.priority' 2>/dev/null | tr -d '\n')
-                due=$(echo "$line" | $ZQ -r '.due' 2>/dev/null | tr -d '\n')
-                notes_count=$(echo "$line" | $ZQ -c '.notes | length' 2>/dev/null | tr -d '\n')
-                parent=$(echo "$line" | $ZQ -r '.parent' 2>/dev/null | tr -d '\n')
-                local blocker_count
-                blocker_count=$(get_blocker_count "$id")
-                format_todo "$id" "$text" "$status" "$priority" "$due" "$notes_count" "$blocker_count" "$parent"
-                count=$((count + 1))
+                echo "$line"
             fi
         fi
     done < "$TODO_FILE"
-
-    if [[ $count -eq 0 ]]; then
-        echo -e "  ${DIM}No matches found.${RESET}"
-    fi
-    echo ""
 }
 
 cmd_done() {
     local id="$1"
     if [[ -z "$id" ]]; then
-        echo "Usage: todo done <id>" >&2
+        emit_error "USAGE" "Usage: todo done <id>"
         exit 1
     fi
 
@@ -1037,19 +792,19 @@ cmd_done() {
     local full_id
     full_id=$(resolve_id "$id")
     if [[ -z "$full_id" ]]; then
-        echo -e "${RED}Error:${RESET} Todo $id not found" >&2
+        emit_error "NOT_FOUND" "Todo $id not found"
         exit 1
     fi
 
     backup
     update_todo "$full_id" ".status=done"
-    echo -e "${GREEN}✓${RESET} Marked todo $(short_id "$full_id") as done"
+    emit_ok "done" "\"id\":\"$full_id\""
 }
 
 cmd_skip() {
     local id="$1"
     if [[ -z "$id" ]]; then
-        echo "Usage: todo skip <id>" >&2
+        emit_error "USAGE" "Usage: todo skip <id>"
         exit 1
     fi
 
@@ -1057,19 +812,19 @@ cmd_skip() {
     local full_id
     full_id=$(resolve_id "$id")
     if [[ -z "$full_id" ]]; then
-        echo -e "${RED}Error:${RESET} Todo $id not found" >&2
+        emit_error "NOT_FOUND" "Todo $id not found"
         exit 1
     fi
 
     backup
     update_todo "$full_id" ".status=skipped"
-    echo -e "${YELLOW}⊘${RESET} Marked todo $(short_id "$full_id") as skipped"
+    emit_ok "skip" "\"id\":\"$full_id\""
 }
 
 cmd_reopen() {
     local id="$1"
     if [[ -z "$id" ]]; then
-        echo "Usage: todo reopen <id>" >&2
+        emit_error "USAGE" "Usage: todo reopen <id>"
         exit 1
     fi
 
@@ -1077,20 +832,19 @@ cmd_reopen() {
     local full_id
     full_id=$(resolve_id "$id")
     if [[ -z "$full_id" ]]; then
-        echo -e "${RED}Error:${RESET} Todo $id not found" >&2
+        emit_error "NOT_FOUND" "Todo $id not found"
         exit 1
     fi
 
     backup
     update_todo "$full_id" ".status=pending"
-    echo -e "${BLUE}○${RESET} Reopened todo $(short_id "$full_id")"
+    emit_ok "reopen" "\"id\":\"$full_id\""
 }
 
 cmd_bump() {
     local id="$1"
     if [[ -z "$id" ]]; then
-        echo "Usage: todo bump <id>" >&2
-        echo "  Cycles priority: low → med → high → low" >&2
+        emit_error "USAGE" "Usage: todo bump <id> - Cycles priority: low → med → high → low"
         exit 1
     fi
 
@@ -1098,7 +852,7 @@ cmd_bump() {
     local full_id
     full_id=$(resolve_id "$id")
     if [[ -z "$full_id" ]]; then
-        echo -e "${RED}Error:${RESET} Todo $id not found" >&2
+        emit_error "NOT_FOUND" "Todo $id not found"
         exit 1
     fi
 
@@ -1115,7 +869,7 @@ cmd_bump() {
 
     backup
     update_todo "$full_id" ".priority=$new_priority"
-    echo -e "Bumped todo $(short_id "$full_id"): ${DIM}$current_priority${RESET} → ${BOLD}$new_priority${RESET}"
+    emit_ok "bump" "\"id\":\"$full_id\"" "\"from\":\"$current_priority\"" "\"to\":\"$new_priority\""
 }
 
 cmd_retag() {
@@ -1123,13 +877,12 @@ cmd_retag() {
     local new_tag="$2"
 
     if [[ -z "$old_tag" ]] || [[ -z "$new_tag" ]]; then
-        echo "Usage: todo retag <old-tag> <new-tag>" >&2
-        echo "  Example: todo retag @oldproject @newproject" >&2
+        emit_error "USAGE" "Usage: todo retag <old-tag> <new-tag>"
         exit 1
     fi
 
     if [[ ! -f "$TODO_FILE" ]] || [[ ! -s "$TODO_FILE" ]]; then
-        echo -e "${DIM}No todos.${RESET}"
+        emit_ok "retag" "\"from\":\"$old_tag\"" "\"to\":\"$new_tag\"" "\"count\":0"
         return
     fi
 
@@ -1160,7 +913,7 @@ cmd_retag() {
     done < "$TODO_FILE" > "$temp_file"
     mv "$temp_file" "$TODO_FILE"
 
-    echo -e "${MAGENTA}Renamed${RESET} $old_tag → $new_tag in $count todo(s)"
+    emit_ok "retag" "\"from\":\"$old_tag\"" "\"to\":\"$new_tag\"" "\"count\":$count"
 }
 
 cmd_edit() {
@@ -1168,13 +921,8 @@ cmd_edit() {
     shift
     local new_text="$*"
 
-    if [[ -z "$id" ]]; then
-        echo "Usage: todo edit <id> \"new text\"" >&2
-        exit 1
-    fi
-
-    if [[ -z "$new_text" ]]; then
-        echo "Usage: todo edit <id> \"new text\"" >&2
+    if [[ -z "$id" ]] || [[ -z "$new_text" ]]; then
+        emit_error "USAGE" "Usage: todo edit <id> \"new text\""
         exit 1
     fi
 
@@ -1182,7 +930,7 @@ cmd_edit() {
     local full_id
     full_id=$(resolve_id "$id")
     if [[ -z "$full_id" ]]; then
-        echo -e "${RED}Error:${RESET} Todo $id not found" >&2
+        emit_error "NOT_FOUND" "Todo $id not found"
         exit 1
     fi
 
@@ -1208,7 +956,7 @@ cmd_edit() {
     done < "$TODO_FILE" > "$temp_file"
     mv "$temp_file" "$TODO_FILE"
 
-    echo -e "${BLUE}Edited${RESET} todo $(short_id "$full_id"): $new_text"
+    emit_ok "edit" "\"id\":\"$full_id\""
 }
 
 cmd_note() {
@@ -1217,7 +965,7 @@ cmd_note() {
     local note_text="$*"
 
     if [[ -z "$id" ]]; then
-        echo "Usage: todo note <id> \"note text\"" >&2
+        emit_error "USAGE" "Usage: todo note <id> [\"note text\"]"
         exit 1
     fi
 
@@ -1225,23 +973,15 @@ cmd_note() {
     local full_id
     full_id=$(resolve_id "$id")
     if [[ -z "$full_id" ]]; then
-        echo -e "${RED}Error:${RESET} Todo $id not found" >&2
+        emit_error "NOT_FOUND" "Todo $id not found"
         exit 1
     fi
 
     if [[ -z "$note_text" ]]; then
-        echo -e "${BOLD}Notes for todo $(short_id "$full_id"):${RESET}"
+        # View notes - output as JSON to stdout
         local notes
         notes=$($ZQ -c "select(.id == \"$full_id\") | .notes" < "$TODO_FILE" 2>/dev/null)
-        if [[ "$notes" == "[]" ]] || [[ -z "$notes" ]]; then
-            echo -e "  ${DIM}(no notes)${RESET}"
-        else
-            local i=1
-            echo "$notes" | $ZQ -r '.[]' 2>/dev/null | while read -r note; do
-                echo -e "  ${DIM}$i.${RESET} $note"
-                i=$((i + 1))
-            done
-        fi
+        echo "{\"id\":\"$full_id\",\"notes\":$notes}"
         return
     fi
 
@@ -1264,13 +1004,13 @@ cmd_note() {
     done < "$TODO_FILE" > "$temp_file"
     mv "$temp_file" "$TODO_FILE"
 
-    echo -e "${CYAN}Added note${RESET} to todo $(short_id "$full_id")"
+    emit_ok "note" "\"id\":\"$full_id\""
 }
 
 cmd_tag() {
     local id="$1"
     if [[ -z "$id" ]]; then
-        echo "Usage: todo tag <id>" >&2
+        emit_error "USAGE" "Usage: todo tag <id>"
         exit 1
     fi
 
@@ -1278,82 +1018,47 @@ cmd_tag() {
     local full_id
     full_id=$(resolve_id "$id")
     if [[ -z "$full_id" ]]; then
-        echo -e "${RED}Error:${RESET} Todo $id not found" >&2
+        emit_error "NOT_FOUND" "Todo $id not found"
         exit 1
     fi
 
     local tags
     tags=$($ZQ -c "select(.id == \"$full_id\") | .tags" < "$TODO_FILE" 2>/dev/null)
 
-    if [[ "$tags" == "[]" ]] || [[ -z "$tags" ]] || [[ "$tags" == "null" ]]; then
-        echo -e "Todo $(short_id "$full_id") has ${DIM}no tags${RESET}"
-    else
-        echo -e "Todo $(short_id "$full_id") tags: ${MAGENTA}$(echo "$tags" | $ZQ -r 'join(", ")' 2>/dev/null)${RESET}"
-    fi
+    # Output as JSON to stdout
+    echo "{\"id\":\"$full_id\",\"tags\":$tags}"
 }
 
 cmd_due() {
     if [[ ! -f "$TODO_FILE" ]] || [[ ! -s "$TODO_FILE" ]]; then
-        echo -e "${DIM}No todos with due dates.${RESET}"
         return
     fi
 
     local today
     today=$(date +%Y-%m-%d)
-
-    echo -e "${BOLD}${RED}Overdue:${RESET}"
-    local overdue_count=0
-    while IFS= read -r line; do
-        if [[ -n "$line" ]]; then
-            local id text status priority due notes_count parent
-            id=$(echo "$line" | $ZQ -r '.id' 2>/dev/null | tr -d '\n')
-            text=$(echo "$line" | $ZQ -r '.text' 2>/dev/null | tr -d '\n')
-            status=$(echo "$line" | $ZQ -r '.status' 2>/dev/null | tr -d '\n')
-            priority=$(echo "$line" | $ZQ -r '.priority' 2>/dev/null | tr -d '\n')
-            due=$(echo "$line" | $ZQ -r '.due' 2>/dev/null | tr -d '\n')
-            notes_count=$(echo "$line" | $ZQ -c '.notes | length' 2>/dev/null | tr -d '\n')
-            parent=$(echo "$line" | $ZQ -r '.parent' 2>/dev/null | tr -d '\n')
-            local blocker_count
-            blocker_count=$(get_blocker_count "$id")
-            format_todo "$id" "$text" "$status" "$priority" "$due" "$notes_count" "$blocker_count" "$parent"
-            overdue_count=$((overdue_count + 1))
-        fi
-    done < <($ZQ -c "select(.status == \"pending\") | select(.due != null) | select(.due < \"$today\")" < "$TODO_FILE" 2>/dev/null)
-    if [[ $overdue_count -eq 0 ]]; then
-        echo -e "  ${DIM}(none)${RESET}"
-    fi
-
-    echo ""
-    echo -e "${BOLD}${YELLOW}Due soon (next 7 days):${RESET}"
     local future
     future=$(date -d "+7 days" +%Y-%m-%d 2>/dev/null || date -v+7d +%Y-%m-%d 2>/dev/null || echo "2099-12-31")
-    local soon_count=0
+
+    # Output all pending todos with due dates, adding a "due_status" field
     while IFS= read -r line; do
         if [[ -n "$line" ]]; then
-            local id text status priority due notes_count parent
-            id=$(echo "$line" | $ZQ -r '.id' 2>/dev/null | tr -d '\n')
-            text=$(echo "$line" | $ZQ -r '.text' 2>/dev/null | tr -d '\n')
-            status=$(echo "$line" | $ZQ -r '.status' 2>/dev/null | tr -d '\n')
-            priority=$(echo "$line" | $ZQ -r '.priority' 2>/dev/null | tr -d '\n')
+            local due
             due=$(echo "$line" | $ZQ -r '.due' 2>/dev/null | tr -d '\n')
-            notes_count=$(echo "$line" | $ZQ -c '.notes | length' 2>/dev/null | tr -d '\n')
-            parent=$(echo "$line" | $ZQ -r '.parent' 2>/dev/null | tr -d '\n')
-            local blocker_count
-            blocker_count=$(get_blocker_count "$id")
-            format_todo "$id" "$text" "$status" "$priority" "$due" "$notes_count" "$blocker_count" "$parent"
-            soon_count=$((soon_count + 1))
+            local due_status="upcoming"
+            if [[ "$due" < "$today" ]]; then
+                due_status="overdue"
+            elif [[ "$due" < "$future" ]] || [[ "$due" == "$future" ]]; then
+                due_status="soon"
+            fi
+            echo "$line" | $JN_EDIT .due_status="$due_status"
         fi
-    done < <($ZQ -c "select(.status == \"pending\") | select(.due != null) | select(.due >= \"$today\") | select(.due <= \"$future\")" < "$TODO_FILE" 2>/dev/null)
-    if [[ $soon_count -eq 0 ]]; then
-        echo -e "  ${DIM}(none)${RESET}"
-    fi
-    echo ""
+    done < <($ZQ -c "select(.status == \"pending\") | select(.due != null)" < "$TODO_FILE" 2>/dev/null)
 }
 
 cmd_rm() {
     local id="$1"
     if [[ -z "$id" ]]; then
-        echo "Usage: todo rm <id>" >&2
+        emit_error "USAGE" "Usage: todo rm <id>"
         exit 1
     fi
 
@@ -1361,7 +1066,7 @@ cmd_rm() {
     local full_id
     full_id=$(resolve_id "$id")
     if [[ -z "$full_id" ]]; then
-        echo -e "${RED}Error:${RESET} Todo $id not found" >&2
+        emit_error "NOT_FOUND" "Todo $id not found"
         exit 1
     fi
 
@@ -1372,14 +1077,18 @@ cmd_rm() {
     $ZQ -c "select(.id != \"$full_id\")" < "$TODO_FILE" 2>/dev/null > "$temp_file"
     mv "$temp_file" "$TODO_FILE"
 
-    echo -e "${RED}Removed${RESET} todo $(short_id "$full_id")"
+    emit_ok "rm" "\"id\":\"$full_id\""
 }
 
 cmd_clear() {
     if [[ ! -f "$TODO_FILE" ]] || [[ ! -s "$TODO_FILE" ]]; then
-        echo "No todos to clear."
+        emit_ok "clear" "\"cleared\":0"
         return
     fi
+
+    # Count how many will be cleared
+    local cleared
+    cleared=$($ZQ -c 'select(.status != "pending")' < "$TODO_FILE" 2>/dev/null | wc -l | tr -d ' ')
 
     backup
 
@@ -1388,24 +1097,23 @@ cmd_clear() {
     $ZQ -c 'select(.status == "pending")' < "$TODO_FILE" 2>/dev/null > "$temp_file"
     mv "$temp_file" "$TODO_FILE"
 
-    echo -e "${GREEN}Cleared${RESET} completed and skipped todos"
+    emit_ok "clear" "\"cleared\":$cleared"
 }
 
 cmd_undo() {
     if [[ ! -f "$BACKUP_FILE" ]]; then
-        echo -e "${RED}Error:${RESET} No backup available to restore" >&2
+        emit_error "NO_BACKUP" "No backup available to restore"
         exit 1
     fi
 
     cp "$BACKUP_FILE" "$TODO_FILE"
-    echo -e "${GREEN}Restored${RESET} from backup"
+    emit_ok "undo"
 }
 
 cmd_export() {
     local format="${1:-md}"
 
     if [[ ! -f "$TODO_FILE" ]] || [[ ! -s "$TODO_FILE" ]]; then
-        echo -e "${DIM}No todos to export.${RESET}" >&2
         return
     fi
 
@@ -1459,7 +1167,7 @@ cmd_export() {
             done < "$TODO_FILE"
             ;;
         *)
-            echo "Unknown format: $format (use md or csv)" >&2
+            emit_error "INVALID_FORMAT" "Unknown format: $format (use md or csv)"
             exit 1
             ;;
     esac
@@ -1638,8 +1346,7 @@ case "${1:-list}" in
         elif [[ "$1" == @* ]] || [[ "$1" == \#* ]]; then
             cmd_list "$1"
         else
-            echo "Unknown command: $1" >&2
-            echo "Run 'todo help' for usage." >&2
+            emit_error "UNKNOWN_COMMAND" "Unknown command: $1. Run 'todo help' for usage."
             exit 1
         fi
         ;;

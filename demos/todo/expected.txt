@@ -1,75 +1,31 @@
 === Todo Demo ===
 
 1. List all todos:
-All todos:
-
-  ○    ct5k9m8a  Buy groceries
-  ○ !!!ct5k9m8a  Fix critical bug
-  ✓    ct5k9m8a  Submit report [2024-12-20]
-  ○ !  ct5k9m8a  Review PR [1 note(s)]
-  ○    ct5k9m8a  Write tests
-
+{"id":"ct5k9m8ag0001test0001","text":"Buy groceries","status":"pending","priority":"med","tags":[],"notes":[],"blockers":[],"parent":null,"due":null}
+{"id":"ct5k9m8ag0002test0002","text":"Fix critical bug","status":"pending","priority":"high","tags":["@work"],"notes":[],"blockers":[],"parent":null,"due":null}
+{"id":"ct5k9m8ag0003test0003","text":"Submit report","status":"done","priority":"med","tags":["@work"],"notes":[],"blockers":[],"parent":null,"due":"2024-12-20"}
+{"id":"ct5k9m8ag0004test0004","text":"Review PR","status":"pending","priority":"low","tags":["@work","@review"],"notes":["Check the auth changes"],"blockers":[],"parent":null,"due":null}
+{"id":"ct5k9m8ag0005test0005","text":"Write tests","status":"pending","priority":"med","tags":["@work"],"notes":[],"blockers":[],"parent":null,"due":null}
 
 2. List pending only:
-Pending todos:
-
-  ○    ct5k9m8a  Buy groceries
-  ○ !!!ct5k9m8a  Fix critical bug
-  ○ !  ct5k9m8a  Review PR [1 note(s)]
-  ○    ct5k9m8a  Write tests
-
+{"id":"ct5k9m8ag0001test0001","text":"Buy groceries","status":"pending","priority":"med","tags":[],"notes":[],"blockers":[],"parent":null,"due":null}
+{"id":"ct5k9m8ag0002test0002","text":"Fix critical bug","status":"pending","priority":"high","tags":["@work"],"notes":[],"blockers":[],"parent":null,"due":null}
+{"id":"ct5k9m8ag0004test0004","text":"Review PR","status":"pending","priority":"low","tags":["@work","@review"],"notes":["Check the auth changes"],"blockers":[],"parent":null,"due":null}
+{"id":"ct5k9m8ag0005test0005","text":"Write tests","status":"pending","priority":"med","tags":["@work"],"notes":[],"blockers":[],"parent":null,"due":null}
 
 3. Filter by priority:
-High priority todos:
-
-  ○ !!!ct5k9m8a  Fix critical bug
-
+{"id":"ct5k9m8ag0002test0002","text":"Fix critical bug","status":"pending","priority":"high","tags":["@work"],"notes":[],"blockers":[],"parent":null,"due":null}
 
 4. Filter by tag:
-Todos tagged @review:
-
-  ○ !  ct5k9m8a  Review PR [1 note(s)]
-
+{"id":"ct5k9m8ag0004test0004","text":"Review PR","status":"pending","priority":"low","tags":["@work","@review"],"notes":["Check the auth changes"],"blockers":[],"parent":null,"due":null}
 
 5. Search by text:
-Search results for "bug":
-
-  ○ !!!ct5k9m8a  Fix critical bug
-
+{"id":"ct5k9m8ag0002test0002","text":"Fix critical bug","status":"pending","priority":"high","tags":["@work"],"notes":[],"blockers":[],"parent":null,"due":null}
 
 6. Show statistics:
-═══════════════════════════════════════
-           TODO STATISTICS             
-═══════════════════════════════════════
-
-By Status:
-  Total:    5
-  Pending:  4
-  Done:     1
-  Skipped:  0
-
-By Priority (pending):
-  High:  1
-  Med:   0
-  Low:   1
-
-Workflow:
-  Ready:    4
-  Blocked:  0
-
-Due Dates (pending):
-  Overdue:   0
-  Due soon:  0
-  No date:   4
-
-Top Tags:
-  "@work": 3
-  "@review": 1
-
-═══════════════════════════════════════
+{"total":5,"pending":4,"done":1,"skipped":0,"priority":{"high":1,"med":2,"low":1},"workflow":{"ready":4,"blocked":0},"due":{"overdue":0,"soon":0,"none":4},"top_tags":[{"tag":"@work","count":3},{"tag":"@review","count":1}]}
 
 7. Quick count:
-5 total: 4 pending, 1 done, 0 skipped
-  4 ready, 0 blocked
+{"total":5,"pending":4,"done":1,"skipped":0,"ready":4,"blocked":0,"overdue":0}
 
 === Done ===
