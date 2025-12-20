@@ -373,16 +373,17 @@ class TestDbCount:
     """Tests for db count command."""
 
     def test_count_shows_stats(self, initialized_db):
-        """db count should show record counts."""
+        """db count should show record counts as JSON."""
         run_db(["delete", "2"], cwd=initialized_db)
 
         code, stdout, stderr = run_db(["count"], cwd=initialized_db)
         assert code == 0, f"Exit code {code}, stderr: {stderr}"
 
-        output = stdout + stderr
-        assert "total: 3" in output
-        assert "active: 2" in output
-        assert "deleted: 1" in output
+        # Output is now JSON
+        data = json.loads(stdout.strip())
+        assert data["total"] == 3
+        assert data["active"] == 2
+        assert data["deleted"] == 1
 
 
 class TestDbStats:
@@ -402,13 +403,14 @@ class TestDbCheck:
     """Tests for db check command."""
 
     def test_check_passes_valid_db(self, initialized_db):
-        """db check should pass for valid database."""
+        """db check should pass for valid database and return JSON."""
         code, stdout, stderr = run_db(["check"], cwd=initialized_db)
         assert code == 0, f"Exit code {code}, stderr: {stderr}"
 
-        output = stdout + stderr
-        assert "OK" in output or "ok" in output.lower()
-        assert "Errors:   0" in output or "errors: 0" in output.lower()
+        # Output is now JSON
+        data = json.loads(stdout.strip())
+        assert data["valid"] is True
+        assert data["errors"] == 0
 
 
 # =============================================================================
@@ -500,12 +502,13 @@ class TestDbEdgeCases:
         assert code == 0
 
     def test_empty_db_count(self, db_dir):
-        """db count on empty database should show zeros."""
+        """db count on empty database should return JSON with zeros."""
         run_db(["init"], cwd=db_dir)
 
         code, stdout, stderr = run_db(["count"], cwd=db_dir)
         assert code == 0
-        assert "total: 0" in stdout + stderr
+        data = json.loads(stdout.strip())
+        assert data["total"] == 0
 
     def test_help_command(self, db_dir):
         """db help should show usage."""
