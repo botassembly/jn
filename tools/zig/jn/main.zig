@@ -361,6 +361,125 @@ fn findPythonPlugin(allocator: std.mem.Allocator, name: []const u8) ?[]const u8 
     return null;
 }
 
+/// Find the libexec directory containing internal tools (jn-edit, zq, etc.)
+/// Returns an absolute path to the libexec/jn directory, or null if not found.
+fn findLibexecDir(allocator: std.mem.Allocator) ?[]const u8 {
+    // Try JN_HOME first
+    if (std.posix.getenv("JN_HOME")) |jn_home| {
+        // Check $JN_HOME/bin (installed tools in flat layout)
+        const bin_path = std.fmt.allocPrint(allocator, "{s}/bin", .{jn_home}) catch return null;
+        if (std.fs.cwd().access(bin_path, .{})) |_| {
+            // Verify jn-edit exists there
+            const test_path = std.fmt.allocPrint(allocator, "{s}/jn-edit", .{bin_path}) catch {
+                allocator.free(bin_path);
+                return null;
+            };
+            defer allocator.free(test_path);
+            if (std.fs.cwd().access(test_path, .{})) |_| {
+                return bin_path;
+            } else |_| {}
+        } else |_| {}
+        allocator.free(bin_path);
+    }
+
+    // Try libexec layout: bin/jn -> ../libexec/jn/
+    var exe_buf: [std.fs.max_path_bytes]u8 = undefined;
+    if (std.fs.selfExePath(&exe_buf)) |exe_path| {
+        if (std.fs.path.dirname(exe_path)) |bin_dir| {
+            if (std.fs.path.dirname(bin_dir)) |dist_dir| {
+                const libexec_path = std.fmt.allocPrint(allocator, "{s}/libexec/jn", .{dist_dir}) catch return null;
+                // Verify jn-edit exists there
+                const test_path = std.fmt.allocPrint(allocator, "{s}/jn-edit", .{libexec_path}) catch {
+                    allocator.free(libexec_path);
+                    return null;
+                };
+                defer allocator.free(test_path);
+                if (std.fs.cwd().access(test_path, .{})) |_| {
+                    return libexec_path;
+                } else |_| {}
+                allocator.free(libexec_path);
+            }
+        }
+    } else |_| {}
+
+    // Try sibling to executable (flat bin/ layout)
+    if (std.fs.selfExePath(&exe_buf)) |exe_path| {
+        if (std.fs.path.dirname(exe_path)) |exe_dir| {
+            const sibling_path = allocator.dupe(u8, exe_dir) catch return null;
+            // Verify jn-edit exists there
+            const test_path = std.fmt.allocPrint(allocator, "{s}/jn-edit", .{sibling_path}) catch {
+                allocator.free(sibling_path);
+                return null;
+            };
+            defer allocator.free(test_path);
+            if (std.fs.cwd().access(test_path, .{})) |_| {
+                return sibling_path;
+            } else |_| {}
+            allocator.free(sibling_path);
+        }
+    } else |_| {}
+
+    // Try development layout: tools/zig/jn/bin/jn -> tools/zig/*/bin/
+    // We need to find zq which is at zq/zig-out/bin/ and jn-edit at tools/zig/jn-edit/bin/
+    // For dev mode, we'll collect multiple paths and return a colon-separated list
+    var exe_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    if (std.fs.selfExePath(&exe_path_buf)) |exe_path| {
+        // Go up from jn -> bin -> jn -> zig -> tools
+        var dir = std.fs.path.dirname(exe_path); // bin
+        var i: usize = 0;
+        while (i < 2 and dir != null) : (i += 1) {
+            dir = std.fs.path.dirname(dir.?); // jn -> zig
+        }
+        if (dir) |zig_dir| {
+            // Check for jn-edit at tools/zig/jn-edit/bin/
+            const jn_edit_path = std.fmt.allocPrint(allocator, "{s}/jn-edit/bin", .{zig_dir}) catch return null;
+            const test_path = std.fmt.allocPrint(allocator, "{s}/jn-edit", .{jn_edit_path}) catch {
+                allocator.free(jn_edit_path);
+                return null;
+            };
+            defer allocator.free(test_path);
+            if (std.fs.cwd().access(test_path, .{})) |_| {
+                // Also need zq path - go up one more level to get to project root
+                if (std.fs.path.dirname(zig_dir)) |tools_dir| {
+                    if (std.fs.path.dirname(tools_dir)) |root_dir| {
+                        const zq_path = std.fmt.allocPrint(allocator, "{s}/zq/zig-out/bin", .{root_dir}) catch {
+                            allocator.free(jn_edit_path);
+                            return null;
+                        };
+                        // Return colon-separated paths for dev mode
+                        const combined = std.fmt.allocPrint(allocator, "{s}:{s}", .{ jn_edit_path, zq_path }) catch {
+                            allocator.free(jn_edit_path);
+                            allocator.free(zq_path);
+                            return null;
+                        };
+                        allocator.free(jn_edit_path);
+                        allocator.free(zq_path);
+                        return combined;
+                    }
+                }
+            } else |_| {}
+            allocator.free(jn_edit_path);
+        }
+    } else |_| {}
+
+    // Try ~/.local/jn/bin (user installation)
+    if (std.posix.getenv("HOME")) |home| {
+        const user_path = std.fmt.allocPrint(allocator, "{s}/.local/jn/bin", .{home}) catch return null;
+        // Verify jn-edit exists there
+        const test_path = std.fmt.allocPrint(allocator, "{s}/jn-edit", .{user_path}) catch {
+            allocator.free(user_path);
+            return null;
+        };
+        defer allocator.free(test_path);
+        if (std.fs.cwd().access(test_path, .{})) |_| {
+            return user_path;
+        } else |_| {}
+        allocator.free(user_path);
+    }
+
+    return null;
+}
+
 /// Find a user tool by name in jn_home/tools/
 fn findUserTool(allocator: std.mem.Allocator, name: []const u8) ?[]const u8 {
     // Try JN_HOME first
@@ -482,11 +601,30 @@ fn runUserTool(allocator: std.mem.Allocator, args: std.process.ArgIterator) !voi
         idx += 1;
     }
 
+    // Set up environment with internal tools in PATH
+    // This ensures user tools can find jn-edit, zq, etc. without PATH pollution
+    var env_map = std.process.getEnvMap(allocator) catch {
+        jn_core.exitWithError("jn tool: failed to get environment", .{});
+    };
+    defer env_map.deinit();
+
+    // Find libexec directory and prepend to PATH
+    if (findLibexecDir(allocator)) |libexec_dir| {
+        const current_path = env_map.get("PATH") orelse "";
+        const new_path = std.fmt.allocPrint(allocator, "{s}:{s}", .{ libexec_dir, current_path }) catch {
+            jn_core.exitWithError("jn tool: out of memory", .{});
+        };
+        env_map.put("PATH", new_path) catch {
+            jn_core.exitWithError("jn tool: failed to set PATH", .{});
+        };
+    }
+
     // Execute the tool
     var child = std.process.Child.init(argv, allocator);
     child.stdin_behavior = .Inherit;
     child.stdout_behavior = .Inherit;
     child.stderr_behavior = .Inherit;
+    child.env_map = &env_map;
 
     child.spawn() catch |err| {
         jn_core.exitWithError("jn tool: failed to execute '{s}': {s}", .{ tool_name, @errorName(err) });
