@@ -45,9 +45,12 @@
 #   --schema <name>      Filter/assign _meta.schema
 #   --include-deleted    Include soft-deleted records
 #   --only-deleted       Show only soft-deleted records
-#   --json               Machine-readable output
-#   --quiet              Suppress non-essential messages
+#   --quiet              Suppress event messages to stderr
 #   --unsafe             Allow editing _meta fields (dangerous)
+#
+# Output format:
+#   - Data records: NDJSON to stdout
+#   - Events/status: JSONL to stderr (e.g., {"event":"insert","status":"ok","id":1})
 #
 # Dependencies: jn-edit, zq (from the jn toolkit)
 #
@@ -62,20 +65,40 @@ DB_FILE="${JN_DB_FILE:-./.db.jsonl}"
 INCLUDE_DELETED=false
 ONLY_DELETED=false
 SCHEMA=""
-JSON_OUTPUT=false
 QUIET=false
 UNSAFE=false
 
-# ANSI colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-BLUE='\033[0;34m'
-MAGENTA='\033[0;35m'
-CYAN='\033[0;36m'
-DIM='\033[2m'
-BOLD='\033[1m'
-RESET='\033[0m'
+# Event emission - all status messages are JSONL to stderr
+# Data output (records) goes to stdout as NDJSON
+emit() {
+    if [[ "$QUIET" != "true" ]]; then
+        echo "$1" >&2
+    fi
+}
+
+emit_ok() {
+    local event="$1"
+    shift
+    local json="{\"event\":\"$event\",\"status\":\"ok\""
+    while [[ $# -gt 0 ]]; do
+        json="$json,$1"
+        shift
+    done
+    json="$json}"
+    emit "$json"
+}
+
+emit_error() {
+    local code="$1"
+    local message="$2"
+    # Errors are always emitted, even in quiet mode
+    echo "{\"event\":\"error\",\"status\":\"error\",\"code\":\"$code\",\"message\":\"$message\"}" >&2
+}
+
+emit_warning() {
+    local message="$1"
+    emit "{\"event\":\"warning\",\"message\":\"$message\"}"
+}
 
 # -----------------------------------------------------------------------------
 # Setup: Find jn tools
@@ -100,18 +123,18 @@ else
         JN_EDIT="jn-edit"
         ZQ="zq"
     else
-        echo "Error: jn tools not found. Please install jn or run 'make build'." >&2
+        emit_error "TOOLS_NOT_FOUND" "jn tools not found. Please install jn or run 'make build'."
         exit 1
     fi
 fi
 
 # Verify tools exist
 if [[ ! -x "$JN_EDIT" ]] && ! command -v "$JN_EDIT" &> /dev/null; then
-    echo "Error: jn-edit not found at $JN_EDIT" >&2
+    emit_error "JN_EDIT_NOT_FOUND" "jn-edit not found at $JN_EDIT"
     exit 1
 fi
 if [[ ! -x "$ZQ" ]] && ! command -v "$ZQ" &> /dev/null; then
-    echo "Error: zq not found at $ZQ" >&2
+    emit_error "ZQ_NOT_FOUND" "zq not found at $ZQ"
     exit 1
 fi
 
@@ -263,11 +286,11 @@ require_int_id() {
     local id="$1"
     local cmd="${2:-command}"
     if [[ -z "$id" ]]; then
-        echo "Error: $cmd requires an ID" >&2
+        emit_error "MISSING_ID" "$cmd requires an ID"
         exit 1
     fi
     if ! [[ "$id" =~ ^[1-9][0-9]*$ ]]; then
-        echo "Error: ID must be a positive integer (>= 1), got: $id" >&2
+        emit_error "INVALID_ID" "ID must be a positive integer (>= 1), got: $id"
         exit 1
     fi
 }
@@ -279,8 +302,7 @@ require_schema_name() {
         return 0  # Empty schema is allowed (means no schema)
     fi
     if ! [[ "$schema" =~ ^[A-Za-z][A-Za-z0-9_-]{0,63}$ ]]; then
-        echo "Error: Schema name must be 1-64 chars, start with letter, contain only [A-Za-z0-9_-]" >&2
-        echo "Got: $schema" >&2
+        emit_error "INVALID_SCHEMA" "Schema name must be 1-64 chars, start with letter, contain only [A-Za-z0-9_-]. Got: $schema"
         exit 1
     fi
 }
@@ -386,12 +408,6 @@ audit_log() {
     echo "$entry" >> "$audit_file" 2>/dev/null || true
 }
 
-# Print message to stderr unless quiet
-msg() {
-    if [[ "$QUIET" != "true" ]]; then
-        echo -e "$@" >&2
-    fi
-}
 
 # -----------------------------------------------------------------------------
 # Commands
@@ -399,10 +415,10 @@ msg() {
 
 cmd_init() {
     if [[ -f "$DB_FILE" ]]; then
-        msg "${YELLOW}Database already exists:${RESET} $DB_FILE"
+        emit_ok "init" "\"file\":\"$DB_FILE\"" "\"created\":false"
     else
         touch "$DB_FILE"
-        msg "${GREEN}Created${RESET} database: $DB_FILE"
+        emit_ok "init" "\"file\":\"$DB_FILE\"" "\"created\":true"
     fi
 }
 
@@ -430,7 +446,7 @@ cmd_insert() {
     fi
 
     if [[ -z "$input" ]]; then
-        echo "Usage: db insert '{\"field\":\"value\"}' or db insert --stdin" >&2
+        emit_error "USAGE" "Usage: db insert '{\"field\":\"value\"}' or db insert --stdin"
         exit 1
     fi
 
@@ -438,7 +454,7 @@ cmd_insert() {
     local validated
     validated=$(echo "$input" | "$ZQ" -c 'select(type == "object")' 2>/dev/null)
     if [[ -z "$validated" ]]; then
-        echo "Error: Input must be a JSON object" >&2
+        emit_error "INVALID_INPUT" "Input must be a JSON object"
         exit 1
     fi
 
@@ -487,7 +503,7 @@ cmd_insert() {
     if ! validate_ndjson_file "$temp_file" 2>/dev/null; then
         rm -f "$temp_file"
         unlock_write
-        echo "Error: Insert produced invalid database state" >&2
+        emit_error "INVALID_STATE" "Insert produced invalid database state"
         exit 1
     fi
 
@@ -499,13 +515,9 @@ cmd_insert() {
 
     unlock_write
 
-    # Output
-    if [[ "$JSON_OUTPUT" == "true" ]]; then
-        echo "$record"
-    else
-        echo "$record"
-        msg "${GREEN}Inserted${RESET} record with ID $next_id"
-    fi
+    # Output record to stdout, event to stderr
+    echo "$record"
+    emit_ok "insert" "\"id\":$next_id"
 }
 
 cmd_get() {
@@ -521,7 +533,7 @@ cmd_get() {
     record=$("$ZQ" -c "select(._meta.id == $id) | $filter" < "$DB_FILE" 2>/dev/null)
 
     if [[ -z "$record" ]]; then
-        msg "${RED}Error:${RESET} Record $id not found"
+        emit_error "NOT_FOUND" "Record $id not found"
         exit 1
     fi
 
@@ -532,9 +544,6 @@ cmd_list() {
     ensure_db_file
 
     if [[ ! -s "$DB_FILE" ]]; then
-        if [[ "$JSON_OUTPUT" != "true" ]]; then
-            msg "${DIM}No records.${RESET}"
-        fi
         return
     fi
 
@@ -548,7 +557,7 @@ cmd_query() {
     local expr="$1"
 
     if [[ -z "$expr" ]]; then
-        echo "Usage: db query '<zq_expression>'" >&2
+        emit_error "USAGE" "Usage: db query '<zq_expression>'"
         exit 1
     fi
 
@@ -571,8 +580,7 @@ cmd_update() {
 
     require_int_id "$id" "update"
     if [[ ${#edits[@]} -eq 0 ]]; then
-        echo "Usage: db update <id> '<edit_expr>' [...]" >&2
-        echo "Example: db update 1 '.name:=\"Bob\"' '.age:=25'" >&2
+        emit_error "USAGE" "Usage: db update <id> '<edit_expr>' [...]. Example: db update 1 '.name:=\"Bob\"'"
         exit 1
     fi
 
@@ -581,7 +589,7 @@ cmd_update() {
 
     if ! record_exists "$id"; then
         unlock_write
-        echo "Error: Record $id not found" >&2
+        emit_error "NOT_FOUND" "Record $id not found"
         exit 1
     fi
 
@@ -642,7 +650,7 @@ cmd_update() {
     else
         rm -f "$temp_file"
         unlock_write
-        echo "Error: Update produced invalid JSON" >&2
+        emit_error "INVALID_STATE" "Update produced invalid JSON"
         exit 1
     fi
 
@@ -653,7 +661,7 @@ cmd_update() {
 
     unlock_write
 
-    msg "${GREEN}Updated${RESET} record $id"
+    emit_ok "update" "\"id\":$id"
 }
 
 cmd_set() {
@@ -663,21 +671,19 @@ cmd_set() {
 
     require_int_id "$id" "set"
     if [[ -z "$path" ]] || [[ -z "$value" ]]; then
-        echo "Usage: db set <id> <path> <json_value>" >&2
-        echo "Example: db set 1 name '\"Alice\"'" >&2
-        echo "Example: db set 1 age '30'" >&2
+        emit_error "USAGE" "Usage: db set <id> <path> <json_value>"
         exit 1
     fi
 
     # Validate value is valid JSON
     if ! echo "$value" | "$ZQ" -c '.' >/dev/null 2>&1; then
-        echo "Error: Value must be valid JSON" >&2
+        emit_error "INVALID_JSON" "Value must be valid JSON"
         exit 1
     fi
 
     # Check for _meta access
     if [[ "$path" == _meta* ]] && [[ "$UNSAFE" != "true" ]]; then
-        echo "Error: Cannot modify _meta fields without --unsafe" >&2
+        emit_error "FORBIDDEN" "Cannot modify _meta fields without --unsafe"
         exit 1
     fi
 
@@ -690,14 +696,13 @@ cmd_unset() {
 
     require_int_id "$id" "unset"
     if [[ -z "$path" ]]; then
-        echo "Usage: db unset <id> <path>" >&2
-        echo "Example: db unset 1 temp_field" >&2
+        emit_error "USAGE" "Usage: db unset <id> <path>"
         exit 1
     fi
 
     # Check for _meta access
     if [[ "$path" == _meta* ]] && [[ "$UNSAFE" != "true" ]]; then
-        echo "Error: Cannot modify _meta fields without --unsafe" >&2
+        emit_error "FORBIDDEN" "Cannot modify _meta fields without --unsafe"
         exit 1
     fi
 
@@ -706,7 +711,7 @@ cmd_unset() {
 
     if ! record_exists "$id"; then
         unlock_write
-        echo "Error: Record $id not found" >&2
+        emit_error "NOT_FOUND" "Record $id not found"
         exit 1
     fi
 
@@ -750,7 +755,7 @@ cmd_unset() {
     else
         rm -f "$temp_file"
         unlock_write
-        echo "Error: Unset produced invalid JSON" >&2
+        emit_error "INVALID_STATE" "Unset produced invalid JSON"
         exit 1
     fi
 
@@ -759,7 +764,7 @@ cmd_unset() {
 
     unlock_write
 
-    msg "${GREEN}Removed${RESET} field '$path' from record $id"
+    emit_ok "unset" "\"id\":$id" "\"path\":\"$path\""
 }
 
 cmd_delete() {
@@ -771,7 +776,7 @@ cmd_delete() {
 
     if ! record_exists "$id"; then
         unlock_write
-        echo "Error: Record $id not found" >&2
+        emit_error "NOT_FOUND" "Record $id not found"
         exit 1
     fi
 
@@ -811,7 +816,7 @@ cmd_delete() {
     if ! validate_ndjson_file "$temp_file" 2>/dev/null; then
         rm -f "$temp_file"
         unlock_write
-        echo "Error: Delete produced invalid database state" >&2
+        emit_error "INVALID_STATE" "Delete produced invalid database state"
         exit 1
     fi
 
@@ -822,7 +827,7 @@ cmd_delete() {
 
     unlock_write
 
-    msg "${YELLOW}Deleted${RESET} record $id (soft delete)"
+    emit_ok "delete" "\"id\":$id"
 }
 
 cmd_undelete() {
@@ -844,22 +849,16 @@ cmd_undelete() {
             rec_schema=$(echo "$meta" | "$ZQ" -r '.schema // empty' 2>/dev/null)
 
             if [[ "$rec_deleted" == "false" ]]; then
-                echo "Error: Record $id is not deleted" >&2
+                emit_error "NOT_DELETED" "Record $id is not deleted"
             elif [[ -n "$SCHEMA" ]] && [[ "$rec_schema" != "$SCHEMA" ]]; then
-                echo "Error: Record $id has schema '${rec_schema:-<none>}', not '$SCHEMA'" >&2
-                if [[ -z "$rec_schema" ]]; then
-                    echo "Hint: Remove --schema to access records with no schema" >&2
-                else
-                    echo "Hint: Remove --schema or use --schema $rec_schema" >&2
-                fi
+                emit_error "SCHEMA_MISMATCH" "Record $id has schema '${rec_schema:-<none>}', not '$SCHEMA'"
             elif [[ "$ONLY_DELETED" != "true" ]] && [[ "$INCLUDE_DELETED" != "true" ]]; then
-                echo "Error: Record $id is deleted and hidden by default" >&2
-                echo "Hint: Use --include-deleted or --only-deleted to access it" >&2
+                emit_error "VISIBILITY" "Record $id is deleted and hidden by default"
             else
-                echo "Error: Record $id not found in current visibility context" >&2
+                emit_error "NOT_FOUND" "Record $id not found in current visibility context"
             fi
         else
-            echo "Error: Record $id not found" >&2
+            emit_error "NOT_FOUND" "Record $id not found"
         fi
         exit 1
     fi
@@ -886,7 +885,7 @@ cmd_undelete() {
             if [[ "$is_deleted" != "true" ]]; then
                 rm -f "$temp_file"
                 unlock_write
-                echo "Error: Record $id is not deleted" >&2
+                emit_error "NOT_DELETED" "Record $id is not deleted"
                 exit 1
             fi
 
@@ -910,7 +909,7 @@ cmd_undelete() {
     if ! validate_ndjson_file "$temp_file" 2>/dev/null; then
         rm -f "$temp_file"
         unlock_write
-        echo "Error: Undelete produced invalid database state" >&2
+        emit_error "INVALID_STATE" "Undelete produced invalid database state"
         exit 1
     fi
 
@@ -921,7 +920,7 @@ cmd_undelete() {
 
     unlock_write
 
-    msg "${GREEN}Restored${RESET} record $id"
+    emit_ok "undelete" "\"id\":$id"
 }
 
 cmd_purge() {
@@ -955,7 +954,7 @@ cmd_purge() {
 
     if [[ ! -s "$DB_FILE" ]]; then
         unlock_write
-        msg "${DIM}No records to purge.${RESET}"
+        emit_ok "purge" "\"count\":0"
         return
     fi
 
@@ -1013,7 +1012,7 @@ cmd_purge() {
         if ! validate_ndjson_file "$temp_file" 2>/dev/null; then
             rm -f "$temp_file"
             unlock_write
-            echo "Error: Purge produced invalid database state" >&2
+            emit_error "INVALID_STATE" "Purge produced invalid database state"
             exit 1
         fi
     fi
@@ -1027,20 +1026,18 @@ cmd_purge() {
 
     unlock_write
 
-    msg "${RED}Purged${RESET} $purged record(s)"
+    emit_ok "purge" "\"count\":$purged"
 }
 
 cmd_count() {
     ensure_db_file
 
     if [[ ! -s "$DB_FILE" ]]; then
-        if [[ "$JSON_OUTPUT" == "true" ]]; then
-            echo '{"total":0,"active":0,"deleted":0}'
-        else
-            echo "total: 0"
-            echo "active: 0"
-            echo "deleted: 0"
+        local result='{"total":0,"active":0,"deleted":0'
+        if [[ -n "$SCHEMA" ]]; then
+            result="$result,\"schema\":\"$SCHEMA\""
         fi
+        echo "$result}"
         return
     fi
 
@@ -1056,76 +1053,37 @@ cmd_count() {
     active=$("$ZQ" -c "${schema_filter}select(._meta.deleted == false)" < "$DB_FILE" 2>/dev/null | wc -l | tr -d ' ')
     deleted=$("$ZQ" -c "${schema_filter}select(._meta.deleted == true)" < "$DB_FILE" 2>/dev/null | wc -l | tr -d ' ')
 
-    if [[ "$JSON_OUTPUT" == "true" ]]; then
-        local result="{\"total\":$total,\"active\":$active,\"deleted\":$deleted"
-        if [[ -n "$SCHEMA" ]]; then
-            result="$result,\"schema\":\"$SCHEMA\""
-        fi
-        echo "$result}"
-    else
-        echo "total: $total"
-        echo "active: $active"
-        echo "deleted: $deleted"
+    local result="{\"total\":$total,\"active\":$active,\"deleted\":$deleted"
+    if [[ -n "$SCHEMA" ]]; then
+        result="$result,\"schema\":\"$SCHEMA\""
     fi
+    echo "$result}"
 }
 
 cmd_stats() {
     ensure_db_file
 
-    if [[ ! -s "$DB_FILE" ]]; then
-        msg "${DIM}No records.${RESET}"
-        return
+    local total=0 active=0 deleted=0 max_id_val=0
+
+    if [[ -s "$DB_FILE" ]]; then
+        # Build schema filter if specified
+        local schema_filter=""
+        if [[ -n "$SCHEMA" ]]; then
+            schema_filter="select(._meta.schema == \"$SCHEMA\") | "
+        fi
+
+        # Count records matching schema filter (if any)
+        total=$("$ZQ" -c "${schema_filter}." < "$DB_FILE" 2>/dev/null | wc -l | tr -d ' ')
+        active=$("$ZQ" -c "${schema_filter}select(._meta.deleted == false)" < "$DB_FILE" 2>/dev/null | wc -l | tr -d ' ')
+        deleted=$("$ZQ" -c "${schema_filter}select(._meta.deleted == true)" < "$DB_FILE" 2>/dev/null | wc -l | tr -d ' ')
+        max_id_val=$(max_id)
     fi
 
-    # Build schema filter if specified
-    local schema_filter=""
+    local result="{\"total\":$total,\"active\":$active,\"deleted\":$deleted,\"max_id\":$max_id_val,\"next_id\":$((max_id_val + 1)),\"file\":\"$DB_FILE\""
     if [[ -n "$SCHEMA" ]]; then
-        schema_filter="select(._meta.schema == \"$SCHEMA\") | "
+        result="$result,\"schema\":\"$SCHEMA\""
     fi
-
-    local total active deleted max_id_val
-    # Count records matching schema filter (if any)
-    total=$("$ZQ" -c "${schema_filter}." < "$DB_FILE" 2>/dev/null | wc -l | tr -d ' ')
-    active=$("$ZQ" -c "${schema_filter}select(._meta.deleted == false)" < "$DB_FILE" 2>/dev/null | wc -l | tr -d ' ')
-    deleted=$("$ZQ" -c "${schema_filter}select(._meta.deleted == true)" < "$DB_FILE" 2>/dev/null | wc -l | tr -d ' ')
-    max_id_val=$(max_id)
-
-    if [[ "$JSON_OUTPUT" == "true" ]]; then
-        local result="{\"total\":$total,\"active\":$active,\"deleted\":$deleted,\"max_id\":$max_id_val"
-        if [[ -n "$SCHEMA" ]]; then
-            result="$result,\"schema\":\"$SCHEMA\""
-        fi
-        echo "$result}"
-    else
-        echo -e "${BOLD}Database Statistics${RESET}"
-        echo ""
-        echo -e "File: ${CYAN}$DB_FILE${RESET}"
-        if [[ -n "$SCHEMA" ]]; then
-            echo -e "Schema: ${MAGENTA}$SCHEMA${RESET}"
-        fi
-        echo ""
-        echo -e "${BOLD}Records:${RESET}"
-        echo "  Total:   $total"
-        echo -e "  Active:  ${GREEN}$active${RESET}"
-        echo -e "  Deleted: ${DIM}$deleted${RESET}"
-        echo ""
-        echo -e "${BOLD}IDs:${RESET}"
-        echo "  Max ID:  $max_id_val"
-        echo "  Next ID: $((max_id_val + 1))"
-
-        # Schema breakdown only when not filtering by schema (otherwise it's redundant)
-        if [[ -z "$SCHEMA" ]]; then
-            local schemas
-            schemas=$("$ZQ" -r 'select(._meta.schema != null) | ._meta.schema' < "$DB_FILE" 2>/dev/null | sort | uniq -c | sort -rn)
-            if [[ -n "$schemas" ]]; then
-                echo ""
-                echo -e "${BOLD}Schemas:${RESET}"
-                echo "$schemas" | while read -r count schema; do
-                    [[ -n "$schema" ]] && echo "  $schema: $count"
-                done
-            fi
-        fi
-    fi
+    echo "$result}"
 }
 
 cmd_check() {
@@ -1135,12 +1093,12 @@ cmd_check() {
     local warnings=0
 
     if [[ ! -f "$DB_FILE" ]]; then
-        echo "Error: Database file not found: $DB_FILE" >&2
+        emit_error "FILE_NOT_FOUND" "Database file not found: $DB_FILE"
         exit 1
     fi
 
     if [[ ! -r "$DB_FILE" ]]; then
-        echo "Error: Database file not readable: $DB_FILE" >&2
+        emit_error "FILE_NOT_READABLE" "Database file not readable: $DB_FILE"
         exit 1
     fi
 
@@ -1155,7 +1113,6 @@ cmd_check() {
 
         # Check 1: Valid JSON
         if ! echo "$line" | "$ZQ" -c '.' >/dev/null 2>&1; then
-            echo "Error: Line $line_count: Invalid JSON" >&2
             errors=$((errors + 1))
             continue
         fi
@@ -1164,7 +1121,6 @@ cmd_check() {
         local type_check
         type_check=$(echo "$line" | "$ZQ" -r 'type' 2>/dev/null)
         if [[ "$type_check" != "object" ]]; then
-            echo "Error: Line $line_count: Not a JSON object" >&2
             errors=$((errors + 1))
             continue
         fi
@@ -1173,7 +1129,6 @@ cmd_check() {
         local has_meta
         has_meta=$(echo "$line" | "$ZQ" -r '._meta | type' 2>/dev/null)
         if [[ "$has_meta" != "object" ]]; then
-            echo "Error: Line $line_count: Missing _meta object" >&2
             errors=$((errors + 1))
             continue
         fi
@@ -1182,12 +1137,10 @@ cmd_check() {
         local meta_id
         meta_id=$(echo "$line" | "$ZQ" -r '._meta.id' 2>/dev/null)
         if [[ -z "$meta_id" ]] || [[ "$meta_id" == "null" ]]; then
-            echo "Error: Line $line_count: Missing _meta.id" >&2
             errors=$((errors + 1))
             continue
         fi
         if ! [[ "$meta_id" =~ ^[1-9][0-9]*$ ]]; then
-            echo "Error: Line $line_count: _meta.id must be a positive integer (>= 1): $meta_id" >&2
             errors=$((errors + 1))
             continue
         fi
@@ -1199,11 +1152,9 @@ cmd_check() {
         created_at=$(echo "$line" | "$ZQ" -r '._meta.created_at' 2>/dev/null)
         updated_at=$(echo "$line" | "$ZQ" -r '._meta.updated_at' 2>/dev/null)
         if [[ -z "$created_at" ]] || [[ "$created_at" == "null" ]]; then
-            echo "Warning: Line $line_count: Missing _meta.created_at" >&2
             warnings=$((warnings + 1))
         fi
         if [[ -z "$updated_at" ]] || [[ "$updated_at" == "null" ]]; then
-            echo "Warning: Line $line_count: Missing _meta.updated_at" >&2
             warnings=$((warnings + 1))
         fi
 
@@ -1211,7 +1162,6 @@ cmd_check() {
         local deleted
         deleted=$(echo "$line" | "$ZQ" -r '._meta.deleted | type' 2>/dev/null)
         if [[ "$deleted" != "boolean" ]]; then
-            echo "Warning: Line $line_count: _meta.deleted is not boolean" >&2
             warnings=$((warnings + 1))
         fi
 
@@ -1223,25 +1173,15 @@ cmd_check() {
     local duplicates
     duplicates=$(echo "$sorted_ids" | uniq -d)
     if [[ -n "$duplicates" ]]; then
-        echo "Error: Duplicate IDs found: $duplicates" >&2
         errors=$((errors + 1))
     fi
 
-    # Summary
-    if [[ "$JSON_OUTPUT" == "true" ]]; then
-        echo "{\"valid\":$([[ $errors -eq 0 ]] && echo true || echo false),\"errors\":$errors,\"warnings\":$warnings,\"records\":$line_count}"
-    else
-        echo ""
-        echo -e "${BOLD}Check Results:${RESET}"
-        echo "  Records: $line_count"
-        if [[ $errors -eq 0 ]]; then
-            echo -e "  Status:  ${GREEN}OK${RESET}"
-        else
-            echo -e "  Status:  ${RED}FAILED${RESET}"
-        fi
-        echo "  Errors:   $errors"
-        echo "  Warnings: $warnings"
+    # Output result as JSON
+    local valid="true"
+    if [[ $errors -gt 0 ]]; then
+        valid="false"
     fi
+    echo "{\"valid\":$valid,\"errors\":$errors,\"warnings\":$warnings,\"records\":$line_count}"
 
     if [[ $errors -gt 0 ]]; then
         exit 2
@@ -1274,7 +1214,7 @@ cmd_repair() {
 
     if [[ ! -s "$DB_FILE" ]]; then
         unlock_write
-        msg "${DIM}No records to repair.${RESET}"
+        emit_ok "repair" "\"repaired\":0" "\"quarantined\":0"
         return
     fi
 
@@ -1362,7 +1302,7 @@ cmd_repair() {
         if ! validate_ndjson_file "$temp_file" 2>/dev/null; then
             rm -f "$temp_file"
             unlock_write
-            echo "Error: Repair produced invalid database state" >&2
+            emit_error "INVALID_STATE" "Repair produced invalid database state"
             exit 1
         fi
     fi
@@ -1370,27 +1310,25 @@ cmd_repair() {
     mv "$temp_file" "$DB_FILE"
     unlock_write
 
-    msg "${GREEN}Repair complete:${RESET}"
-    msg "  Repaired:     $repaired"
-    msg "  Quarantined:  $quarantined"
+    local result="\"repaired\":$repaired,\"quarantined\":$quarantined"
     if [[ $quarantined -gt 0 ]]; then
-        msg "  Bad records:  $bad_file"
+        result="$result,\"bad_file\":\"$bad_file\""
     fi
+    emit_ok "repair" "$result"
 }
 
 cmd_reindex() {
     # In v1, reindex is primarily check + optional normalize
-    msg "Running integrity check..."
+    # The check result goes to stdout, then we emit reindex event to stderr
     cmd_check
-    msg ""
-    msg "${GREEN}Reindex complete.${RESET}"
+    emit_ok "reindex"
 }
 
 cmd_undo() {
     local backup_file="${DB_FILE}.bak"
 
     if [[ ! -f "$backup_file" ]]; then
-        echo "Error: No backup available to restore" >&2
+        emit_error "NO_BACKUP" "No backup available to restore"
         exit 1
     fi
 
@@ -1399,7 +1337,7 @@ cmd_undo() {
     # Validate backup before restoring
     if ! validate_ndjson_file "$backup_file" 2>/dev/null; then
         unlock_write
-        echo "Error: Backup file is corrupted" >&2
+        emit_error "BACKUP_CORRUPTED" "Backup file is corrupted"
         exit 1
     fi
 
@@ -1407,7 +1345,7 @@ cmd_undo() {
 
     unlock_write
 
-    msg "${GREEN}Restored${RESET} from backup"
+    emit_ok "undo" "\"backup\":\"$backup_file\""
 }
 
 cmd_export() {
@@ -1493,9 +1431,15 @@ GLOBAL OPTIONS:
   --schema <name>      Filter/assign _meta.schema
   --include-deleted    Include soft-deleted records in output
   --only-deleted       Show only soft-deleted records
-  --json               Machine-readable output
-  --quiet              Suppress status messages
+  --quiet              Suppress event messages to stderr
   --unsafe             Allow editing _meta fields (dangerous!)
+
+OUTPUT FORMAT:
+  Data records are written to stdout as NDJSON.
+  Events/status are written to stderr as JSONL, e.g.:
+    {"event":"insert","status":"ok","id":1}
+    {"event":"delete","status":"ok","id":3}
+    {"event":"error","status":"error","code":"NOT_FOUND","message":"..."}
 
 DATA MODEL:
   Each record has a reserved _meta object with:
@@ -1558,10 +1502,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         --only-deleted)
             ONLY_DELETED=true
-            shift
-            ;;
-        --json)
-            JSON_OUTPUT=true
             shift
             ;;
         --quiet|-q)
