@@ -1,6 +1,6 @@
 # JN Indexes
 
-> **Purpose**: Make NDJSON act like a fast, local “lookup substrate” for agents—without turning JN into a database.
+> **Purpose**: Make NDJSON act like a fast, local "lookup substrate" for agents—without turning JN into a database.
 
 ---
 
@@ -9,15 +9,15 @@
 JN is optimized for streaming transformation, but agents routinely hit three classes of operations where streaming alone is not enough:
 
 1) **Keyed lookups**
-   - “Given `customer_id`, fetch customer record”
-   - “Given `code`, fetch concept”
+   - "Given `customer_id`, fetch customer record"
+   - "Given `code`, fetch concept"
    - Current options:
      - scan the file (slow)
      - hash-join by loading the whole right side (fast but memory-heavy)
 
 2) **Multi-hop traversals (graph expansion)**
-   - “Start from a concept, follow `subClassOf` 3 hops”
-   - “Expand synonyms → broader terms → mapped codes”
+   - "Start from a concept, follow `subClassOf` 3 hops"
+   - "Expand synonyms → broader terms → mapped codes"
    - Current option:
      - repeatedly scan `edges.jsonl` or re-materialize in-memory maps
 
@@ -25,7 +25,7 @@ JN is optimized for streaming transformation, but agents routinely hit three cla
    - Agents frequently run the same join shape many times in pipelines.
    - Rebuilding an in-memory hash table every run is wasteful.
 
-Agents need **sub-second** and often **sub-100ms** response for these “navigation and enrichment” steps, while keeping JN’s core properties:
+Agents need **sub-second** and often **sub-100ms** response for these "navigation and enrichment" steps, while keeping JN's core properties:
 - predictable memory
 - composable CLI tools
 - NDJSON everywhere as the interchange
@@ -45,23 +45,23 @@ The source of truth remains the NDJSON file(s). The index is disposable, rebuild
 - You keep your files as NDJSON (`nodes.jsonl`, `edges.jsonl`, lookup tables, etc.)
 - You run `jn index build ...` once (or periodically)
 - Now JN tools can do:
-  - **O(1)-ish lookups** by key
+  - **O(1)-ish lookups** by key (mmapped index, tiny working set)
   - **disk-backed joins** with bounded memory
-  - **fast adjacency** for graph expansion
+  - **fast adjacency** for graph expansion (neighbors per node without scanning)
 
 ---
 
 ## Core Insight
 
-Most “agent ETL navigation” workloads reduce to:
+Most "agent ETL navigation" workloads reduce to:
 
 - **Equality lookups** (key → record(s))
 - **Adjacency** (node → neighbors)
 - **Repeated application** of the above (multi-hop expansion, join chains)
 
 You do not need a general query engine to make those fast. You need:
-- a compact dictionary / key index
-- a posting list of matches (record offsets or projected values)
+- a compact key index
+- a postings list of matches (record offsets and/or projections)
 - an execution model that **streams results** back out as NDJSON
 
 ---
@@ -73,7 +73,7 @@ You do not need a general query engine to make those fast. You need:
 - The index does not own data; it only points to it or stores small projections.
 - You can delete the index and rebuild it at any time.
 
-This preserves JN’s simplicity: “inspect with `head`, debug with `jq`, glue with pipes.”
+This preserves JN's simplicity: "inspect with `head`, debug with `jq`, glue with pipes."
 
 ### 2) Indexes are accelerators, not databases
 JN Indexes are explicitly **not**:
@@ -85,7 +85,7 @@ JN Indexes are explicitly **not**:
 They are **precomputed access paths** optimized for the 80/20 of agent lookups and expansions.
 
 ### 3) Streaming output always
-Even though lookups are random-access internally, JN Index commands:
+Even though lookups are random-access internally, indexed commands:
 - emit NDJSON line-by-line
 - do not accumulate full result sets unless asked
 - preserve backpressure and composability
@@ -96,13 +96,13 @@ Indexes are structured so they can be:
 - queried with tiny working sets
 - accelerated by the OS page cache
 
-This aligns with JN’s “predictable resources” story: **RAM proportional to hot pages, not dataset size**.
+This aligns with JN's "predictable resources" story: **RAM proportional to hot pages, not dataset size**.
 
 ### 5) Correctness over cleverness
 - Index build is atomic (write new artifact, then swap)
 - Index usage is guarded (staleness detection)
 - Index can be validated (`jn index check`)
-- Tools emit clear JSONL events to stderr when they fall back to scanning
+- Fallback behavior (scan/hash) is **explicit and opt-in** and always emits a JSONL event to stderr
 
 Agents should never silently use an incorrect index.
 
@@ -141,39 +141,47 @@ Use case: join when right side is too large to hash into RAM, or when the join r
 Use case: taxonomy/ontology expansion, relationship walking.
 
 - Canonical files:
-  - `nodes.jsonl`
+  - `nodes.jsonl` (optional for labels/metadata)
   - `edges.jsonl` with `{from, pred, to, props}`
 
-- Build adjacency index:
+- Build adjacency access paths (v1 uses ordinary lookup indexes):
   ```bash
-  jn index build edges.jsonl --graph --from from --pred pred --to to
+  # Outgoing adjacency
+  jn index build edges.jsonl --on from
+
+  # Incoming adjacency (reverse traversal)
+  jn index build edges.jsonl --on to
+
+  # Optional accelerator for predicate-specific traversal
+  jn index build edges.jsonl --on "from,pred"
   ```
 
 - Expand:
   ```bash
-  jn graph expand --edges edges.jsonl --seed "C123" --pred subClassOf --hops 3
+  jn graph expand edges.jsonl --seed "C123" --pred subClassOf --hops 3
   ```
 
-The key: expansion hits the **index**, not the JSONL file.
+The key: expansion hits **indexes**, not the raw JSONL file.
 
 ---
 
 ## Design Principle: Minimal cognitive load
 
-The indexing feature only works if it feels like a “small, obvious Unix tool,” not a subsystem.
+The indexing feature only works if it feels like a "small, obvious Unix tool," not a subsystem.
 
 ### The user model should be:
-1) “I have NDJSON.”
-2) “I can optionally build an index to speed up lookups.”
-3) “JN tools will use it when it exists.”
+1) "I have NDJSON."
+2) "I can optionally build an index to speed up lookups."
+3) "JN tools will use it when it exists."
 
 ### A minimal CLI surface (v1)
 - `jn index build <file> --on <field[,field...]> [--mode unique|multi]`
-- `jn index build <file> --graph --from <f> --pred <p> --to <t>`
 - `jn index get <file> --key <field> --eq <value>`
-- `jn index check <file>`
-- `jn index stats <file>`
-- `jn index update <file>` (optional; see incremental section)
+- `jn index check <file> --key <field>`
+- `jn index stats <file> --key <field>`
+- `jn index update <file> --key <field>` (optional; append-only)
+- `jn index compact <file> --key <field>` (optional; delta merge)
+- `jn graph expand <edges.jsonl> ...` (uses the lookup indexes above)
 
 Everything else is sugar built on top.
 
@@ -189,11 +197,11 @@ This supports:
 - `jn index get`
 - `jn join --right-index`
 
-### 2) Graph adjacency index (for traversals)
-Maps:
-- `from -> neighbors (optionally grouped by pred)`
-and optionally
-- `to -> reverse neighbors`
+### 2) Adjacency via lookup indexes (for traversals)
+Graph adjacency is expressed as lookup indexes on edge fields:
+- `from -> edges`
+- optionally `to -> edges`
+- optionally `(from,pred) -> edges` for predicate-restricted traversal
 
 This supports:
 - `out(node)`
@@ -201,45 +209,38 @@ This supports:
 - `expand(seed, hops, pred-filter)`
 
 ### 3) Select-property indexing (optional, but very powerful)
-To seed expansions quickly, allow selected node properties to be indexed as **synthetic edges**:
+To seed expansions quickly, selected node properties can be represented as **synthetic edges**, then indexed like any other edge file.
 
 Example: index `code`, `synonyms[]`, `label`:
 - `(node, @code, "E11")`
 - `(node, @syn, "t2dm")`
 
-Then “find by code/synonym” becomes the same operation as graph traversal (reverse lookup in the adjacency index). This keeps the system unified: **everything is still edges.**
+Then "find by code/synonym" becomes a reverse adjacency lookup (index `to`), and expansion continues over the same edge model.
 
 ---
 
-## Incremental updates: “fast when append-only, honest otherwise”
+## Incremental updates: "fast when append-only, honest otherwise"
 
 JN is CLI-first and daemon-free. Index maintenance must match that reality.
 
 ### Mode 1: Append-friendly (recommended)
-If a file grows by appending new JSONL lines:
+If a file grows by appending new NDJSON lines:
 - `jn index update` ingests only the new suffix
-- writes a small delta segment
-- queries consult main + delta
+- writes a small delta index
+- queries consult base + delta
 - `jn index compact` merges segments later
-
-This keeps writes cheap and read performance high.
 
 ### Mode 2: Mutable files (fallback)
 If the file is edited in-place:
-- index detects “non-append modification”
-- emits a JSONL warning event to stderr
+- index detects "non-append modification"
 - requires a full rebuild (`jn index build --full`)
-
-This is the correct tradeoff: never silently wrong.
+- tools do not silently use unsafe indexes
 
 ---
 
-## How this fits JN’s identity (and doesn’t violate it)
+## How this fits JN's identity (and doesn't violate it)
 
-JN’s non-goal says “JN doesn’t store or index persistent data.”  
-This feature can coexist if you frame it as:
-
-> JN still doesn’t *become* a database. It produces **derived local artifacts** that accelerate streaming pipelines.
+JN still doesn't *become* a database. It produces **derived local artifacts** that accelerate streaming pipelines.
 
 The canonical data remains:
 - your NDJSON files
@@ -259,14 +260,15 @@ Indexes are opt-in accelerators that are:
 - stdout: NDJSON records/bindings
 - stderr: JSONL events:
   - build stats
-  - stale index warnings
-  - fallback notices
-  - query plan hints (optional)
+  - staleness detection
+  - explicit fallback notices (if enabled)
+  - query stats (optional)
+  - explain plans (optional)
 
 ### Explainability
 Add `--explain` to show how a join/traversal was executed:
-- used index vs scan
-- index version/staleness
+- used index vs scan/hash
+- index freshness
 - rows touched (approx)
 - latency stats
 
@@ -279,7 +281,7 @@ Agents can use this to decide whether to rebuild/compact.
 JN Indexes succeed when:
 
 1) **Lookups are instant-feeling**
-   - “get by key” returns first output in <10ms on warm cache for typical indices.
+   - "get by key" returns first output in <10ms on warm cache for typical indices.
 
 2) **Joins stop being memory-bound**
    - join can enrich a large stream using a large right-side file without loading it into RAM.
@@ -289,10 +291,10 @@ JN Indexes succeed when:
 
 4) **The mental model stays small**
    - users learn one new concept: `jn index build`
-   - everything else “just uses it.”
+   - everything else "just uses it."
 
 5) **Correctness is never ambiguous**
-   - stale index detection is reliable
+   - staleness detection is reliable
    - rebuild is easy and atomic
    - failure modes are explicit and machine-readable
 
