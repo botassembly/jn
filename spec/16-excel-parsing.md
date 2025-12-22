@@ -200,9 +200,15 @@ jn cat 'messy.xlsx?mode=table&sheet=Report&range=B3:F50&header_row=3'
 {"sheet": "Sheet1", "row": 2, "col": 1, "ref": "A2", "value": "Alice", "type": "s"}
 {"sheet": "Sheet1", "row": 2, "col": 2, "ref": "B2", "value": 30, "type": "n"}
 {"sheet": "Sheet1", "row": 3, "col": 1, "ref": "A3", "value": "=SUM(B2:B10)", "type": "f", "computed": 255}
-{"sheet": "Sheet1", "row": 5, "col": 2, "ref": "B5", "value": "Merged", "type": "s", "merge": "B5:D5", "merge_origin": true}
-{"sheet": "Sheet1", "row": 5, "col": 3, "ref": "C5", "value": null, "type": "n", "merge": "B5:D5", "merge_origin": false}
+{"sheet": "Sheet1", "row": 4, "col": 1, "ref": "A4", "value": 1500.50, "type": "n", "format": "$#,##0.00"}
+{"sheet": "Sheet1", "row": 4, "col": 2, "ref": "B4", "value": "See note", "type": "s", "comment": "This needs review"}
+{"sheet": "Sheet1", "row": 5, "col": 1, "ref": "A5", "value": "Hidden row", "type": "s", "hidden": true}
+{"sheet": "Sheet1", "row": 6, "col": 2, "ref": "B6", "value": "Merged", "type": "s", "merge": "B6:D6", "merge_origin": true}
+{"sheet": "Sheet1", "row": 6, "col": 3, "ref": "C6", "value": null, "type": "n", "merge": "B6:D6", "merge_origin": false}
+{"sheet": "Sheet2", "row": 1, "col": 1, "ref": "A1", "value": "Second sheet", "type": "s"}
 ```
+
+Note: All sheets are included by default. Optional fields (`hidden`, `comment`, `format`, `merge`, `computed`) are only present when applicable.
 
 ### Fields
 
@@ -217,6 +223,11 @@ jn cat 'messy.xlsx?mode=table&sheet=Report&range=B3:F50&header_row=3'
 | `computed` | (formulas only) Computed value if available |
 | `merge` | (merged cells) The merge range this cell belongs to |
 | `merge_origin` | (merged cells) True if this is the top-left cell |
+| `hidden` | (hidden cells only) `true` if row or column is hidden. Omitted when false. |
+| `comment` | (cells with comments) Comment text. Omitted when no comment. |
+| `format` | Number format string (e.g., `"$#,##0.00"`, `"0.00%"`, `"yyyy-mm-dd"`). Omitted for General. |
+
+**Design principle**: Include all available metadata by default. Optional fields are omitted when not applicable (sparse output). Callers can filter if needed.
 
 ### Range Selector
 
@@ -462,6 +473,11 @@ Parameter names use underscores in query strings:
 | Check if merged | `cell.coordinate in merged_range` |
 | Named tables | `ws.tables` |
 | Range access | `ws['A1:D10']` |
+| Hidden row | `ws.row_dimensions[row].hidden` |
+| Hidden column | `ws.column_dimensions[col].hidden` |
+| Cell comment | `cell.comment.text` (if `cell.comment` exists) |
+| Number format | `cell.number_format` (e.g., `"$#,##0.00"`) |
+| Named ranges | `wb.defined_names` |
 
 ### Performance Considerations
 
@@ -550,22 +566,20 @@ Existing `jn cat file.xlsx` continues to work unchanged.
 
 ---
 
-## Open Questions
+## Design Decisions
 
-1. **Multi-sheet raw mode**: Output all sheets, or require explicit `--sheet`?
-   - Proposal: Default to all sheets, with sheet name in each record
+1. **Multi-sheet raw mode**: ✅ Output all sheets by default, with sheet name in each record.
 
 2. **Named ranges**: Excel supports named ranges like `SalesData`. Support as range selector?
-   - Proposal: Yes, `--range=SalesData` should work
+   - TBD: `--range=SalesData` could work if openpyxl exposes it.
 
-3. **Hidden sheets/rows/columns**: Include or skip?
-   - Proposal: Include by default, add `--skip-hidden` option
+3. **Hidden rows/columns**: ✅ Include by default. Add `hidden: true` flag on affected cells (omitted when false).
 
-4. **Comments**: Cell comments are separate from values. Include in raw mode?
-   - Proposal: Yes, add `comment` field when present
+4. **Comments**: ✅ Include in raw mode. Add `comment` field when cell has a comment.
 
-5. **Number formats**: Currency, percentage, date formats. Expose?
-   - Proposal: Add `format` field in raw mode, apply formatting in simple/table modes
+5. **Number formats**: ✅ Include in raw mode. Add `format` field with Excel format string (omitted for "General").
+
+**Design principle**: Include everything by default. Optional fields use sparse representation (omitted when not applicable). Can add `--exclude=hidden,comments,formats` later if needed.
 
 ---
 
