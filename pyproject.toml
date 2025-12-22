@@ -9,6 +9,7 @@ version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
     "pytest>=7.0",
+    "openpyxl>=3.1.0",  # For xlsx plugin tests
 ]
 
 [project.optional-dependencies]
