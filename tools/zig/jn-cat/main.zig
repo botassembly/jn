@@ -146,7 +146,7 @@ fn handleStdin(allocator: std.mem.Allocator, address: jn_address.Address, args: 
     }
 
     // For other formats, spawn the format plugin
-    try spawnFormatPlugin(allocator, format, null, args);
+    try spawnFormatPlugin(allocator, format, null, address.query_string, args);
 }
 
 /// Handle local file
@@ -167,7 +167,7 @@ fn handleFile(allocator: std.mem.Allocator, address: jn_address.Address, args: *
     }
 
     // Spawn format plugin with file as stdin
-    try spawnFormatPlugin(allocator, format, address.path, args);
+    try spawnFormatPlugin(allocator, format, address.path, address.query_string, args);
 }
 
 /// Build format plugin argument string for shell commands.
@@ -191,6 +191,71 @@ fn buildFormatArgs(allocator: std.mem.Allocator, args: *const jn_cli.ArgParser) 
     }
 
     return try result.toOwnedSlice(allocator);
+}
+
+/// Build CLI arguments from query string parameters.
+/// Converts key=value pairs to --key=value format, skipping 'mode' which is handled separately.
+/// SECURITY: All values are properly escaped to prevent shell injection.
+fn buildQueryArgs(allocator: std.mem.Allocator, query_string: ?[]const u8) ![]const u8 {
+    const qs = query_string orelse return try allocator.dupe(u8, "");
+
+    var result: std.ArrayListUnmanaged(u8) = .empty;
+    errdefer result.deinit(allocator);
+
+    // Parse query string: key=value&key2=value2
+    var params_iter = std.mem.splitScalar(u8, qs, '&');
+    while (params_iter.next()) |param| {
+        if (param.len == 0) continue;
+
+        // Split on first '='
+        var kv_iter = std.mem.splitScalar(u8, param, '=');
+        const key = kv_iter.next() orelse continue;
+        const value = kv_iter.rest();
+
+        // Skip 'mode' parameter - handled separately
+        if (std.mem.eql(u8, key, "mode")) continue;
+
+        // Convert underscore to hyphen for CLI args (header_row -> header-row)
+        var key_buf: [64]u8 = undefined;
+        const key_len = @min(key.len, key_buf.len);
+        @memcpy(key_buf[0..key_len], key[0..key_len]);
+        for (key_buf[0..key_len]) |*c| {
+            if (c.* == '_') c.* = '-';
+        }
+        const cli_key = key_buf[0..key_len];
+
+        // SECURITY: Escape value to prevent shell injection
+        const escaped = try jn_core.escapeForShellSingleQuote(allocator, value);
+        defer allocator.free(escaped);
+
+        try result.appendSlice(allocator, " --");
+        try result.appendSlice(allocator, cli_key);
+        try result.appendSlice(allocator, "='");
+        try result.appendSlice(allocator, escaped);
+        try result.append(allocator, '\'');
+    }
+
+    return try result.toOwnedSlice(allocator);
+}
+
+/// Extract mode from query string, defaulting to "read".
+fn extractModeFromQuery(query_string: ?[]const u8) []const u8 {
+    const qs = query_string orelse return "read";
+
+    var params_iter = std.mem.splitScalar(u8, qs, '&');
+    while (params_iter.next()) |param| {
+        if (param.len == 0) continue;
+
+        var kv_iter = std.mem.splitScalar(u8, param, '=');
+        const key = kv_iter.next() orelse continue;
+        const value = kv_iter.rest();
+
+        if (std.mem.eql(u8, key, "mode") and value.len > 0) {
+            return value;
+        }
+    }
+
+    return "read";
 }
 
 /// Handle compressed file (spawn decompression + format pipeline)
@@ -1519,18 +1584,29 @@ fn handleOpenDalUrl(allocator: std.mem.Allocator, address: jn_address.Address, a
 }
 
 /// Spawn a format plugin to read a file
-fn spawnFormatPlugin(allocator: std.mem.Allocator, format: []const u8, file_path: ?[]const u8, args: *const jn_cli.ArgParser) !void {
+fn spawnFormatPlugin(allocator: std.mem.Allocator, format: []const u8, file_path: ?[]const u8, query_string: ?[]const u8, args: *const jn_cli.ArgParser) !void {
     const plugin_info = findPluginInfo(allocator, format) orelse {
         jn_core.exitWithError("jn-cat: format plugin '{s}' not found", .{format});
     };
 
-    // Build format args (dynamically allocated, properly escaped)
+    // Build format args from CLI (dynamically allocated, properly escaped)
     const format_args = try buildFormatArgs(allocator, args);
     defer allocator.free(format_args);
 
+    // Build query args from query string
+    const query_args = try buildQueryArgs(allocator, query_string);
+    defer allocator.free(query_args);
+
+    // Combine format_args and query_args
+    const all_args = try std.fmt.allocPrint(allocator, "{s}{s}", .{ format_args, query_args });
+    defer allocator.free(all_args);
+
+    // Extract mode from query string (defaults to "read")
+    const mode = extractModeFromQuery(query_string);
+
     // Handle Python plugins via uv run --script
     if (plugin_info.plugin_type == .python) {
-        try spawnPythonPlugin(allocator, plugin_info.path, "read", file_path, format_args);
+        try spawnPythonPlugin(allocator, plugin_info.path, mode, file_path, all_args);
         return;
     }
 
@@ -1541,9 +1617,15 @@ fn spawnFormatPlugin(allocator: std.mem.Allocator, format: []const u8, file_path
     var argv_buf: [5][]const u8 = undefined;
     var argc: usize = 0;
 
+    // Build mode arg
+    var mode_arg_buf: [32]u8 = undefined;
+    const mode_arg = std.fmt.bufPrint(&mode_arg_buf, "--mode={s}", .{mode}) catch {
+        jn_core.exitWithError("jn-cat: mode name too long", .{});
+    };
+
     argv_buf[argc] = plugin_path;
     argc += 1;
-    argv_buf[argc] = "--mode=read";
+    argv_buf[argc] = mode_arg;
     argc += 1;
 
     // Allocate delimiter arg if needed
@@ -1576,7 +1658,7 @@ fn spawnFormatPlugin(allocator: std.mem.Allocator, format: []const u8, file_path
         defer if (escaped_path.ptr != path.ptr) allocator.free(@constCast(escaped_path));
 
         // Use shell to pipe file into plugin with all args
-        const shell_cmd = try std.fmt.allocPrint(allocator, "cat '{s}' | {s} --mode=read{s}", .{ escaped_path, plugin_path, format_args });
+        const shell_cmd = try std.fmt.allocPrint(allocator, "cat '{s}' | {s} --mode={s}{s}", .{ escaped_path, plugin_path, mode, all_args });
         defer allocator.free(shell_cmd);
 
         const shell_argv: [3][]const u8 = .{ "/bin/sh", "-c", shell_cmd };
