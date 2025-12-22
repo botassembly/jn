@@ -110,7 +110,7 @@ The index is a single binary file with five sections:
 
 ```
 ┌────────────────────────────────────────────────────────────┐
-│                        HEADER (128 bytes)                  │
+│                        HEADER (136 bytes)                  │
 ├────────────────────────────────────────────────────────────┤
 │                     KEY TABLE (variable)                   │
 ├────────────────────────────────────────────────────────────┤
@@ -122,15 +122,15 @@ The index is a single binary file with five sections:
 └────────────────────────────────────────────────────────────┘
 ```
 
-### Header (128 bytes, offset 0)
+### Header (136 bytes, offset 0)
 
 All integers are little-endian.
 
 ```
 Offset  Size  Field                  Description
 ------  ----  -----                  -----------
-0       4     magic                  "JNX\x02" (version 2)
-4       4     version                2 (u32)
+0       4     magic                  "JNX\x03" (version 3)
+4       4     version                3 (u32)
 8       4     flags                  (u32) bit 0: unique(1)/multi(0)
                                            bit 1: composite key
 12      4     key_count              Number of unique keys (u32)
@@ -149,9 +149,12 @@ Offset  Size  Field                  Description
 104     8     build_timestamp_ns     When index was built (u64)
 112     8     coverage_start         Source byte offset where this index starts (u64)
 120     8     coverage_end           Source byte offset where this index ends (u64)
+128     8     coverage_tail_hash64   xxh3_64 of last min(64KB, coverage_end - coverage_start) bytes
 ```
 
 **Coverage range**: For a base index, `coverage_start=0` and `coverage_end=source_size`. For a delta index, `coverage_start=base.coverage_end` and `coverage_end=current_source_size`.
+
+**Boundary fingerprint**: `coverage_tail_hash64` is the xxh3_64 hash of the last min(64KB, covered_bytes) of the covered region. This enables verification that the covered prefix is unchanged, upgrading "append-detected" from a heuristic to a guardrail.
 
 **Magic/version validation**: Both must match exactly. If magic is wrong, the file is not a JNX index. If version differs, the format is incompatible.
 
@@ -229,7 +232,7 @@ Offset  Size  Field              Description
 0       4     key_table_crc32    CRC32 of key table bytes
 4       4     string_pool_crc32  CRC32 of string pool bytes
 8       4     offset_table_crc32 CRC32 of offset table bytes
-12      4     header_crc32       CRC32 of header bytes (0-127)
+12      4     header_crc32       CRC32 of header bytes (0-135)
 ```
 
 CRC32 uses IEEE polynomial (same as zlib).
@@ -279,6 +282,8 @@ The set is **fresh** when:
 fresh_set = (base.coverage_start == 0) AND
             (base.coverage_end == delta.coverage_start) AND
             (delta.coverage_end == current_size) AND
+            (base.source_inode == current_inode) AND
+            (base.source_dev == current_dev) AND
             (delta.source_inode == current_inode) AND
             (delta.source_dev == current_dev) AND
             (delta.source_mtime_ns == current_mtime_ns)
@@ -288,7 +293,8 @@ This means:
 - Base covers `[0, N)`
 - Delta covers `[N, current_size)`
 - Together they cover the entire current file
-- Delta's identity matches current file
+- Both base and delta refer to the same file (inode/dev match)
+- Delta's mtime matches current file (base mtime need not match)
 
 **No warning spam**: When `fresh_set` is true, queries should not warn about staleness, even though the base index alone would appear stale.
 
@@ -297,11 +303,14 @@ This means:
 | Condition | Category | Safety | Default Action |
 |-----------|----------|--------|----------------|
 | All match | Fresh | Safe | Use index |
-| Size increased, inode/dev same, mtime >= stored | Append-detected | Safe (subset) | Warn once, use (results may be incomplete) |
+| Size increased, inode/dev same, mtime >= stored, tail hash matches | Append-verified | Safe (subset) | Warn once, use (results may be incomplete) |
+| Size increased, inode/dev same, mtime >= stored, tail hash mismatch | Modified | **Unsafe** | Error |
 | Size decreased | Truncated | **Unsafe** | Error |
 | Inode changed | Replaced | **Unsafe** | Error |
 | mtime < stored | Backdated | **Unsafe** | Error |
 | Size same, mtime changed | Modified-in-place | **Unsafe** | Error |
+
+**Append verification**: When size has increased, we verify `coverage_tail_hash64` by re-hashing the last min(64KB, coverage_end - coverage_start) bytes of the current file at the same positions. If the hash matches, the covered prefix is unchanged and append-only behavior is confirmed. If the hash mismatches, the file was modified in-place.
 
 ### Default Behavior by Command
 
@@ -310,7 +319,7 @@ This means:
 | Category | Default | With `--allow-stale` |
 |----------|---------|---------------------|
 | Fresh / Fresh-set | Use | Use |
-| Append-detected | Warn once + use | Use (no warn) |
+| Append-verified | Warn once + use | Use (no warn) |
 | Unsafe (truncated/replaced/backdated/modified) | **Error** | Use (warn) |
 
 **`jn join --right-index`:**
@@ -502,7 +511,19 @@ jn graph expand edges.jsonl --seed "C123" --hops 3 --pred-value subClassOf
 
 **Behavior**: `jn graph expand` checks for `from+pred` index first. If present, uses composite lookups. Otherwise falls back to filter-after-lookup.
 
-**Recommendation**: For heavy single-predicate traversals, build the composite index.
+**Reverse traversal with predicate filter**: When using `--reverse` with predicate filtering, `jn graph expand` checks for `to+pred` index:
+
+```bash
+# Build composite index for reverse predicate-filtered traversal
+jn index build edges.jsonl --on "to,pred"
+
+# Traversal automatically uses it
+jn graph expand edges.jsonl --seed "C123" --hops 3 --reverse --pred-value subClassOf
+```
+
+**Recommendation**: For heavy single-predicate traversals, build the appropriate composite index:
+- Forward: `--on "from,pred"`
+- Reverse: `--on "to,pred"`
 
 ---
 
@@ -584,11 +605,13 @@ jn index get customers.jsonl --key customer_id --eq C123 --fallback scan
 jn index get customers.jsonl --key customer_id --eq C123 --verify
 ```
 
-**Output (stdout):** Matching records as NDJSON, in source file order.
+**Output (stdout):** Matching records as NDJSON.
 
 ```json
 {"customer_id":"C123","name":"Alice","region":"West"}
 ```
+
+**Output ordering**: When multiple keys are provided, results are grouped by key in input order (`--eq` order, then stdin order). Within each key, records are emitted in source file order.
 
 **Fallback behavior:**
 
@@ -852,11 +875,11 @@ pub const LookupIndex = struct {
     };
 
     pub const StalenessCategory = enum {
-        append_detected,  // Safe: subset results
+        append_verified,  // Safe: tail hash matches, subset results
+        modified,         // Unsafe: tail hash mismatch or in-place edit
         truncated,        // Unsafe: offsets may be invalid
         replaced,         // Unsafe: different file
         backdated,        // Unsafe: suspicious
-        modified,         // Unsafe: same size, different mtime
     };
 
     /// Validate structure (cheap: magic, version, bounds, header CRC only)
@@ -895,6 +918,48 @@ pub const LookupIndex = struct {
     pub fn close(self: *LookupIndex) void;
 };
 
+/// Index set: base + optional delta, treated as a unit
+/// All delta-aware consumers should use this instead of LookupIndex directly
+pub const LookupIndexSet = struct {
+    base: LookupIndex,
+    delta: ?LookupIndex,
+
+    /// Open an index set (auto-detects .delta file)
+    pub fn open(base_path: []const u8) !LookupIndexSet;
+
+    /// Check freshness of the set (uses fresh_set logic when delta exists)
+    pub fn checkFreshnessSet(self: *const LookupIndexSet, source_path: []const u8) FreshnessSetResult;
+
+    pub const FreshnessSetResult = struct {
+        fresh: bool,
+        category: ?StalenessCategory,
+        has_delta: bool,
+    };
+
+    /// Lookup with merged postings (base first, then delta)
+    pub fn lookupMerged(self: *const LookupIndexSet, key_bytes: []const u8) ?MergedPostingIterator;
+
+    pub const MergedPostingIterator = struct {
+        pub fn next(self: *MergedPostingIterator) ?u64;
+        pub fn count(self: *const MergedPostingIterator) u32;
+    };
+
+    /// Get combined statistics
+    pub fn statsSet(self: *const LookupIndexSet) IndexSetStats;
+
+    pub const IndexSetStats = struct {
+        base_keys: u32,
+        delta_keys: u32,
+        total_postings: u32,
+        coverage_start: u64,
+        coverage_end: u64,
+        has_delta: bool,
+    };
+
+    /// Close both base and delta
+    pub fn close(self: *LookupIndexSet) void;
+};
+
 /// Encode a key value to canonical bytes (captures lexical token for numbers)
 pub fn encodeKey(
     allocator: Allocator,
@@ -913,11 +978,12 @@ pub fn encodeCompositeKey(
 ### Index Validation
 
 **On open (always, cheap):**
-- Magic bytes match "JNX\x02"
-- Version matches 2
+- Magic bytes match "JNX\x03"
+- Version matches 3
 - Header CRC32 valid
 - Bounds check: all offsets within file size
 - Consistency: sizes match counts
+- Tail hash verification (for append detection)
 
 **On `--verify` or `jn index check` (expensive):**
 - Full CRC32 of key table, string pool, offset table
@@ -1006,6 +1072,8 @@ jn cat orders.jsonl | jn join customers.jsonl --on customer_id \
 
 **Implementation in `jn-join`:**
 
+Uses `LookupIndexSet` to handle base + delta correctly:
+
 ```zig
 const JoinConfig = struct {
     // ... existing fields ...
@@ -1018,27 +1086,40 @@ fn runJoin(allocator: Allocator, config: JoinConfig, right_source: []const u8) !
     if (config.use_right_index) {
         const index_path = try indexPathForKey(right_source, config.getRightKey());
 
-        const index = jn_index.openLookupIndex(index_path) catch |err| {
+        // Use LookupIndexSet to handle base + delta
+        var index_set = jn_index.LookupIndexSet.open(index_path) catch |err| {
             if (config.fallback_to_hash) {
                 emitEvent(.{ .event = "fallback", .reason = "index_open_failed", .mode = "hash" });
                 return runHashJoin(allocator, config, right_source);
             }
             return err;
         };
-        defer index.close();
+        defer index_set.close();
 
         if (config.verify_index) {
-            const crc_result = index.validateChecksums();
-            if (!crc_result.valid) {
+            // Verify both base and delta checksums
+            const base_crc = index_set.base.validateChecksums();
+            if (!base_crc.valid) {
                 if (config.fallback_to_hash) {
-                    emitEvent(.{ .event = "fallback", .reason = "checksum_failed", .mode = "hash" });
+                    emitEvent(.{ .event = "fallback", .reason = "base_checksum_failed", .mode = "hash" });
                     return runHashJoin(allocator, config, right_source);
                 }
                 return error.IndexCorrupt;
             }
+            if (index_set.delta) |*delta| {
+                const delta_crc = delta.validateChecksums();
+                if (!delta_crc.valid) {
+                    if (config.fallback_to_hash) {
+                        emitEvent(.{ .event = "fallback", .reason = "delta_checksum_failed", .mode = "hash" });
+                        return runHashJoin(allocator, config, right_source);
+                    }
+                    return error.IndexCorrupt;
+                }
+            }
         }
 
-        const freshness = index.checkFreshness(right_source);
+        // Check set freshness (handles fresh_set logic when delta exists)
+        const freshness = index_set.checkFreshnessSet(right_source);
         if (!freshness.fresh) {
             if (config.fallback_to_hash) {
                 emitEvent(.{ .event = "fallback", .reason = @tagName(freshness.category.?), .mode = "hash" });
@@ -1047,7 +1128,7 @@ fn runJoin(allocator: Allocator, config: JoinConfig, right_source: []const u8) !
             return error.IndexStale;
         }
 
-        return runIndexedJoin(allocator, config, right_source, &index);
+        return runIndexedJoin(allocator, config, right_source, &index_set);
     }
 
     return runHashJoin(allocator, config, right_source);
@@ -1145,9 +1226,15 @@ Delta index has same format as base, with:
 - `coverage_start = base.coverage_end`
 - `coverage_end = current_source_size`
 
+### Single-Delta Policy
+
+**At most one delta segment per index.** If `.delta` already exists and the file appends again, `jn index update` rebuilds the delta to cover `[base.coverage_end, current_size)`, atomically replacing the prior delta.
+
+This avoids multi-segment manifests and keeps `fresh_set` logic simple.
+
 ### Query with Delta
 
-When both base and delta exist:
+When both base and delta exist, tools use `LookupIndexSet`:
 
 1. Check set freshness (base + delta cover current file)
 2. For each key lookup:
@@ -1170,17 +1257,19 @@ jn index compact customers.jsonl --key customer_id
 ### Update Detection
 
 ```
-append_detected = (current_inode == stored_inode) AND
+append_verified = (current_inode == stored_inode) AND
                   (current_dev == stored_dev) AND
                   (current_size > coverage_end) AND
-                  (current_mtime_ns >= stored_mtime_ns)
+                  (current_mtime_ns >= stored_mtime_ns) AND
+                  (coverage_tail_hash64 matches re-computed hash)
 ```
 
-If append detected:
+If append verified:
 - Build delta index starting at `coverage_end` offset
 - Store `coverage_start=base.coverage_end`, `coverage_end=current_size`
+- If delta already exists, replace it (single-delta policy)
 
-If not append detected:
+If not append verified (tail hash mismatch or other modification):
 - Require `--full` flag for rebuild
 
 ---
@@ -1192,8 +1281,11 @@ If not append detected:
 | Mode | Invalid JSON Line | Missing Key Field | Line Too Long |
 |------|-------------------|-------------------|---------------|
 | Default (strict) | **Error**, abort | **Error**, abort | **Error**, abort |
-| `--skip-invalid` | Skip, count | Skip, count | Skip, count |
-| `--skip-missing-key` | - | Skip, count | - |
+| `--skip-invalid` | Skip, count | **Error**, abort | Skip, count |
+| `--skip-missing-key` | **Error**, abort | Skip, count | **Error**, abort |
+| Both flags | Skip, count | Skip, count | Skip, count |
+
+**Note**: The flags are independent. `--skip-invalid` handles malformed JSON and oversized lines. `--skip-missing-key` handles records where the indexed field is absent.
 
 Build completion reports skipped counts:
 
@@ -1203,14 +1295,32 @@ Build completion reports skipped counts:
 
 ### Index Validation
 
-**On open (always):**
-1. **Magic check**: Must be "JNX\x02"
-2. **Version check**: Must be 2
-3. **Header CRC**: Verify header_crc32
-4. **Bounds check**: All offsets within file size
-5. **Consistency**: `key_table_size == key_count * 24`, etc.
+**On open (always, cheap):**
 
-**On `--verify` or `jn index check`:**
+1. **Magic check**: Must be "JNX\x03"
+2. **Version check**: Must be 3
+3. **Header CRC**: Verify header_crc32
+
+4. **Structural invariants** (bounds and consistency checks):
+   ```
+   file_size >= 136 + 16
+   key_table_offset + key_table_size <= file_size - 16
+   string_pool_offset + string_pool_size <= file_size - 16
+   offset_table_offset + offset_table_size <= file_size - 16
+   key_table_size == key_count * 24
+   offset_table_size == posting_count * 8
+   coverage_start <= coverage_end <= source_size
+   (for base index) coverage_start == 0
+   ```
+
+5. **Key entry bounds** (for each key entry):
+   ```
+   string_offset + string_length <= string_pool_size
+   posting_offset + posting_count <= posting_count_total
+   ```
+
+**On `--verify` or `jn index check` (expensive):**
+
 6. **Section CRCs**: Verify key_table_crc32, string_pool_crc32, offset_table_crc32
 
 Validation failures:
@@ -1246,13 +1356,14 @@ jn index get customers.jsonl --key customer_id --eq C123 --auto-rebuild
 - [ ] Implement key encoding with lexical token capture (`key.zig`)
 - [ ] Implement mmap utilities (`mmap.zig`)
 - [ ] Implement CRC32 checksum (`checksum.zig`)
-- [ ] Implement staleness detection with categories (`staleness.zig`)
-- [ ] Implement lookup index build with coverage range (`lookup.zig`)
+- [ ] Implement staleness detection with categories and tail hash (`staleness.zig`)
+- [ ] Implement lookup index build with coverage range and tail hash (`lookup.zig`)
 - [ ] Implement lookup index query
+- [ ] Implement LookupIndexSet for base + delta (`index_set.zig`)
 - [ ] Implement structural validation (cheap) vs full CRC (opt-in)
 - [ ] Unit tests for all components
 
-**Deliverable:** Working `jn_index.buildLookupIndex()` and `jn_index.openLookupIndex()`
+**Deliverable:** Working `jn_index.buildLookupIndex()`, `jn_index.openLookupIndex()`, and `jn_index.LookupIndexSet`
 
 ### Phase 2: CLI Tool
 
@@ -1441,6 +1552,7 @@ libs/zig/jn-index/
 └── src/
     ├── root.zig
     ├── lookup.zig
+    ├── index_set.zig     # LookupIndexSet (base + delta)
     ├── format.zig
     ├── mmap.zig
     ├── hash.zig
@@ -1482,12 +1594,13 @@ JN Indexes provide fast key lookups and graph traversals while preserving JN's c
 - **Composable**: Integrates with existing pipeline tools
 
 Key implementation choices:
-- Binary format with coverage range and CRC32 checksums
+- Binary format with coverage range, tail hash, and CRC32 checksums
 - xxh3_64 hashing with sorted key table
 - Lexical token encoding for numbers
 - Canonical JSON array for composite keys
-- Inode + size + mtime_ns + coverage for staleness
-- Staleness categories with safe vs unsafe distinction
+- Inode + size + mtime_ns + coverage + tail hash for staleness
+- Staleness categories with safe (append-verified) vs unsafe distinction
 - Structural validation on open; full CRC opt-in
+- LookupIndexSet abstraction for delta-aware consumers
 - Graph traversal via lookup indexes with `--limit` enforcement
-- Delta files for incremental updates with set-level freshness
+- Single-delta policy for incremental updates with set-level freshness
