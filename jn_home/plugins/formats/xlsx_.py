@@ -408,10 +408,11 @@ def reads_table(config: dict) -> Iterator[dict]:
     # Parse range
     if range_str:
         range_info = parse_range(range_str)
-        min_row = range_info.get("min_row", 1)
-        max_row = range_info.get("max_row", sheet.max_row)
-        min_col = range_info.get("min_col", 1)
-        max_col = range_info.get("max_col", sheet.max_column)
+        # Use defaults for None values (column-only or row-only ranges)
+        min_row = range_info.get("min_row") or 1
+        max_row = range_info.get("max_row") or sheet.max_row
+        min_col = range_info.get("min_col") or 1
+        max_col = range_info.get("max_col") or sheet.max_column
     else:
         min_row = 1
         max_row = sheet.max_row

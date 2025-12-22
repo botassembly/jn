@@ -707,6 +707,26 @@ class TestTableMode:
         assert "Age" in records[0]
         assert "City" not in records[0]
 
+    def test_table_with_column_only_range(self, xlsx_plugin, simple_xlsx):
+        """Test table mode with column-only range (e.g., A:B)."""
+        records = run_xlsx(xlsx_plugin, simple_xlsx, args=["--range=A:B"], mode="table")
+
+        # Should use all rows, but only columns A-B
+        assert len(records) == 3
+        assert "Name" in records[0]
+        assert "Age" in records[0]
+        assert "City" not in records[0]
+
+    def test_table_with_row_only_range(self, xlsx_plugin, simple_xlsx):
+        """Test table mode with row-only range (e.g., 1:3)."""
+        records = run_xlsx(xlsx_plugin, simple_xlsx, args=["--range=1:3"], mode="table")
+
+        # Should use rows 1-3, all columns
+        assert len(records) == 2  # 2 data rows (row 1 is header)
+        assert "Name" in records[0]
+        assert "Age" in records[0]
+        assert "City" in records[0]
+
     def test_table_with_header_row(self, xlsx_plugin, title_rows_xlsx):
         """Test table mode with explicit header row."""
         records = run_xlsx(xlsx_plugin, title_rows_xlsx, args=["--range=A4:C6", "--header-row=1"], mode="table")
