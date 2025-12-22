@@ -1,23 +1,81 @@
-=== XLSX Demo ===
+=== XLSX Parsing Modes Demo ===
 
-1. View Excel data (first 5 rows):
-{"Month":"January","Category":"Engineering","Amount":"1200"}
-{"Month":"January","Category":"Marketing","Amount":"3500"}
-{"Month":"January","Category":"Operations","Amount":"4000"}
-{"Month":"January","Category":"HR","Amount":"800"}
-{"Month":"February","Category":"Engineering","Amount":"2200"}
+=== MODE 1: SIMPLE (default) ===
+Best for: Clean tables with headers in row 1
 
-2. Filter Engineering expenses:
-{"Month":"January","Description":"Software Licenses","Amount":"1200"}
-{"Month":"February","Description":"Cloud Services","Amount":"2200"}
-{"Month":"March","Description":"Development Tools","Amount":"950"}
-{"Month":"April","Description":"API Services","Amount":"1800"}
-{"Month":"May","Description":"Infrastructure","Amount":"3200"}
+1a. Read Excel as table (first 3 rows):
+{"Month": "January", "Category": "Engineering", "Description": "Software Licenses", "Amount": 1200}
+{"Month": "January", "Category": "Marketing", "Description": "Ad Campaign", "Amount": 3500}
+{"Month": "January", "Category": "Operations", "Description": "Office Rent", "Amount": 4000}
 
-3. Calculate totals by category:
-[{"category":"Engineering","total":9350},{"category":"HR","total":4200},{"category":"Marketing","total":10500},{"category":"Operations","total":7920},{"category":"Sales","total":2000}]
+1b. Filter and transform:
+{"Month":"January","Amount":1200}
+{"Month":"February","Amount":2200}
+{"Month":"March","Amount":950}
 
-4. Monthly summary:
-[{"month":"April","count":4,"total":6600},{"month":"February","count":4,"total":4750},{"month":"March","count":4,"total":5270},{"month":"May","count":4,"total":7850},{"month":"January","count":4,"total":9500}]
+=== MODE 2: STATS ===
+Best for: Understanding unknown Excel files before parsing
+
+2a. Get workbook overview:
+{"sheet":"Summary","rows":9,"cols":4,"merged_ranges":["A1:D1"]}
+{"sheet":"Monthly","rows":4,"cols":5,"merged_ranges":[]}
+{"sheet":"Notes","rows":8,"cols":3,"merged_ranges":[]}
+
+2b. See first row of each sheet (helps identify headers):
+{"sheet":"Summary","first_row":["Q4 2024 Sales Report",null,null,null]}
+{"sheet":"Monthly","first_row":["Month","North","South","East","West"]}
+{"sheet":"Notes","first_row":["Important Notes",null,null]}
+
+=== MODE 3: RAW ===
+Best for: Complex/messy spreadsheets, LLM analysis
+
+3a. Inspect cells with types (first 5):
+{"ref":"A1","value":"Q4 2024 Sales Report","type":"s"}
+{"ref":"B1","value":null,"type":"n"}
+{"ref":"C1","value":null,"type":"n"}
+{"ref":"D1","value":null,"type":"n"}
+{"ref":"A2","value":"Generated: 2024-12-22","type":"s"}
+
+3b. Find merged cells:
+{"ref":"A1","value":"Q4 2024 Sales Report","merge":"A1:D1","merge_origin":true}
+{"ref":"B1","value":null,"merge":"A1:D1","merge_origin":false}
+{"ref":"C1","value":null,"merge":"A1:D1","merge_origin":false}
+{"ref":"D1","value":null,"merge":"A1:D1","merge_origin":false}
+
+3c. Find cells with comments:
+{"ref":"B5","value":150000,"comment":"Exceeded expectations!"}
+
+3d. Find hidden cells:
+{"ref":"B3","value":"Review Q1 targets","hidden":true}
+
+=== MODE 4: TABLE ===
+Best for: Extracting data from specific regions with headers
+
+4a. Extract specific range (skip title rows):
+{"Region": "North", "Q4 Total": 150000, "Target": 140000, "Variance": null}
+{"Region": "South", "Q4 Total": 120000, "Target": 130000, "Variance": null}
+{"Region": "East", "Q4 Total": 180000, "Target": 175000, "Variance": null}
+{"Region": "West", "Q4 Total": 95000, "Target": 100000, "Variance": null}
+
+4b. Extract with column-only range:
+{"Month": "October", "North": 48000, "South": 38000}
+{"Month": "November", "North": 52000, "South": 42000}
+
+=== WORKFLOW: Discover -> Extract ===
+
+Step 1: Inspect unknown file
+{"sheet":"Summary","rows":9,"merged_ranges":["A1:D1"]}
+
+Step 2: Raw scan to find data region
+{"ref":"A1","value":"Q4 2024 Sales Report"}
+{"ref":"A2","value":"Generated: 2024-12-22"}
+{"ref":"A4","value":"Region"}
+{"ref":"A5","value":"North"}
+
+Step 3: Extract clean table (skipping title rows)
+{"Region":"North"}
+{"Region":"South"}
+{"Region":"East"}
+{"Region":"West"}
 
 === Done ===

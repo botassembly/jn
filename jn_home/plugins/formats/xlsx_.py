@@ -551,6 +551,10 @@ def writes(config: Optional[dict] = None) -> None:
 
 if __name__ == "__main__":
     import argparse
+    import signal
+
+    # Handle SIGPIPE gracefully (when piping to head, etc.)
+    signal.signal(signal.SIGPIPE, signal.SIG_DFL)
 
     parser = argparse.ArgumentParser(
         description="XLSX format plugin - read/write Excel files with multiple parsing modes"
