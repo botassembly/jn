@@ -460,6 +460,11 @@ fn parseCSVRow(allocator: std.mem.Allocator, line: []const u8, delimiter: u8, fi
 /// Unquote and unescape a CSV field.
 /// Returns a slice that may or may not need freeing depending on `needs_free` output.
 /// Handles RFC 4180 escaped quotes (doubled quotes "" become single ").
+///
+/// NOTE: On allocation failure, returns the raw unprocessed field content
+/// (with quotes stripped but escaped quotes not unescaped). A warning is printed
+/// to stderr. This is a trade-off for streaming resilience - we prefer to output
+/// slightly malformed data rather than abort the entire stream on transient OOM.
 fn unquoteField(allocator: std.mem.Allocator, field: []const u8, needs_free: *bool) []const u8 {
     needs_free.* = false;
 
@@ -492,15 +497,24 @@ fn unquoteField(allocator: std.mem.Allocator, field: []const u8, needs_free: *bo
     i = 0;
     while (i < inner.len) {
         if (i + 1 < inner.len and inner[i] == '"' and inner[i + 1] == '"') {
-            result.append(allocator, '"') catch return inner; // Fallback on OOM, defer handles cleanup
+            result.append(allocator, '"') catch {
+                std.debug.print("csv: warning: out of memory unescaping field, data may be malformed\n", .{});
+                return inner;
+            };
             i += 2;
         } else {
-            result.append(allocator, inner[i]) catch return inner; // Fallback on OOM, defer handles cleanup
+            result.append(allocator, inner[i]) catch {
+                std.debug.print("csv: warning: out of memory unescaping field, data may be malformed\n", .{});
+                return inner;
+            };
             i += 1;
         }
     }
 
-    const owned = result.toOwnedSlice(allocator) catch return inner; // Fallback on OOM, defer handles cleanup
+    const owned = result.toOwnedSlice(allocator) catch {
+        std.debug.print("csv: warning: out of memory unescaping field, data may be malformed\n", .{});
+        return inner;
+    };
     cleanup_on_oom = false; // Success - caller owns the memory now
     needs_free.* = true;
     return owned;

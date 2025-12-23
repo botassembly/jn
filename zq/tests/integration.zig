@@ -407,3 +407,55 @@ test "integration: array construction" {
     };
     try std.testing.expectEqualStrings("[1,2]\n", output);
 }
+
+// Edge case tests for integer overflow handling
+// These tests verify that overflow cases don't crash and produce reasonable output
+test "integration: incr at maxInt handles overflow" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    // i64 max is 9223372036854775807
+    // Without overflow protection, this would crash or produce incorrect results
+    const output = runZq(arena.allocator(), "incr", "9223372036854775807\n") catch |err| {
+        std.debug.print("Test skipped: zq not built ({any})\n", .{err});
+        return;
+    };
+    // Key check: it doesn't crash and produces output (float converted to whole number)
+    // Expected: 9223372036854776000 (float approximation)
+    try std.testing.expect(output.len > 0);
+    const trimmed = std.mem.trim(u8, output, " \n\r\t");
+    // The result should start with 92233... (larger than input)
+    try std.testing.expect(std.mem.startsWith(u8, trimmed, "92233"));
+}
+
+test "integration: decr at minInt handles overflow" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    // i64 min is -9223372036854775808
+    // Without overflow protection, this would crash or produce incorrect results
+    const output = runZq(arena.allocator(), "decr", "-9223372036854775808\n") catch |err| {
+        std.debug.print("Test skipped: zq not built ({any})\n", .{err});
+        return;
+    };
+    // Key check: it doesn't crash and produces output
+    try std.testing.expect(output.len > 0);
+    const trimmed = std.mem.trim(u8, output, " \n\r\t");
+    // The result should be negative (start with -)
+    try std.testing.expect(trimmed.len > 0);
+    try std.testing.expect(trimmed[0] == '-');
+}
+
+test "integration: negate at minInt handles overflow" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    // i64 min is -9223372036854775808, negating it would overflow
+    // since maxInt(i64) is only 9223372036854775807
+    const output = runZq(arena.allocator(), "negate", "-9223372036854775808\n") catch |err| {
+        std.debug.print("Test skipped: zq not built ({any})\n", .{err});
+        return;
+    };
+    // Result should be positive (not crash)
+    try std.testing.expect(output.len > 0);
+    const trimmed = std.mem.trim(u8, output, " \n\r\t");
+    try std.testing.expect(trimmed.len > 0);
+    try std.testing.expect(trimmed[0] != '-');
+}
