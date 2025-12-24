@@ -11,6 +11,21 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-linux
+            os: linux
+            arch: x86_64
+          - target: aarch64-linux
+            os: linux
+            arch: aarch64
+          - target: x86_64-macos
+            os: darwin
+            arch: x86_64
+          - target: aarch64-macos
+            os: darwin
+            arch: aarch64
 
     steps:
       - uses: actions/checkout@v4
@@ -43,13 +58,13 @@ jobs:
           PLUGIN_MODULES="--dep jn-core --dep jn-cli --dep jn-plugin -Mroot=./main.zig $JN_CORE $JN_CLI $JN_PLUGIN"
           JN_MODULES="--dep jn-core -Mroot=./main.zig $JN_CORE"
 
-          TARGET="-target x86_64-linux"
+          TARGET="-target ${{ matrix.target }}"
 
           # Create output directory
           mkdir -p dist/bin
 
           # Build jn orchestrator
-          echo "Building jn..."
+          echo "Building jn for ${{ matrix.target }}..."
           cd tools/zig/jn
           zig build-exe -fllvm -O ReleaseFast $TARGET $JN_MODULES -femit-bin=../../../dist/bin/jn
           cd ../../..
@@ -82,7 +97,7 @@ jobs:
       - name: Package release
         run: |
           VERSION=${{ steps.version.outputs.version }}
-          ARCHIVE="jn-${VERSION}-x86_64-linux"
+          ARCHIVE="jn-${VERSION}-${{ matrix.arch }}-${{ matrix.os }}"
 
           mkdir -p release/$ARCHIVE
 
@@ -97,14 +112,14 @@ jobs:
           tar -czf ${ARCHIVE}.tar.gz $ARCHIVE
 
           # Create non-versioned archive for easy "latest" downloads
-          cp ${ARCHIVE}.tar.gz jn-linux-x86_64.tar.gz
+          cp ${ARCHIVE}.tar.gz jn-${{ matrix.arch }}-${{ matrix.os }}.tar.gz
 
           ls -la
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: jn-x86_64-linux
+          name: jn-${{ matrix.arch }}-${{ matrix.os }}
           path: release/*.tar.gz
           if-no-files-found: error
 

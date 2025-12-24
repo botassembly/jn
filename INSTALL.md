@@ -2,28 +2,122 @@
 
 JN is a universal data transformation tool built in Zig with Python plugin extensibility.
 
-## Quick Install (Linux x86_64)
+## Quick Install (Recommended)
 
-Download the latest release and add to your PATH:
+The easiest way to install JN:
 
 ```bash
-# Download latest release
-curl -LO https://github.com/botassembly/jn/releases/latest/download/jn-linux-x86_64.tar.gz
-
-# Extract to ~/.local/jn
-mkdir -p ~/.local/jn
-tar -xzf jn-linux-x86_64.tar.gz -C ~/.local/jn --strip-components=1
-
-# Add to PATH (bash)
-echo 'export PATH="$HOME/.local/jn/bin:$PATH"' >> ~/.bashrc
-source ~/.bashrc
-
-# Or for zsh
-echo 'export PATH="$HOME/.local/jn/bin:$PATH"' >> ~/.zshrc
-source ~/.zshrc
+curl -sSfL https://raw.githubusercontent.com/botassembly/jn/main/install.sh | sh
 ```
 
-**Note:** `JN_HOME` is not required. JN automatically discovers tools and plugins relative to the executable.
+This will:
+- Detect your OS and architecture
+- Download the latest release
+- Install to `~/.local/jn`
+- Add to your PATH
+
+### Install Options
+
+```bash
+# Install specific version
+JN_VERSION=0.1.0 curl -sSfL https://raw.githubusercontent.com/botassembly/jn/main/install.sh | sh
+
+# Install to custom location
+JN_INSTALL_DIR=/opt/jn curl -sSfL https://raw.githubusercontent.com/botassembly/jn/main/install.sh | sh
+
+# Skip PATH modification
+JN_NO_MODIFY_PATH=1 curl -sSfL https://raw.githubusercontent.com/botassembly/jn/main/install.sh | sh
+```
+
+## Supported Platforms
+
+| Platform | Architecture | Status |
+|----------|--------------|--------|
+| Linux | x86_64 (amd64) | ✅ |
+| Linux | aarch64 (arm64) | ✅ |
+| macOS | x86_64 (Intel) | ✅ |
+| macOS | aarch64 (Apple Silicon) | ✅ |
+
+## Alternative Installation Methods
+
+### Manual Download
+
+Download from [GitHub Releases](https://github.com/botassembly/jn/releases):
+
+```bash
+# Linux x86_64
+curl -LO https://github.com/botassembly/jn/releases/latest/download/jn-x86_64-linux.tar.gz
+mkdir -p ~/.local/jn && tar -xzf jn-x86_64-linux.tar.gz -C ~/.local/jn --strip-components=1
+
+# Linux ARM64
+curl -LO https://github.com/botassembly/jn/releases/latest/download/jn-aarch64-linux.tar.gz
+mkdir -p ~/.local/jn && tar -xzf jn-aarch64-linux.tar.gz -C ~/.local/jn --strip-components=1
+
+# macOS Intel
+curl -LO https://github.com/botassembly/jn/releases/latest/download/jn-x86_64-darwin.tar.gz
+mkdir -p ~/.local/jn && tar -xzf jn-x86_64-darwin.tar.gz -C ~/.local/jn --strip-components=1
+
+# macOS Apple Silicon
+curl -LO https://github.com/botassembly/jn/releases/latest/download/jn-aarch64-darwin.tar.gz
+mkdir -p ~/.local/jn && tar -xzf jn-aarch64-darwin.tar.gz -C ~/.local/jn --strip-components=1
+```
+
+Add to PATH:
+
+```bash
+# bash
+echo 'export PATH="$HOME/.local/jn/bin:$PATH"' >> ~/.bashrc
+
+# zsh
+echo 'export PATH="$HOME/.local/jn/bin:$PATH"' >> ~/.zshrc
+
+# fish
+echo 'set -gx PATH "$HOME/.local/jn/bin" $PATH' >> ~/.config/fish/config.fish
+```
+
+### Docker
+
+```bash
+# Run directly
+docker run --rm -i ghcr.io/botassembly/jn cat -~csv < data.csv
+
+# Use in pipelines
+cat data.json | docker run --rm -i ghcr.io/botassembly/jn filter '.items[]'
+
+# Interactive
+docker run --rm -it ghcr.io/botassembly/jn --help
+```
+
+Available tags:
+- `latest` - Latest stable release
+- `0.1.0` - Specific version
+- `0.1` - Latest patch for minor version
+
+### Nix
+
+```bash
+# Run without installing
+nix run github:botassembly/jn -- --help
+
+# Install to profile
+nix profile install github:botassembly/jn
+
+# Use in flake
+{
+  inputs.jn.url = "github:botassembly/jn";
+}
+```
+
+### Build from Source
+
+```bash
+git clone https://github.com/botassembly/jn.git
+cd jn
+make build
+source dist/activate.sh
+```
+
+See [CLAUDE.md](CLAUDE.md) for development details.
 
 ## Verify Installation
 
@@ -34,7 +128,7 @@ jn --version
 # Test basic functionality
 echo '{"hello":"world"}' | jn filter '.'
 
-# Read a CSV file
+# Read CSV
 echo 'name,age
 Alice,30
 Bob,25' | jn cat -~csv
@@ -42,32 +136,6 @@ Bob,25' | jn cat -~csv
 # Use the todo tool
 jn tool todo add "My first task"
 jn tool todo list
-```
-
-## What's Included
-
-The release package contains:
-
-```
-jn/
-├── bin/                    # All executables
-│   ├── jn                  # Main orchestrator
-│   ├── jn-cat              # Universal reader (CSV, JSON, YAML, etc.)
-│   ├── jn-put              # Universal writer
-│   ├── jn-filter           # JQ-like filtering
-│   ├── jn-head, jn-tail    # Stream head/tail
-│   ├── jn-join             # Hash join two sources
-│   ├── jn-merge            # Concatenate sources
-│   ├── jn-analyze          # Statistics on NDJSON
-│   ├── jn-inspect          # Schema inference
-│   ├── jn-sh               # Shell commands as JSON
-│   ├── jn-edit             # Surgical JSON editing
-│   ├── zq                  # Filter engine
-│   └── csv, json, jsonl, gz, yaml, toml  # Format plugins
-└── jn_home/
-    ├── tools/              # Utility tools (todo, etc.)
-    ├── plugins/            # Python plugins (xlsx, gmail, duckdb, etc.)
-    └── profiles/           # Profile definitions
 ```
 
 ## Python Plugins (Optional)
@@ -83,52 +151,44 @@ jn cat spreadsheet.xlsx    # Uses xlsx_ plugin
 jn cat data.xml            # Uses xml_ plugin
 ```
 
-## Building from Source
+## What's Included
 
-For development or building from source:
-
-```bash
-# Clone the repository
-git clone https://github.com/botassembly/jn.git
-cd jn
-
-# Build everything (downloads Zig automatically)
-make build
-
-# Activate jn in your current shell
-source dist/activate.sh
-
-# Verify
-jn --version
-todo --help
 ```
-
-The `make build` command:
-1. Downloads Zig if needed
-2. Builds all tools and plugins
-3. Creates a `dist/` directory with release layout
-4. Generates `dist/activate.sh` for PATH and aliases (like `todo`)
-
-For development, you can also run individual targets:
-```bash
-make test     # Run all tests
-make dist     # Rebuild release layout in dist/
-make download # Download pre-built release instead of building
+jn/
+├── bin/                    # Main binary (only jn on PATH)
+│   └── jn                  # Main orchestrator
+├── libexec/jn/             # Internal tools (discovered automatically)
+│   ├── jn-cat              # Universal reader
+│   ├── jn-put              # Universal writer
+│   ├── jn-filter           # JQ-like filtering
+│   ├── jn-head, jn-tail    # Stream head/tail
+│   ├── jn-join             # Hash join
+│   ├── jn-merge            # Concatenate sources
+│   ├── jn-analyze          # NDJSON statistics
+│   ├── jn-inspect          # Schema inference
+│   ├── jn-sh               # Shell commands as JSON
+│   ├── jn-edit             # Surgical JSON editing
+│   ├── zq                  # Filter engine
+│   └── csv, json, yaml...  # Format plugins
+└── jn_home/
+    ├── tools/              # Utility tools (todo, etc.)
+    ├── plugins/            # Python plugins (xlsx, gmail, etc.)
+    └── profiles/           # Profile definitions
 ```
 
 ## Upgrading
 
-To upgrade to a new version:
+Using the install script:
 
 ```bash
-# Download new release
-curl -LO https://github.com/botassembly/jn/releases/latest/download/jn-linux-x86_64.tar.gz
+curl -sSfL https://raw.githubusercontent.com/botassembly/jn/main/install.sh | sh
+```
 
-# Extract over existing installation
-tar -xzf jn-linux-x86_64.tar.gz -C ~/.local/jn --strip-components=1
+Or manually:
 
-# Verify
-jn --version
+```bash
+curl -LO https://github.com/botassembly/jn/releases/latest/download/jn-x86_64-linux.tar.gz
+tar -xzf jn-x86_64-linux.tar.gz -C ~/.local/jn --strip-components=1
 ```
 
 ## Uninstalling
@@ -137,24 +197,26 @@ jn --version
 # Remove installation
 rm -rf ~/.local/jn
 
-# Remove from shell config
-# Edit ~/.bashrc or ~/.zshrc and remove the PATH line
+# Remove PATH from shell config
+# Edit ~/.bashrc, ~/.zshrc, or ~/.config/fish/config.fish
 ```
 
 ## Troubleshooting
 
 **Command not found**
 - Ensure `~/.local/jn/bin` is in your PATH
-- Run `source ~/.bashrc` or start a new terminal
+- Run `source ~/.bashrc` (or your shell's config) or start a new terminal
 
 **Plugin not found**
 - Plugins are discovered relative to the `jn` binary
-- Verify the installation: `ls ~/.local/jn/bin/csv`
+- Verify: `ls ~/.local/jn/bin/csv` or `ls ~/.local/jn/libexec/jn/csv`
 
 **Python plugin errors**
 - Install uv: `curl -LsSf https://astral.sh/uv/install.sh | sh`
-- Check Python is available: `python3 --version`
+- Check Python: `python3 --version`
 
-**Tool not found (jn tool ...)**
-- Tools are in `jn_home/tools/` relative to the binary
-- Verify: `ls ~/.local/jn/jn_home/tools/`
+**macOS Gatekeeper issues**
+- If you see "cannot be opened because the developer cannot be verified":
+  ```bash
+  xattr -d com.apple.quarantine ~/.local/jn/bin/*
+  ```
