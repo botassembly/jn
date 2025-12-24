@@ -597,12 +597,11 @@ test "parse profile with complex path" {
 test "parse glob with complex pattern" {
     const addr = parse("data/**/*test*.csv");
     try std.testing.expectEqual(AddressType.glob, addr.address_type);
-    try std.testing.expect(addr.isGlob());
 }
 
 test "query iterator handles empty values" {
     const addr = parse("file.csv?key=&other=value");
-    var iter = addr.queryIterator();
+    var iter = queryParams(addr);
 
     const first = iter.next().?;
     try std.testing.expectEqualStrings("key", first.key);
@@ -617,7 +616,7 @@ test "query iterator handles empty values" {
 
 test "query iterator handles no equals sign" {
     const addr = parse("file.csv?flag");
-    var iter = addr.queryIterator();
+    var iter = queryParams(addr);
 
     const first = iter.next().?;
     try std.testing.expectEqualStrings("flag", first.key);
