@@ -5,6 +5,54 @@
 
 const std = @import("std");
 
+/// Result of escaping a string for shell use.
+///
+/// This struct clearly indicates ownership: check the `allocated` field
+/// or just call `deinit()` which handles both cases safely.
+///
+/// Example usage:
+/// ```zig
+/// const escaped = escapeForShell(allocator, user_input);
+/// defer escaped.deinit(allocator);
+/// // Use escaped.slice in your command...
+/// ```
+pub const EscapedString = struct {
+    /// The escaped (or original) string slice
+    slice: []const u8,
+    /// True if `slice` was allocated by the escape function and must be freed
+    allocated: bool,
+
+    /// Free the string if it was allocated, no-op otherwise.
+    /// Safe to call unconditionally.
+    pub fn deinit(self: EscapedString, allocator: std.mem.Allocator) void {
+        if (self.allocated) {
+            // We know the slice was allocated by escapeForShellSingleQuote which
+            // returns []u8 (mutable). The constCast is safe here because we own it.
+            allocator.free(@constCast(self.slice));
+        }
+    }
+};
+
+/// Escape a string for safe use in a single-quoted shell argument.
+/// Returns an EscapedString with clear ownership semantics.
+///
+/// If the string contains no single quotes, returns the original slice
+/// (allocated=false). Otherwise returns an escaped copy (allocated=true).
+///
+/// Example:
+/// ```zig
+/// const escaped = escapeForShell(allocator, path);
+/// defer escaped.deinit(allocator);
+/// const cmd = try std.fmt.allocPrint(allocator, "cat '{s}'", .{escaped.slice});
+/// ```
+pub fn escapeForShell(allocator: std.mem.Allocator, input: []const u8) !EscapedString {
+    if (isSafeForShellSingleQuote(input)) {
+        return .{ .slice = input, .allocated = false };
+    }
+    const escaped = try escapeForShellSingleQuote(allocator, input);
+    return .{ .slice = escaped, .allocated = true };
+}
+
 /// Escape a string for safe use in a single-quoted shell argument.
 ///
 /// Single-quoted strings in POSIX shells don't interpret any special
@@ -178,4 +226,24 @@ test "isGlobPatternSafe rejects injection attempts" {
     // Redirection
     try std.testing.expect(!isGlobPatternSafe("*.json > /tmp/x"));
     try std.testing.expect(!isGlobPatternSafe("*.json < /etc/passwd"));
+}
+
+test "escapeForShell returns borrowed for safe strings" {
+    const allocator = std.testing.allocator;
+    const input = "simple/path.txt";
+    const result = try escapeForShell(allocator, input);
+    defer result.deinit(allocator); // Safe to call unconditionally
+
+    try std.testing.expect(!result.allocated);
+    try std.testing.expect(result.slice.ptr == input.ptr);
+    try std.testing.expectEqualStrings("simple/path.txt", result.slice);
+}
+
+test "escapeForShell returns owned for unsafe strings" {
+    const allocator = std.testing.allocator;
+    const result = try escapeForShell(allocator, "file's name");
+    defer result.deinit(allocator);
+
+    try std.testing.expect(result.allocated);
+    try std.testing.expectEqualStrings("file'\\''s name", result.slice);
 }

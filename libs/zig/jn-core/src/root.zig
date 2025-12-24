@@ -20,6 +20,7 @@ pub const flushWriter = writer.flushWriter;
 pub const exitWithError = errors.exitWithError;
 pub const exitClean = errors.exitClean;
 pub const ExitCode = errors.ExitCode;
+pub const warn = errors.warn;
 
 // JSON helpers
 pub const parseJsonLine = json.parseJsonLine;
@@ -35,6 +36,8 @@ pub const STDOUT_BUFFER_SIZE = writer.DEFAULT_BUFFER_SIZE;
 pub const escapeForShellSingleQuote = shell.escapeForShellSingleQuote;
 pub const isSafeForShellSingleQuote = shell.isSafeForShellSingleQuote;
 pub const isGlobPatternSafe = shell.isGlobPatternSafe;
+pub const EscapedString = shell.EscapedString;
+pub const escapeForShell = shell.escapeForShell;
 
 test {
     @import("std").testing.refAllDecls(@This());

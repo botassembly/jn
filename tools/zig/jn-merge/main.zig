@@ -52,6 +52,28 @@ const SourceSpec = struct {
 const MergeConfig = struct {
     add_source: bool = true,
     fail_fast: bool = false,
+    strict: bool = false,
+};
+
+// Skip counters for tracking malformed records
+const SkipCounters = struct {
+    parse_errors: usize = 0,
+    non_objects: usize = 0,
+
+    fn total(self: SkipCounters) usize {
+        return self.parse_errors + self.non_objects;
+    }
+
+    fn reportIfAny(self: SkipCounters) void {
+        if (self.total() == 0) return;
+
+        if (self.parse_errors > 0) {
+            jn_core.warn("jn-merge: skipped {d} malformed JSON records", .{self.parse_errors});
+        }
+        if (self.non_objects > 0) {
+            jn_core.warn("jn-merge: skipped {d} non-object records", .{self.non_objects});
+        }
+    }
 };
 
 pub fn main() !void {
@@ -77,6 +99,7 @@ pub fn main() !void {
     const config = MergeConfig{
         .add_source = !args.has("no-source"),
         .fail_fast = args.has("fail-fast"),
+        .strict = args.has("strict"),
     };
 
     // Collect source arguments
@@ -105,9 +128,10 @@ pub fn main() !void {
     const writer = &stdout_wrapper.interface;
 
     var had_errors = false;
+    var counters = SkipCounters{};
 
     for (sources.items) |source| {
-        const success = processSource(allocator, source, &config, writer);
+        const success = processSource(allocator, source, &config, writer, &counters);
         if (!success) {
             had_errors = true;
             if (config.fail_fast) {
@@ -118,36 +142,44 @@ pub fn main() !void {
 
     jn_core.flushWriter(writer);
 
+    // Report skipped records (or exit with error if --strict)
+    if (counters.total() > 0) {
+        if (config.strict) {
+            jn_core.exitWithError("jn-merge: --strict mode: {d} records skipped due to parse errors", .{counters.total()});
+        }
+        counters.reportIfAny();
+    }
+
     if (had_errors) {
         std.process.exit(1);
     }
 }
 
 /// Process a single source and output records
-fn processSource(allocator: std.mem.Allocator, source: SourceSpec, config: *const MergeConfig, writer: anytype) bool {
+fn processSource(allocator: std.mem.Allocator, source: SourceSpec, config: *const MergeConfig, writer: anytype, counters: *SkipCounters) bool {
     const address = jn_address.parse(source.path);
 
     switch (address.address_type) {
         .file => {
-            return processFile(allocator, source, config, writer);
+            return processFile(allocator, source, config, writer, counters);
         },
         .stdin => {
-            return processStdin(source, config, writer);
+            return processStdin(source, config, writer, counters);
         },
         else => {
             // For URLs and profiles, try using jn-cat
-            return processViaJnCat(allocator, source, config, writer);
+            return processViaJnCat(allocator, source, config, writer, counters);
         },
     }
 }
 
 /// Process local file
-fn processFile(allocator: std.mem.Allocator, source: SourceSpec, config: *const MergeConfig, writer: anytype) bool {
+fn processFile(allocator: std.mem.Allocator, source: SourceSpec, config: *const MergeConfig, writer: anytype, counters: *SkipCounters) bool {
     const format = jn_address.parse(source.path).effectiveFormat() orelse "jsonl";
 
     // For non-JSONL files, use jn-cat for conversion
     if (!std.mem.eql(u8, format, "jsonl") and !std.mem.eql(u8, format, "ndjson") and !std.mem.eql(u8, format, "json")) {
-        return processViaJnCat(allocator, source, config, writer);
+        return processViaJnCat(allocator, source, config, writer, counters);
     }
 
     // Direct NDJSON reading
@@ -167,14 +199,14 @@ fn processFile(allocator: std.mem.Allocator, source: SourceSpec, config: *const 
 
     while (jn_core.readLine(reader)) |line| {
         if (line.len == 0) continue;
-        outputRecord(allocator, line, source, config, writer);
+        outputRecord(allocator, line, source, config, writer, counters);
     }
 
     return true;
 }
 
 /// Process stdin
-fn processStdin(source: SourceSpec, config: *const MergeConfig, writer: anytype) bool {
+fn processStdin(source: SourceSpec, config: *const MergeConfig, writer: anytype, counters: *SkipCounters) bool {
     // Need heap allocator for output
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -186,14 +218,14 @@ fn processStdin(source: SourceSpec, config: *const MergeConfig, writer: anytype)
 
     while (jn_core.readLine(reader)) |line| {
         if (line.len == 0) continue;
-        outputRecord(allocator, line, source, config, writer);
+        outputRecord(allocator, line, source, config, writer, counters);
     }
 
     return true;
 }
 
 /// Process via jn-cat for format conversion or remote sources
-fn processViaJnCat(allocator: std.mem.Allocator, source: SourceSpec, config: *const MergeConfig, writer: anytype) bool {
+fn processViaJnCat(allocator: std.mem.Allocator, source: SourceSpec, config: *const MergeConfig, writer: anytype, counters: *SkipCounters) bool {
     // Find jn-cat
     const jn_cat_path = findTool(allocator, "jn-cat") orelse {
         var stderr_buf: [256]u8 = undefined;
@@ -229,7 +261,7 @@ fn processViaJnCat(allocator: std.mem.Allocator, source: SourceSpec, config: *co
 
     while (jn_core.readLine(reader)) |line| {
         if (line.len == 0) continue;
-        outputRecord(allocator, line, source, config, writer);
+        outputRecord(allocator, line, source, config, writer, counters);
     }
 
     const result = child.wait() catch return false;
@@ -240,8 +272,23 @@ fn processViaJnCat(allocator: std.mem.Allocator, source: SourceSpec, config: *co
 }
 
 /// Output a record with optional source metadata
-fn outputRecord(allocator: std.mem.Allocator, line: []const u8, source: SourceSpec, config: *const MergeConfig, writer: anytype) void {
+fn outputRecord(allocator: std.mem.Allocator, line: []const u8, source: SourceSpec, config: *const MergeConfig, writer: anytype, counters: *SkipCounters) void {
+    // When --no-source, we still need to validate JSON if --strict is enabled
+    // or if we want to count malformed records for warnings
     if (!config.add_source) {
+        // Validate JSON if strict mode is enabled (parse errors should still trigger)
+        if (config.strict) {
+            const parsed = std.json.parseFromSlice(std.json.Value, allocator, line, .{}) catch {
+                counters.parse_errors += 1;
+                jn_core.exitWithError("jn-merge: --strict mode: malformed JSON record", .{});
+            };
+            defer parsed.deinit();
+
+            if (parsed.value != .object) {
+                counters.non_objects += 1;
+                jn_core.exitWithError("jn-merge: --strict mode: non-object record", .{});
+            }
+        }
         // Pass through unchanged
         writer.writeAll(line) catch |err| jn_core.handleWriteError(err);
         writer.writeByte('\n') catch |err| jn_core.handleWriteError(err);
@@ -250,6 +297,10 @@ fn outputRecord(allocator: std.mem.Allocator, line: []const u8, source: SourceSp
 
     // Parse and add source fields
     const parsed = std.json.parseFromSlice(std.json.Value, allocator, line, .{}) catch {
+        counters.parse_errors += 1;
+        if (config.strict) {
+            jn_core.exitWithError("jn-merge: --strict mode: malformed JSON record", .{});
+        }
         // Invalid JSON - pass through
         writer.writeAll(line) catch |err| jn_core.handleWriteError(err);
         writer.writeByte('\n') catch |err| jn_core.handleWriteError(err);
@@ -258,6 +309,10 @@ fn outputRecord(allocator: std.mem.Allocator, line: []const u8, source: SourceSp
     defer parsed.deinit();
 
     if (parsed.value != .object) {
+        counters.non_objects += 1;
+        if (config.strict) {
+            jn_core.exitWithError("jn-merge: --strict mode: non-object record", .{});
+        }
         // Not an object - pass through
         writer.writeAll(line) catch |err| jn_core.handleWriteError(err);
         writer.writeByte('\n') catch |err| jn_core.handleWriteError(err);
@@ -360,8 +415,12 @@ fn printUsage() void {
         \\Options:
         \\  --no-source           Don't add _source field to records
         \\  --fail-fast           Stop on first source error (default: continue)
+        \\  --strict              Exit with error on malformed records
         \\  --help, -h            Show this help
         \\  --version             Show version
+        \\
+        \\By default, malformed records are passed through with a warning.
+        \\Use --strict to fail fast on any parse errors.
         \\
         \\Source format:
         \\  path                  Simple path (uses filename as _source)

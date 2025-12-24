@@ -13,10 +13,26 @@ const MAX_ARGS = 32;
 /// Stores parsed arguments as key-value pairs where the key is the
 /// argument name (without --) and the value is the argument value
 /// (or empty string for flags).
+///
+/// ## Lifetime and Ownership
+///
+/// **IMPORTANT**: The slices stored in `keys` and `values` are references
+/// to the original argument strings from `std.process.args()`. These slices
+/// are valid for the entire program lifetime (the OS maintains argv memory).
+///
+/// This means:
+/// - Do NOT use this struct with dynamically allocated argument strings
+///   that may be freed during program execution
+/// - The returned slices from `get()` and iteration are valid for program lifetime
+/// - No cleanup/deinit is required - the OS reclaims memory on exit
+///
+/// This design is intentional: JN tools are short-lived processes that parse
+/// args once at startup. The simplicity of referencing OS-owned strings
+/// outweighs the flexibility of owned copies.
 pub const ArgParser = struct {
-    /// Stored argument keys (without --)
+    /// Stored argument keys (without --), references to OS-owned argv strings
     keys: [MAX_ARGS][]const u8 = undefined,
-    /// Stored argument values
+    /// Stored argument values, references to OS-owned argv strings
     values: [MAX_ARGS][]const u8 = undefined,
     /// Number of stored arguments
     count: usize = 0,
@@ -176,4 +192,62 @@ test "ArgParser handles MAX_ARGS limit" {
 
     // The truncated argument should not be accessible
     try std.testing.expect(!parser.has("extra"));
+}
+
+// ============================================================================
+// Edge Case Tests
+// ============================================================================
+
+test "ArgParser handles empty key" {
+    var parser = ArgParser.init();
+    parser.add("", "value");
+
+    // Empty key should still be retrievable
+    try std.testing.expectEqualStrings("value", parser.get("", null).?);
+    try std.testing.expect(parser.has(""));
+}
+
+test "ArgParser handles empty value" {
+    var parser = ArgParser.init();
+    parser.add("key", "");
+
+    try std.testing.expectEqualStrings("", parser.get("key", null).?);
+    try std.testing.expect(parser.has("key"));
+}
+
+test "ArgParser handles duplicate keys (first wins)" {
+    var parser = ArgParser.init();
+    parser.add("key", "first");
+    parser.add("key", "second");
+
+    // First occurrence wins (scan order)
+    try std.testing.expectEqualStrings("first", parser.get("key", null).?);
+    // Both are present, but get() returns first match
+    try std.testing.expect(parser.count == 2);
+}
+
+test "ArgParser handles special characters in values" {
+    var parser = ArgParser.init();
+    parser.add("path", "/tmp/file with spaces.txt");
+    parser.add("regex", ".*\\.json$");
+    parser.add("unicode", "日本語");
+
+    try std.testing.expectEqualStrings("/tmp/file with spaces.txt", parser.get("path", null).?);
+    try std.testing.expectEqualStrings(".*\\.json$", parser.get("regex", null).?);
+    try std.testing.expectEqualStrings("日本語", parser.get("unicode", null).?);
+}
+
+test "ArgParser get returns default for empty parser" {
+    const parser = ArgParser.init();
+
+    try std.testing.expect(parser.count == 0);
+    try std.testing.expect(parser.get("anything", null) == null);
+    try std.testing.expectEqualStrings("fallback", parser.get("anything", "fallback").?);
+}
+
+test "ArgParser has returns false for empty parser" {
+    const parser = ArgParser.init();
+
+    try std.testing.expect(!parser.has("anything"));
+    try std.testing.expect(!parser.has(""));
 }

@@ -50,6 +50,7 @@ const JoinConfig = struct {
     left_key: ?[]const u8 = null,
     right_key: ?[]const u8 = null,
     inner_join: bool = false,
+    strict: bool = false,
 
     fn getLeftKey(self: JoinConfig) []const u8 {
         return self.left_key orelse self.on_key orelse "";
@@ -57,6 +58,36 @@ const JoinConfig = struct {
 
     fn getRightKey(self: JoinConfig) []const u8 {
         return self.right_key orelse self.on_key orelse "";
+    }
+};
+
+// Skip counters for tracking malformed records
+const SkipCounters = struct {
+    right_parse_errors: usize = 0,
+    right_missing_keys: usize = 0,
+    left_parse_errors: usize = 0,
+    left_missing_keys: usize = 0,
+
+    fn total(self: SkipCounters) usize {
+        return self.right_parse_errors + self.right_missing_keys +
+            self.left_parse_errors + self.left_missing_keys;
+    }
+
+    fn reportIfAny(self: SkipCounters) void {
+        if (self.total() == 0) return;
+
+        if (self.right_parse_errors > 0) {
+            jn_core.warn("jn-join: skipped {d} malformed JSON records from right source", .{self.right_parse_errors});
+        }
+        if (self.right_missing_keys > 0) {
+            jn_core.warn("jn-join: skipped {d} records from right source missing join key", .{self.right_missing_keys});
+        }
+        if (self.left_parse_errors > 0) {
+            jn_core.warn("jn-join: skipped {d} malformed JSON records from left source", .{self.left_parse_errors});
+        }
+        if (self.left_missing_keys > 0) {
+            jn_core.warn("jn-join: skipped {d} records from left source missing join key", .{self.left_missing_keys});
+        }
     }
 };
 
@@ -85,6 +116,7 @@ pub fn main() !void {
         .left_key = args.get("left-key", null),
         .right_key = args.get("right-key", null),
         .inner_join = args.has("inner"),
+        .strict = args.has("strict"),
     };
 
     if (config.on_key == null and (config.left_key == null or config.right_key == null)) {
@@ -109,26 +141,36 @@ pub fn main() !void {
         right_map.deinit();
     }
 
-    try loadRightSource(allocator, right_source, config.getRightKey(), &right_map);
-    try processLeftSource(allocator, &config, &right_map);
+    var counters = SkipCounters{};
+
+    try loadRightSource(allocator, right_source, config.getRightKey(), &right_map, &counters, config.strict);
+    try processLeftSource(allocator, &config, &right_map, &counters);
+
+    // Report skipped records (or exit with error if --strict)
+    if (counters.total() > 0) {
+        if (config.strict) {
+            jn_core.exitWithError("jn-join: --strict mode: {d} records skipped due to parse errors or missing keys", .{counters.total()});
+        }
+        counters.reportIfAny();
+    }
 }
 
-fn loadRightSource(allocator: std.mem.Allocator, source: []const u8, key_field: []const u8, map: *RightRecords) !void {
+fn loadRightSource(allocator: std.mem.Allocator, source: []const u8, key_field: []const u8, map: *RightRecords, counters: *SkipCounters, strict: bool) !void {
     const address = jn_address.parse(source);
 
     switch (address.address_type) {
-        .file => try loadFromFile(allocator, source, key_field, map),
+        .file => try loadFromFile(allocator, source, key_field, map, counters, strict),
         .stdin => jn_core.exitWithError("jn-join: right source cannot be stdin", .{}),
         else => jn_core.exitWithError("jn-join: right source must be a local file", .{}),
     }
 }
 
-fn loadFromFile(allocator: std.mem.Allocator, path: []const u8, key_field: []const u8, map: *RightRecords) !void {
+fn loadFromFile(allocator: std.mem.Allocator, path: []const u8, key_field: []const u8, map: *RightRecords, counters: *SkipCounters, strict: bool) !void {
     const format = jn_address.parse(path).effectiveFormat() orelse "jsonl";
 
     // For non-JSONL files, use jn-cat
     if (!std.mem.eql(u8, format, "jsonl") and !std.mem.eql(u8, format, "ndjson") and !std.mem.eql(u8, format, "json")) {
-        try loadViaJnCat(allocator, path, key_field, map);
+        try loadViaJnCat(allocator, path, key_field, map, counters, strict);
         return;
     }
 
@@ -143,11 +185,11 @@ fn loadFromFile(allocator: std.mem.Allocator, path: []const u8, key_field: []con
 
     while (jn_core.readLine(reader)) |line| {
         if (line.len == 0) continue;
-        try addToMap(allocator, line, key_field, map);
+        try addToMap(allocator, line, key_field, map, counters, strict);
     }
 }
 
-fn loadViaJnCat(allocator: std.mem.Allocator, path: []const u8, key_field: []const u8, map: *RightRecords) !void {
+fn loadViaJnCat(allocator: std.mem.Allocator, path: []const u8, key_field: []const u8, map: *RightRecords, counters: *SkipCounters, strict: bool) !void {
     const jn_cat_path = findTool(allocator, "jn-cat") orelse {
         jn_core.exitWithError("jn-join: jn-cat not found", .{});
     };
@@ -168,19 +210,37 @@ fn loadViaJnCat(allocator: std.mem.Allocator, path: []const u8, key_field: []con
 
     while (jn_core.readLine(reader)) |line| {
         if (line.len == 0) continue;
-        try addToMap(allocator, line, key_field, map);
+        try addToMap(allocator, line, key_field, map, counters, strict);
     }
 
     _ = child.wait() catch {};
 }
 
-fn addToMap(allocator: std.mem.Allocator, line: []const u8, key_field: []const u8, map: *RightRecords) !void {
-    const parsed = std.json.parseFromSlice(std.json.Value, allocator, line, .{}) catch return;
+fn addToMap(allocator: std.mem.Allocator, line: []const u8, key_field: []const u8, map: *RightRecords, counters: *SkipCounters, strict: bool) !void {
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, line, .{}) catch {
+        counters.right_parse_errors += 1;
+        if (strict) {
+            jn_core.exitWithError("jn-join: --strict mode: malformed JSON in right source", .{});
+        }
+        return;
+    };
     defer parsed.deinit();
 
-    if (parsed.value != .object) return;
+    if (parsed.value != .object) {
+        counters.right_parse_errors += 1;
+        if (strict) {
+            jn_core.exitWithError("jn-join: --strict mode: non-object record in right source", .{});
+        }
+        return;
+    }
 
-    const key_value = parsed.value.object.get(key_field) orelse return;
+    const key_value = parsed.value.object.get(key_field) orelse {
+        counters.right_missing_keys += 1;
+        if (strict) {
+            jn_core.exitWithError("jn-join: --strict mode: missing join key '{s}' in right source", .{key_field});
+        }
+        return;
+    };
     const key_str = try stringifyKey(allocator, key_value);
 
     const line_copy = try allocator.dupe(u8, line);
@@ -204,7 +264,7 @@ fn stringifyKey(allocator: std.mem.Allocator, value: std.json.Value) ![]u8 {
     return try result.toOwnedSlice(allocator);
 }
 
-fn processLeftSource(allocator: std.mem.Allocator, config: *const JoinConfig, right_map: *RightRecords) !void {
+fn processLeftSource(allocator: std.mem.Allocator, config: *const JoinConfig, right_map: *RightRecords, counters: *SkipCounters) !void {
     var stdin_buf: [jn_core.STDIN_BUFFER_SIZE]u8 = undefined;
     var stdin_wrapper = std.fs.File.stdin().reader(&stdin_buf);
     const reader = &stdin_wrapper.interface;
@@ -220,19 +280,36 @@ fn processLeftSource(allocator: std.mem.Allocator, config: *const JoinConfig, ri
         if (line.len == 0) continue;
 
         const left_parsed = std.json.parseFromSlice(std.json.Value, allocator, line, .{}) catch {
-            writer.writeAll(line) catch |err| jn_core.handleWriteError(err);
-            writer.writeByte('\n') catch |err| jn_core.handleWriteError(err);
+            counters.left_parse_errors += 1;
+            if (config.strict) {
+                jn_core.exitWithError("jn-join: --strict mode: malformed JSON in left source", .{});
+            }
+            // In non-strict mode, pass through unparseable lines unchanged
+            if (!config.inner_join) {
+                writer.writeAll(line) catch |err| jn_core.handleWriteError(err);
+                writer.writeByte('\n') catch |err| jn_core.handleWriteError(err);
+            }
             continue;
         };
         defer left_parsed.deinit();
 
         if (left_parsed.value != .object) {
-            writer.writeAll(line) catch |err| jn_core.handleWriteError(err);
-            writer.writeByte('\n') catch |err| jn_core.handleWriteError(err);
+            counters.left_parse_errors += 1;
+            if (config.strict) {
+                jn_core.exitWithError("jn-join: --strict mode: non-object record in left source", .{});
+            }
+            if (!config.inner_join) {
+                writer.writeAll(line) catch |err| jn_core.handleWriteError(err);
+                writer.writeByte('\n') catch |err| jn_core.handleWriteError(err);
+            }
             continue;
         }
 
         const key_value = left_parsed.value.object.get(left_key) orelse {
+            counters.left_missing_keys += 1;
+            if (config.strict) {
+                jn_core.exitWithError("jn-join: --strict mode: missing join key '{s}' in left source", .{left_key});
+            }
             if (!config.inner_join) {
                 writer.writeAll(line) catch |err| jn_core.handleWriteError(err);
                 writer.writeByte('\n') catch |err| jn_core.handleWriteError(err);
@@ -382,8 +459,12 @@ fn printUsage() void {
         \\  --left-key=FIELD      Left side join key (if different)
         \\  --right-key=FIELD     Right side join key
         \\  --inner               Inner join (exclude unmatched left)
+        \\  --strict              Exit with error on malformed records
         \\  --help, -h            Show this help
         \\  --version             Show version
+        \\
+        \\By default, malformed records are skipped with a warning to stderr.
+        \\Use --strict to fail fast on any parse errors or missing keys.
         \\
         \\Examples:
         \\  cat orders.ndjson | jn-join customers.ndjson --on=customer_id

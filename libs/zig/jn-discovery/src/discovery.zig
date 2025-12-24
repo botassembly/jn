@@ -6,6 +6,26 @@
 //! 3. Bundled plugins: $JN_HOME/plugins/
 //!
 //! Supports both Zig (binary) and Python (PEP 723) plugins.
+//!
+//! ## Memory Ownership
+//!
+//! All discovery functions return **allocated** data that the caller must free:
+//!
+//! - `getPluginDirs()` returns `[]PluginDir` - call `PluginDir.deinit()` on each,
+//!   then `allocator.free()` the slice
+//! - `discoverAll()` returns `[]PluginInfo` - call `PluginInfo.deinit()` on each,
+//!   then `allocator.free()` the slice
+//! - `discoverZigPlugin()`/`discoverPythonPlugin()` return `?PluginInfo` - call
+//!   `PluginInfo.deinit()` if not null
+//!
+//! Example:
+//! ```zig
+//! const plugins = try discoverAll(allocator, .{});
+//! defer {
+//!     for (plugins) |*p| p.deinit();
+//!     allocator.free(plugins);
+//! }
+//! ```
 
 const std = @import("std");
 const pep723 = @import("pep723.zig");
