@@ -1106,7 +1106,7 @@ fn evalBuiltin(allocator: std.mem.Allocator, kind: BuiltinKind, value: std.json.
         .now => {
             // ISO 8601 timestamp in UTC: "2024-12-15T17:30:00Z"
             const timestamp = std.time.timestamp();
-            const epoch_seconds = @as(u64, @intCast(timestamp));
+            const epoch_seconds = safeTimestampToU64(timestamp) orelse return try EvalResult.single(allocator, .{ .null = {} });
             const epoch_day = epoch_seconds / 86400;
             const day_seconds = epoch_seconds % 86400;
             const hours = day_seconds / 3600;
@@ -1124,7 +1124,7 @@ fn evalBuiltin(allocator: std.mem.Allocator, kind: BuiltinKind, value: std.json.
         .today => {
             // Date only: "2024-12-15"
             const timestamp = std.time.timestamp();
-            const epoch_seconds = @as(u64, @intCast(timestamp));
+            const epoch_seconds = safeTimestampToU64(timestamp) orelse return try EvalResult.single(allocator, .{ .null = {} });
             const epoch_day = epoch_seconds / 86400;
             const ymd = epochDayToYmd(epoch_day);
 
@@ -1146,43 +1146,43 @@ fn evalBuiltin(allocator: std.mem.Allocator, kind: BuiltinKind, value: std.json.
         },
         // Sprint 07: Date/Time component generators
         .year => {
-            const secs: u64 = @intCast(std.time.timestamp());
+            const secs = safeTimestampToU64(std.time.timestamp()) orelse return try EvalResult.single(allocator, .{ .null = {} });
             const epoch_day = secs / 86400;
             const ymd = epochDayToYmd(epoch_day);
             return try EvalResult.single(allocator, .{ .integer = @intCast(ymd.year) });
         },
         .month => {
-            const secs: u64 = @intCast(std.time.timestamp());
+            const secs = safeTimestampToU64(std.time.timestamp()) orelse return try EvalResult.single(allocator, .{ .null = {} });
             const epoch_day = secs / 86400;
             const ymd = epochDayToYmd(epoch_day);
             return try EvalResult.single(allocator, .{ .integer = @intCast(ymd.month) });
         },
         .day => {
-            const secs: u64 = @intCast(std.time.timestamp());
+            const secs = safeTimestampToU64(std.time.timestamp()) orelse return try EvalResult.single(allocator, .{ .null = {} });
             const epoch_day = secs / 86400;
             const ymd = epochDayToYmd(epoch_day);
             return try EvalResult.single(allocator, .{ .integer = @intCast(ymd.day) });
         },
         .hour => {
-            const secs: u64 = @intCast(std.time.timestamp());
+            const secs = safeTimestampToU64(std.time.timestamp()) orelse return try EvalResult.single(allocator, .{ .null = {} });
             const day_seconds = @mod(secs, 86400);
             const hour_val = day_seconds / 3600;
             return try EvalResult.single(allocator, .{ .integer = @intCast(hour_val) });
         },
         .minute => {
-            const secs: u64 = @intCast(std.time.timestamp());
+            const secs = safeTimestampToU64(std.time.timestamp()) orelse return try EvalResult.single(allocator, .{ .null = {} });
             const day_seconds = @mod(secs, 86400);
             const minute_val = @mod(day_seconds / 60, 60);
             return try EvalResult.single(allocator, .{ .integer = @intCast(minute_val) });
         },
         .second => {
-            const secs: u64 = @intCast(std.time.timestamp());
+            const secs = safeTimestampToU64(std.time.timestamp()) orelse return try EvalResult.single(allocator, .{ .null = {} });
             const second_val = @mod(secs, 60);
             return try EvalResult.single(allocator, .{ .integer = @intCast(second_val) });
         },
         .time => {
             // HH:MM:SS format
-            const secs: u64 = @intCast(std.time.timestamp());
+            const secs = safeTimestampToU64(std.time.timestamp()) orelse return try EvalResult.single(allocator, .{ .null = {} });
             const day_seconds = @mod(secs, 86400);
             const hour_val = day_seconds / 3600;
             const minute_val = @mod(day_seconds / 60, 60);
@@ -1192,14 +1192,14 @@ fn evalBuiltin(allocator: std.mem.Allocator, kind: BuiltinKind, value: std.json.
         },
         .week => {
             // ISO week number (1-53)
-            const secs: u64 = @intCast(std.time.timestamp());
+            const secs = safeTimestampToU64(std.time.timestamp()) orelse return try EvalResult.single(allocator, .{ .null = {} });
             const epoch_day = secs / 86400;
             const week_num = epochDayToIsoWeek(epoch_day);
             return try EvalResult.single(allocator, .{ .integer = @intCast(week_num) });
         },
         .weekday => {
             // Day of week name (Sunday, Monday, etc.)
-            const secs: u64 = @intCast(std.time.timestamp());
+            const secs = safeTimestampToU64(std.time.timestamp()) orelse return try EvalResult.single(allocator, .{ .null = {} });
             const epoch_day = secs / 86400;
             // Jan 1, 1970 was Thursday (4)
             const day_of_week: usize = @intCast(@mod(epoch_day + 4, 7));
@@ -1208,7 +1208,7 @@ fn evalBuiltin(allocator: std.mem.Allocator, kind: BuiltinKind, value: std.json.
         },
         .weekday_num => {
             // Day of week number (0=Sunday, 6=Saturday)
-            const secs: u64 = @intCast(std.time.timestamp());
+            const secs = safeTimestampToU64(std.time.timestamp()) orelse return try EvalResult.single(allocator, .{ .null = {} });
             const epoch_day = secs / 86400;
             // Jan 1, 1970 was Thursday (4)
             const day_of_week = @mod(epoch_day + 4, 7);
@@ -1282,21 +1282,40 @@ fn evalBuiltin(allocator: std.mem.Allocator, kind: BuiltinKind, value: std.json.
         // Sprint 06: Transform functions - Numeric
         .incr => {
             switch (value) {
-                .integer => |i| return try EvalResult.single(allocator, .{ .integer = i + 1 }),
+                .integer => |i| {
+                    // Handle maxInt(i64) specially to avoid overflow
+                    if (i == std.math.maxInt(i64)) {
+                        return try EvalResult.single(allocator, .{ .float = @as(f64, @floatFromInt(i)) + 1.0 });
+                    }
+                    return try EvalResult.single(allocator, .{ .integer = i + 1 });
+                },
                 .float => |f| return try EvalResult.single(allocator, .{ .float = f + 1.0 }),
                 else => return EvalResult.empty(allocator),
             }
         },
         .decr => {
             switch (value) {
-                .integer => |i| return try EvalResult.single(allocator, .{ .integer = i - 1 }),
+                .integer => |i| {
+                    // Handle minInt(i64) specially to avoid overflow
+                    if (i == std.math.minInt(i64)) {
+                        return try EvalResult.single(allocator, .{ .float = @as(f64, @floatFromInt(i)) - 1.0 });
+                    }
+                    return try EvalResult.single(allocator, .{ .integer = i - 1 });
+                },
                 .float => |f| return try EvalResult.single(allocator, .{ .float = f - 1.0 }),
                 else => return EvalResult.empty(allocator),
             }
         },
         .negate => {
             switch (value) {
-                .integer => |i| return try EvalResult.single(allocator, .{ .integer = -i }),
+                .integer => |i| {
+                    // Handle minInt(i64) specially to avoid overflow
+                    // since -minInt(i64) cannot be represented as i64
+                    if (i == std.math.minInt(i64)) {
+                        return try EvalResult.single(allocator, .{ .float = @as(f64, @floatFromInt(std.math.maxInt(i64))) + 1.0 });
+                    }
+                    return try EvalResult.single(allocator, .{ .integer = -i });
+                },
                 .float => |f| return try EvalResult.single(allocator, .{ .float = -f }),
                 else => return EvalResult.empty(allocator),
             }
@@ -1605,8 +1624,24 @@ fn evalBuiltin(allocator: std.mem.Allocator, kind: BuiltinKind, value: std.json.
     }
 }
 
-// Thread-local sequence counter for seq generator
+/// Thread-local sequence counter for the `seq` generator function.
+///
+/// IMPORTANT: Thread-local state behavior:
+/// - Counter starts at 1 for each thread
+/// - Persists across all records processed within the same thread/process
+/// - Resets when the process exits (not between pipeline invocations within the same process)
+/// - For single-threaded CLI use (jn filter), this means the counter increments
+///   monotonically for the entire pipeline run
+/// - NOT suitable for generating unique IDs across separate process invocations
 threadlocal var seq_counter: i64 = 1;
+
+// Helper: Safely convert timestamp to u64, returning null for negative values.
+// Negative timestamps can occur with misconfigured system clocks (before 1970).
+// Callers should return a JSON null value to preserve record flow in pipelines.
+fn safeTimestampToU64(timestamp: i64) ?u64 {
+    if (timestamp < 0) return null;
+    return @intCast(timestamp);
+}
 
 // Helper: Convert epoch day (days since 1970-01-01) to year/month/day
 const YearMonthDay = struct { year: u32, month: u32, day: u32 };
@@ -1797,10 +1832,23 @@ fn generateUuid7(allocator: std.mem.Allocator) ![]u8 {
     });
 }
 
-// Sprint 07: XID - compact, sortable ID
-// XID alphabet is lowercase hex-extended with more URL-safe chars
+/// Sprint 07: XID - compact, sortable ID
+/// XID alphabet is lowercase hex-extended with more URL-safe chars
 const xid_alphabet = "0123456789abcdefghijklmnopqrstuv";
+
+/// Thread-local XID counter (24-bit, wraps at 16 million).
+///
+/// IMPORTANT: Thread-local state behavior:
+/// - Counter wraps around after 2^24 (16,777,216) XIDs within the same thread
+/// - Combined with machine_id and timestamp, provides uniqueness within a process
+/// - Resets to 0 when the process exits
+/// - For single-threaded CLI use, XIDs are unique within a single pipeline run
 threadlocal var xid_counter: u24 = 0;
+
+/// Thread-local machine ID for XID generation (3 random bytes, cached).
+///
+/// Initialized once per thread on first XID generation. Provides uniqueness
+/// across different processes generating XIDs at the same timestamp.
 threadlocal var xid_machine_id: ?[3]u8 = null;
 
 fn generateXid(allocator: std.mem.Allocator) ![]u8 {

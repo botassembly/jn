@@ -517,39 +517,30 @@ fn handleCodeProfile(allocator: std.mem.Allocator, address: jn_address.Address) 
     // Find code_.py plugin - use plugins root, not JN_HOME
     const plugins_root = findPluginsRoot(allocator);
     defer allocator.free(plugins_root);
-    const plugin_path = std.fmt.allocPrint(allocator, "{s}/jn_home/plugins/protocols/code_.py", .{plugins_root}) catch {
-        jn_core.exitWithError("jn-cat: out of memory", .{});
-    };
+
+    const plugin_path = try std.fmt.allocPrint(allocator, "{s}/jn_home/plugins/protocols/code_.py", .{plugins_root});
     defer allocator.free(plugin_path);
 
     // Build the full address with query string
-    var full_address: []const u8 = undefined;
-    if (address.query_string) |qs| {
-        full_address = std.fmt.allocPrint(allocator, "@{s}/{s}?{s}", .{
+    const full_address = if (address.query_string) |qs|
+        try std.fmt.allocPrint(allocator, "@{s}/{s}?{s}", .{
             address.profile_namespace.?,
             address.profile_name.?,
             qs,
-        }) catch {
-            jn_core.exitWithError("jn-cat: out of memory", .{});
-        };
-    } else {
-        full_address = std.fmt.allocPrint(allocator, "@{s}/{s}", .{
+        })
+    else
+        try std.fmt.allocPrint(allocator, "@{s}/{s}", .{
             address.profile_namespace.?,
             address.profile_name.?,
-        }) catch {
-            jn_core.exitWithError("jn-cat: out of memory", .{});
-        };
-    }
+        });
     defer allocator.free(full_address);
 
     // Build shell command: uv run --script code_.py --mode=read <address>
-    const shell_cmd = std.fmt.allocPrint(
+    const shell_cmd = try std.fmt.allocPrint(
         allocator,
         "uv run --script '{s}' --mode=read '{s}'",
         .{ plugin_path, full_address },
-    ) catch {
-        jn_core.exitWithError("jn-cat: out of memory", .{});
-    };
+    );
     defer allocator.free(shell_cmd);
 
     // Run via shell
@@ -560,9 +551,7 @@ fn handleCodeProfile(allocator: std.mem.Allocator, address: jn_address.Address) 
     shell_child.stderr_behavior = .Inherit;
 
     try shell_child.spawn();
-    const result = shell_child.wait() catch |err| {
-        jn_core.exitWithError("jn-cat: code profile execution failed: {s}", .{@errorName(err)});
-    };
+    const result = try shell_child.wait();
 
     switch (result) {
         .Exited => |code| {
@@ -581,29 +570,22 @@ fn handleDuckdbProfile(allocator: std.mem.Allocator, address: jn_address.Address
     // Find duckdb_.py plugin - use plugins root, not JN_HOME
     const plugins_root = findPluginsRoot(allocator);
     defer allocator.free(plugins_root);
-    const plugin_path = std.fmt.allocPrint(allocator, "{s}/jn_home/plugins/databases/duckdb_.py", .{plugins_root}) catch {
-        jn_core.exitWithError("jn-cat: out of memory", .{});
-    };
+
+    const plugin_path = try std.fmt.allocPrint(allocator, "{s}/jn_home/plugins/databases/duckdb_.py", .{plugins_root});
     defer allocator.free(plugin_path);
 
     // Build the full address with query string
-    var full_address: []const u8 = undefined;
-    if (address.query_string) |qs| {
-        full_address = std.fmt.allocPrint(allocator, "@{s}/{s}?{s}", .{
+    const full_address = if (address.query_string) |qs|
+        try std.fmt.allocPrint(allocator, "@{s}/{s}?{s}", .{
             address.profile_namespace.?,
             address.profile_name.?,
             qs,
-        }) catch {
-            jn_core.exitWithError("jn-cat: out of memory", .{});
-        };
-    } else {
-        full_address = std.fmt.allocPrint(allocator, "@{s}/{s}", .{
+        })
+    else
+        try std.fmt.allocPrint(allocator, "@{s}/{s}", .{
             address.profile_namespace.?,
             address.profile_name.?,
-        }) catch {
-            jn_core.exitWithError("jn-cat: out of memory", .{});
-        };
-    }
+        });
     defer allocator.free(full_address);
 
     // Set JN_PROJECT_DIR to the project root (so duckdb_.py can find profiles)
@@ -615,13 +597,11 @@ fn handleDuckdbProfile(allocator: std.mem.Allocator, address: jn_address.Address
     const project_root = std.fs.path.dirname(profiles_dir) orelse profiles_dir; // ...
 
     // Build shell command: JN_PROJECT_DIR=<project_root> uv run --script duckdb_.py --mode=read --path <address>
-    const shell_cmd = std.fmt.allocPrint(
+    const shell_cmd = try std.fmt.allocPrint(
         allocator,
         "JN_PROJECT_DIR='{s}' uv run --script '{s}' --mode=read --path '{s}'",
         .{ project_root, plugin_path, full_address },
-    ) catch {
-        jn_core.exitWithError("jn-cat: out of memory", .{});
-    };
+    );
     defer allocator.free(shell_cmd);
 
     // Run via shell
@@ -632,9 +612,7 @@ fn handleDuckdbProfile(allocator: std.mem.Allocator, address: jn_address.Address
     shell_child.stderr_behavior = .Inherit;
 
     try shell_child.spawn();
-    const result = shell_child.wait() catch |err| {
-        jn_core.exitWithError("jn-cat: DuckDB profile execution failed: {s}", .{@errorName(err)});
-    };
+    const result = try shell_child.wait();
 
     switch (result) {
         .Exited => |code| {
@@ -651,9 +629,7 @@ fn handleDuckdbProfile(allocator: std.mem.Allocator, address: jn_address.Address
 /// Handle HTTP profiles using curl
 fn handleHttpProfile(allocator: std.mem.Allocator, address: jn_address.Address, args: *const jn_cli.ArgParser, namespace: []const u8, name: []const u8, profile_dir: []const u8) !void {
     // Load profile with hierarchical merge
-    const profile_path = std.fmt.allocPrint(allocator, "{s}.json", .{name}) catch {
-        jn_core.exitWithError("jn-cat: out of memory", .{});
-    };
+    const profile_path = try std.fmt.allocPrint(allocator, "{s}.json", .{name});
     defer allocator.free(profile_path);
 
     var config = jn_profile.loadProfile(allocator, profile_dir, profile_path, true) catch |err| {
@@ -670,29 +646,17 @@ fn handleHttpProfile(allocator: std.mem.Allocator, address: jn_address.Address, 
     }
 
     // Build full URL
-    var full_url: []const u8 = undefined;
-    if (path_str.len > 0) {
-        full_url = std.fmt.allocPrint(allocator, "{s}{s}", .{ base_url.?, path_str }) catch {
-            jn_core.exitWithError("jn-cat: out of memory", .{});
-        };
-    } else {
-        full_url = std.fmt.allocPrint(allocator, "{s}", .{base_url.?}) catch {
-            jn_core.exitWithError("jn-cat: out of memory", .{});
-        };
-    }
+    const full_url = if (path_str.len > 0)
+        try std.fmt.allocPrint(allocator, "{s}{s}", .{ base_url.?, path_str })
+    else
+        try std.fmt.allocPrint(allocator, "{s}", .{base_url.?});
     defer allocator.free(full_url);
 
     // Add query parameters from address
-    var url_with_params: []const u8 = undefined;
-    if (address.query_string) |qs| {
-        url_with_params = std.fmt.allocPrint(allocator, "{s}?{s}", .{ full_url, qs }) catch {
-            jn_core.exitWithError("jn-cat: out of memory", .{});
-        };
-    } else {
-        url_with_params = std.fmt.allocPrint(allocator, "{s}", .{full_url}) catch {
-            jn_core.exitWithError("jn-cat: out of memory", .{});
-        };
-    }
+    const url_with_params = if (address.query_string) |qs|
+        try std.fmt.allocPrint(allocator, "{s}?{s}", .{ full_url, qs })
+    else
+        try std.fmt.allocPrint(allocator, "{s}", .{full_url});
     defer allocator.free(url_with_params);
 
     // Build headers from profile with proper shell escaping
