@@ -1,16 +1,16 @@
-# JN Docker Image
-# Build: docker build -t jn .
+# JN Docker Image (local build)
+# For building locally after running `make build`
+#
+# Build: make build && docker build -t jn .
 # Run:   docker run --rm -i jn cat -~csv < data.csv
 
-FROM alpine:3.20 AS runtime
+FROM alpine:3.20
 
-# Install Python and uv for Python plugins (optional but useful)
+# Install Python and uv for Python plugins
 RUN apk add --no-cache python3 py3-pip curl bash \
     && curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Copy pre-built binaries from release
-# This Dockerfile is designed to be used with the release workflow
-# which downloads the appropriate release tarball first
+# Copy pre-built binaries from local dist/
 COPY dist/bin/ /usr/local/bin/
 COPY jn_home/ /usr/local/lib/jn/jn_home/
 

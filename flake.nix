@@ -4,57 +4,99 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    zig-overlay.url = "github:mitchellh/zig-overlay";
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
+  outputs = { self, nixpkgs, flake-utils, zig-overlay }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
+        zigPkgs = zig-overlay.packages.${system};
 
-        # Map Nix system to JN release naming
-        platformMap = {
-          "x86_64-linux" = { arch = "x86_64"; os = "linux"; };
-          "aarch64-linux" = { arch = "aarch64"; os = "linux"; };
-          "x86_64-darwin" = { arch = "x86_64"; os = "darwin"; };
-          "aarch64-darwin" = { arch = "aarch64"; os = "darwin"; };
-        };
-
-        platform = platformMap.${system} or (throw "Unsupported system: ${system}");
-
-        version = "0.1.0";  # Update this when releasing new versions
+        # Use Zig 0.13.0 (stable version compatible with the codebase)
+        zig = zigPkgs."0.13.0" or pkgs.zig;
 
         jn = pkgs.stdenv.mkDerivation {
           pname = "jn";
-          inherit version;
+          version = "0.1.0-dev";
 
-          src = pkgs.fetchurl {
-            url = "https://github.com/botassembly/jn/releases/download/v${version}/jn-${version}-${platform.arch}-${platform.os}.tar.gz";
-            # Note: Update these hashes when releasing new versions
-            # Run: nix-prefetch-url <url> to get the hash
-            sha256 = pkgs.lib.fakeSha256;
-          };
+          src = ./.;
 
-          sourceRoot = ".";
+          nativeBuildInputs = [ zig ];
 
-          nativeBuildInputs = [ pkgs.autoPatchelfHook ];
+          # Zig needs a writable cache directory
+          ZIG_LOCAL_CACHE_DIR = ".zig-cache";
+          ZIG_GLOBAL_CACHE_DIR = ".zig-cache";
 
-          # Runtime dependencies for dynamically linked binaries (if any)
-          buildInputs = pkgs.lib.optionals pkgs.stdenv.isLinux [
-            pkgs.stdenv.cc.cc.lib
-          ];
+          buildPhase = ''
+            runHook preBuild
+
+            # Module definitions
+            JN_CORE="-Mjn-core=libs/zig/jn-core/src/root.zig"
+            JN_CLI="-Mjn-cli=libs/zig/jn-cli/src/root.zig"
+            JN_PLUGIN="-Mjn-plugin=libs/zig/jn-plugin/src/root.zig"
+            JN_ADDRESS="-Mjn-address=libs/zig/jn-address/src/root.zig"
+            JN_PROFILE="-Mjn-profile=libs/zig/jn-profile/src/root.zig"
+
+            mkdir -p dist/bin
+
+            # Build jn orchestrator
+            echo "Building jn..."
+            pushd tools/zig/jn
+            zig build-exe -O ReleaseFast \
+              --dep jn-core -Mroot=./main.zig \
+              -Mjn-core=../../../libs/zig/jn-core/src/root.zig \
+              -femit-bin=../../../dist/bin/jn
+            popd
+
+            # Build CLI tools
+            for tool in jn-cat jn-put jn-filter jn-head jn-tail jn-analyze jn-inspect jn-join jn-merge jn-sh jn-edit; do
+              echo "Building $tool..."
+              pushd tools/zig/$tool
+              zig build-exe -O ReleaseFast \
+                --dep jn-core --dep jn-cli --dep jn-address --dep jn-profile \
+                -Mroot=./main.zig \
+                -Mjn-core=../../../libs/zig/jn-core/src/root.zig \
+                -Mjn-cli=../../../libs/zig/jn-cli/src/root.zig \
+                -Mjn-address=../../../libs/zig/jn-address/src/root.zig \
+                -Mjn-profile=../../../libs/zig/jn-profile/src/root.zig \
+                -femit-bin=../../../dist/bin/$tool
+              popd
+            done
+
+            # Build ZQ
+            echo "Building zq..."
+            pushd zq
+            zig build-exe src/main.zig -O ReleaseFast -femit-bin=../dist/bin/zq
+            popd
+
+            # Build plugins
+            for plugin in csv json jsonl gz yaml toml; do
+              echo "Building $plugin..."
+              pushd plugins/zig/$plugin
+              zig build-exe -O ReleaseFast \
+                --dep jn-core --dep jn-cli --dep jn-plugin \
+                -Mroot=./main.zig \
+                -Mjn-core=../../../libs/zig/jn-core/src/root.zig \
+                -Mjn-cli=../../../libs/zig/jn-cli/src/root.zig \
+                -Mjn-plugin=../../../libs/zig/jn-plugin/src/root.zig \
+                -femit-bin=../../../dist/bin/$plugin
+              popd
+            done
+
+            runHook postBuild
+          '';
 
           installPhase = ''
             runHook preInstall
 
             mkdir -p $out/bin $out/lib/jn
 
-            # Install main binaries
-            cp -r bin/* $out/bin/
+            # Install binaries
+            cp -r dist/bin/* $out/bin/
 
-            # Install jn_home (Python plugins, tools, etc.)
-            if [ -d jn_home ]; then
-              cp -r jn_home $out/lib/jn/
-            fi
+            # Install jn_home
+            cp -r jn_home $out/lib/jn/
 
             runHook postInstall
           '';
@@ -68,15 +110,15 @@
           };
         };
 
-        # Development shell with build dependencies
         devShell = pkgs.mkShell {
-          buildInputs = with pkgs; [
+          buildInputs = [
             zig
-            python3
+            pkgs.python3
           ];
 
           shellHook = ''
             echo "JN development shell"
+            echo "Zig version: $(zig version)"
             echo "Run 'make build' to build from source"
           '';
         };

@@ -1,0 +1,31 @@
+# JN Docker Image (multi-arch release build)
+# Used by the container workflow to build from pre-compiled binaries
+#
+# Usage:
+#   docker run --rm -i ghcr.io/botassembly/jn cat -~csv < data.csv
+#   docker run --rm -i ghcr.io/botassembly/jn filter '.items[]'
+
+FROM alpine:3.20
+
+ARG TARGETARCH
+
+# Install Python and uv for Python plugins
+RUN apk add --no-cache python3 py3-pip curl bash \
+    && curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Copy pre-built binaries based on architecture
+# The workflow downloads to dist-amd64/ and dist-arm64/
+COPY dist-${TARGETARCH}/bin/ /usr/local/bin/
+COPY dist-${TARGETARCH}/jn_home/ /usr/local/lib/jn/jn_home/
+
+# Add uv to PATH
+ENV PATH="/root/.local/bin:$PATH"
+
+# Set JN_HOME for Python plugins
+ENV JN_HOME="/usr/local/lib/jn/jn_home"
+
+# Verify installation
+RUN jn --version
+
+ENTRYPOINT ["jn"]
+CMD ["--help"]
