@@ -541,7 +541,8 @@ test "duckdb protocol is not remote" {
 
 test "parse empty string" {
     const addr = parse("");
-    try std.testing.expectEqual(AddressType.file, addr.address_type);
+    // Empty string is treated as stdin
+    try std.testing.expectEqual(AddressType.stdin, addr.address_type);
     try std.testing.expectEqualStrings("", addr.path);
     try std.testing.expect(addr.format_override == null);
 }
@@ -549,7 +550,8 @@ test "parse empty string" {
 test "parse single dash (stdin)" {
     const addr = parse("-");
     try std.testing.expectEqual(AddressType.stdin, addr.address_type);
-    try std.testing.expectEqualStrings("-", addr.path);
+    // Stdin path is normalized to empty string
+    try std.testing.expectEqualStrings("", addr.path);
 }
 
 test "parse path with multiple tildes" {
@@ -567,11 +569,12 @@ test "parse path with tilde in filename" {
     try std.testing.expectEqualStrings("json", addr.format_override.?);
 }
 
-test "parse URL with query string and format override" {
-    const addr = parse("https://api.example.com/data?key=value~json");
+test "parse URL with format override before query" {
+    // Format override must come before query string
+    const addr = parse("https://api.example.com/data~json?key=value");
     try std.testing.expectEqual(AddressType.url, addr.address_type);
-    // Format override should be extracted before query params
     try std.testing.expectEqualStrings("json", addr.format_override.?);
+    try std.testing.expectEqualStrings("key=value", addr.query_string.?);
 }
 
 test "parse file with multiple extensions" {
