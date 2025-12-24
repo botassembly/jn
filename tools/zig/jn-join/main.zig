@@ -44,6 +44,11 @@ const jn_address = @import("jn-address");
 
 const VERSION = "0.1.0";
 
+/// Maximum memory for the right-side buffer (500MB) to prevent OOM.
+/// The right source is fully loaded into memory for hash join.
+/// For larger datasets, consider using a smaller right source or pre-filtering.
+const MAX_RIGHT_MEMORY: usize = 500 * 1024 * 1024;
+
 // Configuration
 const JoinConfig = struct {
     on_key: ?[]const u8 = null,
@@ -61,12 +66,13 @@ const JoinConfig = struct {
     }
 };
 
-// Skip counters for tracking malformed records
+// Skip counters for tracking malformed records and memory usage
 const SkipCounters = struct {
     right_parse_errors: usize = 0,
     right_missing_keys: usize = 0,
     left_parse_errors: usize = 0,
     left_missing_keys: usize = 0,
+    right_memory_used: usize = 0,
 
     fn total(self: SkipCounters) usize {
         return self.right_parse_errors + self.right_missing_keys +
@@ -88,6 +94,16 @@ const SkipCounters = struct {
         if (self.left_missing_keys > 0) {
             jn_core.warn("jn-join: skipped {d} records from left source missing join key", .{self.left_missing_keys});
         }
+    }
+
+    fn checkMemoryLimit(self: *SkipCounters, additional: usize) void {
+        if (self.right_memory_used + additional > MAX_RIGHT_MEMORY) {
+            jn_core.exitWithError(
+                "jn-join: right source exceeds memory limit ({d}MB max)\nHint: use a smaller right source, pre-filter with jn filter, or increase the limit",
+                .{MAX_RIGHT_MEMORY / (1024 * 1024)},
+            );
+        }
+        self.right_memory_used += additional;
     }
 };
 
@@ -241,6 +257,10 @@ fn addToMap(allocator: std.mem.Allocator, line: []const u8, key_field: []const u
         }
         return;
     };
+
+    // Check memory limit before allocating (line + estimated key size)
+    counters.checkMemoryLimit(line.len + 64);
+
     const key_str = try stringifyKey(allocator, key_value);
 
     const line_copy = try allocator.dupe(u8, line);
@@ -470,7 +490,8 @@ fn printUsage() void {
         \\  cat orders.ndjson | jn-join customers.ndjson --on=customer_id
         \\  cat orders.ndjson | jn-join customers.ndjson --left-key=cust_id --right-key=id
         \\
-        \\Memory: Right source is loaded into memory.
+        \\Memory: Right source is loaded into memory (max 500MB).
+        \\For larger datasets, pre-filter with 'jn filter' or use a smaller right source.
         \\
     ;
     var buf: [2048]u8 = undefined;

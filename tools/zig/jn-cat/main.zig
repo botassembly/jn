@@ -33,18 +33,16 @@ const jn_profile = @import("jn-profile");
 const VERSION = "0.1.0";
 
 /// Escape a path for use in single-quoted shell arguments.
-/// Returns the escaped string (caller must free) or the original if safe.
+/// Returns an EscapedString with clear ownership semantics.
 ///
 /// SECURITY: This prevents command injection via paths containing single quotes.
 ///
-/// NOTE: For new code, prefer using jn_core.escapeForShell() which returns
-/// an EscapedString with clear ownership semantics and a deinit() method.
-/// This legacy function requires manual pointer comparison for cleanup.
-fn escapeShellPath(allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
-    if (jn_core.isSafeForShellSingleQuote(path)) {
-        return path;
-    }
-    return jn_core.escapeForShellSingleQuote(allocator, path);
+/// Usage:
+///   const escaped = try escapeShellPath(allocator, path);
+///   defer escaped.deinit(allocator);
+///   // use escaped.slice in shell commands
+fn escapeShellPath(allocator: std.mem.Allocator, path: []const u8) !jn_core.EscapedString {
+    return jn_core.escapeForShell(allocator, path);
 }
 
 /// Check if a string is safe for use as an HTTP header key or value.
@@ -296,13 +294,13 @@ fn handleCompressedFile(allocator: std.mem.Allocator, address: jn_address.Addres
     // SECURITY: Escape the file path to prevent command injection via filenames
     // containing single quotes (e.g., "file'; rm -rf /; echo '")
     const escaped_path = try escapeShellPath(allocator, address.path);
-    defer if (escaped_path.ptr != address.path.ptr) allocator.free(@constCast(escaped_path));
+    defer escaped_path.deinit(allocator);
 
     // Use shell to construct pipeline: cat file | gz --mode=raw | format --mode=read [args]
     const shell_cmd = try std.fmt.allocPrint(
         allocator,
         "cat '{s}' | {s} --mode=raw | {s} --mode=read{s}",
-        .{ escaped_path, gz_path, format_path, format_args },
+        .{ escaped_path.slice, gz_path, format_path, format_args },
     );
     defer allocator.free(shell_cmd);
 
@@ -682,14 +680,14 @@ fn handleHttpProfile(allocator: std.mem.Allocator, address: jn_address.Address, 
 
                     // SECURITY: Escape header key and value to prevent command injection
                     const escaped_key = escapeShellPath(allocator, entry.key_ptr.*) catch continue;
-                    defer if (escaped_key.ptr != entry.key_ptr.*.ptr) allocator.free(@constCast(escaped_key));
+                    defer escaped_key.deinit(allocator);
                     const escaped_value = escapeShellPath(allocator, entry.value_ptr.string) catch continue;
-                    defer if (escaped_value.ptr != entry.value_ptr.string.ptr) allocator.free(@constCast(escaped_value));
+                    defer escaped_value.deinit(allocator);
 
                     header_list.appendSlice(allocator, " -H '") catch continue;
-                    header_list.appendSlice(allocator, escaped_key) catch continue;
+                    header_list.appendSlice(allocator, escaped_key.slice) catch continue;
                     header_list.appendSlice(allocator, ": ") catch continue;
-                    header_list.appendSlice(allocator, escaped_value) catch continue;
+                    header_list.appendSlice(allocator, escaped_value.slice) catch continue;
                     header_list.append(allocator, '\'') catch continue;
                 }
             }
@@ -709,7 +707,7 @@ fn handleHttpProfile(allocator: std.mem.Allocator, address: jn_address.Address, 
 
     // SECURITY: Escape the URL to prevent command injection
     const escaped_url = try escapeShellPath(allocator, url_with_params);
-    defer if (escaped_url.ptr != url_with_params.ptr) allocator.free(@constCast(escaped_url));
+    defer escaped_url.deinit(allocator);
 
     // Build curl command with headers
     var shell_cmd: []const u8 = undefined;
@@ -718,7 +716,7 @@ fn handleHttpProfile(allocator: std.mem.Allocator, address: jn_address.Address, 
         shell_cmd = std.fmt.allocPrint(
             allocator,
             "curl -sS -L -f{s} '{s}' | {s} --mode=read{s}",
-            .{ header_args, escaped_url, fmt_path, format_args },
+            .{ header_args, escaped_url.slice, fmt_path, format_args },
         ) catch {
             jn_core.exitWithError("jn-cat: out of memory", .{});
         };
@@ -726,7 +724,7 @@ fn handleHttpProfile(allocator: std.mem.Allocator, address: jn_address.Address, 
         shell_cmd = std.fmt.allocPrint(
             allocator,
             "curl -sS -L -f{s} '{s}'",
-            .{ header_args, escaped_url },
+            .{ header_args, escaped_url.slice },
         ) catch {
             jn_core.exitWithError("jn-cat: out of memory", .{});
         };
@@ -867,14 +865,14 @@ fn handleFileProfileDirect(allocator: std.mem.Allocator, pattern: []const u8, ar
 
         // SECURITY: Escape directory and file pattern
         const escaped_dir = try escapeShellPath(allocator, dir_to_search);
-        defer if (escaped_dir.ptr != dir_to_search.ptr) allocator.free(@constCast(escaped_dir));
+        defer escaped_dir.deinit(allocator);
         const escaped_file_pattern = try escapeShellPath(allocator, file_pattern);
-        defer if (escaped_file_pattern.ptr != file_pattern.ptr) allocator.free(@constCast(escaped_file_pattern));
+        defer escaped_file_pattern.deinit(allocator);
 
         expand_cmd = std.fmt.allocPrint(
             allocator,
             "find '{s}' -type f -name '{s}' 2>/dev/null | sort",
-            .{ escaped_dir, escaped_file_pattern },
+            .{ escaped_dir.slice, escaped_file_pattern.slice },
         ) catch {
             jn_core.exitWithError("jn-cat: out of memory", .{});
         };
@@ -920,9 +918,9 @@ fn handleFileProfileDirect(allocator: std.mem.Allocator, pattern: []const u8, ar
         } else {
             // Just cat the file
             const escaped_path = try escapeShellPath(allocator, file_path);
-            defer if (escaped_path.ptr != file_path.ptr) allocator.free(@constCast(escaped_path));
+            defer escaped_path.deinit(allocator);
 
-            const shell_cmd = std.fmt.allocPrint(allocator, "cat '{s}'", .{escaped_path}) catch continue;
+            const shell_cmd = std.fmt.allocPrint(allocator, "cat '{s}'", .{escaped_path.slice}) catch continue;
             defer allocator.free(shell_cmd);
 
             const shell_argv: [3][]const u8 = .{ "/bin/sh", "-c", shell_cmd };
@@ -985,11 +983,11 @@ fn handleFileProfileWithFilter(allocator: std.mem.Allocator, glob_address: jn_ad
         }
 
         const escaped_dir = try escapeShellPath(allocator, dir_to_search);
-        defer if (escaped_dir.ptr != dir_to_search.ptr) allocator.free(@constCast(escaped_dir));
+        defer escaped_dir.deinit(allocator);
         const escaped_file_pattern = try escapeShellPath(allocator, file_pattern);
-        defer if (escaped_file_pattern.ptr != file_pattern.ptr) allocator.free(@constCast(escaped_file_pattern));
+        defer escaped_file_pattern.deinit(allocator);
 
-        expand_part = std.fmt.allocPrint(allocator, "find '{s}' -type f -name '{s}' 2>/dev/null | sort", .{ escaped_dir, escaped_file_pattern }) catch {
+        expand_part = std.fmt.allocPrint(allocator, "find '{s}' -type f -name '{s}' 2>/dev/null | sort", .{ escaped_dir.slice, escaped_file_pattern.slice }) catch {
             jn_core.exitWithError("jn-cat: out of memory", .{});
         };
     } else {
@@ -1004,7 +1002,7 @@ fn handleFileProfileWithFilter(allocator: std.mem.Allocator, glob_address: jn_ad
 
     // Escape filter for shell
     const escaped_filter = try escapeShellPath(allocator, filter);
-    defer if (escaped_filter.ptr != filter.ptr) allocator.free(@constCast(escaped_filter));
+    defer escaped_filter.deinit(allocator);
 
     // Build full pipeline: expand files -> read each with metadata -> filter
     // We need to process files in a subshell and pipe through filter
@@ -1017,15 +1015,15 @@ fn handleFileProfileWithFilter(allocator: std.mem.Allocator, glob_address: jn_ad
     } else |_| {}
 
     const escaped_cat_path = try escapeShellPath(allocator, cat_path);
-    defer if (escaped_cat_path.ptr != cat_path.ptr) allocator.free(@constCast(escaped_cat_path));
+    defer escaped_cat_path.deinit(allocator);
     const escaped_pattern = try escapeShellPath(allocator, pattern);
-    defer if (escaped_pattern.ptr != pattern.ptr) allocator.free(@constCast(escaped_pattern));
+    defer escaped_pattern.deinit(allocator);
 
     // Build the shell command: jn-cat 'pattern' [--meta] | jn-filter 'filter'
     const shell_cmd = std.fmt.allocPrint(
         allocator,
         "'{s}' '{s}'{s} | '{s}' '{s}'",
-        .{ escaped_cat_path, escaped_pattern, meta_flag, filter_path, escaped_filter },
+        .{ escaped_cat_path.slice, escaped_pattern.slice, meta_flag, filter_path, escaped_filter.slice },
     ) catch {
         jn_core.exitWithError("jn-cat: out of memory", .{});
     };
@@ -1103,18 +1101,19 @@ fn handleHttpUrl(allocator: std.mem.Allocator, address: jn_address.Address, args
     // Note: Headers from --header arg could also contain quotes; escape them
     var header_arg_buf: [512]u8 = undefined;
     var header_arg: []const u8 = "";
+    var escaped_header_storage: ?jn_core.EscapedString = null;
+    defer if (escaped_header_storage) |eh| eh.deinit(allocator);
     if (args.get("header", null)) |header| {
         // SECURITY: Escape the header to prevent command injection
-        const escaped_header = escapeShellPath(allocator, header) catch "";
-        defer if (escaped_header.len > 0 and escaped_header.ptr != header.ptr) allocator.free(@constCast(escaped_header));
-        if (escaped_header.len > 0) {
-            header_arg = std.fmt.bufPrint(&header_arg_buf, " -H '{s}'", .{escaped_header}) catch "";
-        }
+        if (escapeShellPath(allocator, header)) |escaped_header| {
+            escaped_header_storage = escaped_header;
+            header_arg = std.fmt.bufPrint(&header_arg_buf, " -H '{s}'", .{escaped_header.slice}) catch "";
+        } else |_| {}
     }
 
     // SECURITY: Escape the URL to prevent command injection
     const escaped_url = try escapeShellPath(allocator, url);
-    defer if (escaped_url.ptr != url.ptr) allocator.free(@constCast(escaped_url));
+    defer escaped_url.deinit(allocator);
 
     // Build the shell command
     var shell_cmd: []const u8 = undefined;
@@ -1130,14 +1129,14 @@ fn handleHttpUrl(allocator: std.mem.Allocator, address: jn_address.Address, args
             shell_cmd = try std.fmt.allocPrint(
                 allocator,
                 "curl -sS -L -f{s} '{s}' | {s} --mode=raw | {s} --mode=read{s}",
-                .{ header_arg, escaped_url, gz_path, fmt_path, format_args },
+                .{ header_arg, escaped_url.slice, gz_path, fmt_path, format_args },
             );
         } else {
             // No format plugin (assume JSONL) - just decompress
             shell_cmd = try std.fmt.allocPrint(
                 allocator,
                 "curl -sS -L -f{s} '{s}' | {s} --mode=raw",
-                .{ header_arg, escaped_url, gz_path },
+                .{ header_arg, escaped_url.slice, gz_path },
             );
         }
     } else if (plugin_path) |fmt_path| {
@@ -1145,14 +1144,14 @@ fn handleHttpUrl(allocator: std.mem.Allocator, address: jn_address.Address, args
         shell_cmd = try std.fmt.allocPrint(
             allocator,
             "curl -sS -L -f{s} '{s}' | {s} --mode=read{s}",
-            .{ header_arg, escaped_url, fmt_path, format_args },
+            .{ header_arg, escaped_url.slice, fmt_path, format_args },
         );
     } else if (std.mem.eql(u8, format, "jsonl") or std.mem.eql(u8, format, "ndjson")) {
         // JSONL/NDJSON - just curl directly
         shell_cmd = try std.fmt.allocPrint(
             allocator,
             "curl -sS -L -f{s} '{s}'",
-            .{ header_arg, escaped_url },
+            .{ header_arg, escaped_url.slice },
         );
     } else {
         jn_core.exitWithError("jn-cat: format plugin '{s}' not found", .{format});
@@ -1224,15 +1223,15 @@ fn handleGlob(allocator: std.mem.Allocator, address: jn_address.Address, args: *
 
         // SECURITY: Escape directory and file pattern to prevent shell injection
         const escaped_dir = try escapeShellPath(allocator, dir_to_search);
-        defer if (escaped_dir.ptr != dir_to_search.ptr) allocator.free(@constCast(escaped_dir));
+        defer escaped_dir.deinit(allocator);
         const escaped_file_pattern = try escapeShellPath(allocator, file_pattern);
-        defer if (escaped_file_pattern.ptr != file_pattern.ptr) allocator.free(@constCast(escaped_file_pattern));
+        defer escaped_file_pattern.deinit(allocator);
 
         // Use find with -name pattern
         expand_cmd = std.fmt.allocPrint(
             allocator,
             "find '{s}' -type f -name '{s}' 2>/dev/null | sort",
-            .{ escaped_dir, escaped_file_pattern },
+            .{ escaped_dir.slice, escaped_file_pattern.slice },
         ) catch {
             jn_core.exitWithError("jn-cat: out of memory", .{});
         };
@@ -1329,7 +1328,7 @@ fn processGlobFile(allocator: std.mem.Allocator, file_path: []const u8, format: 
 
     // SECURITY: Escape the file path to prevent command injection
     const escaped_file_path = try escapeShellPath(allocator, file_path);
-    defer if (escaped_file_path.ptr != file_path.ptr) allocator.free(@constCast(escaped_file_path));
+    defer escaped_file_path.deinit(allocator);
 
     // Build the pipeline command
     var shell_cmd: []const u8 = undefined;
@@ -1345,20 +1344,20 @@ fn processGlobFile(allocator: std.mem.Allocator, file_path: []const u8, format: 
                 shell_cmd = try std.fmt.allocPrint(
                     allocator,
                     "cat '{s}' | {s} --mode=raw | uv run --script {s} --mode=read{s}",
-                    .{ escaped_file_path, gz_path, info.path, format_args },
+                    .{ escaped_file_path.slice, gz_path, info.path, format_args },
                 );
             } else {
                 shell_cmd = try std.fmt.allocPrint(
                     allocator,
                     "cat '{s}' | {s} --mode=raw | {s} --mode=read{s}",
-                    .{ escaped_file_path, gz_path, info.path, format_args },
+                    .{ escaped_file_path.slice, gz_path, info.path, format_args },
                 );
             }
         } else {
             shell_cmd = try std.fmt.allocPrint(
                 allocator,
                 "cat '{s}' | {s} --mode=raw",
-                .{ escaped_file_path, gz_path },
+                .{ escaped_file_path.slice, gz_path },
             );
         }
     } else if (plugin_info) |info| {
@@ -1367,18 +1366,18 @@ fn processGlobFile(allocator: std.mem.Allocator, file_path: []const u8, format: 
             shell_cmd = try std.fmt.allocPrint(
                 allocator,
                 "cat '{s}' | uv run --script {s} --mode=read{s}",
-                .{ escaped_file_path, info.path, format_args },
+                .{ escaped_file_path.slice, info.path, format_args },
             );
         } else {
             shell_cmd = try std.fmt.allocPrint(
                 allocator,
                 "cat '{s}' | {s} --mode=read{s}",
-                .{ escaped_file_path, info.path, format_args },
+                .{ escaped_file_path.slice, info.path, format_args },
             );
         }
     } else if (std.mem.eql(u8, effective_format, "jsonl") or std.mem.eql(u8, effective_format, "ndjson")) {
         // JSONL without metadata injection (inject_meta case handled earlier)
-        shell_cmd = try std.fmt.allocPrint(allocator, "cat '{s}'", .{escaped_file_path});
+        shell_cmd = try std.fmt.allocPrint(allocator, "cat '{s}'", .{escaped_file_path.slice});
     } else {
         jn_core.exitWithError("jn-cat: format plugin '{s}' not found", .{effective_format});
     }
@@ -1490,8 +1489,7 @@ fn handleOpenDalUrl(allocator: std.mem.Allocator, address: jn_address.Address, a
 
     // SECURITY: Escape address.raw to prevent shell injection via malicious URLs
     const escaped_address = try escapeShellPath(allocator, address.raw);
-    const needs_free = escaped_address.ptr != address.raw.ptr;
-    defer if (needs_free) allocator.free(@constCast(escaped_address));
+    defer escaped_address.deinit(allocator);
 
     if (address.compression != .none) {
         const gz_path = findPlugin(allocator, "gz") orelse {
@@ -1502,26 +1500,26 @@ fn handleOpenDalUrl(allocator: std.mem.Allocator, address: jn_address.Address, a
             shell_cmd = try std.fmt.allocPrint(
                 allocator,
                 "LD_LIBRARY_PATH='{s}' {s} '{s}' | {s} --mode=raw | {s} --mode=read{s}",
-                .{ lib_path, opendal_path, escaped_address, gz_path, fmt_path, format_args },
+                .{ lib_path, opendal_path, escaped_address.slice, gz_path, fmt_path, format_args },
             );
         } else {
             shell_cmd = try std.fmt.allocPrint(
                 allocator,
                 "LD_LIBRARY_PATH='{s}' {s} '{s}' | {s} --mode=raw",
-                .{ lib_path, opendal_path, escaped_address, gz_path },
+                .{ lib_path, opendal_path, escaped_address.slice, gz_path },
             );
         }
     } else if (format_path) |fmt_path| {
         shell_cmd = try std.fmt.allocPrint(
             allocator,
             "LD_LIBRARY_PATH='{s}' {s} '{s}' | {s} --mode=read{s}",
-            .{ lib_path, opendal_path, escaped_address, fmt_path, format_args },
+            .{ lib_path, opendal_path, escaped_address.slice, fmt_path, format_args },
         );
     } else if (std.mem.eql(u8, format, "jsonl") or std.mem.eql(u8, format, "ndjson")) {
         shell_cmd = try std.fmt.allocPrint(
             allocator,
             "LD_LIBRARY_PATH='{s}' {s} '{s}'",
-            .{ lib_path, opendal_path, escaped_address },
+            .{ lib_path, opendal_path, escaped_address.slice },
         );
     } else {
         jn_core.exitWithError("jn-cat: format plugin '{s}' not found", .{format});
@@ -1624,10 +1622,10 @@ fn spawnFormatPlugin(allocator: std.mem.Allocator, format: []const u8, file_path
 
         // SECURITY: Escape the file path to prevent command injection
         const escaped_path = try escapeShellPath(allocator, path);
-        defer if (escaped_path.ptr != path.ptr) allocator.free(@constCast(escaped_path));
+        defer escaped_path.deinit(allocator);
 
         // Use shell to pipe file into plugin with all args
-        const shell_cmd = try std.fmt.allocPrint(allocator, "cat '{s}' | {s} --mode={s}{s}", .{ escaped_path, plugin_path, mode, all_args });
+        const shell_cmd = try std.fmt.allocPrint(allocator, "cat '{s}' | {s} --mode={s}{s}", .{ escaped_path.slice, plugin_path, mode, all_args });
         defer allocator.free(shell_cmd);
 
         const shell_argv: [3][]const u8 = .{ "/bin/sh", "-c", shell_cmd };
@@ -1669,21 +1667,21 @@ fn spawnFormatPlugin(allocator: std.mem.Allocator, format: []const u8, file_path
 fn spawnPythonPlugin(allocator: std.mem.Allocator, plugin_path: []const u8, mode: []const u8, file_path: ?[]const u8, extra_args: []const u8) !void {
     // SECURITY: Escape paths to prevent command injection
     const escaped_plugin_path = try escapeShellPath(allocator, plugin_path);
-    defer if (escaped_plugin_path.ptr != plugin_path.ptr) allocator.free(@constCast(escaped_plugin_path));
+    defer escaped_plugin_path.deinit(allocator);
 
     var shell_cmd: []u8 = undefined;
 
     if (file_path) |path| {
         const escaped_file_path = try escapeShellPath(allocator, path);
-        defer if (escaped_file_path.ptr != path.ptr) allocator.free(@constCast(escaped_file_path));
+        defer escaped_file_path.deinit(allocator);
 
         // Pipe file into plugin: cat <file> | uv run --script <plugin> --mode=<mode> [args]
-        shell_cmd = std.fmt.allocPrint(allocator, "cat '{s}' | uv run --script '{s}' --mode={s}{s}", .{ escaped_file_path, escaped_plugin_path, mode, extra_args }) catch {
+        shell_cmd = std.fmt.allocPrint(allocator, "cat '{s}' | uv run --script '{s}' --mode={s}{s}", .{ escaped_file_path.slice, escaped_plugin_path.slice, mode, extra_args }) catch {
             jn_core.exitWithError("jn-cat: out of memory", .{});
         };
     } else {
         // Use stdin: uv run --script <plugin> --mode=<mode> [args]
-        shell_cmd = std.fmt.allocPrint(allocator, "uv run --script '{s}' --mode={s}{s}", .{ escaped_plugin_path, mode, extra_args }) catch {
+        shell_cmd = std.fmt.allocPrint(allocator, "uv run --script '{s}' --mode={s}{s}", .{ escaped_plugin_path.slice, mode, extra_args }) catch {
             jn_core.exitWithError("jn-cat: out of memory", .{});
         };
     }

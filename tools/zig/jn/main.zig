@@ -685,12 +685,16 @@ fn printToolUsage() void {
 }
 
 /// Escape a path for use in single-quoted shell arguments.
+/// Returns an EscapedString with clear ownership semantics.
+///
 /// SECURITY: This prevents command injection via paths containing single quotes.
-fn escapeShellPath(allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
-    if (jn_core.isSafeForShellSingleQuote(path)) {
-        return path;
-    }
-    return jn_core.escapeForShellSingleQuote(allocator, path);
+///
+/// Usage:
+///   const escaped = try escapeShellPath(allocator, path);
+///   defer escaped.deinit(allocator);
+///   // use escaped.slice in shell commands
+fn escapeShellPath(allocator: std.mem.Allocator, path: []const u8) !jn_core.EscapedString {
+    return jn_core.escapeForShell(allocator, path);
 }
 
 /// Run a Python plugin using uv run --script
@@ -701,7 +705,7 @@ fn runPythonPlugin(allocator: std.mem.Allocator, plugin_name: []const u8, defaul
 
     // SECURITY: Escape the plugin path to prevent command injection
     const escaped_plugin_path = try escapeShellPath(allocator, plugin_path);
-    defer if (escaped_plugin_path.ptr != plugin_path.ptr) allocator.free(@constCast(escaped_plugin_path));
+    defer escaped_plugin_path.deinit(allocator);
 
     // Build shell command with dynamic allocation to handle escaped args
     var cmd_parts: std.ArrayListUnmanaged(u8) = .empty;
@@ -709,7 +713,7 @@ fn runPythonPlugin(allocator: std.mem.Allocator, plugin_name: []const u8, defaul
 
     // Add base command
     try cmd_parts.appendSlice(allocator, "uv run --script '");
-    try cmd_parts.appendSlice(allocator, escaped_plugin_path);
+    try cmd_parts.appendSlice(allocator, escaped_plugin_path.slice);
     try cmd_parts.appendSlice(allocator, "' ");
     try cmd_parts.appendSlice(allocator, default_mode);
 
@@ -718,9 +722,9 @@ fn runPythonPlugin(allocator: std.mem.Allocator, plugin_name: []const u8, defaul
     while (args_copy.next()) |arg| {
         // SECURITY: Escape each argument to prevent command injection
         const escaped_arg = try escapeShellPath(allocator, arg);
-        defer if (escaped_arg.ptr != arg.ptr) allocator.free(@constCast(escaped_arg));
+        defer escaped_arg.deinit(allocator);
         try cmd_parts.appendSlice(allocator, " '");
-        try cmd_parts.appendSlice(allocator, escaped_arg);
+        try cmd_parts.appendSlice(allocator, escaped_arg.slice);
         try cmd_parts.append(allocator, '\'');
     }
 

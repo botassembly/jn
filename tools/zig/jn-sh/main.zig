@@ -25,6 +25,10 @@ const VERSION = "0.1.0";
 /// Maximum command line length (POSIX ARG_MAX is typically 128KB-2MB)
 const MAX_CMD_LEN: usize = 8192;
 
+/// Maximum output buffer size for batch mode (100MB) to prevent OOM.
+/// Streaming commands don't have this limit as they output line-by-line.
+const MAX_BATCH_OUTPUT_SIZE: usize = 100 * 1024 * 1024;
+
 /// Cached result for jc availability check.
 /// Thread Safety: This tool is single-threaded. The cache may have benign
 /// races if used in a multi-threaded context, but the result is always correct.
@@ -334,6 +338,10 @@ fn executeWithJc(allocator: std.mem.Allocator, cmd_str: []const u8, command: []c
 
         // Read all output (line by line, concatenate)
         while (jn_core.readLine(reader)) |line| {
+            // Check memory limit before appending
+            if (output.items.len + line.len + 1 > MAX_BATCH_OUTPUT_SIZE) {
+                jn_core.exitWithError("jn-sh: output exceeds maximum size of {d}MB\nHint: use streaming commands (ls -l, ping, etc.) for large outputs", .{MAX_BATCH_OUTPUT_SIZE / (1024 * 1024)});
+            }
             output.appendSlice(allocator, line) catch |err| {
                 jn_core.exitWithError("jn-sh: out of memory: {s}", .{@errorName(err)});
             };
