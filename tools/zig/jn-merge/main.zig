@@ -273,7 +273,22 @@ fn processViaJnCat(allocator: std.mem.Allocator, source: SourceSpec, config: *co
 
 /// Output a record with optional source metadata
 fn outputRecord(allocator: std.mem.Allocator, line: []const u8, source: SourceSpec, config: *const MergeConfig, writer: anytype, counters: *SkipCounters) void {
+    // When --no-source, we still need to validate JSON if --strict is enabled
+    // or if we want to count malformed records for warnings
     if (!config.add_source) {
+        // Validate JSON if strict mode is enabled (parse errors should still trigger)
+        if (config.strict) {
+            const parsed = std.json.parseFromSlice(std.json.Value, allocator, line, .{}) catch {
+                counters.parse_errors += 1;
+                jn_core.exitWithError("jn-merge: --strict mode: malformed JSON record", .{});
+            };
+            defer parsed.deinit();
+
+            if (parsed.value != .object) {
+                counters.non_objects += 1;
+                jn_core.exitWithError("jn-merge: --strict mode: non-object record", .{});
+            }
+        }
         // Pass through unchanged
         writer.writeAll(line) catch |err| jn_core.handleWriteError(err);
         writer.writeByte('\n') catch |err| jn_core.handleWriteError(err);
