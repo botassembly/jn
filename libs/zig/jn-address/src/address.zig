@@ -534,3 +534,92 @@ test "duckdb protocol is not remote" {
     try std.testing.expectEqualStrings("duckdb", addr.protocol.?);
     try std.testing.expect(!addr.isRemote());
 }
+
+// ============================================================================
+// Edge Case Tests
+// ============================================================================
+
+test "parse empty string" {
+    const addr = parse("");
+    try std.testing.expectEqual(AddressType.file, addr.address_type);
+    try std.testing.expectEqualStrings("", addr.path);
+    try std.testing.expect(addr.format_override == null);
+}
+
+test "parse single dash (stdin)" {
+    const addr = parse("-");
+    try std.testing.expectEqual(AddressType.stdin, addr.address_type);
+    try std.testing.expectEqualStrings("-", addr.path);
+}
+
+test "parse path with multiple tildes" {
+    // Multiple tildes - only last should be format override
+    const addr = parse("file~v1~csv");
+    try std.testing.expectEqual(AddressType.file, addr.address_type);
+    try std.testing.expectEqualStrings("file~v1", addr.path);
+    try std.testing.expectEqualStrings("csv", addr.format_override.?);
+}
+
+test "parse path with tilde in filename" {
+    // ~json at the end is a format override, not part of filename
+    const addr = parse("~backup.txt~json");
+    try std.testing.expectEqualStrings("~backup.txt", addr.path);
+    try std.testing.expectEqualStrings("json", addr.format_override.?);
+}
+
+test "parse URL with query string and format override" {
+    const addr = parse("https://api.example.com/data?key=value~json");
+    try std.testing.expectEqual(AddressType.url, addr.address_type);
+    // Format override should be extracted before query params
+    try std.testing.expectEqualStrings("json", addr.format_override.?);
+}
+
+test "parse file with multiple extensions" {
+    const addr = parse("data.tar.gz");
+    try std.testing.expectEqual(AddressType.file, addr.address_type);
+    try std.testing.expectEqual(Compression.gzip, addr.compression);
+    try std.testing.expectEqualStrings("tar", addr.inferred_format.?);
+}
+
+test "parse path with spaces" {
+    const addr = parse("path/to/file with spaces.csv");
+    try std.testing.expectEqual(AddressType.file, addr.address_type);
+    try std.testing.expectEqualStrings("path/to/file with spaces.csv", addr.path);
+    try std.testing.expectEqualStrings("csv", addr.inferred_format.?);
+}
+
+test "parse profile with complex path" {
+    const addr = parse("@namespace/path/to/nested/profile");
+    try std.testing.expectEqual(AddressType.profile, addr.address_type);
+    try std.testing.expectEqualStrings("namespace/path/to/nested/profile", addr.path);
+}
+
+test "parse glob with complex pattern" {
+    const addr = parse("data/**/*test*.csv");
+    try std.testing.expectEqual(AddressType.glob, addr.address_type);
+    try std.testing.expect(addr.isGlob());
+}
+
+test "query iterator handles empty values" {
+    const addr = parse("file.csv?key=&other=value");
+    var iter = addr.queryIterator();
+
+    const first = iter.next().?;
+    try std.testing.expectEqualStrings("key", first.key);
+    try std.testing.expectEqualStrings("", first.value);
+
+    const second = iter.next().?;
+    try std.testing.expectEqualStrings("other", second.key);
+    try std.testing.expectEqualStrings("value", second.value);
+
+    try std.testing.expect(iter.next() == null);
+}
+
+test "query iterator handles no equals sign" {
+    const addr = parse("file.csv?flag");
+    var iter = addr.queryIterator();
+
+    const first = iter.next().?;
+    try std.testing.expectEqualStrings("flag", first.key);
+    try std.testing.expectEqualStrings("", first.value);
+}

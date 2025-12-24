@@ -17,6 +17,20 @@
 //!   └── orders/
 //!       ├── _meta.json   # Nested base (inherits parent)
 //!       └── pending.json # Endpoint config
+//!
+//! ## Memory Ownership
+//!
+//! Functions return **allocated** data that the caller must free:
+//!
+//! - `getProfileDirs()` returns `[][]const u8` - free each string, then the slice
+//! - `loadProfile()` returns `std.json.Value` - use `freeValue()` to clean up
+//! - `deepMerge()`/`cloneValue()` return allocated JSON values - use `freeValue()`
+//!
+//! Example:
+//! ```zig
+//! const config = try loadProfile(allocator, base_dir, "myprofile.json", true);
+//! defer freeValue(allocator, config);
+//! ```
 
 const std = @import("std");
 const envsubst = @import("envsubst.zig");

@@ -34,7 +34,12 @@ const VERSION = "0.1.0";
 
 /// Escape a path for use in single-quoted shell arguments.
 /// Returns the escaped string (caller must free) or the original if safe.
+///
 /// SECURITY: This prevents command injection via paths containing single quotes.
+///
+/// NOTE: For new code, prefer using jn_core.escapeForShell() which returns
+/// an EscapedString with clear ownership semantics and a deinit() method.
+/// This legacy function requires manual pointer comparison for cleanup.
 fn escapeShellPath(allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
     if (jn_core.isSafeForShellSingleQuote(path)) {
         return path;
