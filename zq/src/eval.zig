@@ -1106,7 +1106,7 @@ fn evalBuiltin(allocator: std.mem.Allocator, kind: BuiltinKind, value: std.json.
         .now => {
             // ISO 8601 timestamp in UTC: "2024-12-15T17:30:00Z"
             const timestamp = std.time.timestamp();
-            const epoch_seconds = safeTimestampToU64(timestamp) orelse return EvalResult.empty(allocator);
+            const epoch_seconds = safeTimestampToU64(timestamp) orelse return try EvalResult.single(allocator, .{ .null = {} });
             const epoch_day = epoch_seconds / 86400;
             const day_seconds = epoch_seconds % 86400;
             const hours = day_seconds / 3600;
@@ -1124,7 +1124,7 @@ fn evalBuiltin(allocator: std.mem.Allocator, kind: BuiltinKind, value: std.json.
         .today => {
             // Date only: "2024-12-15"
             const timestamp = std.time.timestamp();
-            const epoch_seconds = safeTimestampToU64(timestamp) orelse return EvalResult.empty(allocator);
+            const epoch_seconds = safeTimestampToU64(timestamp) orelse return try EvalResult.single(allocator, .{ .null = {} });
             const epoch_day = epoch_seconds / 86400;
             const ymd = epochDayToYmd(epoch_day);
 
@@ -1146,43 +1146,43 @@ fn evalBuiltin(allocator: std.mem.Allocator, kind: BuiltinKind, value: std.json.
         },
         // Sprint 07: Date/Time component generators
         .year => {
-            const secs = safeTimestampToU64(std.time.timestamp()) orelse return EvalResult.empty(allocator);
+            const secs = safeTimestampToU64(std.time.timestamp()) orelse return try EvalResult.single(allocator, .{ .null = {} });
             const epoch_day = secs / 86400;
             const ymd = epochDayToYmd(epoch_day);
             return try EvalResult.single(allocator, .{ .integer = @intCast(ymd.year) });
         },
         .month => {
-            const secs = safeTimestampToU64(std.time.timestamp()) orelse return EvalResult.empty(allocator);
+            const secs = safeTimestampToU64(std.time.timestamp()) orelse return try EvalResult.single(allocator, .{ .null = {} });
             const epoch_day = secs / 86400;
             const ymd = epochDayToYmd(epoch_day);
             return try EvalResult.single(allocator, .{ .integer = @intCast(ymd.month) });
         },
         .day => {
-            const secs = safeTimestampToU64(std.time.timestamp()) orelse return EvalResult.empty(allocator);
+            const secs = safeTimestampToU64(std.time.timestamp()) orelse return try EvalResult.single(allocator, .{ .null = {} });
             const epoch_day = secs / 86400;
             const ymd = epochDayToYmd(epoch_day);
             return try EvalResult.single(allocator, .{ .integer = @intCast(ymd.day) });
         },
         .hour => {
-            const secs = safeTimestampToU64(std.time.timestamp()) orelse return EvalResult.empty(allocator);
+            const secs = safeTimestampToU64(std.time.timestamp()) orelse return try EvalResult.single(allocator, .{ .null = {} });
             const day_seconds = @mod(secs, 86400);
             const hour_val = day_seconds / 3600;
             return try EvalResult.single(allocator, .{ .integer = @intCast(hour_val) });
         },
         .minute => {
-            const secs = safeTimestampToU64(std.time.timestamp()) orelse return EvalResult.empty(allocator);
+            const secs = safeTimestampToU64(std.time.timestamp()) orelse return try EvalResult.single(allocator, .{ .null = {} });
             const day_seconds = @mod(secs, 86400);
             const minute_val = @mod(day_seconds / 60, 60);
             return try EvalResult.single(allocator, .{ .integer = @intCast(minute_val) });
         },
         .second => {
-            const secs = safeTimestampToU64(std.time.timestamp()) orelse return EvalResult.empty(allocator);
+            const secs = safeTimestampToU64(std.time.timestamp()) orelse return try EvalResult.single(allocator, .{ .null = {} });
             const second_val = @mod(secs, 60);
             return try EvalResult.single(allocator, .{ .integer = @intCast(second_val) });
         },
         .time => {
             // HH:MM:SS format
-            const secs = safeTimestampToU64(std.time.timestamp()) orelse return EvalResult.empty(allocator);
+            const secs = safeTimestampToU64(std.time.timestamp()) orelse return try EvalResult.single(allocator, .{ .null = {} });
             const day_seconds = @mod(secs, 86400);
             const hour_val = day_seconds / 3600;
             const minute_val = @mod(day_seconds / 60, 60);
@@ -1192,14 +1192,14 @@ fn evalBuiltin(allocator: std.mem.Allocator, kind: BuiltinKind, value: std.json.
         },
         .week => {
             // ISO week number (1-53)
-            const secs = safeTimestampToU64(std.time.timestamp()) orelse return EvalResult.empty(allocator);
+            const secs = safeTimestampToU64(std.time.timestamp()) orelse return try EvalResult.single(allocator, .{ .null = {} });
             const epoch_day = secs / 86400;
             const week_num = epochDayToIsoWeek(epoch_day);
             return try EvalResult.single(allocator, .{ .integer = @intCast(week_num) });
         },
         .weekday => {
             // Day of week name (Sunday, Monday, etc.)
-            const secs = safeTimestampToU64(std.time.timestamp()) orelse return EvalResult.empty(allocator);
+            const secs = safeTimestampToU64(std.time.timestamp()) orelse return try EvalResult.single(allocator, .{ .null = {} });
             const epoch_day = secs / 86400;
             // Jan 1, 1970 was Thursday (4)
             const day_of_week: usize = @intCast(@mod(epoch_day + 4, 7));
@@ -1208,7 +1208,7 @@ fn evalBuiltin(allocator: std.mem.Allocator, kind: BuiltinKind, value: std.json.
         },
         .weekday_num => {
             // Day of week number (0=Sunday, 6=Saturday)
-            const secs = safeTimestampToU64(std.time.timestamp()) orelse return EvalResult.empty(allocator);
+            const secs = safeTimestampToU64(std.time.timestamp()) orelse return try EvalResult.single(allocator, .{ .null = {} });
             const epoch_day = secs / 86400;
             // Jan 1, 1970 was Thursday (4)
             const day_of_week = @mod(epoch_day + 4, 7);
@@ -1635,8 +1635,9 @@ fn evalBuiltin(allocator: std.mem.Allocator, kind: BuiltinKind, value: std.json.
 /// - NOT suitable for generating unique IDs across separate process invocations
 threadlocal var seq_counter: i64 = 1;
 
-// Helper: Safely convert timestamp to u64, returning null for negative values
-// (negative timestamps can occur with misconfigured system clocks)
+// Helper: Safely convert timestamp to u64, returning null for negative values.
+// Negative timestamps can occur with misconfigured system clocks (before 1970).
+// Callers should return a JSON null value to preserve record flow in pipelines.
 fn safeTimestampToU64(timestamp: i64) ?u64 {
     if (timestamp < 0) return null;
     return @intCast(timestamp);
