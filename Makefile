@@ -1,4 +1,4 @@
-.PHONY: all build test check py-test clean install-zig install-python-deps zq zq-test zig-plugins zig-plugins-test zig-libs zig-libs-test zig-tools zig-tools-test fmt dist download
+.PHONY: all build test check py-test clean install-zig install-python-deps zq zq-test zig-plugins zig-plugins-test zig-libs zig-libs-test zig-tools zig-tools-test fmt dist download coverage coverage-check
 
 # Zig configuration
 ZIG_VERSION := 0.15.2
@@ -260,3 +260,16 @@ download:
 	@echo "To use:"
 	@echo "  export PATH=\"/tmp/jn-release/bin:\$$PATH\""
 	@echo "  alias todo=\"jn tool todo\""
+
+# =============================================================================
+# Code Coverage (requires kcov)
+# =============================================================================
+
+coverage: install-zig
+	@./scripts/coverage.sh
+
+coverage-check:
+	@./scripts/coverage.sh --check
+
+coverage-install:
+	@./scripts/coverage.sh --install

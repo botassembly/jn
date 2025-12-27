@@ -22,6 +22,7 @@ make dist         # Create release layout in dist/
 make clean        # Remove build artifacts
 make fmt          # Format all Zig code
 make download     # Download pre-built release to /tmp/jn-release
+make coverage     # Run tests with kcov coverage (requires kcov)
 
 # Individual targets (rarely needed):
 make zq                # Build ZQ filter engine
@@ -181,14 +182,16 @@ jn cat @myapi/users?limit=10 | jn put users.csv
 ## Quality Gates
 
 ```bash
-make test    # All tests green
-make fmt     # Format Zig code
+make test      # All tests green
+make fmt       # Format Zig code
+make coverage  # Coverage report (requires kcov)
 ```
 
 | Check | Tool | Threshold |
 |-------|------|-----------|
 | Tests | Zig test runner | All pass |
 | Format | zig fmt | 0 diffs |
+| Coverage | kcov | ≥70% (optional) |
 
 ---
 

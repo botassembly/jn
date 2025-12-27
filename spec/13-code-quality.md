@@ -414,6 +414,87 @@ Treat warnings as errors in release builds:
 zig build -Doptimize=ReleaseSafe
 ```
 
+### Zig Code Coverage
+
+Zig code coverage uses [kcov](https://github.com/SimonKagstrom/kcov), which reads DWARF debug info to collect coverage without requiring compiler instrumentation.
+
+#### Prerequisites
+
+Install kcov:
+```bash
+# Ubuntu/Debian (may need to build from source on newer versions)
+sudo apt-get install kcov
+
+# macOS
+brew install kcov
+
+# Build from source
+make coverage-install
+```
+
+#### Running Coverage
+
+```bash
+# Run coverage collection
+make coverage
+
+# Just check if kcov is available
+make coverage-check
+```
+
+This generates:
+- `zig-out/coverage/html/` - HTML report (open index.html)
+- `zig-out/coverage/cobertura.xml` - Cobertura XML report (for CI)
+- `zig-out/coverage/merged/` - Raw kcov merged output
+
+#### Coverage Requirements
+
+| Component | Minimum | Target |
+|-----------|---------|--------|
+| Libraries (`libs/zig/`) | 70% | 85% |
+| Plugins (`plugins/zig/`) | 60% | 75% |
+| Tools (`tools/zig/`) | 60% | 75% |
+| ZQ (`zq/`) | 70% | 85% |
+
+#### How It Works
+
+1. Test binaries are built with debug info (`-O Debug`)
+2. Each test runs under kcov, which traces execution
+3. kcov merges all coverage data
+4. HTML and Cobertura reports are generated
+
+#### Viewing Coverage
+
+```bash
+# Open HTML report
+open zig-out/coverage/html/index.html
+
+# Or use a local server
+python -m http.server -d zig-out/coverage/html 8080
+```
+
+#### CI Integration
+
+Add to GitHub Actions workflow:
+```yaml
+- name: Install kcov
+  run: sudo apt-get install -y kcov
+
+- name: Run coverage
+  run: make coverage
+
+- name: Upload coverage
+  uses: codecov/codecov-action@v4
+  with:
+    files: zig-out/coverage/cobertura.xml
+```
+
+#### Known Limitations
+
+- kcov may produce empty output on certain Zig compiler versions
+- LLVM source-based coverage is not directly supported for Zig
+- Coverage of inline functions may be incomplete
+
 ---
 
 ## Quality Dashboard
@@ -422,8 +503,9 @@ zig build -Doptimize=ReleaseSafe
 
 | Metric | Tool | Target |
 |--------|------|--------|
-| Line coverage | coverage.py | ≥70% |
-| Branch coverage | coverage.py | ≥60% |
+| Python line coverage | coverage.py | ≥70% |
+| Python branch coverage | coverage.py | ≥60% |
+| Zig line coverage | kcov | ≥70% |
 | Lint errors | ruff | 0 |
 | Type coverage | mypy | Expanding |
 | Cyclomatic complexity | radon | Avg ≤10 |
