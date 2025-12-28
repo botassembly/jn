@@ -100,9 +100,49 @@ check_kcov() {
     fi
 }
 
-# Install kcov from source
+# Install kcov from pre-built binary or source
 install_kcov() {
-    echo -e "${YELLOW}Building kcov from source...${NC}"
+    echo -e "${YELLOW}Installing kcov...${NC}"
+
+    # Try downloading pre-built binary first (faster, no build deps needed)
+    local KCOV_VERSION="v42"
+    local KCOV_URL="https://github.com/SimonKagstrom/kcov/releases/download/${KCOV_VERSION}/kcov-amd64.tar.gz"
+    local KCOV_TMP="/tmp/kcov-install-$$"
+
+    mkdir -p "$KCOV_TMP"
+
+    echo "Downloading kcov ${KCOV_VERSION}..."
+    if curl -L -o "$KCOV_TMP/kcov.tar.gz" "$KCOV_URL" 2>/dev/null; then
+        tar -xzf "$KCOV_TMP/kcov.tar.gz" -C "$KCOV_TMP"
+
+        if [ -f "$KCOV_TMP/usr/local/bin/kcov" ]; then
+            sudo cp "$KCOV_TMP/usr/local/bin/kcov" /usr/local/bin/
+
+            # Create symlinks for binutils library compatibility
+            # kcov v42 was built against binutils 2.38, adapt to system version
+            local SYSTEM_BFD=$(find /usr/lib -name "libbfd-*.so" 2>/dev/null | head -1)
+            local SYSTEM_OPCODES=$(find /usr/lib -name "libopcodes-*.so" 2>/dev/null | head -1)
+
+            if [ -n "$SYSTEM_BFD" ] && [ -n "$SYSTEM_OPCODES" ]; then
+                local BFD_DIR=$(dirname "$SYSTEM_BFD")
+                sudo ln -sf "$SYSTEM_BFD" "$BFD_DIR/libbfd-2.38-system.so" 2>/dev/null || true
+                sudo ln -sf "$SYSTEM_OPCODES" "$BFD_DIR/libopcodes-2.38-system.so" 2>/dev/null || true
+            fi
+
+            rm -rf "$KCOV_TMP"
+
+            if kcov --version >/dev/null 2>&1; then
+                echo -e "${GREEN}kcov installed successfully from pre-built binary${NC}"
+                kcov --version
+                return 0
+            fi
+        fi
+    fi
+
+    rm -rf "$KCOV_TMP"
+
+    # Fall back to building from source
+    echo "Pre-built binary failed, building from source..."
 
     # Check dependencies
     if ! dpkg -l | grep -q libelf-dev; then
